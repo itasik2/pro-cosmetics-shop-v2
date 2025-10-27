@@ -12,7 +12,7 @@ model Product {
   name        String
   brand       String
   description String
-  price       Int      // store in minor units (cents)
+  price       Int
   image       String
   category    String
   stock       Int      @default(0)
@@ -35,7 +35,6 @@ model User {
   role      String   @default("user")
   createdAt DateTime @default(now())
 }
-
 
 model Post {
   id        String   @id @default(cuid())
