@@ -1,30 +1,39 @@
+// lib/auth.ts
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
+import { z } from "zod";
 
-export const { handlers, signIn, signOut, auth } = NextAuth({
+export const authConfig = {
+  trustHost: true,
+  session: { strategy: "jwt" as const },
   providers: [
     Credentials({
       name: "Credentials",
       credentials: {
-        email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" }
+        email: { label: "Email", type: "text" },
+        password: { label: "Password", type: "password" },
       },
-      async authorize(credentials) {
+      async authorize(creds) {
+        const schema = z.object({
+          email: z.string().email(),
+          password: z.string().min(3),
+        });
+        const parsed = schema.safeParse(creds);
+        if (!parsed.success) return null;
+
         const adminEmail = process.env.AUTH_ADMIN_EMAIL;
         const adminPass = process.env.AUTH_ADMIN_PASSWORD;
+
         if (
-          credentials?.email === adminEmail &&
-          credentials?.password === adminPass
+          parsed.data.email === adminEmail &&
+          parsed.data.password === adminPass
         ) {
-          return { id: "admin", name: "Admin", email: adminEmail, role: "admin" };
-        }
-        // simple user without persistence
-        if (credentials?.email) {
-          return { id: "user", name: "User", email: credentials.email, role: "user" };
+          return { id: "admin", name: "Admin", email: adminEmail };
         }
         return null;
-      }
-    })
+      },
+    }),
   ],
-  session: { strategy: "jwt" },
-});
+  // опционально, чтобы ошибки не сыпались в прод:
+  pages: {},
+} satisfies Parameters<typeof NextAuth>[0];
