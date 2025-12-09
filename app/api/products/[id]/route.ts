@@ -6,12 +6,12 @@ import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { auth } from "next-auth";
 
-const UpdSchema = z.object({
+const ProductUpdate = z.object({
   name: z.string().min(2),
-  brand: z.string().min(1).optional(),
-  description: z.string().min(1).optional(),
+  brand: z.string().min(1),
+  description: z.string().min(1),
   image: z.string().min(1),
-  category: z.string().min(1).optional(),
+  category: z.string().min(1),
   price: z.number().int().positive(), // minor
   stock: z.number().int().min(0),
 });
@@ -28,7 +28,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
   try {
-    const data = UpdSchema.parse(await req.json());
+    const data = ProductUpdate.parse(await req.json());
     const updated = await prisma.product.update({ where: { id: params.id }, data });
     return NextResponse.json(updated);
   } catch (e: any) {
