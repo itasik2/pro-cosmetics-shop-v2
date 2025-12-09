@@ -38,9 +38,13 @@ export async function POST() {
 
   // Возьмём первую непустую строку как заголовок
   const firstLine = content.split(/\r?\n/).find((l: string) => l.trim().length > 0) ?? "";
+ const contentStr: string = String(content);
   const title =
-    (firstLine.replace(/^#+\s*/, "").trim().slice(0, 100)) ||
-    `Пост о теме: ${topic}`;
+    contentStr
+      .split(/\r?\n/)
+      .find((l: string) => l.trim().length > 0)
+      ?.replace(/^#+\s*/, "")
+      ?.slice(0, 100) || `Пост о теме: ${topic}`;
 
   // Аккуратный slug: буквы/цифры (латиница+кириллица), дефисы
   const base = title
