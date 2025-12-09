@@ -4,7 +4,7 @@ export const revalidate = 0;
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
-import { auth } from "next-auth";
+import { auth } from "@/lib/auth";
 
 const ProductSchema = z.object({
   name: z.string().min(2),
