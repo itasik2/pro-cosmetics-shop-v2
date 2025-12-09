@@ -21,19 +21,35 @@ export const authConfig = {
         const parsed = schema.safeParse(creds);
         if (!parsed.success) return null;
 
-        const adminEmail = process.env.AUTH_ADMIN_EMAIL;
-        const adminPass = process.env.AUTH_ADMIN_PASSWORD;
+        const adminEmail = (process.env.AUTH_ADMIN_EMAIL || "").toLowerCase();
+        const adminPass = process.env.AUTH_ADMIN_PASSWORD || "";
 
         if (
-          parsed.data.email === adminEmail &&
+          parsed.data.email.toLowerCase() === adminEmail &&
           parsed.data.password === adminPass
         ) {
-          return { id: "admin", name: "Admin", email: adminEmail };
+          return { id: "admin", name: "Admin", email: adminEmail, role: "admin" };
         }
-        return null;
+        return null; // пускаем только админа
       },
     }),
   ],
-  // опционально, чтобы ошибки не сыпались в прод:
-  pages: {},
+  callbacks: {
+    async jwt({ token, user }) {
+      if (user) {
+        // @ts-ignore
+        token.role = (user as any).role || "admin";
+      }
+      return token;
+    },
+    async session({ session, token }) {
+      // @ts-ignore
+      session.user.role = (token as any).role || "admin";
+      return session;
+    },
+  },
+  pages: {}, // можно оставить пустым
 } satisfies Parameters<typeof NextAuth>[0];
+
+// ВАЖНО: экспортируем именованные helpers для использования в API-роутах
+export const { handlers, auth, signIn, signOut } = NextAuth(authConfig);
