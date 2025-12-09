@@ -48,8 +48,7 @@ export const authConfig = {
       return session;
     },
   },
-  pages: {}, // можно оставить пустым
+  pages: {},
 } satisfies Parameters<typeof NextAuth>[0];
 
-// ВАЖНО: экспортируем именованные helpers для использования в API-роутах
 export const { handlers, auth, signIn, signOut } = NextAuth(authConfig);
