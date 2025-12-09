@@ -1,4 +1,5 @@
 import { getStripe } from "@/lib/stripe";
+export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   const stripe = getStripe();
