@@ -1,4 +1,3 @@
-// app/api/products/route.ts
 export const runtime = "nodejs";
 export const revalidate = 0;
 
@@ -10,10 +9,11 @@ import { auth } from "next-auth";
 const ProductSchema = z.object({
   name: z.string().min(2),
   brand: z.string().min(1).optional(),
-  // цена в МИНОРНЫХ единицах (тиынах): 4990 ₸ => 499000
-  price: z.number().int().positive(),
-  image: z.string().min(1),
   description: z.string().min(1).optional(),
+  image: z.string().min(1),
+  category: z.string().min(1).optional(),
+  price: z.number().int().positive(), // minor units
+  stock: z.number().int().min(0),
 });
 
 export async function GET() {
@@ -26,7 +26,6 @@ export async function POST(req: Request) {
   if (!session?.user?.email || session.user.email !== process.env.AUTH_ADMIN_EMAIL) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
-
   try {
     const data = ProductSchema.parse(await req.json());
     const created = await prisma.product.create({ data });
@@ -36,3 +35,4 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "failed_to_create" }, { status: 500 });
   }
 }
+
