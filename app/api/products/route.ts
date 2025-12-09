@@ -8,12 +8,12 @@ import { auth } from "next-auth";
 
 const ProductSchema = z.object({
   name: z.string().min(2),
-  brand: z.string().min(1).optional(),
-  description: z.string().min(1).optional(),
+  brand: z.string().min(1),
+  description: z.string().min(1),
   image: z.string().min(1),
-  category: z.string().min(1).optional(),
-  price: z.number().int().positive(), // minor units
-  stock: z.number().int().min(0),
+  category: z.string().min(1),
+  price: z.number().int().positive(), // minor units (тиыны)
+  stock: z.number().int().min(0).default(0),
 });
 
 export async function GET() {
@@ -35,4 +35,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "failed_to_create" }, { status: 500 });
   }
 }
-
