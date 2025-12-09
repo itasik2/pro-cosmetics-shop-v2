@@ -51,4 +51,11 @@ export const authConfig = {
   pages: {},
 } satisfies Parameters<typeof NextAuth>[0];
 
+// ... существующий код lib/auth.ts
+
 export const { handlers, auth, signIn, signOut } = NextAuth(authConfig);
+
+// ЯВНО экспортируем method handlers — удобно для роут-файла
+export const GET = handlers.GET;
+export const POST = handlers.POST;
+
