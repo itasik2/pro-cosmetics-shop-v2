@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/prisma";
+export const runtime = "nodejs";
+
 
 export async function GET() {
   const posts = await prisma.post.findMany({ orderBy: { createdAt: "desc" } });
