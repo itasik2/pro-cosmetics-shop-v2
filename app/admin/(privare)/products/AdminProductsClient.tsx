@@ -176,7 +176,7 @@ export default function AdminProductsClient() {
                 <div>
                   <div className="font-semibold">{p.name}</div>
                   <div className="text-sm text-gray-500">
-                    {p.brand} • {(p.price/100).toFixed(2)} ₸ • {p.stock} шт
+                    {p.brand} • {(p.toLocaleString("ru-RU"} ₸ • {p.stock} шт
                   </div>
                 </div>
               </div>
