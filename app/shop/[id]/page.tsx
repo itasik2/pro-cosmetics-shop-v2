@@ -18,7 +18,7 @@ export default async function ProductPage({ params }: { params: { id: string } }
         <div className="text-sm text-gray-500">{product.brand}</div>
         <h1 className="text-3xl font-bold">{product.name}</h1>
         <div className="text-gray-600">{product.description}</div>
-        <div className="text-2xl font-semibold">{(product.price/100).toFixed(2)} ₸</div>
+        <div className="text-2xl font-semibold">{item.price.toLocaleString("ru-RU")} ₸</div>
         <form action="/checkout" method="GET">
           <input type="hidden" name="id" value={product.id} />
           <button className="btn">В корзину</button>
