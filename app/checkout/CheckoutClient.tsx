@@ -34,7 +34,7 @@ export default function CheckoutClient() {
     setErr(null);
     try {
       // price у товара в тиынах → переводим в тенге (major) для Stripe
-      const items = [{ name: product.name, price: product.price, quantity: 1 }];
+      const items = [{ name: product.name, price: product.price / 100, quantity: 1 }];
 
       const res = await fetch("/api/checkout", {
         method: "POST",
