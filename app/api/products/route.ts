@@ -12,7 +12,7 @@ const ProductSchema = z.object({
   description: z.string().min(1),
   image: z.string().min(1),
   category: z.string().min(1),
-  price: z.number().int().positive(), // minor units (тиыны)
+  price: z.number().int().min(0), // minor units (тиыны)
   stock: z.number().int().min(0),
 });
 
