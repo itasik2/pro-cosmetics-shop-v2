@@ -12,7 +12,7 @@ const ProductUpdate = z.object({
   description: z.string().min(1),
   image: z.string().min(1),
   category: z.string().min(1),
-  price: z.number().int().positive(), // minor
+  price: z.number().int().min(0), // minor
   stock: z.number().int().min(0),
 });
 
