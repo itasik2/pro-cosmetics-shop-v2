@@ -48,7 +48,7 @@ export const authConfig = {
       return session;
     },
   },
-  pages: {},
+  pages: {signIn: "/admin"},
 } satisfies Parameters<typeof NextAuth>[0];
 
 // ... существующий код lib/auth.ts
