@@ -13,7 +13,7 @@ const ProductSchema = z.object({
   image: z.string().min(1),
   category: z.string().min(1),
   price: z.number().int().positive(), // minor units (тиыны)
-  stock: z.number().int().min(0).default(0),
+  stock: z.number().int().min(0),
 });
 
 export async function GET() {
