@@ -91,7 +91,7 @@ export default function AdminProductsClient() {
       description: p.description,
       image: p.image,
       category: p.category,
-      price: (p.price / 100).toString(), // minor → majors
+      price: String(Math.trunc(p.price)), 
       stock: String(p.stock ?? 0),
     });
   }
