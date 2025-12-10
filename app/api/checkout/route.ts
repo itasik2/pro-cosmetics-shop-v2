@@ -43,14 +43,15 @@ export async function POST(req: Request) {
       success_url: `${base}/checkout/success`,
       cancel_url: `${base}/checkout/cancel`,
       payment_method_types: ["card"],
-      line_items: items.map((i) => ({
-        price_data: {
-          currency: CURRENCY,               // "usd" / "eur" / "kzt" (если включена у вас в Stripe)
-          product_data: { name: i.name },
-          unit_amount: Math.round(i.price * 100), // Stripe ждёт МИНОРНЫЕ единицы
-        },
-        quantity: i.quantity,
-      })),
+      line_items = items.map((i: any) => ({
+      price_data: {
+        currency: "kzt",
+        product_data: { name: i.name },
+        unit_amount: Math.trunc(Number(i.price)) * 100, // тенге → тиыны
+      },
+      quantity: Math.max(1, Math.trunc(Number(i.quantity) || 1)),
+    }));
+
     });
 
     return NextResponse.json({ url: session.url }, { status: 200 });
