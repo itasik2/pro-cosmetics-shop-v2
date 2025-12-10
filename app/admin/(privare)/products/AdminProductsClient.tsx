@@ -52,7 +52,7 @@ export default function AdminProductsClient() {
       description: form.description.trim(),
       image: form.image.trim(),
       category: form.category.trim(),
-      price: toMinor(form.price),              // тенге → тиыны
+      price: Math.max(0, Number(form.price) | 0), // ТЕНГЕ как Int
       stock: Math.max(0, Number(form.stock) | 0),
     };
 
