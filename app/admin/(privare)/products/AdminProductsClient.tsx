@@ -52,8 +52,8 @@ export default function AdminProductsClient() {
       description: form.description.trim(),
       image: form.image.trim(),
       category: form.category.trim(),
-      price: Math.max(0, Number(form.price) | 0), // ТЕНГЕ как Int
-      stock: Math.max(0, Number(form.stock) | 0),
+      price: Math.max(0, Math.trunc(Number(form.price) || 0)), // целые тенге
+      stock: Math.max(0, Math.trunc(Number(form.stock) || 0)),
     };
 
     const url = editing ? `/api/products/${editing}` : `/api/products`;
@@ -122,9 +122,26 @@ export default function AdminProductsClient() {
                    value={form.category} onChange={(e)=>setField("category", e.target.value)} />
           </Field>
           <Field label="Цена (в тенге)">
-            <input required type="number" min={0} step="0.01"
-                   className="w-full border rounded-xl px-3 py-2"
-                   value={form.price} onChange={(e)=>setField("price", e.target.value)} />
+            <input
+              required
+              type="number"
+              inputMode="numeric"
+              step="1"
+              min={0}
+              pattern="\d*"
+              className="w-full border rounded-xl px-3 py-2"
+              value={form.price}
+              onChange={(e) => {
+                // Разрешаем только цифры
+                const v = e.target.value.replace(/[^\d]/g, "");
+                setField("price", v);
+              }}
+              onBlur={(e) => {
+                // На всякий случай округляем вниз
+                const n = Math.max(0, Math.trunc(Number(e.target.value) || 0));
+                setField("price", String(n));
+              }}
+            />
           </Field>
           <Field label="Остаток, шт">
             <input required type="number" min={0} step="1"
