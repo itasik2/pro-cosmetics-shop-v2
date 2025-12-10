@@ -64,7 +64,7 @@ export default function CheckoutClient() {
               <div className="font-semibold">{product.name}</div>
               {product.brand && <div className="text-sm text-gray-500">{product.brand}</div>}
             </div>
-            <div className="font-semibold">{(product.price / 100).toFixed(2)} ₸</div>
+            <div className="font-semibold">{item.price.toLocaleString("ru-RU")} ₸</div>
           </div>
           <button
             className="mt-4 px-4 py-2 rounded bg-black text-white disabled:opacity-50"
