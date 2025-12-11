@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 type Product = {
   id: string;
@@ -9,7 +9,7 @@ type Product = {
   description: string;
   image: string;
   category: string;
-  price: number; // minor (тиыны)
+  price: number; // в тенге (целое число)
   stock: number;
 };
 
@@ -34,12 +34,14 @@ export default function AdminProductsClient() {
     const res = await fetch("/api/products", { cache: "no-store" });
     if (res.ok) setItems(await res.json());
   }
-  useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    load();
+  }, []);
 
   function setField<K extends keyof typeof emptyForm>(k: K, v: string) {
     setForm((f) => ({ ...f, [k]: v }));
   }
-  const toMinor = (maj: string) => Math.round((Number(maj) || 0) * 100);
 
   async function save(e?: React.FormEvent) {
     e?.preventDefault();
@@ -52,7 +54,8 @@ export default function AdminProductsClient() {
       description: form.description.trim(),
       image: form.image.trim(),
       category: form.category.trim(),
-      price: Math.max(0, Math.trunc(Number(form.price) || 0)), // целые тенге
+      // сохраняем в тенге (целое число)
+      price: Math.max(0, Math.trunc(Number(form.price) || 0)),
       stock: Math.max(0, Math.trunc(Number(form.stock) || 0)),
     };
 
@@ -91,7 +94,8 @@ export default function AdminProductsClient() {
       description: p.description,
       image: p.image,
       category: p.category,
-      price: String(Math.trunc(p.price)), 
+      // показываем цену в тенге, как целое число
+      price: String(Math.trunc(p.price)),
       stock: String(p.stock ?? 0),
     });
   }
@@ -99,28 +103,57 @@ export default function AdminProductsClient() {
   return (
     <div className="grid md:grid-cols-2 gap-8">
       <div className="space-y-3">
-        <h2 className="text-xl font-semibold">{editing ? "Редактировать" : "Добавить"} товар</h2>
+        <h2 className="text-xl font-semibold">
+          {editing ? "Редактировать" : "Добавить"} товар
+        </h2>
+
         <form className="space-y-3" onSubmit={save}>
           <Field label="Название">
-            <input required className="w-full border rounded-xl px-3 py-2"
-                   value={form.name} onChange={(e)=>setField("name", e.target.value)} />
+            <input
+              required
+              className="w-full border rounded-xl px-3 py-2"
+              value={form.name}
+              onChange={(e) => setField("name", e.target.value)}
+            />
           </Field>
+
           <Field label="Бренд">
-            <input required className="w-full border rounded-xl px-3 py-2"
-                   value={form.brand} onChange={(e)=>setField("brand", e.target.value)} />
+            <input
+              required
+              className="w-full border rounded-xl px-3 py-2"
+              value={form.brand}
+              onChange={(e) => setField("brand", e.target.value)}
+            />
           </Field>
+
           <Field label="Описание">
-            <textarea required rows={3} className="w-full border rounded-xl px-3 py-2"
-                      value={form.description} onChange={(e)=>setField("description", e.target.value)} />
+            <textarea
+              required
+              rows={3}
+              className="w-full border rounded-xl px-3 py-2"
+              value={form.description}
+              onChange={(e) => setField("description", e.target.value)}
+            />
           </Field>
+
           <Field label="URL изображения">
-            <input required className="w-full border rounded-xl px-3 py-2"
-                   value={form.image} onChange={(e)=>setField("image", e.target.value)} />
+            <input
+              required
+              className="w-full border rounded-xl px-3 py-2"
+              value={form.image}
+              onChange={(e) => setField("image", e.target.value)}
+            />
           </Field>
+
           <Field label="Категория">
-            <input required className="w-full border rounded-xl px-3 py-2"
-                   value={form.category} onChange={(e)=>setField("category", e.target.value)} />
+            <input
+              required
+              className="w-full border rounded-xl px-3 py-2"
+              value={form.category}
+              onChange={(e) => setField("category", e.target.value)}
+            />
           </Field>
+
           <Field label="Цена (в тенге)">
             <input
               required
@@ -132,68 +165,108 @@ export default function AdminProductsClient() {
               className="w-full border rounded-xl px-3 py-2"
               value={form.price}
               onChange={(e) => {
-                // Разрешаем только цифры
                 const v = e.target.value.replace(/[^\d]/g, "");
                 setField("price", v);
               }}
               onBlur={(e) => {
-                // На всякий случай округляем вниз
-                const n = Math.max(0, Math.trunc(Number(e.target.value) || 0));
+                const n = Math.max(
+                  0,
+                  Math.trunc(Number(e.target.value) || 0)
+                );
                 setField("price", String(n));
               }}
             />
           </Field>
+
           <Field label="Остаток, шт">
-            <input required type="number" min={0} step="1"
-                   className="w-full border rounded-xl px-3 py-2"
-                   value={form.stock} onChange={(e)=>setField("stock", e.target.value)} />
+            <input
+              required
+              type="number"
+              min={0}
+              step="1"
+              className="w-full border rounded-xl px-3 py-2"
+              value={form.stock}
+              onChange={(e) => setField("stock", e.target.value)}
+            />
           </Field>
+
           <div className="flex items-center gap-3">
-            <button className="px-4 py-2 rounded bg-black text-white disabled:opacity-50"
-                    type="submit" disabled={busy}>
+            <button
+              className="px-4 py-2 rounded bg-black text-white disabled:opacity-50"
+              type="submit"
+              disabled={busy}
+            >
               {busy ? "Сохранение…" : "Сохранить"}
             </button>
+
             {editing && (
-              <button type="button" className="px-4 py-2 rounded border"
-                      onClick={()=>{ setEditing(null); setForm(emptyForm); }}>
+              <button
+                type="button"
+                className="px-4 py-2 rounded border"
+                onClick={() => {
+                  setEditing(null);
+                  setForm(emptyForm);
+                }}
+              >
                 Отмена
               </button>
             )}
           </div>
+
           {msg && <div className="text-sm">{msg}</div>}
-          <p className="text-xs text-gray-500">Цена вводится в тенге; в базе хранится в тиынах.</p>
+
+          <p className="text-xs text-gray-500">
+            Цена вводится и хранится в тенге (целое число).
+          </p>
         </form>
       </div>
 
       <div className="space-y-3">
         <h2 className="text-xl font-semibold">Товары</h2>
+
         <div className="grid grid-cols-1 gap-3">
-          {items.map((p)=>(
-            <div key={p.id} className="rounded-2xl border p-3 flex items-center justify-between gap-4">
+          {items.map((p) => (
+            <div
+              key={p.id}
+              className="rounded-2xl border p-3 flex items-center justify-between gap-4"
+            >
               <div className="flex items-center gap-3">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={p.image} alt={p.name} className="w-16 h-16 object-cover rounded-lg" />
+                <img
+                  src={p.image}
+                  alt={p.name}
+                  className="w-16 h-16 object-cover rounded-lg"
+                />
                 <div>
                   <div className="font-semibold">{p.name}</div>
                   <div className="text-sm text-gray-500">
-                    {p.brand} • {(p.toLocaleString("ru-RU"} ₸ • {p.stock} шт
+                    {p.brand} •{" "}
+                    {Number(p.price).toLocaleString("ru-RU")} ₸ • {p.stock} шт
                   </div>
                 </div>
               </div>
+
               <div className="flex gap-2">
-                <button className="btn" onClick={()=>edit(p)}>Ред.</button>
-                <button className="btn" onClick={()=>remove(p.id)}>Удалить</button>
+                <button className="btn" onClick={() => edit(p)}>
+                  Ред.
+                </button>
+                <button className="btn" onClick={() => remove(p.id)}>
+                  Удалить
+                </button>
               </div>
             </div>
           ))}
-          {items.length === 0 && <div className="text-sm text-gray-500">Пока пусто</div>}
+
+          {items.length === 0 && (
+            <div className="text-sm text-gray-500">Пока пусто</div>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="space-y-1">
       <label className="block text-sm text-gray-600">{label}</label>
