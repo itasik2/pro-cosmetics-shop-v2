@@ -1,3 +1,4 @@
+// app/api/products/route.ts
 export const runtime = "nodejs";
 export const revalidate = 0;
 
@@ -12,26 +13,55 @@ const ProductSchema = z.object({
   description: z.string().min(1),
   image: z.string().min(1),
   category: z.string().min(1),
-  price: z.number().int().min(0), // minor units (тиыны)
+  // цена в тенге (целое число)
+  price: z.number().int().min(0),
   stock: z.number().int().min(0),
+  isPopular: z.boolean().optional().default(false), // ← ДОБАВИЛИ
 });
 
 export async function GET() {
-  const items = await prisma.product.findMany({ orderBy: { createdAt: "desc" } });
+  const items = await prisma.product.findMany({
+    orderBy: [{ isPopular: "desc" }, { createdAt: "desc" }],
+  });
   return NextResponse.json(items);
 }
 
 export async function POST(req: Request) {
   const session = await auth();
-  if (!session?.user?.email || session.user.email !== process.env.AUTH_ADMIN_EMAIL) {
+  if (
+    !session?.user?.email ||
+    session.user.email !== process.env.AUTH_ADMIN_EMAIL
+  ) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
+
   try {
-    const data = ProductSchema.parse(await req.json());
-    const created = await prisma.product.create({ data });
+    const parsed = ProductSchema.parse(await req.json());
+
+    const created = await prisma.product.create({
+      data: {
+        name: parsed.name,
+        brand: parsed.brand,
+        description: parsed.description,
+        image: parsed.image,
+        category: parsed.category,
+        price: parsed.price,
+        stock: parsed.stock,
+        isPopular: parsed.isPopular ?? false, // ← сохраняем
+      },
+    });
+
     return NextResponse.json(created, { status: 201 });
   } catch (e: any) {
-    if (e?.name === "ZodError") return NextResponse.json({ error: "validation", issues: e.issues }, { status: 400 });
-    return NextResponse.json({ error: "failed_to_create" }, { status: 500 });
+    if (e?.name === "ZodError") {
+      return NextResponse.json(
+        { error: "validation", issues: e.issues },
+        { status: 400 },
+      );
+    }
+    return NextResponse.json(
+      { error: "failed_to_create" },
+      { status: 500 },
+    );
   }
 }
