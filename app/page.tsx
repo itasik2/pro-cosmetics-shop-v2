@@ -1,4 +1,3 @@
-// app/page.tsx
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import ProductCard from "@/components/ProductCard";
@@ -7,14 +6,13 @@ export const dynamic = "force-dynamic";
 
 export default async function Home() {
   const popular = await prisma.product.findMany({
-     where: { isPopular: true } as any,
+    where: { isPopular: true } as any, // ← чтобы TS не ругался
     orderBy: { createdAt: "desc" },
     take: 8,
   });
 
   return (
     <main className="space-y-10">
-      {/* HERO */}
       <section className="rounded-3xl bg-gradient-to-br from-gray-100 to-white border p-10">
         <h1 className="text-3xl md:text-5xl font-bold tracking-tight">
           Профессиональная косметика с любовью для Вас!
@@ -29,21 +27,17 @@ export default async function Home() {
         </div>
       </section>
 
-      {/* ПОПУЛЯРНЫЕ ТОВАРЫ */}
       <section className="space-y-4">
         <div className="flex items-baseline justify-between">
           <h2 className="text-2xl font-semibold">Популярные товары</h2>
-          <Link
-            href="/shop"
-            className="text-sm text-gray-500 hover:underline"
-          >
+          <Link href="/shop" className="text-sm text-gray-500 hover:underline">
             Смотреть весь каталог
           </Link>
         </div>
 
         {popular.length === 0 ? (
           <div className="text-sm text-gray-500">
-            Пока нет отмеченных популярных товаров. Отметьте нужные позиции в админке.
+            Пока нет отмеченных популярных товаров. Отметь нужные позиции в админке.
           </div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
