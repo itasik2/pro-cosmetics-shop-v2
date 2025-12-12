@@ -16,9 +16,11 @@ model Product {
   image       String
   category    String
   stock       Int      @default(0)
+  isPopular   Boolean  @default(false) // ← добавили
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+
 
 model Order {
   id          String   @id @default(cuid())
@@ -46,3 +48,16 @@ model Post {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+model SiteSettings {
+  id          String   @id @default("default")
+  siteName    String   @default("pro.cosmetics")
+  heroTitle   String   @default("Профессиональная косметика для ухода за кожей")
+  heroSubtitle String  @default("Подбираем эффективные средства для домашнего ухода.")
+  heroImage   String?  @default("/seed/serum.jpg")
+  footerText  String   @default("Интернет-магазин профессиональной косметики")
+  phone       String?  @default("+7")
+  email       String?  @default("sales@vita-services.com")
+  updatedAt   DateTime @updatedAt
+}
+

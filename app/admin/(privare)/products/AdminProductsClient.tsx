@@ -11,6 +11,7 @@ type Product = {
   category: string;
   price: number; // в тенге (целое число)
   stock: number;
+  isPopular: boolean;
 };
 
 const emptyForm = {
@@ -21,6 +22,7 @@ const emptyForm = {
   category: "",
   price: "", // в тенге в UI
   stock: "",
+  isPopular: false,
 };
 
 export default function AdminProductsClient() {
@@ -39,7 +41,10 @@ export default function AdminProductsClient() {
     load();
   }, []);
 
-  function setField<K extends keyof typeof emptyForm>(k: K, v: string) {
+  function setField<K extends keyof typeof emptyForm>(
+    k: K,
+    v: (typeof emptyForm)[K],
+  ) {
     setForm((f) => ({ ...f, [k]: v }));
   }
 
@@ -57,6 +62,7 @@ export default function AdminProductsClient() {
       // сохраняем в тенге (целое число)
       price: Math.max(0, Math.trunc(Number(form.price) || 0)),
       stock: Math.max(0, Math.trunc(Number(form.stock) || 0)),
+      isPopular: !!form.isPopular,
     };
 
     const url = editing ? `/api/products/${editing}` : `/api/products`;
@@ -97,6 +103,7 @@ export default function AdminProductsClient() {
       // показываем цену в тенге, как целое число
       price: String(Math.trunc(p.price)),
       stock: String(p.stock ?? 0),
+      isPopular: p.isPopular ?? false,
     });
   }
 
@@ -171,7 +178,7 @@ export default function AdminProductsClient() {
               onBlur={(e) => {
                 const n = Math.max(
                   0,
-                  Math.trunc(Number(e.target.value) || 0)
+                  Math.trunc(Number(e.target.value) || 0),
                 );
                 setField("price", String(n));
               }}
@@ -188,6 +195,17 @@ export default function AdminProductsClient() {
               value={form.stock}
               onChange={(e) => setField("stock", e.target.value)}
             />
+          </Field>
+
+          <Field label="Популярный товар (показывать на главной)">
+            <label className="inline-flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={form.isPopular}
+                onChange={(e) => setField("isPopular", e.target.checked)}
+              />
+              <span>Показывать в блоке «Популярные»</span>
+            </label>
           </Field>
 
           <div className="flex items-center gap-3">
@@ -238,7 +256,14 @@ export default function AdminProductsClient() {
                   className="w-16 h-16 object-cover rounded-lg"
                 />
                 <div>
-                  <div className="font-semibold">{p.name}</div>
+                  <div className="font-semibold flex items-center gap-2">
+                    {p.name}
+                    {p.isPopular && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 border border-yellow-200">
+                        Популярный
+                      </span>
+                    )}
+                  </div>
                   <div className="text-sm text-gray-500">
                     {p.brand} •{" "}
                     {Number(p.price).toLocaleString("ru-RU")} ₸ • {p.stock} шт
