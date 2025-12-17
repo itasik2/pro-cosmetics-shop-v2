@@ -74,7 +74,7 @@ export default function Footer() {
             </div>
 
             {/* Небольшой блок под SEO-инструменты / внутренние ссылки */}
-            <div className="text-[11px] text-gray-500 leading-snug">
+            <div className="text-[11px] text-gray-500 leading-snug none">
               {/* Здесь можно размещать микро-текст для SEO:
                   ключевые фразы, внутренние ссылки на важные категории,
                   акции, бренды и т.п. */}
