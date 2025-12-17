@@ -131,6 +131,7 @@ export default function Footer() {
                   className="w-4 h-4"
                   fill="none"
                 >
+                  {/* Внешний круг + "хвостик" чата */}
                   <path
                     d="M5 19l1.1-3.3A7 7 0 1119 11a7 7 0 01-10.8 5.7L5 19z"
                     stroke="currentColor"
@@ -138,12 +139,14 @@ export default function Footer() {
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   />
+                  {/* Трубка внутри */}
                   <path
                     d="M10.5 9.5c-.2-.5-.4-.5-.7-.5-.2 0-.4 0-.6.2-.2.3-.7.7-.7 1.7 0 1 .8 1.9.9 2 .1.1 1.5 2.4 3.7 3.2 1.9.7 2 0 2.3-.2.3-.2.5-.4.5-.7 0-.3.1-.5 0-.6-.1-.2-.4-.3-.7-.4-.3-.1-1.6-.8-1.8-.8-.2 0-.4-.1-.6.2-.2.3-.7.8-.9.9-.1.1-.3 0-.4 0-.1-.1-.8-.3-1.5-1-.5-.5-.8-1.2-.9-1.3 0-.1 0-.3.1-.4.1-.1.2-.3.3-.4.1-.1.1-.2.2-.3.1-.1.1-.2 0-.4-.1-.2-.6-1.5-.8-1.9z"
                     fill="currentColor"
                   />
                 </svg>
               </SocialIcon>
+
 
               {/* TikTok */}
               <SocialIcon href={tiktokUrl} label="TikTok">
