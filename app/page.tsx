@@ -5,6 +5,12 @@ import ProductCard from "@/components/ProductCard";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = {
+  title: "pro.cosmetics – профессиональная косметика для домашнего ухода",
+  description:
+    "Магазин профессиональной косметики pro.cosmetics: очищение, сыворотки, кремы для лица и тела. Честные составы и понятные описания, доставка по Казахстану.",
+};
+
 export default async function Home() {
   const popular = await prisma.product.findMany({
     where: { isPopular: true } as any, // TS обходим
