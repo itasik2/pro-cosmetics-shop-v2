@@ -4,6 +4,12 @@ import ProductCard from "@/components/ProductCard";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = {
+  title: "Каталог – pro.cosmetics",
+  description:
+    "Каталог профессиональной косметики pro.cosmetics: очищающие гели, пенки, сыворотки, кремы и другие средства для ухода за кожей.",
+};
+
 export default async function ShopPage() {
   const products = await prisma.product.findMany({
     orderBy: { createdAt: "desc" },
