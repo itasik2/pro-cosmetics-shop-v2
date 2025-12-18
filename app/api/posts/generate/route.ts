@@ -2,45 +2,47 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { openai } from "@/lib/openai";
 
-const InputSchema = z.object({
-  topic: z.string().min(3),
-  category: z.string().optional(),
-});
+type Body = {
+  topic?: string;
+  category?: string;
+};
 
 export async function POST(req: Request) {
-  // только админ
-  const session = await auth();
-  const adminEmail = (process.env.AUTH_ADMIN_EMAIL || "").toLowerCase();
+  try {
+    // 1) Проверка, что это админ
+    const session = await auth();
+    const adminEmail = (process.env.AUTH_ADMIN_EMAIL || "").toLowerCase();
 
-  if (!session?.user?.email || session.user.email.toLowerCase() !== adminEmail) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  }
+    if (!session?.user?.email || session.user.email.toLowerCase() !== adminEmail) {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
 
-  // читаем и валидируем вход
-  const json = await req.json().catch(() => ({}));
-  const parse = InputSchema.safeParse(json);
+    // 2) Проверка API-ключа
+    if (!process.env.OPENAI_API_KEY) {
+      return NextResponse.json({ error: "no_api_key" }, { status: 500 });
+    }
 
-  if (!parse.success) {
-    return NextResponse.json(
-      { error: "topic_required", issues: parse.error.issues },
-      { status: 400 },
-    );
-  }
+    // 3) Читаем тело запроса
+    const json = (await req.json().catch(() => ({}))) as Body;
+    const topic = (json.topic || "").trim();
+    const category = (json.category || "").trim();
 
-  const { topic, category } = parse.data;
+    if (!topic) {
+      return NextResponse.json({ error: "topic_required" }, { status: 400 });
+    }
 
-  const prompt = `
+    // 4) Промпт для генерации статьи
+    const prompt = `
 Ты — эксперт по профессиональной косметике и уходу за кожей.
 Сгенерируй полезную, понятную статью для блога интернет-магазина косметики.
 
 Тема: "${topic}"
 Категория (тип материала): "${category || "уход за кожей"}"
 
-Верни ответ строго в формате JSON:
+Верни ответ строго в виде JSON:
 {
   "title": "...",
   "content": "...",
@@ -49,19 +51,20 @@ export async function POST(req: Request) {
 
 Требования к статье:
 - Язык: русский.
-- Стиль: простой, понятный покупателю, без воды и сложной медицины.
+- Стиль: простой, понятный покупателю, без лишней "воды" и без медицинских диагнозов.
 - Не упоминай, что текст сгенерирован ИИ или нейросетью.
 - Структурируй текст с подзаголовками (используй '### Подзаголовок' в тексте).
 - Можно давать практические советы и пошаговые рекомендации.
 `.trim();
 
-  try {
+    // 5) Вызов модели
     const completion = await openai.chat.completions.create({
-      model: "gpt-4.1-mini", // при желании можешь заменить на другой доступный
+      model: "gpt-4.1-mini", // если такого нет в твоём тарифе, можно заменить, например "gpt-4o-mini" / "gpt-4.1"
       messages: [
         {
           role: "system",
-          content: "Ты помощник, который пишет статьи для блога магазина профессиональной косметики.",
+          content:
+            "Ты помощник, который пишет статьи для блога магазина профессиональной косметики.",
         },
         { role: "user", content: prompt },
       ],
@@ -70,7 +73,7 @@ export async function POST(req: Request) {
 
     const raw = completion.choices[0]?.message?.content || "";
 
-    // выдёргиваем JSON из ответа
+    // 6) Пробуем вытащить JSON (на случай, если модель вдруг добавит лишний текст)
     const start = raw.indexOf("{");
     const end = raw.lastIndexOf("}");
     if (start === -1 || end === -1) {
@@ -83,17 +86,18 @@ export async function POST(req: Request) {
     let parsed: any;
     try {
       parsed = JSON.parse(raw.slice(start, end + 1));
-    } catch (e) {
+    } catch {
       return NextResponse.json(
         { error: "llm_invalid_json", raw },
         { status: 500 },
       );
     }
 
-    // нормализуем результат
-    const title = typeof parsed.title === "string" && parsed.title.trim()
-      ? parsed.title.trim()
-      : topic;
+    // 7) Нормализуем результат
+    const title =
+      typeof parsed.title === "string" && parsed.title.trim()
+        ? parsed.title.trim()
+        : topic;
     const content =
       typeof parsed.content === "string" ? parsed.content.trim() : "";
     const outCategory =
@@ -106,10 +110,10 @@ export async function POST(req: Request) {
       content,
       category: outCategory,
     });
-  } catch (e: any) {
-    console.error("AI POST GENERATE ERROR:", e);
+  } catch (err: any) {
+    console.error("POST /api/posts/generate error:", err);
     return NextResponse.json(
-      { error: "generation_failed", message: e?.message },
+      { error: "server_error", message: err?.message || "unknown" },
       { status: 500 },
     );
   }
