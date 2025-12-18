@@ -89,6 +89,18 @@ export default function Footer() {
             <SocialIcon href={whatsappUrl} label="WhatsApp">
               <svg aria-hidden="true" viewBox="0 0 24 24" className="w-4 h-4" fill="none">
                 <path d="M45.4,177A95.9,95.9,0,1,1,79,210.6h0L45.8,220a7.9,7.9,0,0,1-9.8-9.8L45.4,177Z" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="12"/><path d="M152.1,184A79.9,79.9,0,0,1,72,103.9,28,28,0,0,1,100,76h0a6.8,6.8,0,0,1,6,3.5l11.7,20.4a8.1,8.1,0,0,1-.1,8.1l-9.4,15.7h0a48,48,0,0,0,24.1,24.1h0l15.7-9.4a8.1,8.1,0,0,1,8.1-.1L176.5,150a6.8,6.8,0,0,1,3.5,6h0A28.1,28.1,0,0,1,152.1,184Z" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="12"/></svg>
+                <path
+                  d="M5 19l1.1-3.3A7 7 0 1119 11a7 7 0 01-10.8 5.7L5 19z"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <path
+                  d="M10.5 9.5c-.2-.5-.4-.5-.7-.5-.2 0-.4 0-.6.2-.2.3-.7.7-.7 1.7 0 1 .8 1.9.9 2 .1.1 1.5 2.4 3.7 3.2 1.9.7 2 0 2.3-.2.3-.2.5-.4.5-.7 0-.3.1-.5 0-.6-.1-.2-.4-.3-.7-.4-.3-.1-1.6-.8-1.8-.8-.2 0-.4-.1-.6.2-.2.3-.7.8-.9.9-.1.1-.3 0-.4 0-.1-.1-.8-.3-1.5-1-.5-.5-.8-1.2-.9-1.3 0-.1 0-.3.1-.4.1-.1.2-.3.3-.4.1-.1.1-.2.2-.3.1-.1.1-.2 0-.4-.1-.2-.6-1.5-.8-1.9z"
+                  fill="currentColor"
+                />
+              
             </SocialIcon>
 
             {/* TikTok */}
