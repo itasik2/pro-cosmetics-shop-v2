@@ -6,6 +6,11 @@ type Props = {
   params: { slug: string };
 };
 
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const post = await prisma.post.findUnique({
+    where: { slug: params.slug },
+  });
+
 export default async function PostPage({ params }: Props) {
   const post = await prisma.post.findUnique({
     where: { slug: params.slug },
