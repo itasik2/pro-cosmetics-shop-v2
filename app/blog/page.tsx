@@ -3,6 +3,12 @@ import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = {
+  title: "Блог и новости – pro.cosmetics",
+  description:
+    "Статьи по уходу за кожей, разборы составов и новости магазина pro.cosmetics. Подборка материалов для осознанного ухода.",
+};
+
 export default async function BlogIndex() {
   const posts = await prisma.post.findMany({ orderBy: { createdAt: "desc" } });
   return (
