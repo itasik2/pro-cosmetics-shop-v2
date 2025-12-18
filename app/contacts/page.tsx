@@ -1,4 +1,10 @@
 // app/contacts/page.tsx
+export const metadata = {
+  title: "Контакты – pro.cosmetics",
+  description:
+    "Связаться с магазином профессиональной косметики pro.cosmetics: телефон, email и социальные сети.",
+};
+
 export default function ContactsPage() {
   return (
     <div className="space-y-4 py-6">
