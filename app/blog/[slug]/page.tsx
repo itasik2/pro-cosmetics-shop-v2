@@ -1,15 +1,38 @@
 // app/blog/[slug]/page.tsx
 import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
+import type { Metadata } from "next";
 
 type Props = {
   params: { slug: string };
 };
 
+// SEO: динамический title/description по статье
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const post = await prisma.post.findUnique({
     where: { slug: params.slug },
   });
+
+  if (!post) {
+    return {
+      title: "Материал не найден – pro.cosmetics",
+      description: "Статья не найдена или была удалена.",
+    };
+  }
+
+  const short =
+    post.content.slice(0, 150).replace(/\s+/g, " ").trim() + "...";
+
+  return {
+    title: `${post.title} – блог pro.cosmetics`,
+    description: short,
+    openGraph: {
+      title: `${post.title} – блог pro.cosmetics`,
+      description: short,
+      images: post.image ? [post.image] : [],
+    },
+  };
+}
 
 export default async function PostPage({ params }: Props) {
   const post = await prisma.post.findUnique({
@@ -39,11 +62,8 @@ export default async function PostPage({ params }: Props) {
 
         <h1>{post.title}</h1>
 
-        <div className="whitespace-pre-line">
-          {post.content}
-        </div>
+        <div className="whitespace-pre-line">{post.content}</div>
       </article>
     </main>
   );
 }
-
