@@ -1,4 +1,10 @@
 // app/about/page.tsx
+export const metadata = {
+  title: "О нас – pro.cosmetics",
+  description:
+    "Магазин профессиональной косметики pro.cosmetics. Мы подбираем рабочие средства с понятными составами и честными описаниями.",
+};
+
 export default function AboutPage() {
   return (
     <div className="space-y-4 py-6">
