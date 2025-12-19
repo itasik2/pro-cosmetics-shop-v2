@@ -53,7 +53,7 @@ export async function POST(req: Request) {
 - Язык: русский.
 - Стиль: простой, понятный покупателю, без воды и сложной медицины.
 - Не упоминай, что текст сгенерирован ИИ или нейросетью.
-- Структурируй текст с подзаголовками (используй '### Подзаголовок' в тексте).
+- Структурируй текст с подзаголовками (используй 'Подзаголовок' в тексте).
 - Можно давать практические советы и пошаговые рекомендации.
 `.trim();
 
@@ -110,10 +110,25 @@ export async function POST(req: Request) {
       category: outCategory,
     });
   } catch (err: any) {
-    console.error("POST /api/posts/generate error:", err);
+  // OpenAI ошибки часто приходят так: err.status / err.code / err.message
+  const status = err?.status || err?.response?.status;
+  const msg = err?.message || "unknown";
+
+  // Квота/лимиты
+  if (status === 429 || String(msg).includes("exceeded your current quota")) {
     return NextResponse.json(
-      { error: "server_error", message: err?.message || "unknown" },
-      { status: 500 },
+      {
+        error: "quota_exceeded",
+        message:
+          "Закончилась квота OpenAI (429). Проверь план/биллинг и лимиты в OpenAI Platform.",
+      },
+      { status: 429 }
     );
   }
+
+  console.error("POST /api/posts/generate error:", err);
+  return NextResponse.json(
+    { error: "server_error", message: msg },
+    { status: 500 }
+  );
 }
