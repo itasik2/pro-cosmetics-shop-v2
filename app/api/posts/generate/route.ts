@@ -12,7 +12,7 @@ type Body = {
 
 export async function POST(req: Request) {
   try {
-    // 1) Проверка, что это админ
+    // 1) Пускаем только админа
     const session = await auth();
     const adminEmail = (process.env.AUTH_ADMIN_EMAIL || "").toLowerCase();
 
@@ -20,12 +20,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
 
-    // 2) Проверка API-ключа
+    // 2) Проверка ключа
     if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json({ error: "no_api_key" }, { status: 500 });
     }
 
-    // 3) Читаем тело запроса
+    // 3) Читаем вход
     const json = (await req.json().catch(() => ({}))) as Body;
     const topic = (json.topic || "").trim();
     const category = (json.category || "").trim();
@@ -34,7 +34,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "topic_required" }, { status: 400 });
     }
 
-    // 4) Промпт для генерации статьи
+    // 4) Промпт
     const prompt = `
 Ты — эксперт по профессиональной косметике и уходу за кожей.
 Сгенерируй полезную, понятную статью для блога интернет-магазина косметики.
@@ -51,7 +51,7 @@ export async function POST(req: Request) {
 
 Требования к статье:
 - Язык: русский.
-- Стиль: простой, понятный покупателю, без лишней "воды" и без медицинских диагнозов.
+- Стиль: простой, понятный покупателю, без воды и сложной медицины.
 - Не упоминай, что текст сгенерирован ИИ или нейросетью.
 - Структурируй текст с подзаголовками (используй '### Подзаголовок' в тексте).
 - Можно давать практические советы и пошаговые рекомендации.
@@ -59,7 +59,7 @@ export async function POST(req: Request) {
 
     // 5) Вызов модели
     const completion = await openai.chat.completions.create({
-      model: "gpt-4.1-mini", // если такого нет в твоём тарифе, можно заменить, например "gpt-4o-mini" / "gpt-4.1"
+      model: "gpt-4o-mini", // безопасная универсальная модель
       messages: [
         {
           role: "system",
@@ -73,7 +73,7 @@ export async function POST(req: Request) {
 
     const raw = completion.choices[0]?.message?.content || "";
 
-    // 6) Пробуем вытащить JSON (на случай, если модель вдруг добавит лишний текст)
+    // 6) Вытаскиваем JSON из ответа
     const start = raw.indexOf("{");
     const end = raw.lastIndexOf("}");
     if (start === -1 || end === -1) {
@@ -93,7 +93,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // 7) Нормализуем результат
     const title =
       typeof parsed.title === "string" && parsed.title.trim()
         ? parsed.title.trim()
