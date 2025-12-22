@@ -11,11 +11,9 @@ export default async function AdminPrivateLayout({
   children: React.ReactNode;
 }) {
   const session = await auth();
-  const adminEmail = (process.env.AUTH_ADMIN_EMAIL || "").toLowerCase();
+  const isAdmin = (session?.user as any)?.role === "admin";
 
-  if (!session?.user?.email || session.user.email.toLowerCase() !== adminEmail) {
-    redirect("/admin"); // если не админ — на страницу логина
-  }
+  if (!isAdmin) redirect("/admin");
 
   return <AdminShell>{children}</AdminShell>;
 }

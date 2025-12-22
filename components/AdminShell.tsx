@@ -4,6 +4,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
+import { signOut } from "next-auth/react";
 
 export function AdminShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -15,9 +16,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
         href={href}
         className={
           "px-3 py-1 rounded-full text-sm " +
-          (active
-            ? "bg-black text-white"
-            : "text-gray-700 hover:bg-gray-100")
+          (active ? "bg-black text-white" : "text-gray-700 hover:bg-gray-100")
         }
       >
         {label}
@@ -28,10 +27,20 @@ export function AdminShell({ children }: { children: ReactNode }) {
   return (
     <div className="container mx-auto py-6 space-y-6">
       {/* Внутреннее меню админки */}
-      <div className="flex flex-wrap gap-2 border-b pb-3 mb-2">
-        {link("/admin/products", "Товары")}
-        {link("/admin/blog", "Блог")}
-        {link("/admin/orders", "Заказы")}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3 mb-2">
+        <div className="flex flex-wrap gap-2">
+          {link("/admin/products", "Товары")}
+          {link("/admin/blog", "Блог")}
+          {link("/admin/orders", "Заказы")}
+        </div>
+
+        <button
+          type="button"
+          className="px-3 py-1 rounded-full text-sm border hover:bg-gray-50"
+          onClick={() => signOut({ callbackUrl: "/admin" })}
+        >
+          Выйти
+        </button>
       </div>
 
       {/* Контент конкретной страницы админки */}
