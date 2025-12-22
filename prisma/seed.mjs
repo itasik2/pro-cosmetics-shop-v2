@@ -1,6 +1,26 @@
 import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
+function slugify(input) {
+  return input
+    .toLowerCase()
+    .trim()
+    .replace(/[_\s]+/g, "-")
+    .replace(/[^a-z0-9а-яё-]+/gi, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+async function ensureBrand(name, sortOrder = 0) {
+  const slug = slugify(name) || "brand";
+  return prisma.brand.upsert({
+    where: { name },
+    update: { sortOrder },
+    create: { name, slug, sortOrder, isActive: true },
+  });
+}
+
+
 async function main() {
   const count = await prisma.product.count();
   if (count > 0) {
