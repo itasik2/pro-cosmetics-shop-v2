@@ -21,41 +21,32 @@ export const authConfig = {
         const parsed = schema.safeParse(creds);
         if (!parsed.success) return null;
 
-        const adminEmail = (process.env.AUTH_ADMIN_EMAIL || "").toLowerCase();
+        const adminEmail = (process.env.AUTH_ADMIN_EMAIL || "").toLowerCase().trim();
         const adminPass = process.env.AUTH_ADMIN_PASSWORD || "";
 
+        if (!adminEmail || !adminPass) return null;
+
         if (
-          parsed.data.email.toLowerCase() === adminEmail &&
+          parsed.data.email.toLowerCase().trim() === adminEmail &&
           parsed.data.password === adminPass
         ) {
-          return { id: "admin", name: "Admin", email: adminEmail, role: "admin" };
+          return { id: "admin", name: "Admin", email: adminEmail, role: "admin" } as any;
         }
-        return null; // пускаем только админа
+        return null;
       },
     }),
   ],
   callbacks: {
     async jwt({ token, user }) {
-      if (user) {
-        // @ts-ignore
-        token.role = (user as any).role || "admin";
-      }
+      if (user) (token as any).role = (user as any).role || "admin";
       return token;
     },
     async session({ session, token }) {
-      // @ts-ignore
-      session.user.role = (token as any).role || "admin";
+      (session.user as any).role = (token as any).role || "admin";
       return session;
     },
   },
-  pages: {signIn: "/admin"},
+  pages: { signIn: "/admin" },
 } satisfies Parameters<typeof NextAuth>[0];
 
-// ... существующий код lib/auth.ts
-
 export const { handlers, auth, signIn, signOut } = NextAuth(authConfig);
-
-// ЯВНО экспортируем method handlers — удобно для роут-файла
-export const GET = handlers.GET;
-export const POST = handlers.POST;
-
