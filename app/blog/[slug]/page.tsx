@@ -7,10 +7,21 @@ type Props = {
   params: { slug: string };
 };
 
+function normalizeSlug(raw: string) {
+  // decode + unicode normalize для кириллицы
+  try {
+    return decodeURIComponent(raw).normalize("NFC");
+  } catch {
+    return raw.normalize("NFC");
+  }
+}
+
 // SEO: динамический title/description по статье
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const slug = normalizeSlug(params.slug);
+
   const post = await prisma.post.findUnique({
-    where: { slug: params.slug },
+    where: { slug },
   });
 
   if (!post) {
@@ -35,13 +46,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 }
 
 export default async function PostPage({ params }: Props) {
+  const slug = normalizeSlug(params.slug);
+
   const post = await prisma.post.findUnique({
-    where: { slug: params.slug },
+    where: { slug },
   });
 
-  if (!post) {
-    notFound();
-  }
+  if (!post) notFound();
 
   return (
     <main className="container mx-auto py-8">
