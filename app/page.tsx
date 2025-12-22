@@ -13,10 +13,22 @@ export const metadata = {
 
 export default async function Home() {
   const popular = await prisma.product.findMany({
-    where: { isPopular: true } as any, // TS обходим
+    where: { isPopular: true } as any,
     orderBy: { createdAt: "desc" },
     take: 8,
   });
+
+  const newArrivals = await prisma.product.findMany({
+    orderBy: { createdAt: "desc" },
+    take: 8,
+  });
+
+  // Если модели Review ещё нет — просто оставь этот блок закомментированным.
+  // const reviews = await prisma.review.findMany({
+  //   where: { isPublic: true },
+  //   orderBy: { createdAt: "desc" },
+  //   take: 6,
+  // });
 
   return (
     <main className="space-y-10">
@@ -26,7 +38,8 @@ export default async function Home() {
           Профессиональная косметика с любовью для Вас!
         </h1>
         <p className="mt-3 text-gray-600 max-w-2xl">
-          Только проверенные позиции. Нормальные составы, честные описания и цены без магии маркетинга.
+          Только проверенные позиции. Нормальные составы, честные описания и цены
+          без магии маркетинга.
         </p>
         <div className="mt-6">
           <Link href="/shop" className="btn">
@@ -46,16 +59,62 @@ export default async function Home() {
 
         {popular.length === 0 ? (
           <div className="text-sm text-gray-500">
-            Пока нет отмеченных популярных товаров. Отметь нужные позиции в админке.
+            Пока нет отмеченных популярных товаров. Отметь нужные позиции в
+            админке.
           </div>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
             {popular.map((p) => (
               <ProductCard key={p.id} product={p} />
             ))}
           </div>
         )}
       </section>
+
+      {/* НОВИНКИ */}
+      <section className="space-y-4">
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-2xl font-semibold">Новинки</h2>
+          <Link href="/shop" className="text-sm text-gray-500 hover:underline">
+            Смотреть весь каталог
+          </Link>
+        </div>
+
+        {newArrivals.length === 0 ? (
+          <div className="text-sm text-gray-500">Пока нет товаров.</div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+            {newArrivals.map((p) => (
+              <ProductCard key={p.id} product={p} />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* ОТЗЫВЫ КЛИЕНТОВ (включи, когда добавишь модель Review и API/админку) */}
+      {/* <section className="space-y-4">
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-2xl font-semibold">Отзывы клиентов</h2>
+        </div>
+
+        {reviews.length === 0 ? (
+          <div className="text-sm text-gray-500">Пока нет отзывов.</div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {reviews.map((r) => (
+              <div key={r.id} className="rounded-3xl border p-5 bg-white">
+                <div className="text-sm font-medium">{r.name}</div>
+                <div className="text-xs text-gray-500 mt-1">
+                  Оценка: {r.rating}/5
+                </div>
+                <p className="text-sm text-gray-700 mt-3 whitespace-pre-line">
+                  {r.text}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </section> */}
     </main>
   );
 }
