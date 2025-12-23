@@ -35,6 +35,8 @@ export function AdminShell({ children }: { children: ReactNode }) {
           {link("/admin/blog", "Блог")}
           {link("/admin/orders", "Заказы")}
           {link("/admin/reviews", "Отзывы")}
+          {link("/admin/brands", "Бренды")}
+
 
         </div>
 

@@ -1,42 +1,77 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { z } from "zod";
 
 export const runtime = "nodejs";
 export const revalidate = 0;
 
-// Публично: отдать активные бренды для витрины/форм
-export async function GET() {
+async function isAdmin() {
+  const session = await auth();
+  const adminEmail = (process.env.AUTH_ADMIN_EMAIL || "").toLowerCase();
+  const email = (session?.user?.email || "").toLowerCase();
+  return !!email && email === adminEmail;
+}
+
+// GET /api/brands
+// - публично: активные бренды для витрины/форм
+// - админ: ?all=1 — все бренды
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const all = url.searchParams.get("all") === "1";
+
+  if (all) {
+    if (!(await isAdmin())) {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
+    const items = await prisma.brand.findMany({
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    });
+    return NextResponse.json(items);
+  }
+
   const items = await prisma.brand.findMany({
     where: { isActive: true },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
     select: { id: true, name: true, slug: true },
   });
-
   return NextResponse.json(items);
 }
 
-// Если хочешь создавать бренды только из админки — позже добавим POST/PUT/DELETE.
-export async function POST(req: Request) {
-  const session = await auth();
-  const adminEmail = (process.env.AUTH_ADMIN_EMAIL || "").toLowerCase();
-  const email = (session?.user?.email || "").toLowerCase();
+const BrandSchema = z.object({
+  name: z.string().min(1),
+  slug: z.string().min(1),
+  sortOrder: z.number().int().optional().default(0),
+  isActive: z.boolean().optional().default(true),
+});
 
-  if (!email || email !== adminEmail) {
+export async function POST(req: Request) {
+  if (!(await isAdmin())) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
-  const body = await req.json().catch(() => ({} as any));
-  const name = String(body?.name || "").trim();
-  const slug = String(body?.slug || "").trim();
+  try {
+    const parsed = BrandSchema.parse(await req.json());
 
-  if (!name || !slug) {
-    return NextResponse.json({ error: "name and slug required" }, { status: 400 });
+    const created = await prisma.brand.create({
+      data: {
+        name: parsed.name.trim(),
+        slug: parsed.slug.trim(),
+        sortOrder: parsed.sortOrder ?? 0,
+        isActive: parsed.isActive ?? true,
+      },
+    });
+
+    return NextResponse.json(created, { status: 201 });
+  } catch (e: any) {
+    if (e?.name === "ZodError") {
+      return NextResponse.json(
+        { error: "validation", issues: e.issues },
+        { status: 400 },
+      );
+    }
+
+    // уникальные индексы name/slug могут дать Prisma error
+    return NextResponse.json({ error: "failed_to_create" }, { status: 500 });
   }
-
-  const created = await prisma.brand.create({
-    data: { name, slug, isActive: true, sortOrder: 0 },
-  });
-
-  return NextResponse.json(created, { status: 201 });
 }
