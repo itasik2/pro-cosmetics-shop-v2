@@ -9,6 +9,7 @@ type Props = { params: { id: string } };
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const product = await prisma.product.findUnique({
     where: { id: params.id },
+    include: { brand: true },
   });
 
   if (!product) {
@@ -18,14 +19,16 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     };
   }
 
+  const brandName = product.brand?.name ?? "";
+
   return {
     title: `${product.name} – купить в pro.cosmetics`,
-    description: `${product.brand}. Категория: ${product.category}. Цена: ${product.price.toLocaleString(
-      "ru-RU",
-    )} ₸. Заказать с доставкой по Казахстану.`,
+    description: `${brandName ? `${brandName}. ` : ""}Категория: ${
+      product.category
+    }. Цена: ${product.price.toLocaleString("ru-RU")} ₸. Заказать с доставкой по Казахстану.`,
     openGraph: {
       title: `${product.name} – pro.cosmetics`,
-      description: `${product.brand}. Категория: ${product.category}.`,
+      description: `${brandName ? `${brandName}. ` : ""}Категория: ${product.category}.`,
       images: product.image ? [product.image] : [],
     },
   };
@@ -34,11 +37,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function ProductPage({ params }: Props) {
   const product = await prisma.product.findUnique({
     where: { id: params.id },
+    include: { brand: true },
   });
 
   if (!product) {
     return <div className="py-10">Товар не найден</div>;
   }
+
+  const brandName = product.brand?.name ?? "—";
 
   return (
     <div className="grid md:grid-cols-2 gap-8 py-10">
@@ -48,14 +54,18 @@ export default async function ProductPage({ params }: Props) {
         alt={product.name}
         className="w-full rounded-3xl border object-cover max-h-[480px]"
       />
+
       <div className="space-y-4">
         <div className="text-sm text-gray-500">
-          {product.brand} • {product.category}
+          {brandName} • {product.category}
         </div>
+
         <h1 className="text-3xl font-bold">{product.name}</h1>
+
         <div className="text-gray-600 whitespace-pre-line">
           {product.description}
         </div>
+
         <div className="text-2xl font-semibold">
           {product.price.toLocaleString("ru-RU")} ₸
         </div>
