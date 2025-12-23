@@ -1,4 +1,5 @@
 // app/shop/page.tsx
+import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import ProductCard from "@/components/ProductCard";
 
@@ -10,19 +11,163 @@ export const metadata = {
     "Каталог профессиональной косметики pro.cosmetics: очищающие гели, пенки, сыворотки, кремы и другие средства для ухода за кожей.",
 };
 
-export default async function ShopPage() {
+type Props = {
+  searchParams?: {
+    brand?: string; // Brand.slug
+    sort?: string;  // new | price_asc | price_desc
+  };
+};
+
+export default async function ShopPage({ searchParams }: Props) {
+  const brandSlug = (searchParams?.brand || "").trim();
+  const sort = (searchParams?.sort || "new").trim();
+
+  const brands = await prisma.brand.findMany({
+    where: { isActive: true },
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    select: { id: true, name: true, slug: true },
+  });
+
+  const selectedBrand = brandSlug
+    ? brands.find((b) => b.slug === brandSlug) || null
+    : null;
+
+  const orderBy =
+    sort === "price_asc"
+      ? [{ price: "asc" as const }, { createdAt: "desc" as const }]
+      : sort === "price_desc"
+      ? [{ price: "desc" as const }, { createdAt: "desc" as const }]
+      : [{ createdAt: "desc" as const }];
+
   const products = await prisma.product.findMany({
-    orderBy: { createdAt: "desc" },
+    where: selectedBrand ? { brandId: selectedBrand.id } : undefined,
+    include: { brand: true },
+    orderBy,
   });
 
   return (
     <div className="space-y-6 py-6">
-      <h2 className="text-2xl font-bold">Каталог</h2>
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
-        {products.map((p) => (
-          <ProductCard key={p.id} product={p} />
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h2 className="text-2xl font-bold">Каталог</h2>
+          <div className="text-sm text-gray-500 mt-1">
+            {selectedBrand ? `Бренд: ${selectedBrand.name}` : "Все бренды"} •{" "}
+            {products.length} поз.
+          </div>
+        </div>
+
+        {/* СОРТИРОВКА */}
+        <div className="flex flex-wrap gap-2 text-sm">
+          <SortLink currentBrand={brandSlug} currentSort={sort} value="new">
+            Новинки
+          </SortLink>
+          <SortLink
+            currentBrand={brandSlug}
+            currentSort={sort}
+            value="price_asc"
+          >
+            Цена ↑
+          </SortLink>
+          <SortLink
+            currentBrand={brandSlug}
+            currentSort={sort}
+            value="price_desc"
+          >
+            Цена ↓
+          </SortLink>
+        </div>
+      </div>
+
+      {/* ФИЛЬТР ПО БРЕНДУ */}
+      <div className="flex flex-wrap gap-2">
+        <BrandLink isActive={!brandSlug} href={buildHref("", sort)}>
+          Все
+        </BrandLink>
+
+        {brands.map((b) => (
+          <BrandLink
+            key={b.id}
+            isActive={b.slug === brandSlug}
+            href={buildHref(b.slug, sort)}
+          >
+            {b.name}
+          </BrandLink>
         ))}
       </div>
+
+      {/* СЕТКА ТОВАРОВ */}
+      {products.length === 0 ? (
+        <div className="text-sm text-gray-500">
+          Ничего не найдено. Попробуй снять фильтр по бренду.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+          {products.map((p) => (
+            <ProductCard key={p.id} product={p} />
+          ))}
+        </div>
+      )}
     </div>
+  );
+}
+
+function buildHref(brandSlug: string, sort: string) {
+  const params = new URLSearchParams();
+  if (brandSlug) params.set("brand", brandSlug);
+  if (sort && sort !== "new") params.set("sort", sort);
+  const qs = params.toString();
+  return qs ? `/shop?${qs}` : "/shop";
+}
+
+function BrandLink({
+  href,
+  isActive,
+  children,
+}: {
+  href: string;
+  isActive: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      className={
+        "px-3 py-1 rounded-full text-sm border " +
+        (isActive
+          ? "bg-black text-white border-black"
+          : "bg-white text-gray-700 hover:bg-gray-50")
+      }
+    >
+      {children}
+    </Link>
+  );
+}
+
+function SortLink({
+  currentBrand,
+  currentSort,
+  value,
+  children,
+}: {
+  currentBrand: string;
+  currentSort: string;
+  value: string;
+  children: React.ReactNode;
+}) {
+  const href = buildHref(currentBrand, value);
+  const isActive = (currentSort || "new") === value;
+
+  return (
+    <Link
+      href={href}
+      className={
+        "px-3 py-1 rounded-full text-sm border " +
+        (isActive
+          ? "bg-black text-white border-black"
+          : "bg-white text-gray-700 hover:bg-gray-50")
+      }
+    >
+      {children}
+    </Link>
   );
 }
