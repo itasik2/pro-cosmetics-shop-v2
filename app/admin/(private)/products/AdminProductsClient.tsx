@@ -2,39 +2,52 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 
+type Brand = {
+  id: string;
+  name: string;
+  slug: string;
+};
+
 type Product = {
   id: string;
   name: string;
-  brand: string;
+  brandId: string | null;
+  brand?: { id: string; name: string } | null;
   description: string;
   image: string;
   category: string;
-  price: number; // в тенге (целое число)
+  price: number;
   stock: number;
   isPopular: boolean;
 };
 
 const emptyForm = {
   name: "",
-  brand: "",
+  brandId: "", // <-- теперь так
   description: "",
   image: "/seed/cleanser.jpg",
   category: "",
-  price: "", // в тенге в UI
+  price: "",
   stock: "",
   isPopular: false,
 };
 
 export default function AdminProductsClient() {
   const [items, setItems] = useState<Product[]>([]);
+  const [brands, setBrands] = useState<Brand[]>([]);
   const [form, setForm] = useState<typeof emptyForm>(emptyForm);
   const [editing, setEditing] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function load() {
-    const res = await fetch("/api/products", { cache: "no-store" });
-    if (res.ok) setItems(await res.json());
+    const [prodRes, brandRes] = await Promise.all([
+      fetch("/api/products", { cache: "no-store" }),
+      fetch("/api/brands", { cache: "no-store" }),
+    ]);
+
+    if (brandRes.ok) setBrands(await brandRes.json());
+    if (prodRes.ok) setItems(await prodRes.json());
   }
 
   useEffect(() => {
@@ -55,11 +68,10 @@ export default function AdminProductsClient() {
 
     const body = {
       name: form.name.trim(),
-      brand: form.brand.trim(),
+      brandId: form.brandId ? form.brandId : null,
       description: form.description.trim(),
       image: form.image.trim(),
       category: form.category.trim(),
-      // сохраняем в тенге (целое число)
       price: Math.max(0, Math.trunc(Number(form.price) || 0)),
       stock: Math.max(0, Math.trunc(Number(form.stock) || 0)),
       isPopular: !!form.isPopular,
@@ -73,6 +85,7 @@ export default function AdminProductsClient() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
+
     const data = await res.json().catch(() => ({} as any));
     setBusy(false);
 
@@ -96,11 +109,10 @@ export default function AdminProductsClient() {
     setEditing(p.id);
     setForm({
       name: p.name,
-      brand: p.brand,
+      brandId: p.brandId ?? "",
       description: p.description,
       image: p.image,
       category: p.category,
-      // показываем цену в тенге, как целое число
       price: String(Math.trunc(p.price)),
       stock: String(p.stock ?? 0),
       isPopular: p.isPopular ?? false,
@@ -125,12 +137,22 @@ export default function AdminProductsClient() {
           </Field>
 
           <Field label="Бренд">
-            <input
-              required
-              className="w-full border rounded-xl px-3 py-2"
-              value={form.brand}
-              onChange={(e) => setField("brand", e.target.value)}
-            />
+            <select
+              className="w-full border rounded-xl px-3 py-2 bg-white"
+              value={form.brandId}
+              onChange={(e) => setField("brandId", e.target.value)}
+            >
+              <option value="">— без бренда —</option>
+              {brands.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+
+            <div className="text-xs text-gray-500 mt-1">
+              Бренды берутся из /api/brands (активные). Управление брендами вынесем отдельной страницей.
+            </div>
           </Field>
 
           <Field label="Описание">
@@ -176,10 +198,7 @@ export default function AdminProductsClient() {
                 setField("price", v);
               }}
               onBlur={(e) => {
-                const n = Math.max(
-                  0,
-                  Math.trunc(Number(e.target.value) || 0),
-                );
+                const n = Math.max(0, Math.trunc(Number(e.target.value) || 0));
                 setField("price", String(n));
               }}
             />
@@ -265,7 +284,7 @@ export default function AdminProductsClient() {
                     )}
                   </div>
                   <div className="text-sm text-gray-500">
-                    {p.brand} •{" "}
+                    {(p.brand?.name ?? "—")} •{" "}
                     {Number(p.price).toLocaleString("ru-RU")} ₸ • {p.stock} шт
                   </div>
                 </div>
