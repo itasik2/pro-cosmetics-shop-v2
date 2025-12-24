@@ -40,10 +40,20 @@ export default async function ShopPage({ searchParams }: Props) {
       : [{ createdAt: "desc" as const }];
 
   const products = await prisma.product.findMany({
-    where: selectedBrand ? { brandId: selectedBrand.id } : undefined,
-    include: { brand: true },
-    orderBy,
-  });
+  where: selectedBrand ? { brandId: selectedBrand.id } : undefined,
+  orderBy,
+  select: {
+    id: true,
+    name: true,
+    image: true,
+    price: true,
+    stock: true,
+    isPopular: true,
+    createdAt: true,
+    brand: { select: { name: true } },
+  },
+});
+
 
   return (
     <div className="space-y-6 py-6">
