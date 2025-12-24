@@ -18,8 +18,8 @@ type ProductCardProps = {
   };
 };
 
-function isNew(createdAt: string, days = 14) {
-  const d = new Date(createdAt);
+function isNew(createdAt: Date | string, days = 14) {
+  const d = typeof createdAt === "string" ? new Date(createdAt) : createdAt;
   const diff = Date.now() - d.getTime();
   return diff <= days * 24 * 60 * 60 * 1000;
 }
