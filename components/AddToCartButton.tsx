@@ -63,7 +63,7 @@ export default function AddToCartButton({ productId, disabled }: Props) {
 
   if (qty > 0) {
     return (
-      <Link href="/cart" className="btn text-xs">
+      <Link href="/checkout" className="btn text-xs">
         В корзине ({qty})
       </Link>
     );
