@@ -50,6 +50,7 @@ export default async function ShopPage({ searchParams }: Props) {
     stock: true,
     isPopular: true,
     createdAt: true,
+    category: true,
     brand: { select: { name: true } },
   },
 });
