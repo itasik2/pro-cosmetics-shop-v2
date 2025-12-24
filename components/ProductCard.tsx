@@ -12,7 +12,7 @@ type ProductCardProps = {
     price: number;
     stock: number;
     isPopular: boolean;
-    createdAt: string;
+    createdAt: Date | string;
     category: string;
     brand?: { name: string } | null;
   };
