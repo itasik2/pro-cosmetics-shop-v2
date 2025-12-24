@@ -19,17 +19,11 @@ function writeSet(key: string, set: Set<string>) {
   window.dispatchEvent(new Event("storage-sync"));
 }
 
-export default function FavoriteCompareButtons({ productId }: Props) {
+export default function FavoriteButton({ productId }: Props) {
   const favKey = "favorites";
-  const cmpKey = "compare";
-
   const [fav, setFav] = useState(false);
-  const [cmp, setCmp] = useState(false);
 
-  const sync = () => {
-    setFav(readSet(favKey).has(productId));
-    setCmp(readSet(cmpKey).has(productId));
-  };
+  const sync = () => setFav(readSet(favKey).has(productId));
 
   useEffect(() => {
     sync();
@@ -43,41 +37,29 @@ export default function FavoriteCompareButtons({ productId }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productId]);
 
-  const toggle = (key: string) => {
-    const set = readSet(key);
+  const toggle = () => {
+    const set = readSet(favKey);
     if (set.has(productId)) set.delete(productId);
     else set.add(productId);
-    writeSet(key, set);
+    writeSet(favKey, set);
     sync();
   };
 
-  const btnClass = (active: boolean) =>
+  const cls =
     "h-9 w-9 rounded-full border text-xs grid place-items-center transition " +
-    (active
+    (fav
       ? "bg-black text-white border-black"
       : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50");
 
   return (
-    <div className="flex items-center gap-2">
-      <button
-        type="button"
-        className={btnClass(fav)}
-        onClick={() => toggle(favKey)}
-        aria-label={fav ? "Убрать из избранного" : "В избранное"}
-        title={fav ? "В избранном" : "Добавить в избранное"}
-      >
-        ❤
-      </button>
-
-      <button
-        type="button"
-        className={btnClass(cmp)}
-        onClick={() => toggle(cmpKey)}
-        aria-label={cmp ? "Убрать из сравнения" : "В сравнение"}
-        title={cmp ? "В сравнении" : "Добавить в сравнение"}
-      >
-        ⇄
-      </button>
-    </div>
+    <button
+      type="button"
+      className={cls}
+      onClick={toggle}
+      aria-label={fav ? "Убрать из избранного" : "В избранное"}
+      title={fav ? "В избранном" : "Добавить в избранное"}
+    >
+      ❤
+    </button>
   );
 }
