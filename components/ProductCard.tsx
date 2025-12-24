@@ -1,5 +1,8 @@
+"use client";
+
 import Link from "next/link";
-import FavoriteCompareButtons from "./FavoriteCompareButtons";
+import FavoriteButton from "./FavoriteButton";
+import AddToCartButton from "./AddToCartButton";
 
 type ProductCardProps = {
   product: {
@@ -9,13 +12,14 @@ type ProductCardProps = {
     price: number;
     stock: number;
     isPopular: boolean;
-    createdAt: Date | string;
+    createdAt: string;
+    category: string;
     brand?: { name: string } | null;
   };
 };
 
-function isNew(createdAt: Date | string, days = 14) {
-  const d = typeof createdAt === "string" ? new Date(createdAt) : createdAt;
+function isNew(createdAt: string, days = 14) {
+  const d = new Date(createdAt);
   const diff = Date.now() - d.getTime();
   return diff <= days * 24 * 60 * 60 * 1000;
 }
@@ -45,9 +49,9 @@ export default function ProductCard({ product }: ProductCardProps) {
         )}
       </div>
 
-      {/* Избранное/сравнение */}
+      {/* Избранное */}
       <div className="absolute right-3 top-3 z-10">
-        <FavoriteCompareButtons productId={product.id} />
+        <FavoriteButton productId={product.id} />
       </div>
 
       <div className="aspect-square w-full bg-gray-100 rounded-xl mb-3 overflow-hidden">
@@ -60,20 +64,30 @@ export default function ProductCard({ product }: ProductCardProps) {
         />
       </div>
 
-      <div className="text-sm text-gray-500">{product.brand?.name ?? ""}</div>
+      <div className="text-sm text-gray-500">
+        {product.brand?.name ?? product.category}
+      </div>
+
       <h3 className="font-semibold line-clamp-2">{product.name}</h3>
 
-      <div className="flex items-center justify-between mt-2">
+      <div className="flex items-center justify-between mt-2 gap-2">
         <div className="font-semibold">
           {Number(product.price).toLocaleString("ru-RU")} ₸
         </div>
-        <Link href={`/shop/${product.id}`} className="btn text-xs">
-          Подробнее
-        </Link>
+
+        {/* ПОКУПКА ИЗ КАТАЛОГА */}
+        <AddToCartButton productId={product.id} disabled={!inStock} />
       </div>
 
       <div className={"mt-1 text-xs " + (inStock ? "text-emerald-700" : "text-gray-500")}>
         {inStock ? `В наличии: ${product.stock}` : "Под заказ/нет"}
+      </div>
+
+      {/* Подробнее оставляем как вторичное действие */}
+      <div className="mt-2">
+        <Link href={`/shop/${product.id}`} className="text-xs text-gray-600 hover:underline">
+          Подробнее
+        </Link>
       </div>
     </div>
   );
