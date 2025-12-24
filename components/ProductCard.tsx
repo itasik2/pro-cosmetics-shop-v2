@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import FavoriteButton from "./FavoriteButton";
+import FavoriteButton from "./FavoriteCompareButtons";
 import AddToCartButton from "./AddToCartButton";
 
 type ProductCardProps = {
