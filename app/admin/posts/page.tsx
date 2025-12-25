@@ -66,3 +66,4 @@ export default function AdminPosts() {
     </div>
   );
 }
+// app/admin/posts/page.tsx
