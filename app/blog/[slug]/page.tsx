@@ -8,39 +8,44 @@ type Props = {
 };
 
 function normalizeSlug(raw: string) {
-  // decode + unicode normalize для кириллицы
   try {
-    return decodeURIComponent(raw).normalize("NFC");
+    return decodeURIComponent(raw);
   } catch {
-    return raw.normalize("NFC");
+    return raw;
   }
 }
 
-// SEO: динамический title/description по статье
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const slug = normalizeSlug(params.slug);
 
   const post = await prisma.post.findUnique({
     where: { slug },
+    select: { title: true, content: true, image: true },
   });
 
   if (!post) {
     return {
       title: "Материал не найден – pro.cosmetics",
       description: "Статья не найдена или была удалена.",
+      alternates: { canonical: "/blog" },
     };
   }
 
+  const shortBase = post.content.replace(/\s+/g, " ").trim();
   const short =
-    post.content.slice(0, 150).replace(/\s+/g, " ").trim() + "...";
+    (shortBase.length > 0 ? shortBase.slice(0, 150) : "Материал блога pro.cosmetics") +
+    (shortBase.length > 150 ? "..." : "");
 
   return {
     title: `${post.title} – блог pro.cosmetics`,
     description: short,
+    alternates: { canonical: `/blog/${slug}` },
     openGraph: {
+      type: "article",
       title: `${post.title} – блог pro.cosmetics`,
       description: short,
-      images: post.image ? [post.image] : [],
+      url: `/blog/${slug}`,
+      images: post.image ? [{ url: post.image }] : [],
     },
   };
 }
@@ -50,6 +55,7 @@ export default async function PostPage({ params }: Props) {
 
   const post = await prisma.post.findUnique({
     where: { slug },
+    select: { title: true, content: true, image: true, category: true, createdAt: true },
   });
 
   if (!post) notFound();
@@ -67,8 +73,7 @@ export default async function PostPage({ params }: Props) {
         )}
 
         <div className="text-xs text-gray-500 uppercase mb-2">
-          {post.category} •{" "}
-          {new Date(post.createdAt).toLocaleDateString("ru-RU")}
+          {post.category} • {new Date(post.createdAt).toLocaleDateString("ru-RU")}
         </div>
 
         <h1>{post.title}</h1>
