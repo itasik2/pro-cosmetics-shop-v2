@@ -1,4 +1,4 @@
-// app/admin/(privare)/blog/page.tsx
+// app/admin/(private)/blog/page.tsx
 import AdminBlogClient from "./AdminBlogClient";
 
 export default function BlogAdminPage() {
