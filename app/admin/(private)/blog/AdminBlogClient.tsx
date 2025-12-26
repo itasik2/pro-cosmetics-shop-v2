@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
+import { slugify } from "@/lib/slug";
 
 type Post = {
   id: string;
@@ -17,22 +18,16 @@ const emptyForm = {
   title: "",
   slug: "",
   content: "",
-  category: "",
+  category: "новости",
   image: "",
 };
-
-function slugify(title: string) {
-  return title
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9а-яё\s-]/gi, "")
-    .replace(/\s+/g, "-");
-}
 
 export default function AdminBlogClient() {
   const [items, setItems] = useState<Post[]>([]);
   const [form, setForm] = useState<typeof emptyForm>(emptyForm);
   const [editing, setEditing] = useState<string | null>(null);
+  const [slugTouched, setSlugTouched] = useState(false);
+
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -45,6 +40,13 @@ export default function AdminBlogClient() {
     load();
   }, []);
 
+  // slug из title (только при создании и пока slug не трогали руками)
+  useEffect(() => {
+    if (!editing && !slugTouched) {
+      setForm((f) => ({ ...f, slug: slugify(f.title) }));
+    }
+  }, [form.title, editing, slugTouched]);
+
   function setField<K extends keyof typeof emptyForm>(k: K, v: string) {
     setForm((f) => ({ ...f, [k]: v }));
   }
@@ -56,7 +58,7 @@ export default function AdminBlogClient() {
 
     const body = {
       title: form.title.trim(),
-      slug: form.slug.trim() || slugify(form.title),
+      slug: (form.slug.trim() || slugify(form.title)).trim(),
       content: form.content.trim(),
       category: form.category.trim(),
       image: form.image.trim() || null,
@@ -78,6 +80,7 @@ export default function AdminBlogClient() {
       setMsg(editing ? "Пост обновлён" : "Пост создан");
       setForm(emptyForm);
       setEditing(null);
+      setSlugTouched(false);
       load();
     } else {
       setMsg(`Ошибка: ${data?.error || res.status}`);
@@ -92,6 +95,7 @@ export default function AdminBlogClient() {
 
   function edit(p: Post) {
     setEditing(p.id);
+    setSlugTouched(true); // при редактировании slug не автогенерим
     setForm({
       title: p.title,
       slug: p.slug,
@@ -127,13 +131,18 @@ export default function AdminBlogClient() {
       return;
     }
 
-    setForm((f) => ({
-      ...f,
-      title: data.title || f.title,
-      slug: f.slug || slugify(data.title || f.title),
-      content: data.content || f.content,
-      category: data.category || f.category,
-    }));
+    setForm((f) => {
+      const nextTitle = (data.title || f.title) as string;
+      return {
+        ...f,
+        title: nextTitle,
+        // если slug не трогали вручную — обновим
+        slug: slugTouched ? f.slug : slugify(nextTitle),
+        content: data.content || f.content,
+        category: data.category || f.category,
+      };
+    });
+
     setMsg("Черновик сгенерирован, проверь и отредактируй");
   }
 
@@ -151,13 +160,7 @@ export default function AdminBlogClient() {
               required
               className="w-full border rounded-xl px-3 py-2"
               value={form.title}
-              onChange={(e) => {
-                const v = e.target.value;
-                setField("title", v);
-                if (!editing && !form.slug) {
-                  setField("slug", slugify(v));
-                }
-              }}
+              onChange={(e) => setField("title", e.target.value)}
             />
           </Field>
 
@@ -166,7 +169,10 @@ export default function AdminBlogClient() {
               required
               className="w-full border rounded-xl px-3 py-2"
               value={form.slug}
-              onChange={(e) => setField("slug", e.target.value)}
+              onChange={(e) => {
+                setSlugTouched(true);
+                setField("slug", slugify(e.target.value));
+              }}
             />
           </Field>
 
@@ -215,17 +221,18 @@ export default function AdminBlogClient() {
               Сгенерировать черновик
             </button>
 
-            {editing && (
+            {(editing || form.title || form.slug || form.content) && (
               <button
                 type="button"
                 className="px-4 py-2 rounded border"
                 onClick={() => {
                   setEditing(null);
                   setForm(emptyForm);
+                  setSlugTouched(false);
                   setMsg(null);
                 }}
               >
-                Отмена
+                Очистить
               </button>
             )}
           </div>
@@ -240,10 +247,7 @@ export default function AdminBlogClient() {
 
         <div className="grid grid-cols-1 gap-3">
           {items.map((p) => (
-            <div
-              key={p.id}
-              className="rounded-2xl border p-3 flex flex-col gap-2"
-            >
+            <div key={p.id} className="rounded-2xl border p-3 flex flex-col gap-2">
               <div className="flex justify-between items-start gap-2">
                 <div>
                   <div className="font-semibold">{p.title}</div>
@@ -255,10 +259,7 @@ export default function AdminBlogClient() {
                   <button className="btn text-xs" onClick={() => edit(p)}>
                     Ред.
                   </button>
-                  <button
-                    className="btn text-xs"
-                    onClick={() => remove(p.id)}
-                  >
+                  <button className="btn text-xs" onClick={() => remove(p.id)}>
                     Удалить
                   </button>
                 </div>
