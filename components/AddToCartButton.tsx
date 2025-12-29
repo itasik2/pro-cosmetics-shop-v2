@@ -1,38 +1,24 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import { useEffect, useState } from "react";
+import { getQty, setQty } from "@/lib/cartStorage";
 
 type Props = {
   productId: string;
   disabled?: boolean;
+  addQty?: number; // сколько добавить за раз (по умолчанию 1)
+  maxStock?: number; // ограничение по складу
 };
 
-type CartItem = { id: string; qty: number };
+export default function AddToCartButton({
+  productId,
+  disabled,
+  addQty,
+  maxStock,
+}: Props) {
+  const [qty, setQtyState] = useState(0);
 
-function readCart(): CartItem[] {
-  try {
-    const raw = localStorage.getItem("cart");
-    const arr = raw ? (JSON.parse(raw) as CartItem[]) : [];
-    return Array.isArray(arr) ? arr : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeCart(items: CartItem[]) {
-  localStorage.setItem("cart", JSON.stringify(items));
-  window.dispatchEvent(new Event("storage-sync"));
-}
-
-export default function AddToCartButton({ productId, disabled }: Props) {
-  const [qty, setQty] = useState(0);
-
-  const sync = () => {
-    const cart = readCart();
-    const found = cart.find((x) => x.id === productId);
-    setQty(found?.qty ?? 0);
-  };
+  const sync = () => setQtyState(getQty(productId));
 
   useEffect(() => {
     sync();
@@ -47,31 +33,27 @@ export default function AddToCartButton({ productId, disabled }: Props) {
   }, [productId]);
 
   const add = () => {
-    const cart = readCart();
-    const idx = cart.findIndex((x) => x.id === productId);
-    if (idx >= 0) cart[idx] = { id: productId, qty: cart[idx].qty + 1 };
-    else cart.push({ id: productId, qty: 1 });
-    writeCart(cart);
-    sync();
+    const step = Math.max(1, addQty ?? 1);
+    const next = setQty(productId, qty + step, maxStock);
+    setQtyState(next);
   };
 
   const btnClass =
     "btn text-xs px-3 py-2 rounded-xl " +
-    (disabled
-      ? "opacity-50 cursor-not-allowed"
-      : "");
+    (disabled ? "opacity-50 cursor-not-allowed" : "");
 
-  if (qty > 0) {
-    return (
-      <Link href="/checkout" className="btn text-xs">
-        В корзине ({qty})
-      </Link>
-    );
-  }
+  const label = disabled ? "Нет в наличии" : qty > 0 ? "В корзине" : "Купить";
 
   return (
-    <button type="button" className={btnClass} onClick={add} disabled={disabled}>
-      {disabled ? "Нет в наличии" : "Купить"}
+    <button
+      type="button"
+      className={btnClass}
+      onClick={add}
+      disabled={
+        !!disabled || (typeof maxStock === "number" && maxStock <= 0)
+      }
+    >
+      {label}
     </button>
   );
 }

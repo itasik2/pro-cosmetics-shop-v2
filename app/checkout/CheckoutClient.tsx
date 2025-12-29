@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { clampCartToStock, getCart, setQty as setQtyStorage, writeCart } from "@/lib/cartStorage";
 
 type CartItem = { id: string; qty: number };
 
@@ -15,28 +16,13 @@ type Product = {
   brand?: { name: string } | null;
 };
 
-function readCart(): CartItem[] {
-  try {
-    const raw = localStorage.getItem("cart");
-    const arr = raw ? (JSON.parse(raw) as CartItem[]) : [];
-    return Array.isArray(arr) ? arr : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeCart(items: CartItem[]) {
-  localStorage.setItem("cart", JSON.stringify(items));
-  window.dispatchEvent(new Event("storage-sync"));
-}
-
 export default function CheckoutClient() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const sync = () => setCart(readCart());
+  const sync = () => setCart(getCart());
 
   useEffect(() => {
     sync();
@@ -49,16 +35,33 @@ export default function CheckoutClient() {
     };
   }, []);
 
+  // ключ только по набору ID, чтобы не дергать API при изменении qty
+  const idsKey = useMemo(() => {
+    const ids = cart.map((x) => x.id).filter(Boolean);
+    const unique = Array.from(new Set(ids)).sort();
+    return unique.join("|");
+  }, [cart]);
+
+  // загрузка товаров только когда меняется набор ID
   useEffect(() => {
     (async () => {
       setErr(null);
+
+      const ids = cart.map((x) => x.id).filter(Boolean);
+      const uniqueIds = Array.from(new Set(ids)).slice(0, 100);
+
+      if (uniqueIds.length === 0) {
+        setProducts([]);
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       try {
-        const ids = cart.map((x) => x.id);
         const res = await fetch("/api/products/by-ids", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ids }),
+          body: JSON.stringify({ ids: uniqueIds }),
         });
         const data = (await res.json()) as { products: Product[]; error?: string };
         if (!res.ok) throw new Error(data?.error || "Не удалось загрузить товары");
@@ -70,7 +73,15 @@ export default function CheckoutClient() {
         setLoading(false);
       }
     })();
-  }, [cart]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idsKey]);
+
+  // вариант A: если qty > stock — автоматически режем до stock
+  useEffect(() => {
+    if (products.length === 0) return;
+    const stockMap = new Map(products.map((p) => [p.id, p.stock]));
+    clampCartToStock(stockMap);
+  }, [products]);
 
   const total = useMemo(() => {
     const map = new Map(products.map((p) => [p.id, p]));
@@ -81,31 +92,10 @@ export default function CheckoutClient() {
     }, 0);
   }, [cart, products]);
 
-  const setQty = (id: string, qty: number) => {
-    const next = cart
-      .map((x) => (x.id === id ? { ...x, qty } : x))
-      .filter((x) => x.qty > 0);
-    writeCart(next);
-    sync();
-  };
-
   const clear = () => {
     writeCart([]);
     sync();
   };
-
-  // (опционально) убрать из корзины товары, которых больше нет в БД
-  useEffect(() => {
-    if (cart.length === 0) return;
-    if (products.length === 0) return;
-    const existing = new Set(products.map((p) => p.id));
-    const next = cart.filter((x) => existing.has(x.id));
-    if (next.length !== cart.length) {
-      writeCart(next);
-      sync();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [products]);
 
   return (
     <div className="max-w-3xl mx-auto py-8 space-y-6">
@@ -183,15 +173,18 @@ export default function CheckoutClient() {
                     <button
                       type="button"
                       className="px-3 py-2 rounded-xl border hover:bg-gray-50"
-                      onClick={() => setQty(p.id, Math.max(0, qty - 1))}
+                      onClick={() => setQtyStorage(p.id, qty - 1, p.stock)}
                     >
                       −
                     </button>
+
                     <div className="w-10 text-center">{qty}</div>
+
                     <button
                       type="button"
-                      className="px-3 py-2 rounded-xl border hover:bg-gray-50"
-                      onClick={() => setQty(p.id, qty + 1)}
+                      className="px-3 py-2 rounded-xl border hover:bg-gray-50 disabled:opacity-50"
+                      onClick={() => setQtyStorage(p.id, qty + 1, p.stock)}
+                      disabled={!inStock || qty >= p.stock}
                     >
                       +
                     </button>
