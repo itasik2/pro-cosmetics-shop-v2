@@ -18,6 +18,7 @@ export default function AddToCartButton({
   disabled,
   addQty,
   maxStock,
+  goToCartOnClick,
 }: Props) {
   const [qty, setQtyState] = useState(0);
   const router = useRouter();
