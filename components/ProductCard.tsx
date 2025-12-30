@@ -133,6 +133,7 @@ export default function ProductCard({ product }: ProductCardProps) {
               productId={product.id}
               disabled={!inStock}
               maxStock={product.stock}
+              goToCartOnClick
             />
           </div>
         ) : (
