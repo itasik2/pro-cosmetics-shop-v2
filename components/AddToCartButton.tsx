@@ -1,27 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getQty, setQty } from "@/lib/cartStorage";
 import { useRouter } from "next/navigation";
-
+import { getQty, setQty } from "@/lib/cartStorage";
 
 type Props = {
   productId: string;
   disabled?: boolean;
-  addQty?: number; // сколько добавить за раз (по умолчанию 1)
-  maxStock?: number; // ограничение по складу
-  goToCartOnClick?: boolean;
+  maxStock?: number; // stock товара
 };
 
-export default function AddToCartButton({
-  productId,
-  disabled,
-  addQty,
-  maxStock,
-  goToCartOnClick,
-}: Props) {
-  const [qty, setQtyState] = useState(0);
+export default function AddToCartButton({ productId, disabled, maxStock }: Props) {
   const router = useRouter();
+  const [qty, setQtyState] = useState(0);
+
   const sync = () => setQtyState(getQty(productId));
 
   useEffect(() => {
@@ -36,34 +28,72 @@ export default function AddToCartButton({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productId]);
 
-    const handleClick = () => {
-    // если товар уже в корзине → просто открыть корзину
-    if (qty > 0 && goToCartOnClick) {
-      router.push("/checkout");
-      return;
-    }
-  
-    // обычное добавление
-    const step = Math.max(1, addQty ?? 1);
-    const next = setQty(productId, qty + step, maxStock);
+  const canBuy = !disabled && !(typeof maxStock === "number" && maxStock <= 0);
+
+  const addOne = () => {
+    if (!canBuy) return;
+    const next = setQty(productId, qty + 1, maxStock);
     setQtyState(next);
   };
 
+  const decOne = () => {
+    const next = setQty(productId, qty - 1, maxStock);
+    setQtyState(next);
+  };
 
-  const btnClass =
-    "btn text-xs px-3 py-2 rounded-xl " +
-    (disabled ? "opacity-50 cursor-not-allowed" : "");
+  const openCart = () => router.push("/checkout");
 
-  const label = disabled ? "Нет в наличии" : qty > 0 ? "В корзине" : "Купить";
+  // Состояние "Купить"
+  if (qty <= 0) {
+    return (
+      <button
+        type="button"
+        className={
+          "btn text-xs px-3 py-2 rounded-xl " +
+          (canBuy ? "" : "opacity-50 cursor-not-allowed")
+        }
+        onClick={addOne}
+        disabled={!canBuy}
+      >
+        {canBuy ? "Купить" : "Нет в наличии"}
+      </button>
+    );
+  }
+
+  // Состояние степпера внутри одной кнопки
+  const plusDisabled = !canBuy || (typeof maxStock === "number" && qty >= maxStock);
 
   return (
-    <button
-  type="button"
-  className={btnClass}
-  onClick={handleClick}
-  disabled={!!disabled || (typeof maxStock === "number" && maxStock <= 0)}
->
-  {label}
-</button>
+    <div className="inline-flex items-stretch rounded-xl border bg-white overflow-hidden">
+      <button
+        type="button"
+        className="px-3 text-sm hover:bg-gray-50"
+        onClick={decOne}
+        aria-label="Уменьшить количество"
+      >
+        −
+      </button>
+
+      <button
+        type="button"
+        className="px-3 min-w-[56px] text-center hover:bg-gray-50"
+        onClick={openCart}
+        aria-label="Открыть корзину"
+        title="Открыть корзину"
+      >
+        <div className="text-sm font-semibold leading-4">{qty}</div>
+        <div className="text-[10px] text-gray-500 leading-3">В корзине</div>
+      </button>
+
+      <button
+        type="button"
+        className="px-3 text-sm hover:bg-gray-50 disabled:opacity-50"
+        onClick={addOne}
+        disabled={plusDisabled}
+        aria-label="Увеличить количество"
+      >
+        +
+      </button>
+    </div>
   );
 }
