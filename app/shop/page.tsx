@@ -1,7 +1,7 @@
 // app/shop/page.tsx
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import ProductCard from "@/components/ProductCard";
+import ShopGridClient from "@/components/ShopGridClient";
 
 export const dynamic = "force-dynamic";
 
@@ -13,8 +13,8 @@ export const metadata = {
 
 type Props = {
   searchParams?: {
-    brand?: string; // Brand.slug
-    sort?: string;  // new | price_asc | price_desc
+    brand?: string;
+    sort?: string;
   };
 };
 
@@ -40,21 +40,20 @@ export default async function ShopPage({ searchParams }: Props) {
       : [{ createdAt: "desc" as const }];
 
   const products = await prisma.product.findMany({
-  where: selectedBrand ? { brandId: selectedBrand.id } : undefined,
-  orderBy,
-  select: {
-    id: true,
-    name: true,
-    image: true,
-    price: true,
-    stock: true,
-    isPopular: true,
-    createdAt: true,
-    category: true,
-    brand: { select: { name: true } },
-  },
-});
-
+    where: selectedBrand ? { brandId: selectedBrand.id } : undefined,
+    orderBy,
+    select: {
+      id: true,
+      name: true,
+      image: true,
+      price: true,
+      stock: true,
+      isPopular: true,
+      createdAt: true,
+      category: true,
+      brand: { select: { name: true } },
+    },
+  });
 
   return (
     <div className="space-y-6 py-6">
@@ -67,29 +66,21 @@ export default async function ShopPage({ searchParams }: Props) {
           </div>
         </div>
 
-        {/* СОРТИРОВКА */}
+        {/* Сортировка */}
         <div className="flex flex-wrap gap-2 text-sm">
           <SortLink currentBrand={brandSlug} currentSort={sort} value="new">
             Новинки
           </SortLink>
-          <SortLink
-            currentBrand={brandSlug}
-            currentSort={sort}
-            value="price_asc"
-          >
+          <SortLink currentBrand={brandSlug} currentSort={sort} value="price_asc">
             Цена ↑
           </SortLink>
-          <SortLink
-            currentBrand={brandSlug}
-            currentSort={sort}
-            value="price_desc"
-          >
+          <SortLink currentBrand={brandSlug} currentSort={sort} value="price_desc">
             Цена ↓
           </SortLink>
         </div>
       </div>
 
-      {/* ФИЛЬТР ПО БРЕНДУ */}
+      {/* Фильтр по бренду */}
       <div className="flex flex-wrap gap-2">
         <BrandLink isActive={!brandSlug} href={buildHref("", sort)}>
           Все
@@ -106,18 +97,8 @@ export default async function ShopPage({ searchParams }: Props) {
         ))}
       </div>
 
-      {/* СЕТКА ТОВАРОВ */}
-      {products.length === 0 ? (
-        <div className="text-sm text-gray-500">
-          Ничего не найдено. Попробуй снять фильтр по бренду.
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
-          {products.map((p) => (
-            <ProductCard key={p.id} product={p} />
-          ))}
-        </div>
-      )}
+      {/* Клиентская сетка + избранное */}
+      <ShopGridClient products={products} />
     </div>
   );
 }
