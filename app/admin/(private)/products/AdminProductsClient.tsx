@@ -23,7 +23,7 @@ type Product = {
 
 const emptyForm = {
   name: "",
-  brandId: "", // <-- теперь так
+  brandId: "",
   description: "",
   image: "/seed/cleanser.jpg",
   category: "",
@@ -39,6 +39,9 @@ export default function AdminProductsClient() {
   const [editing, setEditing] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // загрузка файла
+  const [uploading, setUploading] = useState(false);
 
   async function load() {
     const [prodRes, brandRes] = await Promise.all([
@@ -59,6 +62,37 @@ export default function AdminProductsClient() {
     v: (typeof emptyForm)[K],
   ) {
     setForm((f) => ({ ...f, [k]: v }));
+  }
+
+  async function uploadImage(file: File) {
+    setMsg(null);
+    setUploading(true);
+
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+
+      const res = await fetch("/api/upload/product-image", {
+        method: "POST",
+        body: fd,
+      });
+
+      const data = await res.json().catch(() => ({} as any));
+      if (!res.ok) {
+        const err = data?.error || res.status;
+        throw new Error(String(err));
+      }
+
+      const url = String(data?.url || "").trim();
+      if (!url) throw new Error("no_url_returned");
+
+      setField("image", url);
+      setMsg("Изображение загружено");
+    } catch (e: any) {
+      setMsg(`Ошибка загрузки: ${e?.message || "upload_failed"}`);
+    } finally {
+      setUploading(false);
+    }
   }
 
   async function save(e?: React.FormEvent) {
@@ -165,6 +199,26 @@ export default function AdminProductsClient() {
             />
           </Field>
 
+          {/* Загрузка изображения файлом */}
+          <Field label="Загрузить изображение (файл)">
+            <input
+              type="file"
+              accept="image/*"
+              className="w-full border rounded-xl px-3 py-2 bg-white"
+              disabled={uploading}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                uploadImage(file);
+                // чтобы можно было выбрать тот же файл повторно
+                e.currentTarget.value = "";
+              }}
+            />
+            <div className="text-xs text-gray-500 mt-1">
+              Файл загрузится в Cloudinary и URL подставится в поле ниже.
+            </div>
+          </Field>
+
           <Field label="URL изображения">
             <input
               required
@@ -172,6 +226,21 @@ export default function AdminProductsClient() {
               value={form.image}
               onChange={(e) => setField("image", e.target.value)}
             />
+          </Field>
+
+          {/* Превью */}
+          <Field label="Превью">
+            <div className="flex items-center gap-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={form.image || "/seed/cleanser.jpg"}
+                alt="preview"
+                className="w-20 h-20 object-cover rounded-xl border bg-gray-50"
+              />
+              <div className="text-xs text-gray-500">
+                {uploading ? "Загрузка…" : "Изображение будет показано в карточке и на странице товара"}
+              </div>
+            </div>
           </Field>
 
           <Field label="Категория">
@@ -231,9 +300,9 @@ export default function AdminProductsClient() {
             <button
               className="px-4 py-2 rounded bg-black text-white disabled:opacity-50"
               type="submit"
-              disabled={busy}
+              disabled={busy || uploading}
             >
-              {busy ? "Сохранение…" : "Сохранить"}
+              {busy ? "Сохранение…" : uploading ? "Загрузка…" : "Сохранить"}
             </button>
 
             {editing && (
@@ -291,10 +360,10 @@ export default function AdminProductsClient() {
               </div>
 
               <div className="flex gap-2">
-                <button className="btn" onClick={() => edit(p)}>
+                <button className="btn" onClick={() => edit(p)} type="button">
                   Ред.
                 </button>
-                <button className="btn" onClick={() => remove(p.id)}>
+                <button className="btn" onClick={() => remove(p.id)} type="button">
                   Удалить
                 </button>
               </div>
