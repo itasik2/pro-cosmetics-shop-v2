@@ -86,7 +86,7 @@ model Review {
   updatedAt DateTime @updatedAt
 }
 
-model SiteSettings {
+model ThemeSettings {
   id              String   @id @default("default")
 
   // Включение по расписанию (UTC)

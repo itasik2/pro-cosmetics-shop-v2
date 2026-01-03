@@ -25,7 +25,7 @@ function toDateOrNull(v: unknown): Date | null {
 
 export async function GET() {
   // гарантируем, что запись существует
-  const row = await prisma.siteSettings.upsert({
+  const row = await prisma.themeSettings.upsert({
     where: { id: "default" },
     update: {},
     create: { id: "default" },
@@ -62,7 +62,7 @@ export async function PUT(req: Request) {
   const bannerHrefRaw = String(body.bannerHref || "").trim();
   const bannerHref = bannerHrefRaw ? bannerHrefRaw : null;
 
-  const row = await prisma.siteSettings.upsert({
+  const row = await prisma.themeSettings.upsert({
     where: { id: "default" },
     update: {
       scheduleEnabled,

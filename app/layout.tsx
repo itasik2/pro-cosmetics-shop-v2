@@ -34,7 +34,7 @@ export default async function RootLayout({
   // читаем настройки; если модели еще нет/миграция не применена — сайт не падает
   let settings: any = null;
   try {
-    settings = await prisma.siteSettings.findUnique({ where: { id: "default" } });
+    settings = await prisma.themeSettings.findUnique({ where: { id: "default" } });
   } catch {
     settings = null;
   }
