@@ -1,115 +1,212 @@
+// app/admin/(private)/settings/AdminSettingsClient.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
+// ВАЖНО: поставь сюда путь к твоему существующему upload endpoint,
+// который загружает файл в Cloudinary и возвращает JSON с URL.
+const UPLOAD_ENDPOINT = "/api/upload"; // <-- замени на свой, если другой
 
 type Settings = {
+  id: "default";
   scheduleEnabled: boolean;
-  scheduleStart: string | null; // ISO UTC
-  scheduleEnd: string | null; // ISO UTC
+  scheduleStart: string | null; // ISO
+  scheduleEnd: string | null; // ISO
+
   backgroundUrl: string;
+
   bannerEnabled: boolean;
   bannerText: string;
   bannerHref: string | null;
+
+  updatedAt: string; // ISO
 };
 
-const empty: Settings = {
-  scheduleEnabled: false,
-  scheduleStart: null,
-  scheduleEnd: null,
-  backgroundUrl: "",
-  bannerEnabled: false,
-  bannerText: "",
-  bannerHref: null,
+type ApiGetResponse = {
+  settings: Settings | null;
+  activeNow: boolean;
 };
+
+function toISOorNull(v: string) {
+  const s = (v || "").trim();
+  return s ? s : null;
+}
+
+/**
+ * Cloudinary optimization:
+ * Вставляет трансформации после /upload/
+ * - f_auto: GIF -> animated WebP (если поддерживается)
+ * - q_auto: качество авто
+ * - w_1920,c_limit: ограничение ширины
+ *
+ * Работает и для jpg/png/webp/gif.
+ */
+function toOptimizedCloudinaryUrl(url: string) {
+  const u = (url || "").trim();
+  if (!u) return "";
+
+  // Cloudinary типично: .../image/upload/<public_id>...
+  if (!u.includes("/upload/")) return u;
+
+  // если трансформации уже вставлены — не дублируем
+  if (u.includes("/upload/f_auto")) return u;
+
+  return u.replace(
+    "/upload/",
+    "/upload/f_auto,q_auto,w_1920,c_limit/"
+  );
+}
 
 export default function AdminSettingsClient() {
-  const [settings, setSettings] = useState<Settings>(empty);
-  const [activeNow, setActiveNow] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const [scheduleEnabled, setScheduleEnabled] = useState(false);
+  const [scheduleStart, setScheduleStart] = useState<string>("");
+  const [scheduleEnd, setScheduleEnd] = useState<string>("");
+
+  const [backgroundUrl, setBackgroundUrl] = useState<string>("");
+
+  const [bannerEnabled, setBannerEnabled] = useState(false);
+  const [bannerText, setBannerText] = useState("");
+  const [bannerHref, setBannerHref] = useState("");
+
+  const [activeNow, setActiveNow] = useState(true);
 
   async function load() {
+    setLoading(true);
     setMsg(null);
-    const res = await fetch("/api/site-settings", { cache: "no-store" });
-    const data = await res.json().catch(() => ({} as any));
-    if (!res.ok) {
-      setMsg(`Ошибка: ${data?.error || res.status}`);
-      return;
+    try {
+      const res = await fetch("/api/site-settings", { cache: "no-store" });
+      const data = (await res.json().catch(() => ({}))) as ApiGetResponse;
+
+      const s = data?.settings;
+
+      setScheduleEnabled(!!s?.scheduleEnabled);
+      setScheduleStart(s?.scheduleStart ? String(s.scheduleStart) : "");
+      setScheduleEnd(s?.scheduleEnd ? String(s.scheduleEnd) : "");
+
+      setBackgroundUrl(s?.backgroundUrl ? String(s.backgroundUrl) : "");
+
+      setBannerEnabled(!!s?.bannerEnabled);
+      setBannerText(s?.bannerText ? String(s.bannerText) : "");
+      setBannerHref(s?.bannerHref ? String(s.bannerHref) : "");
+
+      setActiveNow(!!data?.activeNow);
+    } catch (e: any) {
+      setMsg(`Ошибка загрузки: ${e?.message || "failed"}`);
+    } finally {
+      setLoading(false);
     }
-    setSettings(data.settings as Settings);
-    setActiveNow(!!data.activeNow);
   }
 
   useEffect(() => {
     load();
   }, []);
 
-  function setField<K extends keyof Settings>(k: K, v: Settings[K]) {
-    setSettings((s) => ({ ...s, [k]: v }));
-  }
+  const savePayload = useMemo(() => {
+    return {
+      scheduleEnabled,
+      scheduleStart: toISOorNull(scheduleStart),
+      scheduleEnd: toISOorNull(scheduleEnd),
+
+      backgroundUrl: (backgroundUrl || "").trim(),
+
+      bannerEnabled,
+      bannerText: (bannerText || "").trim(),
+      bannerHref: toISOorNull(bannerHref),
+    };
+  }, [
+    scheduleEnabled,
+    scheduleStart,
+    scheduleEnd,
+    backgroundUrl,
+    bannerEnabled,
+    bannerText,
+    bannerHref,
+  ]);
 
   async function save() {
     setBusy(true);
     setMsg(null);
+    try {
+      const res = await fetch("/api/site-settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(savePayload),
+      });
 
-    const res = await fetch("/api/site-settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(settings),
-    });
+      const data = await res.json().catch(() => ({} as any));
+      if (!res.ok) {
+        setMsg(`Ошибка: ${data?.error || res.status}`);
+        return;
+      }
 
-    const data = await res.json().catch(() => ({} as any));
-    setBusy(false);
-
-    if (!res.ok) {
-      setMsg(`Ошибка: ${data?.error || res.status}`);
-      return;
+      setMsg("Сохранено");
+      // обновим activeNow и (если надо) подтянем свежие значения
+      await load();
+    } catch (e: any) {
+      setMsg(`Ошибка: ${e?.message || "failed"}`);
+    } finally {
+      setBusy(false);
     }
-
-    setSettings(data.settings as Settings);
-    setActiveNow(!!data.activeNow);
-    setMsg("Сохранено");
   }
 
-  async function uploadBg(file: File) {
-    setUploading(true);
+  async function uploadBackground(file: File) {
+    setBusy(true);
     setMsg(null);
+
     try {
       const fd = new FormData();
       fd.append("file", file);
 
-      // переиспользуем твой upload endpoint
-      const res = await fetch("/api/upload/product-image", {
+      const res = await fetch(UPLOAD_ENDPOINT, {
         method: "POST",
         body: fd,
       });
 
       const data = await res.json().catch(() => ({} as any));
-      if (!res.ok) throw new Error(String(data?.error || res.status));
+      if (!res.ok) {
+        setMsg(`Ошибка загрузки: ${data?.error || res.status}`);
+        return;
+      }
 
-      const url = String(data?.url || "").trim();
-      if (!url) throw new Error("no_url_returned");
+      // поддержим разные форматы ответа upload endpoint
+      const rawUrl =
+        String(
+          data?.secure_url ||
+            data?.url ||
+            data?.result?.secure_url ||
+            data?.result?.url ||
+            ""
+        ).trim();
 
-      setField("backgroundUrl", url);
-      setMsg("Фон загружен, не забудь нажать «Сохранить»");
+      if (!rawUrl) {
+        setMsg("Ошибка загрузки: не получен URL");
+        return;
+      }
+
+      // КЛЮЧЕВОЕ: оптимизируем Cloudinary URL (GIF -> animated WebP)
+      const optimized = toOptimizedCloudinaryUrl(rawUrl);
+      setBackgroundUrl(optimized);
+
+      setMsg('Фон загружен. Не забудь нажать «Сохранить».');
     } catch (e: any) {
       setMsg(`Ошибка загрузки: ${e?.message || "upload_failed"}`);
     } finally {
-      setUploading(false);
+      setBusy(false);
     }
   }
 
   return (
-    <div className="max-w-2xl space-y-6">
-      <div className="flex items-end justify-between gap-3">
+    <div className="max-w-3xl space-y-6">
+      <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold">Настройки сайта</h2>
-          <div className="text-sm text-gray-500 mt-1">
+          <div className="text-sm text-gray-600 mt-1">
             Активно сейчас (UTC):{" "}
-            <span className={activeNow ? "text-emerald-700" : "text-gray-500"}>
-              {activeNow ? "да" : "нет"}
-            </span>
+            <span className="font-semibold">{activeNow ? "да" : "нет"}</span>
           </div>
         </div>
 
@@ -117,7 +214,7 @@ export default function AdminSettingsClient() {
           type="button"
           className="px-4 py-2 rounded bg-black text-white disabled:opacity-50"
           onClick={save}
-          disabled={busy || uploading}
+          disabled={busy || loading}
         >
           {busy ? "Сохранение…" : "Сохранить"}
         </button>
@@ -125,133 +222,136 @@ export default function AdminSettingsClient() {
 
       {msg ? <div className="text-sm">{msg}</div> : null}
 
-      {/* Расписание UTC */}
-      <div className="rounded-2xl border p-4 space-y-3 bg-white/80 backdrop-blur">
-        <div className="font-semibold">Автовключение по датам (UTC)</div>
+      {loading ? (
+        <div className="text-sm text-gray-500">Загрузка…</div>
+      ) : (
+        <>
+          {/* Расписание UTC */}
+          <div className="rounded-2xl border p-4 space-y-3">
+            <div className="font-semibold">Автовключение по датам (UTC)</div>
 
-        <label className="inline-flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={settings.scheduleEnabled}
-            onChange={(e) => setField("scheduleEnabled", e.target.checked)}
-          />
-          <span>Включить расписание</span>
-        </label>
+            <label className="inline-flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={scheduleEnabled}
+                onChange={(e) => setScheduleEnabled(e.target.checked)}
+              />
+              <span>Включить расписание</span>
+            </label>
 
-        <div className="grid md:grid-cols-2 gap-3">
-          <div>
-            <div className="text-sm text-gray-600 mb-1">Start (ISO UTC)</div>
-            <input
-              className="w-full border rounded-xl px-3 py-2"
-              placeholder="2026-12-20T00:00:00Z"
-              value={settings.scheduleStart ?? ""}
-              onChange={(e) =>
-                setField("scheduleStart", e.target.value.trim() || null)
-              }
-            />
-          </div>
-          <div>
-            <div className="text-sm text-gray-600 mb-1">End (ISO UTC)</div>
-            <input
-              className="w-full border rounded-xl px-3 py-2"
-              placeholder="2027-01-10T23:59:59Z"
-              value={settings.scheduleEnd ?? ""}
-              onChange={(e) =>
-                setField("scheduleEnd", e.target.value.trim() || null)
-              }
-            />
-          </div>
-        </div>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <div className="text-sm text-gray-600 mb-1">Start (ISO UTC)</div>
+                <input
+                  className="w-full border rounded-xl px-3 py-2"
+                  value={scheduleStart}
+                  onChange={(e) => setScheduleStart(e.target.value)}
+                  placeholder="2026-01-10T00:00:00.000Z"
+                />
+              </div>
 
-        <div className="text-xs text-gray-500">
-          Если расписание включено: оформление активно только внутри интервала
-          (UTC). Пустые даты означают «без границы».
-        </div>
-      </div>
+              <div>
+                <div className="text-sm text-gray-600 mb-1">End (ISO UTC)</div>
+                <input
+                  className="w-full border rounded-xl px-3 py-2"
+                  value={scheduleEnd}
+                  onChange={(e) => setScheduleEnd(e.target.value)}
+                  placeholder="2026-01-20T00:00:00.000Z"
+                />
+              </div>
+            </div>
 
-      {/* Фон */}
-      <div className="rounded-2xl border p-4 space-y-3 bg-white/80 backdrop-blur">
-        <div className="font-semibold">Фон сайта</div>
-
-        <div className="grid md:grid-cols-2 gap-3 items-start">
-          <div>
-            <div className="text-sm text-gray-600 mb-1">Загрузить фон</div>
-            <input
-              type="file"
-              accept="image/*"
-              className="w-full border rounded-xl px-3 py-2 bg-white"
-              disabled={uploading}
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (!f) return;
-                uploadBg(f);
-                e.currentTarget.value = "";
-              }}
-            />
-            <div className="text-xs text-gray-500 mt-1">
-              Загружается в Cloudinary. Вставится URL.
+            <div className="text-xs text-gray-500">
+              Если расписание включено: оформление активно только внутри интервала (UTC).
+              Пустые даты означают «без границы».
             </div>
           </div>
 
-          <div>
-            <div className="text-sm text-gray-600 mb-1">URL фона</div>
-            <input
-              className="w-full border rounded-xl px-3 py-2"
-              value={settings.backgroundUrl}
-              onChange={(e) => setField("backgroundUrl", e.target.value)}
-              placeholder="https://..."
-            />
+          {/* Фон */}
+          <div className="rounded-2xl border p-4 space-y-3">
+            <div className="font-semibold">Фон сайта</div>
+
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div>
+                <div className="text-sm text-gray-600 mb-1">Загрузить фон</div>
+
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) uploadBackground(f);
+                    e.currentTarget.value = "";
+                  }}
+                />
+
+                <div className="text-xs text-gray-500 mt-2">
+                  Загружается в Cloudinary. GIF автоматически оптимизируется (animated WebP).
+                  В настройки подставится оптимизированный URL.
+                </div>
+              </div>
+
+              <div>
+                <div className="text-sm text-gray-600 mb-1">URL фона</div>
+                <input
+                  className="w-full border rounded-xl px-3 py-2"
+                  value={backgroundUrl}
+                  onChange={(e) => setBackgroundUrl(e.target.value)}
+                  placeholder="https://res.cloudinary.com/.../image/upload/..."
+                />
+
+                {backgroundUrl ? (
+                  <div className="mt-3">
+                    <div className="text-sm text-gray-600 mb-2">Превью</div>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={backgroundUrl}
+                      alt="background preview"
+                      className="w-full h-40 object-cover rounded-xl border"
+                    />
+                  </div>
+                ) : null}
+              </div>
+            </div>
           </div>
-        </div>
 
-        {settings.backgroundUrl ? (
-          <div className="pt-2">
-            <div className="text-sm text-gray-600 mb-2">Превью</div>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={settings.backgroundUrl}
-              alt="bg preview"
-              className="w-full max-h-64 object-cover rounded-2xl border"
-            />
+          {/* Баннер */}
+          <div className="rounded-2xl border p-4 space-y-3">
+            <div className="font-semibold">Баннер</div>
+
+            <label className="inline-flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={bannerEnabled}
+                onChange={(e) => setBannerEnabled(e.target.checked)}
+              />
+              <span>Показывать баннер</span>
+            </label>
+
+            <div>
+              <div className="text-sm text-gray-600 mb-1">Текст</div>
+              <input
+                className="w-full border rounded-xl px-3 py-2"
+                value={bannerText}
+                onChange={(e) => setBannerText(e.target.value)}
+                placeholder="Например: Новогодняя акция — скидки до 20%"
+              />
+            </div>
+
+            <div>
+              <div className="text-sm text-gray-600 mb-1">
+                Ссылка (необязательно)
+              </div>
+              <input
+                className="w-full border rounded-xl px-3 py-2"
+                value={bannerHref}
+                onChange={(e) => setBannerHref(e.target.value)}
+                placeholder="https://... или /shop"
+              />
+            </div>
           </div>
-        ) : null}
-      </div>
-
-      {/* Баннер */}
-      <div className="rounded-2xl border p-4 space-y-3 bg-white/80 backdrop-blur">
-        <div className="font-semibold">Баннер</div>
-
-        <label className="inline-flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={settings.bannerEnabled}
-            onChange={(e) => setField("bannerEnabled", e.target.checked)}
-          />
-          <span>Показывать баннер</span>
-        </label>
-
-        <div>
-          <div className="text-sm text-gray-600 mb-1">Текст</div>
-          <input
-            className="w-full border rounded-xl px-3 py-2"
-            value={settings.bannerText}
-            onChange={(e) => setField("bannerText", e.target.value)}
-            placeholder="Например: Новогодняя акция — скидки до 20%"
-          />
-        </div>
-
-        <div>
-          <div className="text-sm text-gray-600 mb-1">Ссылка (необязательно)</div>
-          <input
-            className="w-full border rounded-xl px-3 py-2"
-            value={settings.bannerHref ?? ""}
-            onChange={(e) =>
-              setField("bannerHref", e.target.value.trim() || null)
-            }
-            placeholder="https://... или /shop"
-          />
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 }
