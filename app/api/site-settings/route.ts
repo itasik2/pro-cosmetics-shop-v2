@@ -7,29 +7,46 @@ import { prisma } from "@/lib/prisma";
 
 const ID = "default";
 
+function computeActiveNow(s: {
+  scheduleEnabled: boolean;
+  scheduleStart: Date | null;
+  scheduleEnd: Date | null;
+}) {
+  if (!s.scheduleEnabled) return true;
+
+  const now = Date.now();
+  const start = s.scheduleStart ? s.scheduleStart.getTime() : null;
+  const end = s.scheduleEnd ? s.scheduleEnd.getTime() : null;
+
+  if (start !== null && now < start) return false;
+  if (end !== null && now > end) return false;
+  return true;
+}
+
 export async function GET() {
   const settings = await prisma.themeSettings.findUnique({ where: { id: ID } });
 
-  // activeNow можно считать на сервере, чтобы админка сразу показывала статус
-  const activeNow = (() => {
-    if (!settings) return true;
-    if (!settings.scheduleEnabled) return true;
+  const activeNow = settings
+    ? computeActiveNow({
+        scheduleEnabled: !!settings.scheduleEnabled,
+        scheduleStart: settings.scheduleStart ?? null,
+        scheduleEnd: settings.scheduleEnd ?? null,
+      })
+    : true;
 
-    const now = Date.now();
-    const start = settings.scheduleStart ? settings.scheduleStart.getTime() : null;
-    const end = settings.scheduleEnd ? settings.scheduleEnd.getTime() : null;
-
-    if (start !== null && now < start) return false;
-    if (end !== null && now > end) return false;
-    return true;
-  })();
-
-  return NextResponse.json({ settings, activeNow }, { status: 200 });
+  return NextResponse.json(
+    {
+      settings,
+      activeNow,
+    },
+    { status: 200 }
+  );
 }
 
 export async function PUT(req: Request) {
   const body = (await req.json().catch(() => ({}))) as any;
 
+  // приведение типов + безопасные строки
   const data = {
     scheduleEnabled: !!body.scheduleEnabled,
     scheduleStart: body.scheduleStart ? new Date(body.scheduleStart) : null,
@@ -48,5 +65,17 @@ export async function PUT(req: Request) {
     update: data,
   });
 
-  return NextResponse.json({ settings: saved }, { status: 200 });
+  const activeNow = computeActiveNow({
+    scheduleEnabled: !!saved.scheduleEnabled,
+    scheduleStart: saved.scheduleStart ?? null,
+    scheduleEnd: saved.scheduleEnd ?? null,
+  });
+
+  return NextResponse.json(
+    {
+      settings: saved,
+      activeNow,
+    },
+    { status: 200 }
+  );
 }
