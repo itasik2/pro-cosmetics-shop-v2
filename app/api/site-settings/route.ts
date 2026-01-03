@@ -1,103 +1,52 @@
+// app/api/site-settings/route.ts
+export const runtime = "nodejs";
+export const revalidate = 0;
+
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
-function isActiveNow(s: {
-  scheduleEnabled: boolean;
-  scheduleStart: Date | null;
-  scheduleEnd: Date | null;
-}) {
-  if (!s.scheduleEnabled) return true;
-  const now = Date.now();
-  const start = s.scheduleStart ? s.scheduleStart.getTime() : null;
-  const end = s.scheduleEnd ? s.scheduleEnd.getTime() : null;
-
-  if (start !== null && now < start) return false;
-  if (end !== null && now > end) return false;
-  return true;
-}
-
-function toDateOrNull(v: unknown): Date | null {
-  const s = String(v || "").trim();
-  if (!s) return null;
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
+const ID = "default";
 
 export async function GET() {
-  // гарантируем, что запись существует
-  const row = await prisma.themeSettings.upsert({
-    where: { id: "default" },
-    update: {},
-    create: { id: "default" },
-  });
+  const settings = await prisma.themeSettings.findUnique({ where: { id: ID } });
 
-  const activeNow = isActiveNow({
-    scheduleEnabled: row.scheduleEnabled,
-    scheduleStart: row.scheduleStart,
-    scheduleEnd: row.scheduleEnd,
-  });
+  // activeNow можно считать на сервере, чтобы админка сразу показывала статус
+  const activeNow = (() => {
+    if (!settings) return true;
+    if (!settings.scheduleEnabled) return true;
 
-  return NextResponse.json({
-    settings: {
-      ...row,
-      // сериализация дат
-      scheduleStart: row.scheduleStart ? row.scheduleStart.toISOString() : null,
-      scheduleEnd: row.scheduleEnd ? row.scheduleEnd.toISOString() : null,
-    },
-    activeNow,
-  });
+    const now = Date.now();
+    const start = settings.scheduleStart ? settings.scheduleStart.getTime() : null;
+    const end = settings.scheduleEnd ? settings.scheduleEnd.getTime() : null;
+
+    if (start !== null && now < start) return false;
+    if (end !== null && now > end) return false;
+    return true;
+  })();
+
+  return NextResponse.json({ settings, activeNow }, { status: 200 });
 }
 
 export async function PUT(req: Request) {
-  const body = await req.json().catch(() => ({} as any));
+  const body = (await req.json().catch(() => ({}))) as any;
 
-  const scheduleEnabled = !!body.scheduleEnabled;
-  const scheduleStart = toDateOrNull(body.scheduleStart);
-  const scheduleEnd = toDateOrNull(body.scheduleEnd);
+  const data = {
+    scheduleEnabled: !!body.scheduleEnabled,
+    scheduleStart: body.scheduleStart ? new Date(body.scheduleStart) : null,
+    scheduleEnd: body.scheduleEnd ? new Date(body.scheduleEnd) : null,
 
-  const backgroundUrl = String(body.backgroundUrl || "").trim();
+    backgroundUrl: String(body.backgroundUrl ?? "").trim(),
 
-  const bannerEnabled = !!body.bannerEnabled;
-  const bannerText = String(body.bannerText || "").trim();
-  const bannerHrefRaw = String(body.bannerHref || "").trim();
-  const bannerHref = bannerHrefRaw ? bannerHrefRaw : null;
+    bannerEnabled: !!body.bannerEnabled,
+    bannerText: String(body.bannerText ?? "").trim(),
+    bannerHref: body.bannerHref ? String(body.bannerHref).trim() : null,
+  };
 
-  const row = await prisma.themeSettings.upsert({
-    where: { id: "default" },
-    update: {
-      scheduleEnabled,
-      scheduleStart,
-      scheduleEnd,
-      backgroundUrl,
-      bannerEnabled,
-      bannerText,
-      bannerHref,
-    },
-    create: {
-      id: "default",
-      scheduleEnabled,
-      scheduleStart,
-      scheduleEnd,
-      backgroundUrl,
-      bannerEnabled,
-      bannerText,
-      bannerHref,
-    },
+  const saved = await prisma.themeSettings.upsert({
+    where: { id: ID },
+    create: { id: ID, ...data },
+    update: data,
   });
 
-  const activeNow = isActiveNow({
-    scheduleEnabled: row.scheduleEnabled,
-    scheduleStart: row.scheduleStart,
-    scheduleEnd: row.scheduleEnd,
-  });
-
-  return NextResponse.json({
-    ok: true,
-    settings: {
-      ...row,
-      scheduleStart: row.scheduleStart ? row.scheduleStart.toISOString() : null,
-      scheduleEnd: row.scheduleEnd ? row.scheduleEnd.toISOString() : null,
-    },
-    activeNow,
-  });
+  return NextResponse.json({ settings: saved }, { status: 200 });
 }
