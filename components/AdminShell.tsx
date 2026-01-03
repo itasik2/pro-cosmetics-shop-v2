@@ -6,10 +6,8 @@ import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { signOut } from "next-auth/react";
 
-
 export function AdminShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  
 
   const link = (href: string, label: string) => {
     const active = pathname.startsWith(href);
@@ -36,8 +34,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
           {link("/admin/orders", "Заказы")}
           {link("/admin/reviews", "Отзывы")}
           {link("/admin/brands", "Бренды")}
-
-
+          {link("/admin/settings", "Настройки сайта")}
         </div>
 
         <button
