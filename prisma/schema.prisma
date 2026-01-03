@@ -86,6 +86,25 @@ model Review {
   updatedAt DateTime @updatedAt
 }
 
+model SiteSettings {
+  id              String   @id @default("default")
+
+  // Включение по расписанию (UTC)
+  scheduleEnabled Boolean  @default(false)
+  scheduleStart   DateTime?
+  scheduleEnd     DateTime?
+
+  // Фон сайта
+  backgroundUrl   String   @default("")
+
+  // Баннер
+  bannerEnabled   Boolean  @default(false)
+  bannerText      String   @default("")
+  bannerHref      String?
+
+  updatedAt       DateTime @updatedAt
+}
+
 
 
 
