@@ -34,7 +34,7 @@ export default function AdminSettingsClient() {
     const res = await fetch("/api/site-settings", { cache: "no-store" });
     const data = await res.json().catch(() => ({} as any));
     if (!res.ok) {
-      setMsg(`\u041e\u0448\u0438\u0431\u043a\u0430: ${data?.error || res.status}`);
+      setMsg(`Ошибка: ${data?.error || res.status}`);
       return;
     }
     setSettings(data.settings as Settings);
@@ -63,13 +63,13 @@ export default function AdminSettingsClient() {
     setBusy(false);
 
     if (!res.ok) {
-      setMsg(`\u041e\u0448\u0438\u0431\u043a\u0430: ${data?.error || res.status}`);
+      setMsg(`Ошибка: ${data?.error || res.status}`);
       return;
     }
 
     setSettings(data.settings as Settings);
     setActiveNow(!!data.activeNow);
-    setMsg("\u0421\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u043e");
+    setMsg("Сохранено");
   }
 
   async function uploadBg(file: File) {
@@ -79,7 +79,7 @@ export default function AdminSettingsClient() {
       const fd = new FormData();
       fd.append("file", file);
 
-      // \u043f\u0435\u0440\u0435\u0438\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u0435\u043c \u0442\u0432\u043e\u0439 upload endpoint
+      // переиспользуем твой upload endpoint
       const res = await fetch("/api/upload/product-image", {
         method: "POST",
         body: fd,
@@ -92,9 +92,9 @@ export default function AdminSettingsClient() {
       if (!url) throw new Error("no_url_returned");
 
       setField("backgroundUrl", url);
-      setMsg("\u0424\u043e\u043d \u0437\u0430\u0433\u0440\u0443\u0436\u0435\u043d, \u043d\u0435 \u0437\u0430\u0431\u0443\u0434\u044c \u043d\u0430\u0436\u0430\u0442\u044c �\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c�");
+      setMsg("Фон загружен, не забудь нажать «Сохранить»");
     } catch (e: any) {
-      setMsg(`\u041e\u0448\u0438\u0431\u043a\u0430 \u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0438: ${e?.message || "upload_failed"}`);
+      setMsg(`Ошибка загрузки: ${e?.message || "upload_failed"}`);
     } finally {
       setUploading(false);
     }
@@ -104,11 +104,11 @@ export default function AdminSettingsClient() {
     <div className="max-w-2xl space-y-6">
       <div className="flex items-end justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-bold">\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u0441\u0430\u0439\u0442\u0430</h2>
+          <h2 className="text-2xl font-bold">Настройки сайта</h2>
           <div className="text-sm text-gray-500 mt-1">
-            \u0410\u043a\u0442\u0438\u0432\u043d\u043e \u0441\u0435\u0439\u0447\u0430\u0441 (UTC):{" "}
+            Активно сейчас (UTC):{" "}
             <span className={activeNow ? "text-emerald-700" : "text-gray-500"}>
-              {activeNow ? "\u0434\u0430" : "\u043d\u0435\u0442"}
+              {activeNow ? "да" : "нет"}
             </span>
           </div>
         </div>
@@ -119,15 +119,15 @@ export default function AdminSettingsClient() {
           onClick={save}
           disabled={busy || uploading}
         >
-          {busy ? "\u0421\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u0438\u0435\u2026" : "\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c"}
+          {busy ? "Сохранение…" : "Сохранить"}
         </button>
       </div>
 
       {msg ? <div className="text-sm">{msg}</div> : null}
 
-      {/* \u0420\u0430\u0441\u043f\u0438\u0441\u0430\u043d\u0438\u0435 UTC */}
+      {/* Расписание UTC */}
       <div className="rounded-2xl border p-4 space-y-3 bg-white/80 backdrop-blur">
-        <div className="font-semibold">\u0410\u0432\u0442\u043e\u0432\u043a\u043b\u044e\u0447\u0435\u043d\u0438\u0435 \u043f\u043e \u0434\u0430\u0442\u0430\u043c (UTC)</div>
+        <div className="font-semibold">Автовключение по датам (UTC)</div>
 
         <label className="inline-flex items-center gap-2 text-sm">
           <input
@@ -135,7 +135,7 @@ export default function AdminSettingsClient() {
             checked={settings.scheduleEnabled}
             onChange={(e) => setField("scheduleEnabled", e.target.checked)}
           />
-          <span>\u0412\u043a\u043b\u044e\u0447\u0438\u0442\u044c \u0440\u0430\u0441\u043f\u0438\u0441\u0430\u043d\u0438\u0435</span>
+          <span>Включить расписание</span>
         </label>
 
         <div className="grid md:grid-cols-2 gap-3">
@@ -164,18 +164,18 @@ export default function AdminSettingsClient() {
         </div>
 
         <div className="text-xs text-gray-500">
-          \u0415\u0441\u043b\u0438 \u0440\u0430\u0441\u043f\u0438\u0441\u0430\u043d\u0438\u0435 \u0432\u043a\u043b\u044e\u0447\u0435\u043d\u043e: \u043e\u0444\u043e\u0440\u043c\u043b\u0435\u043d\u0438\u0435 \u0430\u043a\u0442\u0438\u0432\u043d\u043e \u0442\u043e\u043b\u044c\u043a\u043e \u0432\u043d\u0443\u0442\u0440\u0438 \u0438\u043d\u0442\u0435\u0440\u0432\u0430\u043b\u0430
-          (UTC). \u041f\u0443\u0441\u0442\u044b\u0435 \u0434\u0430\u0442\u044b \u043e\u0437\u043d\u0430\u0447\u0430\u044e\u0442 �\u0431\u0435\u0437 \u0433\u0440\u0430\u043d\u0438\u0446\u044b�.
+          Если расписание включено: оформление активно только внутри интервала
+          (UTC). Пустые даты означают «без границы».
         </div>
       </div>
 
-      {/* \u0424\u043e\u043d */}
+      {/* Фон */}
       <div className="rounded-2xl border p-4 space-y-3 bg-white/80 backdrop-blur">
-        <div className="font-semibold">\u0424\u043e\u043d \u0441\u0430\u0439\u0442\u0430</div>
+        <div className="font-semibold">Фон сайта</div>
 
         <div className="grid md:grid-cols-2 gap-3 items-start">
           <div>
-            <div className="text-sm text-gray-600 mb-1">\u0417\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0444\u043e\u043d</div>
+            <div className="text-sm text-gray-600 mb-1">Загрузить фон</div>
             <input
               type="file"
               accept="image/*"
@@ -189,12 +189,12 @@ export default function AdminSettingsClient() {
               }}
             />
             <div className="text-xs text-gray-500 mt-1">
-              \u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u0442\u0441\u044f \u0432 Cloudinary. \u0412\u0441\u0442\u0430\u0432\u0438\u0442\u0441\u044f URL.
+              Загружается в Cloudinary. Вставится URL.
             </div>
           </div>
 
           <div>
-            <div className="text-sm text-gray-600 mb-1">URL \u0444\u043e\u043d\u0430</div>
+            <div className="text-sm text-gray-600 mb-1">URL фона</div>
             <input
               className="w-full border rounded-xl px-3 py-2"
               value={settings.backgroundUrl}
@@ -206,7 +206,7 @@ export default function AdminSettingsClient() {
 
         {settings.backgroundUrl ? (
           <div className="pt-2">
-            <div className="text-sm text-gray-600 mb-2">\u041f\u0440\u0435\u0432\u044c\u044e</div>
+            <div className="text-sm text-gray-600 mb-2">Превью</div>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={settings.backgroundUrl}
@@ -217,9 +217,9 @@ export default function AdminSettingsClient() {
         ) : null}
       </div>
 
-      {/* \u0411\u0430\u043d\u043d\u0435\u0440 */}
+      {/* Баннер */}
       <div className="rounded-2xl border p-4 space-y-3 bg-white/80 backdrop-blur">
-        <div className="font-semibold">\u0411\u0430\u043d\u043d\u0435\u0440</div>
+        <div className="font-semibold">Баннер</div>
 
         <label className="inline-flex items-center gap-2 text-sm">
           <input
@@ -227,28 +227,28 @@ export default function AdminSettingsClient() {
             checked={settings.bannerEnabled}
             onChange={(e) => setField("bannerEnabled", e.target.checked)}
           />
-          <span>\u041f\u043e\u043a\u0430\u0437\u044b\u0432\u0430\u0442\u044c \u0431\u0430\u043d\u043d\u0435\u0440</span>
+          <span>Показывать баннер</span>
         </label>
 
         <div>
-          <div className="text-sm text-gray-600 mb-1">\u0422\u0435\u043a\u0441\u0442</div>
+          <div className="text-sm text-gray-600 mb-1">Текст</div>
           <input
             className="w-full border rounded-xl px-3 py-2"
             value={settings.bannerText}
             onChange={(e) => setField("bannerText", e.target.value)}
-            placeholder="\u041d\u0430\u043f\u0440\u0438\u043c\u0435\u0440: \u041d\u043e\u0432\u043e\u0433\u043e\u0434\u043d\u044f\u044f \u0430\u043a\u0446\u0438\u044f \u2014 \u0441\u043a\u0438\u0434\u043a\u0438 \u0434\u043e 20%"
+            placeholder="Например: Новогодняя акция — скидки до 20%"
           />
         </div>
 
         <div>
-          <div className="text-sm text-gray-600 mb-1">\u0421\u0441\u044b\u043b\u043a\u0430 (\u043d\u0435\u043e\u0431\u044f\u0437\u0430\u0442\u0435\u043b\u044c\u043d\u043e)</div>
+          <div className="text-sm text-gray-600 mb-1">Ссылка (необязательно)</div>
           <input
             className="w-full border rounded-xl px-3 py-2"
             value={settings.bannerHref ?? ""}
             onChange={(e) =>
               setField("bannerHref", e.target.value.trim() || null)
             }
-            placeholder="https://... \u0438\u043b\u0438 /shop"
+            placeholder="https://... или /shop"
           />
         </div>
       </div>
