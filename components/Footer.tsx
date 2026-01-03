@@ -18,9 +18,24 @@ function SocialIcon({
       rel="noreferrer"
       className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 hover:border-gray-500 transition"
       aria-label={label}
+      title={label}
     >
       {children}
     </a>
+  );
+}
+
+function WhatsAppIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 32 32"
+      className={className || "w-4 h-4"}
+      fill="currentColor"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path d="M16.001 3C9.383 3 4 8.383 4 15c0 2.64.86 5.09 2.33 7.08L4 29l7.18-2.3A11.93 11.93 0 0016 27c6.617 0 12-5.383 12-12S22.618 3 16.001 3zm0 21.75c-2.24 0-4.34-.65-6.12-1.78l-.44-.27-4.26 1.36 1.39-4.14-.29-.43A9.72 9.72 0 016.25 15c0-5.38 4.38-9.75 9.75-9.75S25.75 9.62 25.75 15 21.38 24.75 16 24.75zm5.36-7.27c-.29-.15-1.72-.85-1.99-.95-.27-.1-.46-.15-.66.15-.2.29-.76.95-.93 1.14-.17.2-.34.22-.63.07-.29-.15-1.22-.45-2.33-1.43-.86-.77-1.44-1.72-1.61-2.01-.17-.29-.02-.45.13-.6.14-.14.29-.34.44-.51.15-.17.2-.29.29-.48.1-.2.05-.37-.02-.52-.07-.15-.66-1.6-.91-2.19-.24-.58-.49-.5-.66-.51h-.57c-.2 0-.52.07-.8.37-.27.29-1.05 1.03-1.05 2.52 0 1.48 1.08 2.91 1.23 3.11.15.2 2.12 3.23 5.13 4.53.72.31 1.28.5 1.72.64.72.23 1.38.2 1.9.12.58-.09 1.72-.7 1.96-1.37.24-.66.24-1.23.17-1.37-.07-.14-.27-.22-.56-.37z" />
+    </svg>
   );
 }
 
@@ -43,10 +58,16 @@ export default function Footer() {
               понятные составы и честные описания.
             </p>
           </div>
+
           <div className="flex gap-2">
             {/* Instagram */}
             <SocialIcon href={instagramUrl} label="Instagram">
-              <svg aria-hidden="true" viewBox="0 0 24 24" className="w-4 h-4" fill="none">
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                className="w-4 h-4"
+                fill="none"
+              >
                 <rect
                   x="3"
                   y="3"
@@ -69,7 +90,12 @@ export default function Footer() {
 
             {/* Telegram */}
             <SocialIcon href={telegramUrl} label="Telegram">
-              <svg aria-hidden="true" viewBox="0 0 24 24" className="w-4 h-4" fill="none">
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                className="w-4 h-4"
+                fill="none"
+              >
                 <path
                   d="M20.5 4.5L3.5 11.2c-.7.3-.7 1.3 0 1.5l4.5 1.6 1.8 4.7c.2.6 1 .7 1.4.1l2.4-3.3 4.1 3.1c.6.4 1.4.1 1.5-.6l1.8-13c.1-.7-.6-1.2-1.3-1z"
                   stroke="currentColor"
@@ -85,31 +111,19 @@ export default function Footer() {
               </svg>
             </SocialIcon>
 
-            {/* WhatsApp */}
+            {/* WhatsApp (исправлено) */}
             <SocialIcon href={whatsappUrl} label="WhatsApp">
-              <svg aria-hidden="true" viewBox="0 0 24 24" className="w-4 h-4" fill="none">
-                <path d="M45.4,177A95.9,95.9,0,1,1,79,210.6h0L45.8,220a7.9,7.9,0,0,1-9.8-9.8L45.4,177Z"
-                 fill="currentColor" 
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                 />
-                 <path d="M152.1,184A79.9,79.9,0,0,1,72,103.9,28,28,0,0,1,100,76h0a6.8,6.8,0,0,1,6,3.5l11.7,20.4a8.1,8.1,0,0,1-.1,8.1l-9.4,15.7h0a48,48,0,0,0,24.1,24.1h0l15.7-9.4a8.1,8.1,0,0,1,8.1-.1L176.5,150a6.8,6.8,0,0,1,3.5,6h0A28.1,28.1,0,0,1,152.1,184Z" 
-                 fill="currentColor" 
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                 />
-                 </svg>
-                
-              
+              <WhatsAppIcon className="w-4 h-4 text-green-500" />
             </SocialIcon>
 
             {/* TikTok */}
             <SocialIcon href={tiktokUrl} label="TikTok">
-              <svg aria-hidden="true" viewBox="0 0 24 24" className="w-4 h-4" fill="none">
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                className="w-4 h-4"
+                fill="none"
+              >
                 <path
                   d="M14.5 5.5V14a3.5 3.5 0 11-3-3.5"
                   stroke="currentColor"
@@ -167,7 +181,12 @@ export default function Footer() {
               <div className="font-semibold mb-2">Мы в соцсетях</div>
               <div className="flex gap-2 mb-2">
                 <SocialIcon href={instagramUrl} label="Instagram">
-                  <svg aria-hidden="true" viewBox="0 0 24 24" className="w-4 h-4" fill="none">
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 24 24"
+                    className="w-4 h-4"
+                    fill="none"
+                  >
                     <rect
                       x="3"
                       y="3"
@@ -189,7 +208,12 @@ export default function Footer() {
                 </SocialIcon>
 
                 <SocialIcon href={telegramUrl} label="Telegram">
-                  <svg aria-hidden="true" viewBox="0 0 24 24" className="w-4 h-4" fill="none">
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 24 24"
+                    className="w-4 h-4"
+                    fill="none"
+                  >
                     <path
                       d="M20.5 4.5L3.5 11.2c-.7.3-.7 1.3 0 1.5l4.5 1.6 1.8 4.7c.2.6 1 .7 1.4.1l2.4-3.3 4.1 3.1c.6.4 1.4.1 1.5-.6l1.8-13c.1-.7-.6-1.2-1.3-1z"
                       stroke="currentColor"
@@ -205,24 +229,18 @@ export default function Footer() {
                   </svg>
                 </SocialIcon>
 
+                {/* WhatsApp (исправлено и унифицировано) */}
                 <SocialIcon href={whatsappUrl} label="WhatsApp">
-                  <svg aria-hidden="true" viewBox="0 0 24 24" className="w-4 h-4" fill="none">
-                    <path
-                      d="M5 19l1.1-3.3A7 7 0 1119 11a7 7 0 01-10.8 5.7L5 19z"
-                      stroke="currentColor"
-                      strokeWidth="1.6"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                    <path
-                      d="M10.5 9.5c-.2-.5-.4-.5-.7-.5-.2 0-.4 0-.6.2-.2.3-.7.7-.7 1.7 0 1 .8 1.9.9 2 .1.1 1.5 2.4 3.7 3.2 1.9.7 2 0 2.3-.2.3-.2.5-.4.5-.7 0-.3.1-.5 0-.6-.1-.2-.4-.3-.7-.4-.3-.1-1.6-.8-1.8-.8-.2 0-.4-.1-.6.2-.2.3-.7.8-.9.9-.1.1-.3 0-.4 0-.1-.1-.8-.3-1.5-1-.5-.5-.8-1.2-.9-1.3 0-.1 0-.3.1-.4.1-.1.2-.3.3-.4.1-.1.1-.2.2-.3.1-.1.1-.2 0-.4-.1-.2-.6-1.5-.8-1.9z"
-                      fill="currentColor"
-                    />
-                  </svg>
+                  <WhatsAppIcon className="w-4 h-4 text-green-500" />
                 </SocialIcon>
 
                 <SocialIcon href={tiktokUrl} label="TikTok">
-                  <svg aria-hidden="true" viewBox="0 0 24 24" className="w-4 h-4" fill="none">
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 24 24"
+                    className="w-4 h-4"
+                    fill="none"
+                  >
                     <path
                       d="M14.5 5.5V14a3.5 3.5 0 11-3-3.5"
                       stroke="currentColor"
@@ -248,9 +266,7 @@ export default function Footer() {
       {/* Нижняя полоска — общая для всех */}
       <div className="border-t">
         <div className="container mx-auto py-3 flex flex-col md:flex-row items-center justify-between gap-2 text-[11px] text-gray-500">
-          <div>
-            © {new Date().getFullYear()} pro.cosmetics. Все права защищены.
-          </div>
+          <div>© {new Date().getFullYear()} pro.cosmetics. Все права защищены.</div>
           <div>
             Не является публичной офертой. Перед применением средств
             консультируйтесь со специалистом.
