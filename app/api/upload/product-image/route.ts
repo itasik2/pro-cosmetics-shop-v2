@@ -12,7 +12,6 @@ cloudinary.config({
 
 export async function POST(req: Request) {
   try {
-    // Проверка ENV
     if (
       !process.env.CLOUDINARY_CLOUD_NAME ||
       !process.env.CLOUDINARY_API_KEY ||
@@ -31,30 +30,63 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "file_required" }, { status: 400 });
     }
 
-    // простая валидация по типу
     if (!file.type.startsWith("image/")) {
       return NextResponse.json({ error: "only_images_allowed" }, { status: 400 });
     }
 
+    // (опционально) ограничение размера файла, например 10MB
+    const MAX_MB = 10;
+    if (file.size > MAX_MB * 1024 * 1024) {
+      return NextResponse.json(
+        { error: "file_too_large", maxMB: MAX_MB },
+        { status: 400 }
+      );
+    }
+
     const bytes = Buffer.from(await file.arrayBuffer());
 
-    const result = await new Promise<{ secure_url: string }>((resolve, reject) => {
+    const result = await new Promise<any>((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
         {
           folder: "pro-cosmetics/products",
           resource_type: "image",
+
+          // Создаём оптимизированную производную сразу (и вернём именно её URL)
+          eager: [
+            {
+              width: 1200,
+              crop: "limit",
+              fetch_format: "auto",
+              quality: "auto:good",
+            },
+          ],
+          eager_async: false,
         },
         (err, res) => {
           if (err || !res) reject(err || new Error("upload_failed"));
-          else resolve(res as any);
+          else resolve(res);
         }
       );
 
       stream.end(bytes);
     });
 
-    return NextResponse.json({ url: result.secure_url }, { status: 200 });
-  } catch (e: any) {
+    // Берём оптимизированную версию (если Cloudinary вернул eager)
+    const optimizedUrl =
+      result?.eager?.[0]?.secure_url || result?.secure_url || "";
+
+    if (!optimizedUrl) {
+      return NextResponse.json({ error: "no_url_returned" }, { status: 500 });
+    }
+
+    return NextResponse.json(
+      {
+        url: optimizedUrl,
+        originalUrl: result?.secure_url, // на всякий случай
+      },
+      { status: 200 }
+    );
+  } catch {
     return NextResponse.json({ error: "upload_failed" }, { status: 500 });
   }
 }
