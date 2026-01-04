@@ -18,6 +18,48 @@ type Props = {
   };
 };
 
+// Тип варианта для клиента
+type Variant = {
+  id: string;
+  label: string;
+  price: number;
+  stock: number;
+  sku?: string;
+};
+
+// Нормализатор Prisma JsonValue -> Variant[] | null
+function toVariants(v: unknown): Variant[] | null {
+  if (!Array.isArray(v)) return null;
+
+  const out: Variant[] = [];
+  for (const item of v) {
+    if (!item || typeof item !== "object") continue;
+
+    const obj = item as any;
+
+    const id = typeof obj.id === "string" ? obj.id : null;
+    const label = typeof obj.label === "string" ? obj.label : null;
+
+    const price =
+      typeof obj.price === "number" ? obj.price : Number(obj.price);
+    const stock =
+      typeof obj.stock === "number" ? obj.stock : Number(obj.stock);
+
+    if (!id || !label) continue;
+    if (!Number.isFinite(price) || !Number.isFinite(stock)) continue;
+
+    out.push({
+      id,
+      label,
+      price: Math.max(0, Math.trunc(price)),
+      stock: Math.max(0, Math.trunc(stock)),
+      sku: typeof obj.sku === "string" ? obj.sku : undefined,
+    });
+  }
+
+  return out.length ? out : null;
+}
+
 export default async function ShopPage({ searchParams }: Props) {
   const brandSlug = (searchParams?.brand || "").trim();
   const sort = (searchParams?.sort || "new").trim();
@@ -52,9 +94,15 @@ export default async function ShopPage({ searchParams }: Props) {
       createdAt: true,
       category: true,
       brand: { select: { name: true } },
-      variants: true,
+      variants: true, // <-- ВАЖНО: чтобы варианты приходили
     },
   });
+
+  // Приводим variants к понятному клиенту типу (Variant[] | null)
+  const productsForClient = products.map((p) => ({
+    ...p,
+    variants: toVariants((p as any).variants),
+  }));
 
   return (
     <div className="space-y-6 py-6">
@@ -63,7 +111,7 @@ export default async function ShopPage({ searchParams }: Props) {
           <h2 className="text-2xl font-bold">Каталог</h2>
           <div className="text-sm text-gray-500 mt-1">
             {selectedBrand ? `Бренд: ${selectedBrand.name}` : "Все бренды"} •{" "}
-            {products.length} поз.
+            {productsForClient.length} поз.
           </div>
         </div>
 
@@ -99,7 +147,7 @@ export default async function ShopPage({ searchParams }: Props) {
       </div>
 
       {/* Клиентская сетка + избранное */}
-      <ShopGridClient products={products} />
+      <ShopGridClient products={productsForClient} />
     </div>
   );
 }

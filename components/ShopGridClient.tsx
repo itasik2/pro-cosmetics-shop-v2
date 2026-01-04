@@ -21,9 +21,8 @@ type Product = {
   createdAt: Date | string;
   category: string;
   brand?: { name: string } | null;
-  variants?: Variant[] | null; // <-- ДОБАВИТЬ
+  variants?: Variant[] | null; // <-- ДОБАВИЛИ
 };
-
 
 function readFavorites(): Set<string> {
   try {
