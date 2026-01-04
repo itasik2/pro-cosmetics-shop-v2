@@ -16,8 +16,7 @@ const ProductSchema = z.object({
   stock: z.number().int().min(0),
   isPopular: z.boolean().optional().default(false),
 
-  // ДОБАВЛЕНО
-  variants: z.any().nullable().optional(),
+  variants: z.any().nullable().optional(), // <-- ДОБАВЛЕНО
 });
 
 export async function GET() {
@@ -32,7 +31,7 @@ export async function GET() {
       category: true,
       isPopular: true,
       createdAt: true,
-      variants: true, // чтобы витрина получила варианты
+      variants: true, // <-- ДОБАВЛЕНО
       brand: { select: { name: true } },
     },
   });
@@ -57,9 +56,7 @@ export async function POST(req: Request) {
         where: { id: parsed.brandId },
         select: { id: true },
       });
-      if (!b) {
-        return NextResponse.json({ error: "brand_not_found" }, { status: 400 });
-      }
+      if (!b) return NextResponse.json({ error: "brand_not_found" }, { status: 400 });
     }
 
     const created = await prisma.product.create({
@@ -72,9 +69,7 @@ export async function POST(req: Request) {
         price: parsed.price,
         stock: parsed.stock,
         isPopular: parsed.isPopular ?? false,
-
-        // ДОБАВЛЕНО
-        variants: parsed.variants ?? null,
+        variants: parsed.variants ?? null, // <-- ДОБАВЛЕНО
       },
       include: { brand: true },
     });
@@ -82,10 +77,7 @@ export async function POST(req: Request) {
     return NextResponse.json(created);
   } catch (e: any) {
     if (e?.name === "ZodError") {
-      return NextResponse.json(
-        { error: "validation", issues: e.issues },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "validation", issues: e.issues }, { status: 400 });
     }
     return NextResponse.json({ error: "failed_to_create" }, { status: 500 });
   }

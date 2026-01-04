@@ -16,8 +16,6 @@ type ProductCardProps = {
     createdAt: Date | string;
     category: string;
     brand?: { name: string } | null;
-
-    // Json из Prisma
     variants?: any;
   };
 };
@@ -48,12 +46,10 @@ export default function ProductCard({ product }: ProductCardProps) {
 
   const priceToShow = Number(selectedVariant?.price ?? product.price) || 0;
   const stockToUse = Math.trunc(Number(selectedVariant?.stock ?? product.stock) || 0);
-
   const inStock = stockToUse > 0;
 
   return (
     <div className="card relative">
-      {/* Бейджи */}
       <div className="absolute left-3 top-3 z-10 flex flex-col gap-2">
         {product.isPopular && (
           <span className="inline-flex items-center rounded-full bg-black px-2 py-1 text-xs text-white">
@@ -72,7 +68,6 @@ export default function ProductCard({ product }: ProductCardProps) {
         )}
       </div>
 
-      {/* Избранное */}
       <div className="absolute right-3 top-3 z-10">
         <FavoriteButton productId={product.id} />
       </div>
@@ -93,13 +88,11 @@ export default function ProductCard({ product }: ProductCardProps) {
 
       <h3 className="font-semibold line-clamp-2">{product.name}</h3>
 
-      {/* Выбор варианта (объём) */}
       {hasVariants && (
         <div className="mt-2 flex flex-wrap gap-2">
           {variants.map((v: any) => {
             const active = v?.id === variantId;
             const disabled = (v?.stock ?? 0) <= 0;
-
             return (
               <button
                 key={String(v?.id)}

@@ -10,7 +10,7 @@ import {
   parseCartKey,
 } from "@/lib/cartStorage";
 
-type CartItem = { id: string; qty: number }; // id = cartKey: "productId:variantId|base"
+type CartItem = { id: string; qty: number };
 
 type ProductVariant = {
   id: string;
@@ -24,12 +24,10 @@ type Product = {
   id: string;
   name: string;
   image: string;
-  price: number; // базовая цена
-  stock: number; // базовый stock
+  price: number;
+  stock: number;
   category: string;
   brand?: { name: string } | null;
-
-  // ДОБАВИТЬ в API: variants из Prisma Json
   variants?: any;
 };
 
@@ -65,7 +63,6 @@ export default function CheckoutClient() {
     };
   }, []);
 
-  // ключ только по набору PRODUCT IDs (без variant), чтобы не дергать API при изменении qty
   const idsKey = useMemo(() => {
     const productIds = cart
       .map((x) => parseCartKey(x.id).productId)
@@ -74,7 +71,6 @@ export default function CheckoutClient() {
     return unique.join("|");
   }, [cart]);
 
-  // загрузка товаров только когда меняется набор productId
   useEffect(() => {
     (async () => {
       setErr(null);
@@ -110,12 +106,8 @@ export default function CheckoutClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idsKey]);
 
-  // Карта продуктов по productId
-  const productMap = useMemo(() => {
-    return new Map(products.map((p) => [p.id, p]));
-  }, [products]);
+  const productMap = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
 
-  // режем qty до stock с учетом ВАРИАНТА
   useEffect(() => {
     if (products.length === 0) return;
 
@@ -131,7 +123,6 @@ export default function CheckoutClient() {
         const v = variants.find((x) => x.id === variantId);
         stockMap.set(it.id, v ? v.stock : 0);
       } else {
-        // base
         stockMap.set(it.id, p.stock);
       }
     }
@@ -141,7 +132,6 @@ export default function CheckoutClient() {
   }, [products, idsKey]);
 
   const rows = useMemo(() => {
-    // рендерим по корзине, чтобы показывались несколько вариантов одного товара
     return cart
       .map((it) => {
         const { productId, variantId } = parseCartKey(it.id);
@@ -157,8 +147,6 @@ export default function CheckoutClient() {
 
         return {
           cartKey: it.id,
-          productId,
-          variantId,
           qty: it.qty,
           title,
           unitPrice,
@@ -170,8 +158,6 @@ export default function CheckoutClient() {
       })
       .filter(Boolean) as Array<{
       cartKey: string;
-      productId: string;
-      variantId: string | null;
       qty: number;
       title: string;
       unitPrice: number;
@@ -222,3 +208,89 @@ export default function CheckoutClient() {
         <div className="text-sm text-gray-500">Загрузка…</div>
       ) : err ? (
         <div className="text-red-600">Ошибка: {err}</div>
+      ) : cart.length === 0 ? (
+        <div className="text-sm text-gray-500">
+          Корзина пустая. Нажмите “Купить” в каталоге.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {rows.map((r) => {
+            const inStock = r.stock > 0;
+            const plusDisabled = !inStock || r.qty >= r.stock;
+
+            return (
+              <div key={r.cartKey} className="rounded-2xl border p-4 shadow-sm">
+                <div className="flex items-center gap-4">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={r.image}
+                    alt={r.title}
+                    className="h-16 w-16 rounded-xl object-cover bg-gray-100"
+                  />
+
+                  <div className="flex-1">
+                    <div className="font-semibold">
+                      <Link href={r.link} className="hover:underline">
+                        {r.title}
+                      </Link>
+                    </div>
+                    <div className="text-sm text-gray-500">
+                      {r.brandOrCategory} •{" "}
+                      <span className={inStock ? "text-emerald-700" : "text-gray-500"}>
+                        {inStock ? `В наличии: ${r.stock}` : "Нет в наличии"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="font-semibold w-28 text-right">
+                    {r.unitPrice.toLocaleString("ru-RU")} ₸
+                  </div>
+                </div>
+
+                <div className="mt-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      className="px-3 py-2 rounded-xl border hover:bg-gray-50"
+                      onClick={() => setQtyStorage(r.cartKey, r.qty - 1, r.stock)}
+                    >
+                      −
+                    </button>
+
+                    <div className="w-10 text-center">{r.qty}</div>
+
+                    <button
+                      type="button"
+                      className="px-3 py-2 rounded-xl border hover:bg-gray-50 disabled:opacity-50"
+                      onClick={() => setQtyStorage(r.cartKey, r.qty + 1, r.stock)}
+                      disabled={plusDisabled}
+                    >
+                      +
+                    </button>
+                  </div>
+
+                  <div className="font-semibold">
+                    {(r.unitPrice * r.qty).toLocaleString("ru-RU")} ₸
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <div className="text-base font-bold">
+              Итого: {total.toLocaleString("ru-RU")} ₸
+            </div>
+            <button
+              type="button"
+              className="px-4 py-2 rounded bg-black text-white disabled:opacity-50"
+              onClick={() => alert("Оплата будет подключена после Stripe Webhooks")}
+            >
+              Перейти к оплате
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

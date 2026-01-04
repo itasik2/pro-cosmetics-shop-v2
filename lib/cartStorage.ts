@@ -1,7 +1,6 @@
 // lib/cartStorage.ts
 export type CartItem = { id: string; qty: number };
 
-// id теперь может быть и productId (старое), и cartKey вида "productId:variantId"
 export type CartKeyParsed = { productId: string; variantId: string | null };
 
 const KEY = "cart";
@@ -11,12 +10,10 @@ function dispatchSync() {
   window.dispatchEvent(new Event("storage-sync"));
 }
 
-// Унифицированный парсер ключа
 export function parseCartKey(id: string): CartKeyParsed {
   const s = String(id || "");
   const [productId, variantRaw] = s.split(":");
-  const variantId =
-    variantRaw && variantRaw !== "base" ? variantRaw : null;
+  const variantId = variantRaw && variantRaw !== "base" ? variantRaw : null;
   return { productId, variantId };
 }
 
@@ -29,7 +26,7 @@ export function getCart(): CartItem[] {
   try {
     const raw = localStorage.getItem(KEY);
     const arr = raw ? (JSON.parse(raw) as CartItem[]) : [];
-    return Array.isArray(arr)
+    const base = Array.isArray(arr)
       ? arr.filter(
           (x) =>
             x &&
@@ -38,6 +35,21 @@ export function getCart(): CartItem[] {
             x.id.length > 0,
         )
       : [];
+
+    // Миграция старого формата: productId -> productId:base
+    const migrated = base.map((x) => ({
+      ...x,
+      id: x.id.includes(":") ? x.id : `${x.id}:base`,
+    }));
+
+    // если были изменения — перезапишем один раз
+    const changed = migrated.some((x, i) => x.id !== base[i].id);
+    if (changed) {
+      localStorage.setItem(KEY, JSON.stringify(migrated));
+      dispatchSync();
+    }
+
+    return migrated;
   } catch {
     return [];
   }
@@ -91,7 +103,6 @@ export function dec(id: string): number {
   return setQty(id, current - 1);
 }
 
-// Автоматически режем qty до stock (id может быть cartKey)
 export function clampCartToStock(stockMap: Map<string, number>) {
   const cart = getCart();
   let changed = false;

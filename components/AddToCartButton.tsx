@@ -6,9 +6,9 @@ import { getQty, setQty, makeCartKey } from "@/lib/cartStorage";
 
 type Props = {
   productId: string;
-  variantId?: string | null; // ДОБАВИТЬ
+  variantId?: string | null;
   disabled?: boolean;
-  maxStock?: number; // stock выбранного варианта (или товара)
+  maxStock?: number;
 };
 
 export default function AddToCartButton({

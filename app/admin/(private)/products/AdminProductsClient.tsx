@@ -8,6 +8,14 @@ type Brand = {
   slug: string;
 };
 
+type VariantFormRow = {
+  id: string;
+  label: string;
+  price: string; // строка в форме
+  stock: string; // строка в форме
+  sku?: string;
+};
+
 type Product = {
   id: string;
   name: string;
@@ -19,6 +27,9 @@ type Product = {
   price: number;
   stock: number;
   isPopular: boolean;
+
+  // Json из Prisma
+  variants?: any;
 };
 
 const emptyForm = {
@@ -30,7 +41,14 @@ const emptyForm = {
   price: "",
   stock: "",
   isPopular: false,
+
+  // ДОБАВЛЕНО
+  variants: [] as VariantFormRow[],
 };
+
+function makeVariantId() {
+  return `v${Date.now()}${Math.floor(Math.random() * 1000)}`;
+}
 
 export default function AdminProductsClient() {
   const [items, setItems] = useState<Product[]>([]);
@@ -62,6 +80,33 @@ export default function AdminProductsClient() {
     v: (typeof emptyForm)[K],
   ) {
     setForm((f) => ({ ...f, [k]: v }));
+  }
+
+  function setVariantRow(idx: number, patch: Partial<VariantFormRow>) {
+    setForm((f) => {
+      const next = [...f.variants];
+      const current = next[idx];
+      if (!current) return f;
+      next[idx] = { ...current, ...patch };
+      return { ...f, variants: next };
+    });
+  }
+
+  function removeVariantRow(idx: number) {
+    setForm((f) => ({
+      ...f,
+      variants: f.variants.filter((_, i) => i !== idx),
+    }));
+  }
+
+  function addVariantRow() {
+    setForm((f) => ({
+      ...f,
+      variants: [
+        ...f.variants,
+        { id: makeVariantId(), label: "", price: "", stock: "", sku: "" },
+      ],
+    }));
   }
 
   async function uploadImage(file: File) {
@@ -100,6 +145,20 @@ export default function AdminProductsClient() {
     setBusy(true);
     setMsg(null);
 
+    // Нормализация variants для API (Json)
+    const variants =
+      form.variants && form.variants.length > 0
+        ? form.variants
+            .map((v) => ({
+              id: String(v.id || "").trim() || makeVariantId(),
+              label: String(v.label || "").trim(),
+              price: Math.max(0, Math.trunc(Number(v.price) || 0)),
+              stock: Math.max(0, Math.trunc(Number(v.stock) || 0)),
+              sku: v.sku ? String(v.sku).trim() : undefined,
+            }))
+            .filter((v) => v.label.length > 0)
+        : null;
+
     const body = {
       name: form.name.trim(),
       brandId: form.brandId ? form.brandId : null,
@@ -109,6 +168,9 @@ export default function AdminProductsClient() {
       price: Math.max(0, Math.trunc(Number(form.price) || 0)),
       stock: Math.max(0, Math.trunc(Number(form.stock) || 0)),
       isPopular: !!form.isPopular,
+
+      // ДОБАВЛЕНО
+      variants,
     };
 
     const url = editing ? `/api/products/${editing}` : `/api/products`;
@@ -141,6 +203,18 @@ export default function AdminProductsClient() {
 
   function edit(p: Product) {
     setEditing(p.id);
+
+    const raw = (p as any).variants;
+    const vForm: VariantFormRow[] = Array.isArray(raw)
+      ? raw.map((v: any) => ({
+          id: String(v?.id ?? makeVariantId()),
+          label: String(v?.label ?? ""),
+          price: String(Math.trunc(Number(v?.price) || 0)),
+          stock: String(Math.trunc(Number(v?.stock) || 0)),
+          sku: v?.sku ? String(v.sku) : "",
+        }))
+      : [];
+
     setForm({
       name: p.name,
       brandId: p.brandId ?? "",
@@ -150,6 +224,9 @@ export default function AdminProductsClient() {
       price: String(Math.trunc(p.price)),
       stock: String(p.stock ?? 0),
       isPopular: p.isPopular ?? false,
+
+      // ДОБАВЛЕНО
+      variants: vForm,
     });
   }
 
@@ -210,7 +287,6 @@ export default function AdminProductsClient() {
                 const file = e.target.files?.[0];
                 if (!file) return;
                 uploadImage(file);
-                // чтобы можно было выбрать тот же файл повторно
                 e.currentTarget.value = "";
               }}
             />
@@ -285,6 +361,75 @@ export default function AdminProductsClient() {
             />
           </Field>
 
+          {/* ВАРИАНТЫ */}
+          <Field label="Варианты (объём/цена/остаток)">
+            <div className="space-y-2">
+              <div className="text-xs text-gray-500">
+                Если варианты заполнены, на витрине цена и остаток зависят от выбранного объёма.
+                Если пусто — используется обычная цена/остаток товара.
+              </div>
+
+              {form.variants.length > 0 && (
+                <div className="space-y-2">
+                  {form.variants.map((v, idx) => (
+                    <div key={v.id} className="grid grid-cols-12 gap-2 items-center">
+                      <input
+                        className="col-span-4 border rounded-xl px-3 py-2"
+                        placeholder="Напр. 50 мл"
+                        value={v.label}
+                        onChange={(e) => setVariantRow(idx, { label: e.target.value })}
+                      />
+
+                      <input
+                        className="col-span-3 border rounded-xl px-3 py-2"
+                        placeholder="Цена ₸"
+                        inputMode="numeric"
+                        value={v.price}
+                        onChange={(e) =>
+                          setVariantRow(idx, { price: e.target.value.replace(/[^\d]/g, "") })
+                        }
+                        onBlur={(e) => {
+                          const n = Math.max(0, Math.trunc(Number(e.target.value) || 0));
+                          setVariantRow(idx, { price: String(n) });
+                        }}
+                      />
+
+                      <input
+                        className="col-span-3 border rounded-xl px-3 py-2"
+                        placeholder="Остаток"
+                        inputMode="numeric"
+                        value={v.stock}
+                        onChange={(e) =>
+                          setVariantRow(idx, { stock: e.target.value.replace(/[^\d]/g, "") })
+                        }
+                        onBlur={(e) => {
+                          const n = Math.max(0, Math.trunc(Number(e.target.value) || 0));
+                          setVariantRow(idx, { stock: String(n) });
+                        }}
+                      />
+
+                      <button
+                        type="button"
+                        className="col-span-2 px-3 py-2 rounded-xl border hover:bg-gray-50"
+                        onClick={() => removeVariantRow(idx)}
+                      >
+                        Удалить
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <button
+                type="button"
+                className="px-4 py-2 rounded-xl border hover:bg-gray-50"
+                onClick={addVariantRow}
+              >
+                + Добавить вариант
+              </button>
+            </div>
+          </Field>
+
           <Field label="Популярный товар (показывать на главной)">
             <label className="inline-flex items-center gap-2 text-sm">
               <input
@@ -331,44 +476,55 @@ export default function AdminProductsClient() {
         <h2 className="text-xl font-semibold">Товары</h2>
 
         <div className="grid grid-cols-1 gap-3">
-          {items.map((p) => (
-            <div
-              key={p.id}
-              className="rounded-2xl border p-3 flex items-center justify-between gap-4"
-            >
-              <div className="flex items-center gap-3">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={p.image}
-                  alt={p.name}
-                  className="w-16 h-16 object-cover rounded-lg"
-                />
-                <div>
-                  <div className="font-semibold flex items-center gap-2">
-                    {p.name}
-                    {p.isPopular && (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 border border-yellow-200">
-                        Популярный
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-sm text-gray-500">
-                    {(p.brand?.name ?? "—")} •{" "}
-                    {Number(p.price).toLocaleString("ru-RU")} ₸ • {p.stock} шт
+          {items.map((p) => {
+            const variantsCount = Array.isArray((p as any).variants)
+              ? (p as any).variants.length
+              : 0;
+
+            return (
+              <div
+                key={p.id}
+                className="rounded-2xl border p-3 flex items-center justify-between gap-4"
+              >
+                <div className="flex items-center gap-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={p.image}
+                    alt={p.name}
+                    className="w-16 h-16 object-cover rounded-lg"
+                  />
+                  <div>
+                    <div className="font-semibold flex items-center gap-2">
+                      {p.name}
+                      {p.isPopular && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 border border-yellow-200">
+                          Популярный
+                        </span>
+                      )}
+                      {variantsCount > 0 && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 border">
+                          Вариантов: {variantsCount}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-sm text-gray-500">
+                      {(p.brand?.name ?? "—")} •{" "}
+                      {Number(p.price).toLocaleString("ru-RU")} ₸ • {p.stock} шт
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="flex gap-2">
-                <button className="btn" onClick={() => edit(p)} type="button">
-                  Ред.
-                </button>
-                <button className="btn" onClick={() => remove(p.id)} type="button">
-                  Удалить
-                </button>
+                <div className="flex gap-2">
+                  <button className="btn" onClick={() => edit(p)} type="button">
+                    Ред.
+                  </button>
+                  <button className="btn" onClick={() => remove(p.id)} type="button">
+                    Удалить
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
 
           {items.length === 0 && (
             <div className="text-sm text-gray-500">Пока пусто</div>
