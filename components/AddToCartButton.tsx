@@ -1,20 +1,31 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getQty, setQty } from "@/lib/cartStorage";
+import { getQty, setQty, makeCartKey } from "@/lib/cartStorage";
 
 type Props = {
   productId: string;
+  variantId?: string | null; // ДОБАВИТЬ
   disabled?: boolean;
-  maxStock?: number; // stock товара
+  maxStock?: number; // stock выбранного варианта (или товара)
 };
 
-export default function AddToCartButton({ productId, disabled, maxStock }: Props) {
+export default function AddToCartButton({
+  productId,
+  variantId,
+  disabled,
+  maxStock,
+}: Props) {
   const router = useRouter();
   const [qty, setQtyState] = useState(0);
 
-  const sync = () => setQtyState(getQty(productId));
+  const cartKey = useMemo(
+    () => makeCartKey(productId, variantId),
+    [productId, variantId],
+  );
+
+  const sync = () => setQtyState(getQty(cartKey));
 
   useEffect(() => {
     sync();
@@ -26,24 +37,23 @@ export default function AddToCartButton({ productId, disabled, maxStock }: Props
       window.removeEventListener("storage-sync", onSync);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [productId]);
+  }, [cartKey]);
 
   const canBuy = !disabled && !(typeof maxStock === "number" && maxStock <= 0);
 
   const addOne = () => {
     if (!canBuy) return;
-    const next = setQty(productId, qty + 1, maxStock);
+    const next = setQty(cartKey, qty + 1, maxStock);
     setQtyState(next);
   };
 
   const decOne = () => {
-    const next = setQty(productId, qty - 1, maxStock);
+    const next = setQty(cartKey, qty - 1, maxStock);
     setQtyState(next);
   };
 
   const openCart = () => router.push("/checkout");
 
-  // Состояние "Купить"
   if (qty <= 0) {
     return (
       <button
@@ -60,8 +70,8 @@ export default function AddToCartButton({ productId, disabled, maxStock }: Props
     );
   }
 
-  // Состояние степпера внутри одной кнопки
-  const plusDisabled = !canBuy || (typeof maxStock === "number" && qty >= maxStock);
+  const plusDisabled =
+    !canBuy || (typeof maxStock === "number" && qty >= maxStock);
 
   return (
     <div className="inline-flex items-stretch rounded-xl border bg-white overflow-hidden">

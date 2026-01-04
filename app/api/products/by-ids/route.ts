@@ -23,6 +23,7 @@ export async function POST(req: Request) {
       price: true,
       stock: true,
       category: true,
+      variants: true, // важно для вариантов
       brand: { select: { name: true } },
     },
   });

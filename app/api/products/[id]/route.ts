@@ -15,6 +15,9 @@ const ProductSchema = z.object({
   price: z.number().int().min(0),
   stock: z.number().int().min(0),
   isPopular: z.boolean().optional().default(false),
+
+  // ДОБАВЛЕНО: варианты (Json)
+  variants: z.any().nullable().optional(),
 });
 
 type Params = { params: { id: string } };
@@ -52,6 +55,9 @@ export async function PUT(req: Request, { params }: Params) {
         price: parsed.price,
         stock: parsed.stock,
         isPopular: parsed.isPopular ?? false,
+
+        // ДОБАВЛЕНО
+        variants: parsed.variants ?? null,
       },
       include: { brand: true },
     });

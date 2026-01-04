@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import FavoriteButton from "./FavoriteCompareButtons";
 import AddToCartButton from "./AddToCartButton";
 
@@ -15,6 +16,9 @@ type ProductCardProps = {
     createdAt: Date | string;
     category: string;
     brand?: { name: string } | null;
+
+    // Json из Prisma
+    variants?: any;
   };
 };
 
@@ -25,8 +29,27 @@ function isNew(createdAt: Date | string, days = 14) {
 }
 
 export default function ProductCard({ product }: ProductCardProps) {
-  const inStock = product.stock > 0;
   const newBadge = isNew(product.createdAt, 14);
+
+  const variants = Array.isArray(product.variants) ? product.variants : [];
+  const hasVariants = variants.length > 0;
+
+  const defaultVariant = hasVariants
+    ? (variants.find((v: any) => (v?.stock ?? 0) > 0) ?? variants[0])
+    : null;
+
+  const [variantId, setVariantId] = useState<string | null>(
+    defaultVariant?.id ?? null,
+  );
+
+  const selectedVariant = hasVariants
+    ? (variants.find((v: any) => v?.id === variantId) ?? defaultVariant)
+    : null;
+
+  const priceToShow = Number(selectedVariant?.price ?? product.price) || 0;
+  const stockToUse = Math.trunc(Number(selectedVariant?.stock ?? product.stock) || 0);
+
+  const inStock = stockToUse > 0;
 
   return (
     <div className="card relative">
@@ -70,33 +93,52 @@ export default function ProductCard({ product }: ProductCardProps) {
 
       <h3 className="font-semibold line-clamp-2">{product.name}</h3>
 
+      {/* Выбор варианта (объём) */}
+      {hasVariants && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {variants.map((v: any) => {
+            const active = v?.id === variantId;
+            const disabled = (v?.stock ?? 0) <= 0;
+
+            return (
+              <button
+                key={String(v?.id)}
+                type="button"
+                disabled={disabled}
+                onClick={() => setVariantId(String(v?.id))}
+                className={
+                  "px-3 py-1 rounded-full text-xs border " +
+                  (active ? "bg-black text-white" : "bg-white") +
+                  (disabled ? " opacity-40 cursor-not-allowed" : " hover:bg-gray-50")
+                }
+                title={disabled ? "Нет в наличии" : ""}
+              >
+                {String(v?.label ?? "")}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       <div className="flex items-center justify-between mt-2 gap-2">
         <div className="font-semibold">
-          {Number(product.price).toLocaleString("ru-RU")} ₸
+          {priceToShow.toLocaleString("ru-RU")} ₸
         </div>
 
-        {/* Одна кнопка: "Купить" -> "- qty +", центр открывает корзину */}
         <AddToCartButton
           productId={product.id}
-          disabled={!inStock}
-          maxStock={product.stock}
+          variantId={selectedVariant?.id ?? null}
+          disabled={stockToUse <= 0}
+          maxStock={stockToUse}
         />
       </div>
 
-      <div
-        className={
-          "mt-1 text-xs " + (inStock ? "text-emerald-700" : "text-gray-500")
-        }
-      >
-        {inStock ? `В наличии: ${product.stock}` : "Под заказ/нет"}
+      <div className={"mt-1 text-xs " + (inStock ? "text-emerald-700" : "text-gray-500")}>
+        {inStock ? `В наличии: ${stockToUse}` : "Под заказ/нет"}
       </div>
 
-      {/* Подробнее оставляем как вторичное действие */}
       <div className="mt-2">
-        <Link
-          href={`/shop/${product.id}`}
-          className="text-xs text-gray-600 hover:underline"
-        >
+        <Link href={`/shop/${product.id}`} className="text-xs text-gray-600 hover:underline">
           Подробнее
         </Link>
       </div>

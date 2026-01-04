@@ -8,21 +8,36 @@ import { auth } from "@/lib/auth";
 
 const ProductSchema = z.object({
   name: z.string().min(2),
-  brandId: z.string().nullable().optional(), // <-- теперь так
+  brandId: z.string().nullable().optional(),
   description: z.string().min(1),
   image: z.string().min(1),
   category: z.string().min(1),
   price: z.number().int().min(0),
   stock: z.number().int().min(0),
   isPopular: z.boolean().optional().default(false),
+
+  // ДОБАВЛЕНО
+  variants: z.any().nullable().optional(),
 });
 
 export async function GET() {
-  const items = await prisma.product.findMany({
-    include: { brand: true },
-    orderBy: [{ isPopular: "desc" }, { createdAt: "desc" }],
+  const rows = await prisma.product.findMany({
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      name: true,
+      image: true,
+      price: true,
+      stock: true,
+      category: true,
+      isPopular: true,
+      createdAt: true,
+      variants: true, // чтобы витрина получила варианты
+      brand: { select: { name: true } },
+    },
   });
-  return NextResponse.json(items);
+
+  return NextResponse.json(rows);
 }
 
 export async function POST(req: Request) {
@@ -37,7 +52,6 @@ export async function POST(req: Request) {
   try {
     const parsed = ProductSchema.parse(await req.json());
 
-    // защита: если brandId передали, проверим что бренд существует и активен (по желанию)
     if (parsed.brandId) {
       const b = await prisma.brand.findUnique({
         where: { id: parsed.brandId },
@@ -58,11 +72,14 @@ export async function POST(req: Request) {
         price: parsed.price,
         stock: parsed.stock,
         isPopular: parsed.isPopular ?? false,
+
+        // ДОБАВЛЕНО
+        variants: parsed.variants ?? null,
       },
       include: { brand: true },
     });
 
-    return NextResponse.json(created, { status: 201 });
+    return NextResponse.json(created);
   } catch (e: any) {
     if (e?.name === "ZodError") {
       return NextResponse.json(
