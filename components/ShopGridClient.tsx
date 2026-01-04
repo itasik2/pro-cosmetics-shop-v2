@@ -3,6 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import ProductCard from "@/components/ProductCard";
 
+type Variant = {
+  id: string;
+  label: string;
+  price: number;
+  stock: number;
+  sku?: string;
+};
+
 type Product = {
   id: string;
   name: string;
@@ -13,7 +21,9 @@ type Product = {
   createdAt: Date | string;
   category: string;
   brand?: { name: string } | null;
+  variants?: Variant[] | null; // <-- ДОБАВИТЬ
 };
+
 
 function readFavorites(): Set<string> {
   try {

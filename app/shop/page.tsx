@@ -52,6 +52,7 @@ export default async function ShopPage({ searchParams }: Props) {
       createdAt: true,
       category: true,
       brand: { select: { name: true } },
+      variants: true,
     },
   });
 
