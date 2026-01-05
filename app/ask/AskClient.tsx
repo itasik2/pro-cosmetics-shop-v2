@@ -1,8 +1,8 @@
-// app/ask/AskClient.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 
 type ProductCtx = {
   id: string;
@@ -12,6 +12,14 @@ type ProductCtx = {
   category: string;
   brand?: { name?: string } | null;
 };
+
+type ChatMsg =
+  | { id: string; role: "user"; text: string; ts: number }
+  | { id: string; role: "assistant"; text: string; ts: number };
+
+function uid() {
+  return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
 
 async function fetchProduct(productId: string): Promise<ProductCtx | null> {
   try {
@@ -34,9 +42,12 @@ export default function AskClient() {
   const [product, setProduct] = useState<ProductCtx | null>(null);
 
   const [q, setQ] = useState("");
-  const [a, setA] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  const [msgs, setMsgs] = useState<ChatMsg[]>([]);
+  const endRef = useRef<HTMLDivElement | null>(null);
+
+  // Подтянуть контекст товара при заходе с карточки
   useEffect(() => {
     let cancelled = false;
 
@@ -65,20 +76,27 @@ ${brand}${Number(product.price).toLocaleString("ru-RU")} ₸
 Мой вопрос: `;
   }, [product]);
 
-  // Префилл поля вопроса (только если оно пустое)
+  // Префилл (только если поле пустое и нет истории)
   useEffect(() => {
-    if (product && !q.trim()) {
+    if (product && !q.trim() && msgs.length === 0) {
       setQ(suggestedPrompt);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [product?.id]);
 
+  // Автоскролл вниз по новым сообщениям
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [msgs.length, loading]);
+
   async function ask() {
     const query = q.trim();
-    if (query.length < 3) return;
+    if (query.length < 3 || loading) return;
 
     setLoading(true);
-    setA(null);
+
+    const userMsg: ChatMsg = { id: uid(), role: "user", text: query, ts: Date.now() };
+    setMsgs((m) => [...m, userMsg]);
 
     const context = product
       ? {
@@ -91,24 +109,77 @@ ${brand}${Number(product.price).toLocaleString("ru-RU")} ₸
         }
       : null;
 
-    const res = await fetch("/api/ask", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query, context }),
-    });
+    try {
+      const res = await fetch("/api/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query,
+          context,
+          // Никакой ломки API: если на бэке это не используется — он просто проигнорирует
+          // (можно потом расширить /api/ask на историю).
+          history: msgs
+            .slice(-8)
+            .map((m) => ({ role: m.role, text: m.text })),
+        }),
+      });
 
-    const data = await res.json().catch(() => ({} as any));
-    setLoading(false);
-    setA(data.answer || data.note || "Нет ответа");
+      const data = await res.json().catch(() => ({} as any));
+      const answer = (data.answer || data.note || "Нет ответа") as string;
+
+      const botMsg: ChatMsg = { id: uid(), role: "assistant", text: answer, ts: Date.now() };
+      setMsgs((m) => [...m, botMsg]);
+
+      // очищаем поле — как в чате
+      setQ("");
+    } catch {
+      const botMsg: ChatMsg = {
+        id: uid(),
+        role: "assistant",
+        text: "Ошибка запроса. Попробуйте ещё раз.",
+        ts: Date.now(),
+      };
+      setMsgs((m) => [...m, botMsg]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function clearChat() {
+    setMsgs([]);
+    setQ(product ? suggestedPrompt : "");
   }
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-bold">Вопрос-ответ</h1>
-      <p className="text-sm text-gray-600">
-        Спроси про продукт, состав, совместимость. Я отвечу на основе каталога и
-        блога.
-      </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">Вопрос-ответ</h1>
+          <p className="text-sm text-gray-600 mt-1">
+            Спроси про продукт, состав, совместимость. Я отвечу на основе каталога и блога.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {productId ? (
+            <Link
+              href={`/shop/${encodeURIComponent(productId)}`}
+              className="px-3 py-2 rounded-xl border bg-white/80 hover:bg-white transition text-sm"
+            >
+              К товару
+            </Link>
+          ) : null}
+
+          <button
+            type="button"
+            className="px-3 py-2 rounded-xl border bg-white/80 hover:bg-white transition text-sm"
+            onClick={clearChat}
+            disabled={loading && msgs.length === 0}
+          >
+            Очистить
+          </button>
+        </div>
+      </div>
 
       {product ? (
         <div className="rounded-2xl border p-4 bg-white/70 backdrop-blur">
@@ -121,24 +192,69 @@ ${brand}${Number(product.price).toLocaleString("ru-RU")} ₸
         </div>
       ) : null}
 
-      <div className="card space-y-3">
-        <input
-          className="w-full border rounded-xl px-3 py-2"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Например: можно ли это масло при чувствительной коже?"
-        />
-        <button
-          className="btn"
-          onClick={ask}
-          disabled={loading || q.trim().length < 3}
-          type="button"
-        >
-          {loading ? "Думаю..." : "Спросить"}
-        </button>
+      {/* История */}
+      <div className="space-y-3">
+        {msgs.length === 0 ? (
+          <div className="text-sm text-gray-500">
+            {product ? "Задайте вопрос по этому товару." : "Задайте вопрос."}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {msgs.map((m) => (
+              <div
+                key={m.id}
+                className={
+                  "rounded-2xl border p-4 whitespace-pre-line " +
+                  (m.role === "user"
+                    ? "bg-white/90"
+                    : "bg-white/70 backdrop-blur")
+                }
+              >
+                <div className="text-xs text-gray-500 mb-1">
+                  {m.role === "user" ? "Вы" : "ИИ"}
+                </div>
+                <div className="text-sm text-gray-800">{m.text}</div>
+              </div>
+            ))}
+          </div>
+        )}
+        {loading ? (
+          <div className="text-sm text-gray-500">Думаю…</div>
+        ) : null}
+        <div ref={endRef} />
       </div>
 
-      {a && <div className="card whitespace-pre-line">{a}</div>}
+      {/* Ввод */}
+      <div className="card space-y-3">
+        <textarea
+          className="w-full border rounded-xl px-3 py-2 min-h-[110px]"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Например: можно ли это средство при чувствительной коже?"
+          onKeyDown={(e) => {
+            // Enter = отправить, Shift+Enter = новая строка
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              ask();
+            }
+          }}
+        />
+
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-xs text-gray-500">
+            Enter — отправить, Shift+Enter — новая строка
+          </div>
+
+          <button
+            className="btn"
+            onClick={ask}
+            disabled={loading || q.trim().length < 3}
+            type="button"
+          >
+            {loading ? "Думаю..." : "Отправить"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
