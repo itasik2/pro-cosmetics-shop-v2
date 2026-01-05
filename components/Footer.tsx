@@ -16,7 +16,7 @@ function SocialIcon({
       href={href}
       target="_blank"
       rel="noreferrer"
-      className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 hover:border-gray-500 transition"
+      className="inline-flex items-center justify-center w-8 h-8 transition"
       aria-label={label}
       title={label}
     >
