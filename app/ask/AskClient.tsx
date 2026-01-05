@@ -1,3 +1,4 @@
+// app/ask/AskClient.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -45,9 +46,14 @@ export default function AskClient() {
   const [loading, setLoading] = useState(false);
 
   const [msgs, setMsgs] = useState<ChatMsg[]>([]);
-  const endRef = useRef<HTMLDivElement | null>(null);
 
-  // Подтянуть контекст товара при заходе с карточки
+  // refs for focus/scroll
+  const endRef = useRef<HTMLDivElement | null>(null);
+  const lastAssistantRef = useRef<HTMLDivElement | null>(null);
+
+  // textarea autoresize
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -84,10 +90,43 @@ ${brand}${Number(product.price).toLocaleString("ru-RU")} ₸
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [product?.id]);
 
-  // Автоскролл вниз по новым сообщениям
+  // Автоскролл вниз по новым сообщениям/загрузке
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [msgs.length, loading]);
+
+  // После прихода ответа: фокус на последнем ответе (assistant)
+  useEffect(() => {
+    const last = msgs[msgs.length - 1];
+    if (!last) return;
+    if (last.role !== "assistant") return;
+
+    // небольшой микротаймаут чтобы DOM успел отрисоваться
+    const t = window.setTimeout(() => {
+      lastAssistantRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      lastAssistantRef.current?.focus();
+    }, 0);
+
+    return () => window.clearTimeout(t);
+  }, [msgs]);
+
+  // autoresize textarea (min 2 строки, max ~8 строк)
+  const resizeTextarea = () => {
+    const el = taRef.current;
+    if (!el) return;
+
+    el.style.height = "auto";
+
+    const maxPx = 8 * 24; // ~8 строк по 24px (с запасом)
+    const next = Math.min(el.scrollHeight, maxPx);
+
+    el.style.height = `${next}px`;
+  };
+
+  useEffect(() => {
+    resizeTextarea();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q]);
 
   async function ask() {
     const query = q.trim();
@@ -116,11 +155,7 @@ ${brand}${Number(product.price).toLocaleString("ru-RU")} ₸
         body: JSON.stringify({
           query,
           context,
-          // Никакой ломки API: если на бэке это не используется — он просто проигнорирует
-          // (можно потом расширить /api/ask на историю).
-          history: msgs
-            .slice(-8)
-            .map((m) => ({ role: m.role, text: m.text })),
+          history: msgs.slice(-8).map((m) => ({ role: m.role, text: m.text })),
         }),
       });
 
@@ -130,8 +165,9 @@ ${brand}${Number(product.price).toLocaleString("ru-RU")} ₸
       const botMsg: ChatMsg = { id: uid(), role: "assistant", text: answer, ts: Date.now() };
       setMsgs((m) => [...m, botMsg]);
 
-      // очищаем поле — как в чате
+      // очищаем поле и сжимаем обратно
       setQ("");
+      requestAnimationFrame(() => resizeTextarea());
     } catch {
       const botMsg: ChatMsg = {
         id: uid(),
@@ -148,6 +184,7 @@ ${brand}${Number(product.price).toLocaleString("ru-RU")} ₸
   function clearChat() {
     setMsgs([]);
     setQ(product ? suggestedPrompt : "");
+    requestAnimationFrame(() => resizeTextarea());
   }
 
   return (
@@ -200,37 +237,46 @@ ${brand}${Number(product.price).toLocaleString("ru-RU")} ₸
           </div>
         ) : (
           <div className="space-y-3">
-            {msgs.map((m) => (
-              <div
-                key={m.id}
-                className={
-                  "rounded-2xl border p-4 whitespace-pre-line " +
-                  (m.role === "user"
-                    ? "bg-white/90"
-                    : "bg-white/70 backdrop-blur")
-                }
-              >
-                <div className="text-xs text-gray-500 mb-1">
-                  {m.role === "user" ? "Вы" : "ИИ"}
+            {msgs.map((m, idx) => {
+              const isLastAssistant = m.role === "assistant" && idx === msgs.length - 1;
+
+              return (
+                <div
+                  key={m.id}
+                  ref={isLastAssistant ? lastAssistantRef : undefined}
+                  tabIndex={isLastAssistant ? -1 : undefined}
+                  className={
+                    "rounded-2xl border p-4 whitespace-pre-line outline-none " +
+                    (m.role === "user"
+                      ? "bg-white/90"
+                      : "bg-white/70 backdrop-blur") +
+                    (isLastAssistant ? " ring-2 ring-black/10" : "")
+                  }
+                  aria-label={m.role === "user" ? "Ваш вопрос" : "Ответ ассистента"}
+                >
+                  <div className="text-xs text-gray-500 mb-1">
+                    {m.role === "user" ? "Вы" : "ИИ"}
+                  </div>
+                  <div className="text-sm text-gray-800">{m.text}</div>
                 </div>
-                <div className="text-sm text-gray-800">{m.text}</div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
-        {loading ? (
-          <div className="text-sm text-gray-500">Думаю…</div>
-        ) : null}
+
+        {loading ? <div className="text-sm text-gray-500">Думаю…</div> : null}
         <div ref={endRef} />
       </div>
 
       {/* Ввод */}
       <div className="card space-y-3">
         <textarea
-          className="w-full border rounded-xl px-3 py-2 min-h-[110px]"
+          ref={taRef}
+          className="w-full border rounded-xl px-3 py-2 text-sm resize-none overflow-hidden"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Например: можно ли это средство при чувствительной коже?"
+          rows={2}
           onKeyDown={(e) => {
             // Enter = отправить, Shift+Enter = новая строка
             if (e.key === "Enter" && !e.shiftKey) {
