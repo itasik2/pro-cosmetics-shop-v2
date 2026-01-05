@@ -34,7 +34,7 @@ export default async function Home() {
   return (
     <main className="space-y-10">
       {/* HERO */}
-      <section className="rounded-3xl bg-gradient-to-br from-gray-100 to-white border p-10">
+      <section className="rounded-3xl bg-white/70 backdrop-blur border p-10">
         <h1 className="text-3xl md:text-5xl font-bold tracking-tight">
           Профессиональная косметика с любовью для Вас!
         </h1>
@@ -60,7 +60,8 @@ export default async function Home() {
 
         {popular.length === 0 ? (
           <div className="text-sm text-gray-500">
-            Пока нет отмеченных популярных товаров. Отметь нужные позиции в админке.
+            Пока нет отмеченных популярных товаров. Отметь нужные позиции в
+            админке.
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
@@ -102,7 +103,10 @@ export default async function Home() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {reviews.map((r) => (
-              <div key={r.id} className="rounded-3xl border p-5 bg-white">
+              <div
+                key={r.id}
+                className="rounded-3xl border p-5 bg-white/80 backdrop-blur"
+              >
                 <div className="text-sm font-medium">{r.name}</div>
                 <div className="text-xs text-gray-500 mt-1">
                   Оценка: {r.rating}/5
