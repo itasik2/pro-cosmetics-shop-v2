@@ -1,3 +1,4 @@
+// app/layout.tsx
 import "./globals.css";
 import type { Metadata } from "next";
 import Navbar from "@/components/Navbar";
@@ -31,6 +32,7 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  // читаем настройки; если модели еще нет/миграция не применена — сайт не падает
   let settings: any = null;
   try {
     settings = await prisma.themeSettings.findUnique({
@@ -61,40 +63,41 @@ export default async function RootLayout({
 
   return (
     <html lang="ru">
-      <body className="min-h-screen flex flex-col">
-        {/* Фоновая обёртка: фон + overlay, чтобы не было ощущения “растяжения” */}
-        <div
-          className="min-h-screen flex flex-col bg-cover bg-center bg-no-repeat"
-          style={
-            backgroundUrl ? { backgroundImage: `url(${backgroundUrl})` } : undefined
-          }
-        >
-          {/* Overlay: стабилизирует читаемость и визуально убирает “грязь” от фона */}
-          <div className="min-h-screen flex flex-col bg-white/85">
-            <Providers>
-              <Navbar />
+      <body className="min-h-screen">
+        {/* ФОН: фиксированный слой, не зависит от высоты страницы */}
+        {backgroundUrl ? (
+          <div
+            className="fixed inset-0 -z-10 bg-cover bg-center bg-no-repeat"
+            style={{ backgroundImage: `url(${backgroundUrl})` }}
+            aria-hidden="true"
+          />
+        ) : null}
 
-              {/* Баннер */}
-              {bannerEnabled && bannerText ? (
-                <div className="border-b bg-white/80 backdrop-blur">
-                  <div className="container mx-auto py-2 text-sm text-gray-800 flex items-center justify-between gap-3">
-                    <div className="truncate">{bannerText}</div>
-                    {bannerHref ? (
-                      <a
-                        href={bannerHref}
-                        className="text-sm font-semibold hover:underline whitespace-nowrap"
-                      >
-                        Подробнее
-                      </a>
-                    ) : null}
-                  </div>
+        {/* Контент поверх фона */}
+        <div className="min-h-screen flex flex-col bg-white/85">
+          <Providers>
+            <Navbar />
+
+            {/* Баннер (без закрытия, как проще) */}
+            {bannerEnabled && bannerText ? (
+              <div className="border-b bg-white/80 backdrop-blur">
+                <div className="container mx-auto py-2 text-sm text-gray-800 flex items-center justify-between gap-3">
+                  <div className="truncate">{bannerText}</div>
+                  {bannerHref ? (
+                    <a
+                      href={bannerHref}
+                      className="text-sm font-semibold hover:underline whitespace-nowrap"
+                    >
+                      Подробнее
+                    </a>
+                  ) : null}
                 </div>
-              ) : null}
+              </div>
+            ) : null}
 
-              <main className="container py-8 flex-1">{children}</main>
-              <Footer />
-            </Providers>
-          </div>
+            <main className="container py-8 flex-1">{children}</main>
+            <Footer />
+          </Providers>
         </div>
       </body>
     </html>
