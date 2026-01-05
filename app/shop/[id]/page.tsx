@@ -25,10 +25,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     title: `${product.name} – купить в pro.cosmetics`,
     description: `${brandName ? `${brandName}. ` : ""}Категория: ${
       product.category
-    }. Цена: ${product.price.toLocaleString("ru-RU")} ₸. Заказать с доставкой по Казахстану.`,
+    }. Цена: ${product.price.toLocaleString(
+      "ru-RU"
+    )} ₸. Заказать с доставкой по Казахстану.`,
     openGraph: {
       title: `${product.name} – pro.cosmetics`,
-      description: `${brandName ? `${brandName}. ` : ""}Категория: ${product.category}.`,
+      description: `${
+        brandName ? `${brandName}. ` : ""
+      }Категория: ${product.category}.`,
       images: product.image ? [product.image] : [],
     },
   };
@@ -64,6 +68,20 @@ export default async function ProductPage({ params }: Props) {
 
         <div className="text-gray-600 whitespace-pre-line">
           {product.description}
+        </div>
+
+        {/* Кнопка "Спросить о товаре" — сразу под описанием */}
+        <div className="flex flex-wrap items-center gap-3">
+          <Link
+            href={`/ask?productId=${encodeURIComponent(product.id)}`}
+            className="px-4 py-2 rounded-xl border bg-white/80 backdrop-blur hover:bg-white transition text-sm"
+          >
+            Спросить о товаре
+          </Link>
+
+          <div className="text-xs text-gray-500">
+            Откроется Q&amp;A с контекстом этого товара
+          </div>
         </div>
 
         <div className="text-2xl font-semibold">
