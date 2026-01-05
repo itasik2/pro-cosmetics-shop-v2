@@ -11,14 +11,22 @@ function SocialIcon({
   children: React.ReactNode;
 }) {
   if (!href) return null;
+
   return (
     <a
       href={href}
       target="_blank"
       rel="noreferrer"
-      className="inline-flex items-center justify-center w-8 h-8 transition"
       aria-label={label}
       title={label}
+      className={[
+        // форма
+        "inline-flex items-center justify-center w-8 h-8 rounded-full border transition",
+        // цвет иконки (через currentColor)
+        "text-gray-500 hover:text-gray-900",
+        // рамка
+        "border-gray-300 hover:border-gray-500",
+      ].join(" ")}
     >
       {children}
     </a>
@@ -49,7 +57,7 @@ export default function Footer() {
   return (
     <footer className="border-t mt-10 text-sm text-gray-600 bg-white">
       <div className="container mx-auto py-5">
-        {/* МОБИЛЬНАЯ ВЕРСИЯ: только логотип + соцсети */}
+        {/* МОБИЛЬНАЯ ВЕРСИЯ */}
         <div className="flex flex-col gap-3 md:hidden">
           <div>
             <div className="font-semibold text-base">pro.cosmetics</div>
@@ -111,9 +119,9 @@ export default function Footer() {
               </svg>
             </SocialIcon>
 
-            {/* WhatsApp (исправлено) */}
+            {/* WhatsApp */}
             <SocialIcon href={whatsappUrl} label="WhatsApp">
-              <WhatsAppIcon className="w-4 h-4 text-green-500" />
+              <WhatsAppIcon className="w-4 h-4" />
             </SocialIcon>
 
             {/* TikTok */}
@@ -143,9 +151,8 @@ export default function Footer() {
           </div>
         </div>
 
-        {/* ДЕСКТОП/ПЛАНШЕТ: полный футер */}
+        {/* ДЕСКТОП/ПЛАНШЕТ */}
         <div className="hidden md:flex md:flex-row md:items-start md:justify-between md:gap-10">
-          {/* Левая половина */}
           <div className="md:w-1/2 space-y-2 max-w-md">
             <div className="font-semibold text-base">pro.cosmetics</div>
             <p>
@@ -155,7 +162,6 @@ export default function Footer() {
             </p>
           </div>
 
-          {/* Правая половина */}
           <div className="md:w-1/2 grid grid-cols-3 gap-4">
             <div>
               <div className="font-semibold mb-2">Разделы</div>
@@ -229,9 +235,8 @@ export default function Footer() {
                   </svg>
                 </SocialIcon>
 
-                {/* WhatsApp (исправлено и унифицировано) */}
                 <SocialIcon href={whatsappUrl} label="WhatsApp">
-                  <WhatsAppIcon className="w-4 h-4 text-green-500" />
+                  <WhatsAppIcon className="w-4 h-4" />
                 </SocialIcon>
 
                 <SocialIcon href={tiktokUrl} label="TikTok">
@@ -263,7 +268,6 @@ export default function Footer() {
         </div>
       </div>
 
-      {/* Нижняя полоска — общая для всех */}
       <div className="border-t">
         <div className="container mx-auto py-3 flex flex-col md:flex-row items-center justify-between gap-2 text-[11px] text-gray-500">
           <div>© {new Date().getFullYear()} pro.cosmetics. Все права защищены.</div>
