@@ -35,25 +35,36 @@ function parseBoldHeading(line: string) {
   return inner;
 }
 
-// 2) Заголовок, если строка заканчивается ":" и она не слишком короткая
-// (это формат без спец-символов)
+// 2) Заголовок, если строка заканчивается ":" (без спец-символов)
 function parseColonHeading(line: string) {
   const t = line.trim();
   if (!t.endsWith(":")) return null;
   const inner = t.slice(0, -1).trim();
   if (!inner) return null;
-
-  // защитимся от мусора типа "Пример:" длиной 3-4 символа
   if (inner.length < 6) return null;
-
-  // если строка похожа на список/маркер — не считаем заголовком
   if (/^[-•\d]+\s/.test(inner)) return null;
-
   return inner;
 }
 
+// 3) Markdown-подобные заголовки: ## / ###
+function parseHashHeading(line: string) {
+  const t = line.trim();
+  const m = t.match(/^(#{2,3})\s+(.+?)\s*$/);
+  if (!m) return null;
+  const level = m[1].length; // 2 или 3
+  const text = m[2].trim();
+  if (!text) return null;
+  return { level, text };
+}
+
+// 4) Разделитель вида --- (часто в генерации)
+function isSeparator(line: string) {
+  const t = line.trim();
+  return t === "---" || t === "—" || t === "——" || t === "———";
+}
+
 type Block =
-  | { type: "heading"; text: string; id: string }
+  | { type: "heading"; text: string; id: string; level: 2 | 3 }
   | { type: "paragraph"; text: string };
 
 function makeUniqueId(base: string, used: Map<string, number>) {
@@ -67,7 +78,6 @@ function parseContentToBlocks(content: string) {
 
   const blocks: Block[] = [];
   const toc: { id: string; text: string }[] = [];
-
   const usedIds = new Map<string, number>();
 
   let buf: string[] = [];
@@ -81,18 +91,31 @@ function parseContentToBlocks(content: string) {
   for (const rawLine of lines) {
     const line = rawLine ?? "";
 
-    // Поддерживаем 2 формата заголовков
-    const heading =
-      parseBoldHeading(line) ||
-      parseColonHeading(line);
+    // игнорируем разделители типа ---
+    if (isSeparator(line)) continue;
 
-    if (heading) {
+    // поддерживаем 3 формата заголовков
+    const hHash = parseHashHeading(line);
+    const hText = parseBoldHeading(line) || parseColonHeading(line);
+
+    if (hHash) {
       flushParagraph();
-      const baseId = slugToId(heading) || "section";
+      const baseId = slugToId(hHash.text) || "section";
+      const id = makeUniqueId(baseId, usedIds);
+      const level: 2 | 3 = hHash.level === 3 ? 3 : 2;
+
+      blocks.push({ type: "heading", text: hHash.text, id, level });
+      toc.push({ id, text: hHash.text });
+      continue;
+    }
+
+    if (hText) {
+      flushParagraph();
+      const baseId = slugToId(hText) || "section";
       const id = makeUniqueId(baseId, usedIds);
 
-      blocks.push({ type: "heading", text: heading, id });
-      toc.push({ id, text: heading });
+      blocks.push({ type: "heading", text: hText, id, level: 2 });
+      toc.push({ id, text: hText });
       continue;
     }
 
@@ -191,12 +214,13 @@ export default async function PostPage({ params }: Props) {
         <div className="mt-6 space-y-4">
           {blocks.map((b, idx) => {
             if (b.type === "heading") {
+              const cls =
+                b.level === 3
+                  ? "text-lg md:text-xl font-bold scroll-mt-24"
+                  : "text-xl md:text-2xl font-bold scroll-mt-24";
+
               return (
-                <h2
-                  key={`${b.id}-${idx}`}
-                  id={b.id}
-                  className="text-xl md:text-2xl font-bold scroll-mt-24"
-                >
+                <h2 key={`${b.id}-${idx}`} id={b.id} className={cls}>
                   {b.text}
                 </h2>
               );
@@ -211,6 +235,10 @@ export default async function PostPage({ params }: Props) {
               </div>
             );
           })}
+        </div>
+
+        <div className="mt-8 text-xs text-gray-500">
+          Материал носит информационный характер и не заменяет консультацию врача.
         </div>
       </article>
     </main>
