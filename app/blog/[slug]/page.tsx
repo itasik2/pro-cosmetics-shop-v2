@@ -19,19 +19,36 @@ function slugToId(s: string) {
   return s
     .toLowerCase()
     .trim()
-    .replace(/[^\p{L}\p{N}\s-]/gu, "") // буквы/цифры/пробел/дефис
+    .replace(/[^\p{L}\p{N}\s-]/gu, "")
     .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
     .slice(0, 80);
 }
 
-// Заголовок считается заголовком, если строка целиком вида **...**
+// 1) Заголовок, если строка целиком вида **...**
 function parseBoldHeading(line: string) {
   const t = line.trim();
   if (!t.startsWith("**") || !t.endsWith("**")) return null;
   const inner = t.slice(2, -2).trim();
   if (!inner) return null;
-  // если внутри тоже есть ** — считаем это обычным текстом
   if (inner.includes("**")) return null;
+  return inner;
+}
+
+// 2) Заголовок, если строка заканчивается ":" и она не слишком короткая
+// (это формат без спец-символов)
+function parseColonHeading(line: string) {
+  const t = line.trim();
+  if (!t.endsWith(":")) return null;
+  const inner = t.slice(0, -1).trim();
+  if (!inner) return null;
+
+  // защитимся от мусора типа "Пример:" длиной 3-4 символа
+  if (inner.length < 6) return null;
+
+  // если строка похожа на список/маркер — не считаем заголовком
+  if (/^[-•\d]+\s/.test(inner)) return null;
+
   return inner;
 }
 
@@ -39,11 +56,19 @@ type Block =
   | { type: "heading"; text: string; id: string }
   | { type: "paragraph"; text: string };
 
+function makeUniqueId(base: string, used: Map<string, number>) {
+  const n = used.get(base) || 0;
+  used.set(base, n + 1);
+  return n === 0 ? base : `${base}-${n + 1}`;
+}
+
 function parseContentToBlocks(content: string) {
   const lines = (content || "").replace(/\r/g, "").split("\n");
 
   const blocks: Block[] = [];
   const toc: { id: string; text: string }[] = [];
+
+  const usedIds = new Map<string, number>();
 
   let buf: string[] = [];
 
@@ -55,11 +80,17 @@ function parseContentToBlocks(content: string) {
 
   for (const rawLine of lines) {
     const line = rawLine ?? "";
-    const heading = parseBoldHeading(line);
+
+    // Поддерживаем 2 формата заголовков
+    const heading =
+      parseBoldHeading(line) ||
+      parseColonHeading(line);
 
     if (heading) {
       flushParagraph();
-      const id = slugToId(heading);
+      const baseId = slugToId(heading) || "section";
+      const id = makeUniqueId(baseId, usedIds);
+
       blocks.push({ type: "heading", text: heading, id });
       toc.push({ id, text: heading });
       continue;
@@ -139,18 +170,21 @@ export default async function PostPage({ params }: Props) {
 
         {/* Кликабельный план */}
         {toc.length > 0 && (
-          <div className="mt-5 rounded-2xl border bg-white/70 backdrop-blur p-4">
+          <nav className="mt-5 rounded-2xl border bg-white/70 backdrop-blur p-4">
             <div className="font-semibold mb-2">План</div>
-            <ul className="list-disc pl-5 space-y-1 text-sm">
+            <ul className="space-y-1 text-sm">
               {toc.map((x) => (
                 <li key={x.id}>
-                  <a className="hover:underline" href={`#${x.id}`}>
+                  <a
+                    className="block rounded-lg px-2 py-1 hover:bg-gray-50 hover:underline"
+                    href={`#${x.id}`}
+                  >
                     {x.text}
                   </a>
                 </li>
               ))}
             </ul>
-          </div>
+          </nav>
         )}
 
         {/* Контент */}
@@ -168,7 +202,6 @@ export default async function PostPage({ params }: Props) {
               );
             }
 
-            // paragraph: сохраняем переносы, как раньше
             return (
               <div
                 key={`p-${idx}`}
