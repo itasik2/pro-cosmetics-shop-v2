@@ -8,7 +8,63 @@ import { openai } from "@/lib/openai";
 type Body = {
   topic?: string;
   category?: string;
+
+  // новые опции (все необязательные, чтобы не ломать старые вызовы)
+  audience?: string;
+  tone?: "neutral" | "simple" | "expert" | "marketing";
+  depth?: "short" | "standard" | "deep";
+
+  blocks?: {
+    slides?: boolean;
+    faq?: boolean;
+    checklist?: boolean;
+    mistakes?: boolean;
+    table?: boolean;
+  };
 };
+
+function toneLabel(tone: Body["tone"]) {
+  switch (tone) {
+    case "simple":
+      return "простыми словами, без сложной терминологии, без воды";
+    case "neutral":
+      return "нейтрально и делово, по делу";
+    case "marketing":
+      return "мягко-маркетингово, но без давления и без обещаний чудес";
+    case "expert":
+    default:
+      return "экспертно, но понятно, без медицины и без диагнозов";
+  }
+}
+
+function depthSpec(depth: Body["depth"]) {
+  switch (depth) {
+    case "short":
+      return "700–1000 слов";
+    case "standard":
+      return "1000–1500 слов";
+    case "deep":
+    default:
+      return "1500–2200 слов, максимально насыщенно";
+  }
+}
+
+function boolOrDefault(v: unknown, def: boolean) {
+  return typeof v === "boolean" ? v : def;
+}
+
+function extractJsonFromText(raw: string) {
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start === -1 || end === -1) return null;
+
+  const slice = raw.slice(start, end + 1);
+  try {
+    return JSON.parse(slice);
+  } catch {
+    return null;
+  }
+}
 
 export async function POST(req: Request) {
   try {
@@ -27,68 +83,115 @@ export async function POST(req: Request) {
 
     // 3) Читаем вход
     const json = (await req.json().catch(() => ({}))) as Body;
+
     const topic = (json.topic || "").trim();
-    const category = (json.category || "").trim();
+    const category = (json.category || "").trim() || "уход за кожей";
 
     if (!topic) {
       return NextResponse.json({ error: "topic_required" }, { status: 400 });
     }
 
-    // 4) Промпт
+    // 4) Дефолты (чтобы старые вызовы работали)
+    const audience = (json.audience || "широкая аудитория").trim() || "широкая аудитория";
+    const tone = (json.tone || "expert") as NonNullable<Body["tone"]>;
+    const depth = (json.depth || "deep") as NonNullable<Body["depth"]>;
+
+    const blocks = {
+      // по умолчанию включаем “насыщение”
+      slides: boolOrDefault(json.blocks?.slides, true),
+      faq: boolOrDefault(json.blocks?.faq, true),
+      checklist: boolOrDefault(json.blocks?.checklist, true),
+      mistakes: boolOrDefault(json.blocks?.mistakes, true),
+      table: boolOrDefault(json.blocks?.table, true),
+    };
+
+    const slideRule = blocks.slides
+      ? `Перед КАЖДЫМ разделом ставь строку-делитель '---' на отдельной строке.`
+      : `Разделители '---' не используй.`;
+
+    const tableRule = blocks.table
+      ? `Добавь 1 таблицу в Markdown (с символами |), практическую: сравнение вариантов/сценариев применения/комбинаций.`
+      : `Таблицу не добавляй.`;
+
+    const faqRule = blocks.faq
+      ? `Добавь блок "## FAQ" (8–12 вопросов и коротких ответов).`
+      : `FAQ не добавляй.`;
+
+    const mistakesRule = blocks.mistakes
+      ? `Добавь блок "## Ошибки и мифы" (минимум 7 пунктов).`
+      : `Ошибки/мифы не добавляй.`;
+
+    const checklistRule = blocks.checklist
+      ? `Добавь блок "## Чек-лист" (10–15 коротких пунктов).`
+      : `Чек-лист не добавляй.`;
+
+    // 5) Промпт (богатый, структурный, пригодный для /slides)
+    // Важно: просим ВЕРНУТЬ JSON и ничего кроме JSON.
     const prompt = `
-Ты — эксперт по профессиональной косметике и уходу за кожей.
-Сгенерируй полезную, понятную статью для блога интернет-магазина косметики.
+Ты — редактор и эксперт по уходу за кожей для интернет-магазина профессиональной косметики.
+Сгенерируй насыщенную, структурированную статью, которую легко читать и легко превращать в презентацию.
 
 Тема: "${topic}"
-Категория (тип материала): "${category || "уход за кожей"}"
+Категория: "${category}"
+Аудитория: "${audience}"
+Тон: ${toneLabel(tone)}
+Объём: ${depthSpec(depth)}
 
-Верни ответ строго в виде JSON:
+КРИТИЧНО:
+- Верни ответ строго в виде JSON, без пояснений, без текста вне JSON:
 {
   "title": "...",
   "content": "...",
   "category": "..."
 }
 
-Требования к статье:
-- Язык: русский.
-- Стиль: простой, понятный покупателю, без воды и сложной медицины.
-- Не упоминай, что текст сгенерирован ИИ или нейросетью.
-- Структурируй текст с подзаголовками (используй 'Подзаголовок' в тексте).
-- Можно давать практические советы и пошаговые рекомендации.
+Формат content:
+- Только обычный текст + Markdown-разметка (без HTML).
+- Разделы оформляй заголовками вида "## ...".
+- ${slideRule}
+- Списки оформляй как "- пункт".
+- Никаких упоминаний ИИ/нейросетей.
+
+Структура статьи:
+1) Короткий "Лид" (2–3 предложения)
+2) "План" (6–10 пунктов)
+3) Далее 6–9 разделов "## ..." (каждый раздел содержит):
+   - 3–6 тезисов списком
+   - 1–2 абзаца пояснения
+   - мини-пример/пошаговые действия (как применять / как выбрать / как сочетать)
+4) ${tableRule}
+5) ${mistakesRule}
+6) ${checklistRule}
+7) ${faqRule}
+8) Заверши "## Вывод" (кратко + предложение задать вопрос в Q&A на сайте)
+
+Содержательные требования:
+- Практика важнее воды: больше шагов, критериев выбора, предупреждений, комбинаций.
+- Без медицинских диагнозов и лечебных обещаний.
+- Если есть ограничения (беременность/ретиноиды/кислоты/чувствительность) — формулируй как осторожность и общий совет обратиться к специалисту.
 `.trim();
 
-    // 5) Вызов модели
+    // 6) Вызов модели (оставляем ваш openai wrapper)
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini", // безопасная универсальная модель
+      model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
           content:
-            "Ты помощник, который пишет статьи для блога магазина профессиональной косметики.",
+            "Ты пишешь статьи для блога магазина профессиональной косметики. Всегда возвращаешь строго JSON, без текста вне JSON.",
         },
         { role: "user", content: prompt },
       ],
-      temperature: 0.7,
+      temperature: 0.65,
     });
 
     const raw = completion.choices[0]?.message?.content || "";
 
-    // 6) Вытаскиваем JSON из ответа
-    const start = raw.indexOf("{");
-    const end = raw.lastIndexOf("}");
-    if (start === -1 || end === -1) {
+    // 7) Парсим JSON (надёжнее: отдельная функция)
+    const parsed = extractJsonFromText(raw);
+    if (!parsed) {
       return NextResponse.json(
         { error: "llm_parse_error", raw },
-        { status: 500 },
-      );
-    }
-
-    let parsed: any;
-    try {
-      parsed = JSON.parse(raw.slice(start, end + 1));
-    } catch {
-      return NextResponse.json(
-        { error: "llm_invalid_json", raw },
         { status: 500 },
       );
     }
@@ -97,12 +200,21 @@ export async function POST(req: Request) {
       typeof parsed.title === "string" && parsed.title.trim()
         ? parsed.title.trim()
         : topic;
+
     const content =
       typeof parsed.content === "string" ? parsed.content.trim() : "";
+
     const outCategory =
       typeof parsed.category === "string" && parsed.category.trim()
         ? parsed.category.trim()
-        : category || "уход за кожей";
+        : category;
+
+    if (!content) {
+      return NextResponse.json(
+        { error: "llm_empty_content", raw },
+        { status: 500 },
+      );
+    }
 
     return NextResponse.json({
       title,
@@ -110,26 +222,24 @@ export async function POST(req: Request) {
       category: outCategory,
     });
   } catch (err: any) {
-  // OpenAI ошибки часто приходят так: err.status / err.code / err.message
-  const status = err?.status || err?.response?.status;
-  const msg = err?.message || "unknown";
+    const status = err?.status || err?.response?.status;
+    const msg = err?.message || "unknown";
 
-  // Квота/лимиты
-  if (status === 429 || String(msg).includes("exceeded your current quota")) {
+    if (status === 429 || String(msg).includes("exceeded your current quota")) {
+      return NextResponse.json(
+        {
+          error: "quota_exceeded",
+          message:
+            "Закончилась квота OpenAI (429). Проверь план/биллинг и лимиты в OpenAI Platform.",
+        },
+        { status: 429 },
+      );
+    }
+
+    console.error("POST /api/posts/generate error:", err);
     return NextResponse.json(
-      {
-        error: "quota_exceeded",
-        message:
-          "Закончилась квота OpenAI (429). Проверь план/биллинг и лимиты в OpenAI Platform.",
-      },
-      { status: 429 }
+      { error: "server_error", message: msg },
+      { status: 500 },
     );
-  }
-
-  console.error("POST /api/posts/generate error:", err);
-  return NextResponse.json(
-    { error: "server_error", message: msg },
-    { status: 500 }
-  );
   }
 }
