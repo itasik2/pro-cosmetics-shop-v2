@@ -1,3 +1,4 @@
+// app/admin/(private)/blog/AdminBlogClient.tsx
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
@@ -15,10 +16,10 @@ type Post = {
 };
 
 type DraftOptions = {
-  audience: string; // для кого
+  audience: string;
   tone: "neutral" | "simple" | "expert" | "marketing";
   depth: "short" | "standard" | "deep";
-  includeSlides: boolean; // разделители --- и заголовки ## для презентации
+  includeSlides: boolean;
   includeFAQ: boolean;
   includeChecklist: boolean;
   includeMistakes: boolean;
@@ -34,7 +35,7 @@ const emptyForm = {
 };
 
 const defaultDraft: DraftOptions = {
-  audience: "для чувствительной кожи / новичкам",
+  audience: "новичкам / чувствительная кожа / без сложной рутины",
   tone: "expert",
   depth: "deep",
   includeSlides: true,
@@ -133,7 +134,10 @@ export default function AdminBlogClient() {
     });
   }
 
-  const canGenerate = useMemo(() => !!form.title.trim() && !busy, [form.title, busy]);
+  const canGenerate = useMemo(
+    () => !!form.title.trim() && !busy,
+    [form.title, busy],
+  );
 
   async function generateDraft() {
     if (!form.title.trim()) {
@@ -155,6 +159,7 @@ export default function AdminBlogClient() {
         audience: draft.audience,
         tone: draft.tone,
         depth: draft.depth,
+
         blocks: {
           slides: draft.includeSlides,
           faq: draft.includeFAQ,
@@ -178,13 +183,14 @@ export default function AdminBlogClient() {
       return {
         ...f,
         title: nextTitle,
+        // если slug не трогали вручную — обновим
         slug: slugTouched ? f.slug : slugify(nextTitle),
         content: data.content || f.content,
         category: data.category || f.category,
       };
     });
 
-    setMsg("Черновик сгенерирован. Проверь структуру (## и ---) и отредактируй при необходимости.");
+    setMsg("Черновик сгенерирован. Проверь и отредактируй перед публикацией.");
   }
 
   return (
@@ -234,16 +240,16 @@ export default function AdminBlogClient() {
             />
           </Field>
 
-          {/* ПАРАМЕТРЫ ГЕНЕРАЦИИ */}
+          {/* НАСТРОЙКИ ГЕНЕРАЦИИ */}
           <div className="rounded-2xl border p-4 space-y-3 bg-white/70 backdrop-blur">
-            <div className="font-semibold">Генерация (насыщенный черновик)</div>
+            <div className="font-semibold">Генерация черновика</div>
 
             <Field label="Для кого (аудитория)">
               <input
                 className="w-full border rounded-xl px-3 py-2"
                 value={draft.audience}
                 onChange={(e) => setDraftField("audience", e.target.value)}
-                placeholder="например: чувствительная кожа / новичкам / акне / 30+"
+                placeholder="например: чувствительная кожа / акне / 30+ / новичкам"
               />
             </Field>
 
@@ -252,7 +258,9 @@ export default function AdminBlogClient() {
                 <select
                   className="w-full border rounded-xl px-3 py-2 bg-white"
                   value={draft.tone}
-                  onChange={(e) => setDraftField("tone", e.target.value as DraftOptions["tone"])}
+                  onChange={(e) =>
+                    setDraftField("tone", e.target.value as DraftOptions["tone"])
+                  }
                 >
                   <option value="expert">Экспертно</option>
                   <option value="simple">Просто</option>
@@ -265,7 +273,9 @@ export default function AdminBlogClient() {
                 <select
                   className="w-full border rounded-xl px-3 py-2 bg-white"
                   value={draft.depth}
-                  onChange={(e) => setDraftField("depth", e.target.value as DraftOptions["depth"])}
+                  onChange={(e) =>
+                    setDraftField("depth", e.target.value as DraftOptions["depth"])
+                  }
                 >
                   <option value="short">Коротко</option>
                   <option value="standard">Стандарт</option>
@@ -297,7 +307,9 @@ export default function AdminBlogClient() {
                 <input
                   type="checkbox"
                   checked={draft.includeChecklist}
-                  onChange={(e) => setDraftField("includeChecklist", e.target.checked)}
+                  onChange={(e) =>
+                    setDraftField("includeChecklist", e.target.checked)
+                  }
                 />
                 <span>Чек-лист</span>
               </label>
@@ -306,7 +318,9 @@ export default function AdminBlogClient() {
                 <input
                   type="checkbox"
                   checked={draft.includeMistakes}
-                  onChange={(e) => setDraftField("includeMistakes", e.target.checked)}
+                  onChange={(e) =>
+                    setDraftField("includeMistakes", e.target.checked)
+                  }
                 />
                 <span>Ошибки/мифы</span>
               </label>
@@ -322,7 +336,8 @@ export default function AdminBlogClient() {
             </div>
 
             <div className="text-xs text-gray-500">
-              Рекомендация: оставьте включенным “Под презентацию”, чтобы режим /slides автоматически стал качественным.
+              Рекомендация: оставьте включённым “Под презентацию”, чтобы режим
+              /blog/[slug]/slides автоматически выглядел убедительно.
             </div>
           </div>
 
