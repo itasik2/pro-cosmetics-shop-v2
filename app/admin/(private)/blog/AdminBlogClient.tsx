@@ -26,6 +26,9 @@ type DraftOptions = {
   includeTable: boolean;
 };
 
+const UPLOAD_COVER_ENDPOINT = "/api/upload/product-image";
+const GENERATE_COVER_ENDPOINT = "/api/posts/generate-cover";
+
 const emptyForm = {
   title: "",
   slug: "",
@@ -56,6 +59,10 @@ export default function AdminBlogClient() {
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // обложка: загрузка/генерация
+  const [coverUploading, setCoverUploading] = useState(false);
+  const [coverGenerating, setCoverGenerating] = useState(false);
+
   async function load() {
     const res = await fetch("/api/posts", { cache: "no-store" });
     if (res.ok) setItems(await res.json());
@@ -78,6 +85,74 @@ export default function AdminBlogClient() {
 
   function setDraftField<K extends keyof DraftOptions>(k: K, v: DraftOptions[K]) {
     setDraft((d) => ({ ...d, [k]: v }));
+  }
+
+  async function uploadCover(file: File) {
+    setMsg(null);
+    setCoverUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+
+      const res = await fetch(UPLOAD_COVER_ENDPOINT, { method: "POST", body: fd });
+      const data = await res.json().catch(() => ({} as any));
+
+      if (!res.ok) {
+        setMsg(`Ошибка загрузки обложки: ${data?.error || res.status}`);
+        return;
+      }
+
+      const url = String(data?.url || "").trim();
+      if (!url) {
+        setMsg("Ошибка загрузки обложки: не получен URL");
+        return;
+      }
+
+      setField("image", url);
+      setMsg("Обложка загружена. Не забудь нажать «Сохранить».");
+    } catch (e: any) {
+      setMsg(`Ошибка загрузки обложки: ${e?.message || "upload_failed"}`);
+    } finally {
+      setCoverUploading(false);
+    }
+  }
+
+  async function generateCoverFromTopic() {
+    const topic = (form.title || "").trim();
+    if (!topic) {
+      setMsg("Для генерации обложки сначала укажи заголовок поста (тему).");
+      return;
+    }
+
+    setMsg(null);
+    setCoverGenerating(true);
+
+    try {
+      const res = await fetch(GENERATE_COVER_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic, category: form.category || "уход за кожей" }),
+      });
+
+      const data = await res.json().catch(() => ({} as any));
+      if (!res.ok) {
+        setMsg(`Ошибка генерации обложки: ${data?.error || res.status}`);
+        return;
+      }
+
+      const url = String(data?.url || "").trim();
+      if (!url) {
+        setMsg("Ошибка генерации обложки: не получен URL");
+        return;
+      }
+
+      setField("image", url);
+      setMsg("Обложка сгенерирована. Не забудь нажать «Сохранить».");
+    } catch (e: any) {
+      setMsg(`Ошибка генерации обложки: ${e?.message || "generate_failed"}`);
+    } finally {
+      setCoverGenerating(false);
+    }
   }
 
   async function save(e?: React.FormEvent) {
@@ -124,7 +199,7 @@ export default function AdminBlogClient() {
 
   function edit(p: Post) {
     setEditing(p.id);
-    setSlugTouched(true); // при редактировании slug не автогенерим
+    setSlugTouched(true);
     setForm({
       title: p.title,
       slug: p.slug,
@@ -134,10 +209,7 @@ export default function AdminBlogClient() {
     });
   }
 
-  const canGenerate = useMemo(
-    () => !!form.title.trim() && !busy,
-    [form.title, busy],
-  );
+  const canGenerate = useMemo(() => !!form.title.trim() && !busy, [form.title, busy]);
 
   async function generateDraft() {
     if (!form.title.trim()) {
@@ -155,7 +227,6 @@ export default function AdminBlogClient() {
         topic: form.title,
         category: form.category || "уход за кожей",
 
-        // параметры насыщенности
         audience: draft.audience,
         tone: draft.tone,
         depth: draft.depth,
@@ -183,7 +254,6 @@ export default function AdminBlogClient() {
       return {
         ...f,
         title: nextTitle,
-        // если slug не трогали вручную — обновим
         slug: slugTouched ? f.slug : slugify(nextTitle),
         content: data.content || f.content,
         category: data.category || f.category,
@@ -197,9 +267,7 @@ export default function AdminBlogClient() {
     <div className="grid md:grid-cols-2 gap-8">
       {/* ФОРМА */}
       <div className="space-y-3">
-        <h2 className="text-xl font-semibold">
-          {editing ? "Редактировать пост" : "Создать пост"}
-        </h2>
+        <h2 className="text-xl font-semibold">{editing ? "Редактировать пост" : "Создать пост"}</h2>
 
         <form className="space-y-3" onSubmit={save}>
           <Field label="Заголовок">
@@ -232,13 +300,66 @@ export default function AdminBlogClient() {
             />
           </Field>
 
-          <Field label="URL обложки (по желанию)">
-            <input
-              className="w-full border rounded-xl px-3 py-2"
-              value={form.image}
-              onChange={(e) => setField("image", e.target.value)}
-            />
-          </Field>
+          {/* ОБЛОЖКА */}
+          <div className="rounded-2xl border p-4 space-y-3 bg-white/70 backdrop-blur">
+            <div className="font-semibold">Обложка</div>
+
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <div className="text-sm text-gray-600 mb-1">Загрузить файл</div>
+                <input
+                  type="file"
+                  accept="image/*"
+                  disabled={busy || coverUploading || coverGenerating}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) uploadCover(f);
+                    e.currentTarget.value = "";
+                  }}
+                />
+                <div className="text-xs text-gray-500 mt-2">
+                  Загружается в Cloudinary через {UPLOAD_COVER_ENDPOINT}.
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  className="px-4 py-2 rounded border disabled:opacity-50"
+                  onClick={generateCoverFromTopic}
+                  disabled={busy || coverUploading || coverGenerating || !form.title.trim()}
+                  title={!form.title.trim() ? "Сначала укажи заголовок" : undefined}
+                >
+                  {coverGenerating ? "Генерация…" : "Сгенерировать обложку по теме"}
+                </button>
+
+                <div className="text-xs text-gray-500">
+                  Кнопка работает, если добавлен API-роут {GENERATE_COVER_ENDPOINT}.
+                </div>
+              </div>
+            </div>
+
+            <Field label="URL обложки (по желанию)">
+              <input
+                className="w-full border rounded-xl px-3 py-2"
+                value={form.image}
+                onChange={(e) => setField("image", e.target.value)}
+                placeholder="https://res.cloudinary.com/.../image/upload/..."
+              />
+            </Field>
+
+            {form.image ? (
+              <div className="mt-2">
+                <div className="text-sm text-gray-600 mb-2">Превью</div>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={form.image}
+                  alt="cover preview"
+                  className="w-full h-44 object-cover rounded-2xl border bg-white"
+                />
+              </div>
+            ) : null}
+          </div>
 
           {/* НАСТРОЙКИ ГЕНЕРАЦИИ */}
           <div className="rounded-2xl border p-4 space-y-3 bg-white/70 backdrop-blur">
@@ -258,9 +379,7 @@ export default function AdminBlogClient() {
                 <select
                   className="w-full border rounded-xl px-3 py-2 bg-white"
                   value={draft.tone}
-                  onChange={(e) =>
-                    setDraftField("tone", e.target.value as DraftOptions["tone"])
-                  }
+                  onChange={(e) => setDraftField("tone", e.target.value as DraftOptions["tone"])}
                 >
                   <option value="expert">Экспертно</option>
                   <option value="simple">Просто</option>
@@ -273,9 +392,7 @@ export default function AdminBlogClient() {
                 <select
                   className="w-full border rounded-xl px-3 py-2 bg-white"
                   value={draft.depth}
-                  onChange={(e) =>
-                    setDraftField("depth", e.target.value as DraftOptions["depth"])
-                  }
+                  onChange={(e) => setDraftField("depth", e.target.value as DraftOptions["depth"])}
                 >
                   <option value="short">Коротко</option>
                   <option value="standard">Стандарт</option>
@@ -291,7 +408,7 @@ export default function AdminBlogClient() {
                   checked={draft.includeSlides}
                   onChange={(e) => setDraftField("includeSlides", e.target.checked)}
                 />
-                <span>Под презентацию (--- и ##)</span>
+                <span>Под презентацию (--- и якоря)</span>
               </label>
 
               <label className="inline-flex items-center gap-2">
@@ -307,9 +424,7 @@ export default function AdminBlogClient() {
                 <input
                   type="checkbox"
                   checked={draft.includeChecklist}
-                  onChange={(e) =>
-                    setDraftField("includeChecklist", e.target.checked)
-                  }
+                  onChange={(e) => setDraftField("includeChecklist", e.target.checked)}
                 />
                 <span>Чек-лист</span>
               </label>
@@ -318,9 +433,7 @@ export default function AdminBlogClient() {
                 <input
                   type="checkbox"
                   checked={draft.includeMistakes}
-                  onChange={(e) =>
-                    setDraftField("includeMistakes", e.target.checked)
-                  }
+                  onChange={(e) => setDraftField("includeMistakes", e.target.checked)}
                 />
                 <span>Ошибки/мифы</span>
               </label>
@@ -336,8 +449,7 @@ export default function AdminBlogClient() {
             </div>
 
             <div className="text-xs text-gray-500">
-              Рекомендация: оставьте включённым “Под презентацию”, чтобы режим
-              /blog/[slug]/slides автоматически выглядел убедительно.
+              Для кликабельного плана рекомендуем генерировать заголовки как отдельные строки вида **Заголовок**.
             </div>
           </div>
 
@@ -355,7 +467,7 @@ export default function AdminBlogClient() {
             <button
               className="px-4 py-2 rounded bg-black text-white disabled:opacity-50"
               type="submit"
-              disabled={busy}
+              disabled={busy || coverUploading || coverGenerating}
             >
               {busy ? "Сохранение…" : "Сохранить"}
             </button>
@@ -369,7 +481,7 @@ export default function AdminBlogClient() {
               Сгенерировать насыщенный черновик
             </button>
 
-            {(editing || form.title || form.slug || form.content) && (
+            {(editing || form.title || form.slug || form.content || form.image) && (
               <button
                 type="button"
                 className="px-4 py-2 rounded border"
@@ -419,9 +531,7 @@ export default function AdminBlogClient() {
             </div>
           ))}
 
-          {items.length === 0 && (
-            <div className="text-sm text-gray-500">Постов пока нет</div>
-          )}
+          {items.length === 0 && <div className="text-sm text-gray-500">Постов пока нет</div>}
         </div>
       </div>
     </div>
