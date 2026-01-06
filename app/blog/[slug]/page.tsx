@@ -191,24 +191,7 @@ export default async function PostPage({ params }: Props) {
 
         <h1 className="text-3xl font-bold tracking-tight">{post.title}</h1>
 
-        {/* Кликабельный план */}
-        {/* {toc.length > 0 && (
-          <nav className="mt-5 rounded-2xl border bg-white/70 backdrop-blur p-4">
-            <div className="font-semibold mb-2">План</div>
-            <ul className="space-y-1 text-sm">
-              {toc.map((x) => (
-                <li key={x.id}>
-                  <a
-                    className="block rounded-lg px-2 py-1 hover:bg-gray-50 hover:underline"
-                    href={`#${x.id}`}
-                  >
-                    {x.text}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </nav>
-        )} */}
+    
 
         {/* Контент */}
         <div className="mt-6 space-y-4">
