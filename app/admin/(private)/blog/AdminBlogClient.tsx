@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { slugify } from "@/lib/slug";
 
 type Post = {
@@ -14,6 +14,17 @@ type Post = {
   updatedAt: string;
 };
 
+type DraftOptions = {
+  audience: string; // для кого
+  tone: "neutral" | "simple" | "expert" | "marketing";
+  depth: "short" | "standard" | "deep";
+  includeSlides: boolean; // разделители --- и заголовки ## для презентации
+  includeFAQ: boolean;
+  includeChecklist: boolean;
+  includeMistakes: boolean;
+  includeTable: boolean;
+};
+
 const emptyForm = {
   title: "",
   slug: "",
@@ -22,11 +33,24 @@ const emptyForm = {
   image: "",
 };
 
+const defaultDraft: DraftOptions = {
+  audience: "для чувствительной кожи / новичкам",
+  tone: "expert",
+  depth: "deep",
+  includeSlides: true,
+  includeFAQ: true,
+  includeChecklist: true,
+  includeMistakes: true,
+  includeTable: true,
+};
+
 export default function AdminBlogClient() {
   const [items, setItems] = useState<Post[]>([]);
   const [form, setForm] = useState<typeof emptyForm>(emptyForm);
   const [editing, setEditing] = useState<string | null>(null);
   const [slugTouched, setSlugTouched] = useState(false);
+
+  const [draft, setDraft] = useState<DraftOptions>(defaultDraft);
 
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -49,6 +73,10 @@ export default function AdminBlogClient() {
 
   function setField<K extends keyof typeof emptyForm>(k: K, v: string) {
     setForm((f) => ({ ...f, [k]: v }));
+  }
+
+  function setDraftField<K extends keyof DraftOptions>(k: K, v: DraftOptions[K]) {
+    setDraft((d) => ({ ...d, [k]: v }));
   }
 
   async function save(e?: React.FormEvent) {
@@ -105,6 +133,8 @@ export default function AdminBlogClient() {
     });
   }
 
+  const canGenerate = useMemo(() => !!form.title.trim() && !busy, [form.title, busy]);
+
   async function generateDraft() {
     if (!form.title.trim()) {
       setMsg("Сначала укажи тему/заголовок для генерации");
@@ -112,7 +142,7 @@ export default function AdminBlogClient() {
     }
 
     setBusy(true);
-    setMsg("Генерация черновика…");
+    setMsg("Генерация насыщенного черновика…");
 
     const res = await fetch("/api/posts/generate", {
       method: "POST",
@@ -120,6 +150,18 @@ export default function AdminBlogClient() {
       body: JSON.stringify({
         topic: form.title,
         category: form.category || "уход за кожей",
+
+        // параметры насыщенности
+        audience: draft.audience,
+        tone: draft.tone,
+        depth: draft.depth,
+        blocks: {
+          slides: draft.includeSlides,
+          faq: draft.includeFAQ,
+          checklist: draft.includeChecklist,
+          mistakes: draft.includeMistakes,
+          table: draft.includeTable,
+        },
       }),
     });
 
@@ -136,14 +178,13 @@ export default function AdminBlogClient() {
       return {
         ...f,
         title: nextTitle,
-        // если slug не трогали вручную — обновим
         slug: slugTouched ? f.slug : slugify(nextTitle),
         content: data.content || f.content,
         category: data.category || f.category,
       };
     });
 
-    setMsg("Черновик сгенерирован, проверь и отредактируй");
+    setMsg("Черновик сгенерирован. Проверь структуру (## и ---) и отредактируй при необходимости.");
   }
 
   return (
@@ -193,6 +234,98 @@ export default function AdminBlogClient() {
             />
           </Field>
 
+          {/* ПАРАМЕТРЫ ГЕНЕРАЦИИ */}
+          <div className="rounded-2xl border p-4 space-y-3 bg-white/70 backdrop-blur">
+            <div className="font-semibold">Генерация (насыщенный черновик)</div>
+
+            <Field label="Для кого (аудитория)">
+              <input
+                className="w-full border rounded-xl px-3 py-2"
+                value={draft.audience}
+                onChange={(e) => setDraftField("audience", e.target.value)}
+                placeholder="например: чувствительная кожа / новичкам / акне / 30+"
+              />
+            </Field>
+
+            <div className="grid sm:grid-cols-2 gap-3">
+              <Field label="Тон">
+                <select
+                  className="w-full border rounded-xl px-3 py-2 bg-white"
+                  value={draft.tone}
+                  onChange={(e) => setDraftField("tone", e.target.value as DraftOptions["tone"])}
+                >
+                  <option value="expert">Экспертно</option>
+                  <option value="simple">Просто</option>
+                  <option value="neutral">Нейтрально</option>
+                  <option value="marketing">Маркетингово</option>
+                </select>
+              </Field>
+
+              <Field label="Глубина">
+                <select
+                  className="w-full border rounded-xl px-3 py-2 bg-white"
+                  value={draft.depth}
+                  onChange={(e) => setDraftField("depth", e.target.value as DraftOptions["depth"])}
+                >
+                  <option value="short">Коротко</option>
+                  <option value="standard">Стандарт</option>
+                  <option value="deep">Максимально подробно</option>
+                </select>
+              </Field>
+            </div>
+
+            <div className="grid sm:grid-cols-2 gap-2 text-sm">
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={draft.includeSlides}
+                  onChange={(e) => setDraftField("includeSlides", e.target.checked)}
+                />
+                <span>Под презентацию (--- и ##)</span>
+              </label>
+
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={draft.includeFAQ}
+                  onChange={(e) => setDraftField("includeFAQ", e.target.checked)}
+                />
+                <span>FAQ</span>
+              </label>
+
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={draft.includeChecklist}
+                  onChange={(e) => setDraftField("includeChecklist", e.target.checked)}
+                />
+                <span>Чек-лист</span>
+              </label>
+
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={draft.includeMistakes}
+                  onChange={(e) => setDraftField("includeMistakes", e.target.checked)}
+                />
+                <span>Ошибки/мифы</span>
+              </label>
+
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={draft.includeTable}
+                  onChange={(e) => setDraftField("includeTable", e.target.checked)}
+                />
+                <span>Таблица</span>
+              </label>
+            </div>
+
+            <div className="text-xs text-gray-500">
+              Рекомендация: оставьте включенным “Под презентацию”, чтобы режим /slides автоматически стал качественным.
+            </div>
+          </div>
+
           <Field label="Текст (контент)">
             <textarea
               required
@@ -216,9 +349,9 @@ export default function AdminBlogClient() {
               type="button"
               className="px-4 py-2 rounded border disabled:opacity-50"
               onClick={generateDraft}
-              disabled={busy}
+              disabled={!canGenerate}
             >
-              Сгенерировать черновик
+              Сгенерировать насыщенный черновик
             </button>
 
             {(editing || form.title || form.slug || form.content) && (
@@ -256,10 +389,10 @@ export default function AdminBlogClient() {
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <button className="btn text-xs" onClick={() => edit(p)}>
+                  <button className="btn text-xs" onClick={() => edit(p)} type="button">
                     Ред.
                   </button>
-                  <button className="btn text-xs" onClick={() => remove(p.id)}>
+                  <button className="btn text-xs" onClick={() => remove(p.id)} type="button">
                     Удалить
                   </button>
                 </div>
