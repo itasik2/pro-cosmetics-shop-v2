@@ -25,9 +25,8 @@ export function AdminShell({ children }: { children: ReactNode }) {
   };
 
   return (
-    // ВАЖНО: без max-w-*, чтобы не заужать “боди”
-    <div className="w-full px-3 sm:px-6 py-5 sm:py-6 space-y-5 sm:space-y-6 min-w-0">
-      {/* Меню админки */}
+    <div className="w-full px-2 sm:px-4 lg:px-6 py-5 sm:py-6 space-y-5 sm:space-y-6 min-w-0">
+      {/* Внутреннее меню админки */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b pb-3 mb-2 min-w-0">
         <div className="flex flex-wrap gap-2 min-w-0">
           {link("/admin/products", "Товары")}
@@ -47,7 +46,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
         </button>
       </div>
 
-      {/* Контент страницы */}
+      {/* Контент конкретной страницы админки */}
       <div className="min-w-0">{children}</div>
     </div>
   );
