@@ -264,9 +264,9 @@ export default function AdminBlogClient() {
   }
 
   return (
-    <div className="grid md:grid-cols-2 gap-8">
+    <div className="w-full max-w-full overflow-x-hidden grid md:grid-cols-2 gap-8">
       {/* ФОРМА */}
-      <div className="space-y-3">
+      <div className="space-y-3 min-w-0">
         <h2 className="text-xl font-semibold">{editing ? "Редактировать пост" : "Создать пост"}</h2>
 
         <form className="space-y-3" onSubmit={save}>
@@ -301,31 +301,32 @@ export default function AdminBlogClient() {
           </Field>
 
           {/* ОБЛОЖКА */}
-          <div className="rounded-2xl border p-4 space-y-3 bg-white/70 backdrop-blur">
+          <div className="rounded-2xl border p-4 space-y-3 bg-white/70 backdrop-blur min-w-0">
             <div className="font-semibold">Обложка</div>
 
-            <div className="grid sm:grid-cols-2 gap-3">
-              <div>
+            <div className="grid sm:grid-cols-2 gap-3 min-w-0">
+              <div className="min-w-0">
                 <div className="text-sm text-gray-600 mb-1">Загрузить файл</div>
                 <input
                   type="file"
                   accept="image/*"
                   disabled={busy || coverUploading || coverGenerating}
+                  className="max-w-full"
                   onChange={(e) => {
                     const f = e.target.files?.[0];
                     if (f) uploadCover(f);
                     e.currentTarget.value = "";
                   }}
                 />
-                <div className="text-xs text-gray-500 mt-2">
-                  Загружается в Cloudinary через {UPLOAD_COVER_ENDPOINT}.
+                <div className="text-xs text-gray-500 mt-2 break-words">
+                  Загружается в Cloudinary через <span className="break-all">{UPLOAD_COVER_ENDPOINT}</span>.
                 </div>
               </div>
 
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-2 min-w-0">
                 <button
                   type="button"
-                  className="px-4 py-2 rounded border disabled:opacity-50"
+                  className="px-4 py-2 rounded border disabled:opacity-50 w-full"
                   onClick={generateCoverFromTopic}
                   disabled={busy || coverUploading || coverGenerating || !form.title.trim()}
                   title={!form.title.trim() ? "Сначала укажи заголовок" : undefined}
@@ -333,8 +334,9 @@ export default function AdminBlogClient() {
                   {coverGenerating ? "Генерация…" : "Сгенерировать обложку по теме"}
                 </button>
 
-                <div className="text-xs text-gray-500">
-                  Кнопка работает, если добавлен API-роут {GENERATE_COVER_ENDPOINT}.
+                <div className="text-xs text-gray-500 break-words">
+                  Кнопка работает, если добавлен API-роут{" "}
+                  <span className="break-all">{GENERATE_COVER_ENDPOINT}</span>.
                 </div>
               </div>
             </div>
@@ -349,20 +351,22 @@ export default function AdminBlogClient() {
             </Field>
 
             {form.image ? (
-              <div className="mt-2">
+              <div className="mt-2 min-w-0">
                 <div className="text-sm text-gray-600 mb-2">Превью</div>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={form.image}
-                  alt="cover preview"
-                  className="w-full h-44 object-cover rounded-2xl border bg-white"
-                />
+                <div className="rounded-2xl border overflow-hidden">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={form.image}
+                    alt="cover preview"
+                    className="block w-full max-w-full h-44 object-cover bg-white"
+                  />
+                </div>
               </div>
             ) : null}
           </div>
 
           {/* НАСТРОЙКИ ГЕНЕРАЦИИ */}
-          <div className="rounded-2xl border p-4 space-y-3 bg-white/70 backdrop-blur">
+          <div className="rounded-2xl border p-4 space-y-3 bg-white/70 backdrop-blur min-w-0">
             <div className="font-semibold">Генерация черновика</div>
 
             <Field label="Для кого (аудитория)">
@@ -374,7 +378,7 @@ export default function AdminBlogClient() {
               />
             </Field>
 
-            <div className="grid sm:grid-cols-2 gap-3">
+            <div className="grid sm:grid-cols-2 gap-3 min-w-0">
               <Field label="Тон">
                 <select
                   className="w-full border rounded-xl px-3 py-2 bg-white"
@@ -401,7 +405,7 @@ export default function AdminBlogClient() {
               </Field>
             </div>
 
-            <div className="grid sm:grid-cols-2 gap-2 text-sm">
+            <div className="grid sm:grid-cols-2 gap-2 text-sm min-w-0">
               <label className="inline-flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -448,7 +452,7 @@ export default function AdminBlogClient() {
               </label>
             </div>
 
-            <div className="text-xs text-gray-500">
+            <div className="text-xs text-gray-500 break-words">
               Для кликабельного плана рекомендуем генерировать заголовки как отдельные строки вида **Заголовок**.
             </div>
           </div>
@@ -463,7 +467,7 @@ export default function AdminBlogClient() {
             />
           </Field>
 
-          <div className="flex flex-wrap gap-3 items-center">
+          <div className="flex flex-wrap gap-3 items-center min-w-0">
             <button
               className="px-4 py-2 rounded bg-black text-white disabled:opacity-50"
               type="submit"
@@ -497,22 +501,21 @@ export default function AdminBlogClient() {
             )}
           </div>
 
-          {msg && <div className="text-sm">{msg}</div>}
+          {msg && <div className="text-sm break-words">{msg}</div>}
         </form>
       </div>
 
       {/* СПИСОК ПОСТОВ */}
-      <div className="space-y-3">
+      <div className="space-y-3 min-w-0">
         <h2 className="text-xl font-semibold">Посты</h2>
 
-        <div className="grid grid-cols-1 gap-3">
+        <div className="grid grid-cols-1 gap-3 min-w-0">
           {items.map((p) => (
-            <div key={p.id} className="rounded-2xl border p-3 flex flex-col gap-2">
-              {/* верхняя строка: на мобиле в колонку, на sm+ в строку */}
+            <div key={p.id} className="rounded-2xl border p-3 flex flex-col gap-2 min-w-0">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
                   <div className="font-semibold truncate">{p.title}</div>
-                  <div className="text-xs text-gray-500 break-words">
+                  <div className="text-xs text-gray-500 break-all">
                     /blog/{p.slug} • {p.category}
                   </div>
                 </div>
@@ -527,7 +530,7 @@ export default function AdminBlogClient() {
                 </div>
               </div>
 
-              <div className="text-xs text-gray-500 line-clamp-2">
+              <div className="text-xs text-gray-500 line-clamp-2 break-words">
                 {p.content.slice(0, 120)}…
               </div>
             </div>
@@ -542,7 +545,7 @@ export default function AdminBlogClient() {
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="space-y-1">
+    <div className="space-y-1 min-w-0">
       <label className="block text-sm text-gray-600">{label}</label>
       {children}
     </div>
