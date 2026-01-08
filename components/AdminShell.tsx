@@ -15,7 +15,8 @@ export function AdminShell({ children }: { children: ReactNode }) {
       <Link
         href={href}
         className={
-          "px-3 py-1 rounded-full text-sm " +
+          // компактнее на мобилке
+          "px-2 sm:px-3 py-1 rounded-full text-xs sm:text-sm whitespace-nowrap " +
           (active ? "bg-black text-white" : "text-gray-700 hover:bg-gray-100")
         }
       >
@@ -25,10 +26,10 @@ export function AdminShell({ children }: { children: ReactNode }) {
   };
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
+    <div className="mx-auto max-w-6xl px-3 sm:px-6 py-5 sm:py-6 space-y-5 sm:space-y-6 min-w-0">
       {/* Внутреннее меню админки */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3 mb-2">
-        <div className="flex flex-wrap gap-2">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b pb-3 mb-2 min-w-0">
+        <div className="flex flex-wrap gap-2 min-w-0">
           {link("/admin/products", "Товары")}
           {link("/admin/blog", "Блог")}
           {link("/admin/orders", "Заказы")}
@@ -39,7 +40,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
 
         <button
           type="button"
-          className="px-3 py-1 rounded-full text-sm border hover:bg-gray-50"
+          className="px-3 py-1 rounded-full text-xs sm:text-sm border hover:bg-gray-50 self-start sm:self-auto"
           onClick={() => signOut({ callbackUrl: "/admin" })}
         >
           Выйти
@@ -47,7 +48,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
       </div>
 
       {/* Контент конкретной страницы админки */}
-      <div>{children}</div>
+      <div className="min-w-0">{children}</div>
     </div>
   );
 }
