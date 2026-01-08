@@ -21,20 +21,21 @@ type Product = {
   createdAt: Date | string;
   category: string;
   brand?: { name: string } | null;
-  variants?: Variant[] | null; // <-- ДОБАВИЛИ
+  variants?: Variant[] | null;
 };
 
 function readFavorites(): Set<string> {
   try {
     const raw = localStorage.getItem("favorites");
     const arr = raw ? (JSON.parse(raw) as string[]) : [];
-    return new Set(arr);
+    return new Set(Array.isArray(arr) ? arr : []);
   } catch {
     return new Set();
   }
 }
 
 export default function ShopGridClient({ products }: { products: Product[] }) {
+  // Фильтр "только избранное" теперь включается извне (кнопкой в ShopPage)
   const [onlyFav, setOnlyFav] = useState(false);
   const [favIds, setFavIds] = useState<Set<string>>(new Set());
 
@@ -42,12 +43,28 @@ export default function ShopGridClient({ products }: { products: Product[] }) {
 
   useEffect(() => {
     syncFav();
+
     const onSync = () => syncFav();
+
+    // стандартная синхронизация (между вкладками)
     window.addEventListener("storage", onSync);
-    window.addEventListener("storage-sync", onSync);
+
+    // твой существующий кастомный евент
+    window.addEventListener("storage-sync", onSync as any);
+
+    // новый евент: если где-то в приложении меняют избранное
+    window.addEventListener("favorites:changed", onSync as any);
+
+    // новый евент: кнопка "Избранное" в шапке каталога
+    // Логика: переключаем режим "только избранное"
+    const onOpen = () => setOnlyFav((v) => !v);
+    window.addEventListener("favorites:open", onOpen as any);
+
     return () => {
       window.removeEventListener("storage", onSync);
-      window.removeEventListener("storage-sync", onSync);
+      window.removeEventListener("storage-sync", onSync as any);
+      window.removeEventListener("favorites:changed", onSync as any);
+      window.removeEventListener("favorites:open", onOpen as any);
     };
   }, []);
 
@@ -58,26 +75,10 @@ export default function ShopGridClient({ products }: { products: Product[] }) {
 
   return (
     <>
-      {/* Фильтр */}
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => setOnlyFav((v) => !v)}
-          className={
-            "px-3 py-1 rounded-full text-sm border transition " +
-            (onlyFav
-              ? "bg-red-500 text-white border-red-500"
-              : "bg-white text-gray-700 hover:bg-gray-50")
-          }
-        >
-          ❤ Избранное
-        </button>
-      </div>
-
       {/* Сетка товаров */}
       {visible.length === 0 ? (
         <div className="text-sm text-gray-500 mt-4">
-          Нет товаров в избранном.
+          {onlyFav ? "Нет товаров в избранном." : "Товары не найдены."}
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 mt-4">
