@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import ProductCard from "@/components/ProductCard";
 
 type Variant = {
@@ -35,38 +36,60 @@ function readFavorites(): Set<string> {
 }
 
 export default function ShopGridClient({ products }: { products: Product[] }) {
-  // Фильтр "только избранное" теперь включается извне (кнопкой в ShopPage)
+  const searchParams = useSearchParams();
+
+  // URL-параметры (нужны для сброса фильтра при смене сортировки/бренда)
+  const sortParam = searchParams.get("sort") || "new";
+  const brandParam = searchParams.get("brand") || "";
+
   const [onlyFav, setOnlyFav] = useState(false);
   const [favIds, setFavIds] = useState<Set<string>>(new Set());
 
   const syncFav = () => setFavIds(readFavorites());
 
+  // 1) Подхват избранного и синхронизация между вкладками/компонентами
   useEffect(() => {
     syncFav();
 
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "favorites") syncFav();
+    };
+
     const onSync = () => syncFav();
 
-    // стандартная синхронизация (между вкладками)
-    window.addEventListener("storage", onSync);
-
-    // твой существующий кастомный евент
-    window.addEventListener("storage-sync", onSync as any);
-
-    // новый евент: если где-то в приложении меняют избранное
+    window.addEventListener("storage", onStorage);
     window.addEventListener("favorites:changed", onSync as any);
 
-    // новый евент: кнопка "Избранное" в шапке каталога
-    // Логика: переключаем режим "только избранное"
-    const onOpen = () => setOnlyFav((v) => !v);
-    window.addEventListener("favorites:open", onOpen as any);
-
     return () => {
-      window.removeEventListener("storage", onSync);
-      window.removeEventListener("storage-sync", onSync as any);
+      window.removeEventListener("storage", onStorage);
       window.removeEventListener("favorites:changed", onSync as any);
-      window.removeEventListener("favorites:open", onOpen as any);
     };
   }, []);
+
+  // 2) Обработчик клика по кнопке в шапке (FavoritesButton)
+  useEffect(() => {
+    const onOpen = () => {
+      setOnlyFav((v) => {
+        const next = !v;
+        window.dispatchEvent(new CustomEvent("favorites:state", { detail: next }));
+        return next;
+      });
+    };
+
+    window.addEventListener("favorites:open", onOpen as any);
+
+    // сообщим начальное состояние кнопке
+    window.dispatchEvent(new CustomEvent("favorites:state", { detail: onlyFav }));
+
+    return () => window.removeEventListener("favorites:open", onOpen as any);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 3) Сброс фильтра "только избранное" при смене сортировки или бренда
+  useEffect(() => {
+    setOnlyFav(false);
+    window.dispatchEvent(new CustomEvent("favorites:state", { detail: false }));
+  }, [sortParam, brandParam]);
 
   const visible = useMemo(() => {
     if (!onlyFav) return products;
