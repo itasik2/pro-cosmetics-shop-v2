@@ -140,9 +140,7 @@ export default function AdminBrandsClient() {
               value={form.slug}
               onChange={(e) => setField("slug", slugify(e.target.value))}
             />
-            <div className="text-xs text-gray-500 mt-1">
-              Пример: dermalab, skn-pro, nu-form
-            </div>
+            <div className="text-xs text-gray-500 mt-1">Пример: dermalab, skn-pro, nu-form</div>
           </Field>
 
           <Field label="Порядок (sortOrder)">
@@ -206,39 +204,37 @@ export default function AdminBrandsClient() {
           {items.map((b) => (
             <div
               key={b.id}
-              className="rounded-2xl border p-3 flex items-center justify-between gap-4"
+              className="rounded-2xl border p-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
             >
-              <div>
-                <div className="font-semibold flex items-center gap-2">
-                  {b.name}
+              <div className="min-w-0">
+                <div className="font-semibold flex flex-wrap items-center gap-2">
+                  <span className="truncate">{b.name}</span>
                   {!b.isActive && (
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 border">
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 border shrink-0">
                       Скрыт
                     </span>
                   )}
                 </div>
-                <div className="text-xs text-gray-500">
+                <div className="text-xs text-gray-500 break-words">
                   slug: {b.slug} • sortOrder: {b.sortOrder}
                 </div>
               </div>
 
-              <div className="flex gap-2">
-                <button className="btn text-xs" onClick={() => edit(b)}>
+              <div className="flex flex-wrap gap-2 w-full sm:w-auto sm:flex-nowrap sm:justify-end">
+                <button className="btn text-xs" onClick={() => edit(b)} type="button">
                   Ред.
                 </button>
-                <button className="btn text-xs" onClick={() => toggleActive(b)}>
+                <button className="btn text-xs" onClick={() => toggleActive(b)} type="button">
                   {b.isActive ? "Скрыть" : "Показать"}
                 </button>
-                <button className="btn text-xs" onClick={() => remove(b.id)}>
+                <button className="btn text-xs" onClick={() => remove(b.id)} type="button">
                   Удалить
                 </button>
               </div>
             </div>
           ))}
 
-          {items.length === 0 && (
-            <div className="text-sm text-gray-500">Пока нет брендов</div>
-          )}
+          {items.length === 0 && <div className="text-sm text-gray-500">Пока нет брендов</div>}
         </div>
       </div>
     </div>
