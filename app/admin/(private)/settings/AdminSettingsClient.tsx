@@ -180,7 +180,7 @@ export default function AdminSettingsClient() {
     } finally {
       setBusy(false);
     }
-  }
+  
 
   return (
     <div className="max-w-3xl space-y-6">
