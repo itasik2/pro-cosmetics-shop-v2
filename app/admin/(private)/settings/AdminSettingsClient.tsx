@@ -51,10 +51,7 @@ function toOptimizedCloudinaryUrl(url: string) {
   // если трансформации уже вставлены — не дублируем
   if (u.includes("/upload/f_auto")) return u;
 
-  return u.replace(
-    "/upload/",
-    "/upload/f_auto,q_auto,w_1920,c_limit/"
-  );
+  return u.replace("/upload/", "/upload/f_auto,q_auto,w_1920,c_limit/");
 }
 
 export default function AdminSettingsClient() {
@@ -117,15 +114,7 @@ export default function AdminSettingsClient() {
       bannerText: (bannerText || "").trim(),
       bannerHref: toISOorNull(bannerHref),
     };
-  }, [
-    scheduleEnabled,
-    scheduleStart,
-    scheduleEnd,
-    backgroundUrl,
-    bannerEnabled,
-    bannerText,
-    bannerHref,
-  ]);
+  }, [scheduleEnabled, scheduleStart, scheduleEnd, backgroundUrl, bannerEnabled, bannerText, bannerHref]);
 
   async function save() {
     setBusy(true);
@@ -144,7 +133,6 @@ export default function AdminSettingsClient() {
       }
 
       setMsg("Сохранено");
-      // обновим activeNow и (если надо) подтянем свежие значения
       await load();
     } catch (e: any) {
       setMsg(`Ошибка: ${e?.message || "failed"}`);
@@ -173,14 +161,9 @@ export default function AdminSettingsClient() {
       }
 
       // поддержим разные форматы ответа upload endpoint
-      const rawUrl =
-        String(
-          data?.secure_url ||
-            data?.url ||
-            data?.result?.secure_url ||
-            data?.result?.url ||
-            ""
-        ).trim();
+      const rawUrl = String(
+        data?.secure_url || data?.url || data?.result?.secure_url || data?.result?.url || "",
+      ).trim();
 
       if (!rawUrl) {
         setMsg("Ошибка загрузки: не получен URL");
@@ -201,10 +184,11 @@ export default function AdminSettingsClient() {
 
   return (
     <div className="max-w-3xl space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
+      {/* ШАПКА: на мобильном в колонку, чтобы ничего не разъезжалось */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+        <div className="min-w-0">
           <h2 className="text-2xl font-bold">Настройки сайта</h2>
-          <div className="text-sm text-gray-600 mt-1">
+          <div className="text-sm text-gray-600 mt-1 break-words">
             Активно сейчас (UTC):{" "}
             <span className="font-semibold">{activeNow ? "да" : "нет"}</span>
           </div>
@@ -212,7 +196,7 @@ export default function AdminSettingsClient() {
 
         <button
           type="button"
-          className="px-4 py-2 rounded bg-black text-white disabled:opacity-50"
+          className="px-4 py-2 rounded bg-black text-white disabled:opacity-50 w-full sm:w-auto"
           onClick={save}
           disabled={busy || loading}
         >
@@ -240,7 +224,7 @@ export default function AdminSettingsClient() {
             </label>
 
             <div className="grid sm:grid-cols-2 gap-3">
-              <div>
+              <div className="min-w-0">
                 <div className="text-sm text-gray-600 mb-1">Start (ISO UTC)</div>
                 <input
                   className="w-full border rounded-xl px-3 py-2"
@@ -250,7 +234,7 @@ export default function AdminSettingsClient() {
                 />
               </div>
 
-              <div>
+              <div className="min-w-0">
                 <div className="text-sm text-gray-600 mb-1">End (ISO UTC)</div>
                 <input
                   className="w-full border rounded-xl px-3 py-2"
@@ -262,8 +246,8 @@ export default function AdminSettingsClient() {
             </div>
 
             <div className="text-xs text-gray-500">
-              Если расписание включено: оформление активно только внутри интервала (UTC).
-              Пустые даты означают «без границы».
+              Если расписание включено: оформление активно только внутри интервала (UTC). Пустые даты означают «без
+              границы».
             </div>
           </div>
 
@@ -272,12 +256,13 @@ export default function AdminSettingsClient() {
             <div className="font-semibold">Фон сайта</div>
 
             <div className="grid sm:grid-cols-2 gap-4">
-              <div>
+              <div className="min-w-0">
                 <div className="text-sm text-gray-600 mb-1">Загрузить фон</div>
 
                 <input
                   type="file"
                   accept="image/*"
+                  className="max-w-full"
                   onChange={(e) => {
                     const f = e.target.files?.[0];
                     if (f) uploadBackground(f);
@@ -286,12 +271,12 @@ export default function AdminSettingsClient() {
                 />
 
                 <div className="text-xs text-gray-500 mt-2">
-                  Загружается в Cloudinary. GIF автоматически оптимизируется (animated WebP).
-                  В настройки подставится оптимизированный URL.
+                  Загружается в Cloudinary. GIF автоматически оптимизируется (animated WebP). В настройки подставится
+                  оптимизированный URL.
                 </div>
               </div>
 
-              <div>
+              <div className="min-w-0">
                 <div className="text-sm text-gray-600 mb-1">URL фона</div>
                 <input
                   className="w-full border rounded-xl px-3 py-2"
@@ -303,12 +288,16 @@ export default function AdminSettingsClient() {
                 {backgroundUrl ? (
                   <div className="mt-3">
                     <div className="text-sm text-gray-600 mb-2">Превью</div>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={backgroundUrl}
-                      alt="background preview"
-                      className="w-full h-40 object-cover rounded-xl border"
-                    />
+
+                    {/* ВАЖНО: overflow-hidden + img block/max-w-full => не вылезает */}
+                    <div className="rounded-xl border overflow-hidden">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={backgroundUrl}
+                        alt="background preview"
+                        className="block w-full max-w-full h-40 object-cover"
+                      />
+                    </div>
                   </div>
                 ) : null}
               </div>
@@ -328,7 +317,7 @@ export default function AdminSettingsClient() {
               <span>Показывать баннер</span>
             </label>
 
-            <div>
+            <div className="min-w-0">
               <div className="text-sm text-gray-600 mb-1">Текст</div>
               <input
                 className="w-full border rounded-xl px-3 py-2"
@@ -338,20 +327,9 @@ export default function AdminSettingsClient() {
               />
             </div>
 
-            <div>
-              <div className="text-sm text-gray-600 mb-1">
-                Ссылка (необязательно)
-              </div>
+            <div className="min-w-0">
+              <div className="text-sm text-gray-600 mb-1">Ссылка (необязательно)</div>
               <input
                 className="w-full border rounded-xl px-3 py-2"
                 value={bannerHref}
                 onChange={(e) => setBannerHref(e.target.value)}
-                placeholder="https://... или /shop"
-              />
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
