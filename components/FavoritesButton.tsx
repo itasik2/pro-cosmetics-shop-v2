@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 function readFavCount(): number {
   try {
@@ -14,37 +14,49 @@ function readFavCount(): number {
 
 export default function FavoritesButton() {
   const [count, setCount] = useState(0);
+  const [active, setActive] = useState(false);
 
   useEffect(() => {
     const sync = () => setCount(readFavCount());
     sync();
 
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === "favorites") sync();
-    };
-
     const onChanged = () => sync();
+    const onState = (e: any) => setActive(!!e.detail);
 
-    window.addEventListener("storage", onStorage);
     window.addEventListener("favorites:changed", onChanged as any);
+    window.addEventListener("favorites:state", onState as any);
 
     return () => {
-      window.removeEventListener("storage", onStorage);
       window.removeEventListener("favorites:changed", onChanged as any);
+      window.removeEventListener("favorites:state", onState as any);
     };
   }, []);
-
-  const label = useMemo(() => {
-    return count > 0 ? `Избранное (${count})` : "Избранное";
-  }, [count]);
 
   return (
     <button
       type="button"
-      className="px-3 py-1 rounded-full text-sm border bg-white text-gray-700 hover:bg-gray-50"
       onClick={() => window.dispatchEvent(new CustomEvent("favorites:open"))}
+      className={
+        "px-3 py-1 rounded-full text-sm border transition inline-flex items-center gap-2 " +
+        (active
+          ? "bg-black text-white border-black"
+          : "bg-white text-gray-700 hover:bg-gray-50")
+      }
     >
-      {label}
+      <span>Избранное</span>
+
+      {count > 0 ? (
+        <span
+          className={
+            "min-w-[18px] h-[18px] px-1.5 rounded-full text-[11px] leading-[18px] text-center border " +
+            (active
+              ? "bg-white/15 text-white border-white/20"
+              : "bg-gray-100 text-gray-700 border-gray-200")
+          }
+        >
+          {count}
+        </span>
+      ) : null}
     </button>
   );
 }
