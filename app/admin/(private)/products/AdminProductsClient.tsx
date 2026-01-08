@@ -262,7 +262,8 @@ export default function AdminProductsClient() {
             </select>
 
             <div className="text-xs text-gray-500 mt-1">
-              Бренды берутся из /api/brands (активные). Управление брендами вынесем отдельной страницей.
+              Бренды берутся из /api/brands (активные). Управление брендами
+              вынесем отдельной страницей.
             </div>
           </Field>
 
@@ -314,7 +315,9 @@ export default function AdminProductsClient() {
                 className="w-20 h-20 object-cover rounded-xl border bg-gray-50"
               />
               <div className="text-xs text-gray-500">
-                {uploading ? "Загрузка…" : "Изображение будет показано в карточке и на странице товара"}
+                {uploading
+                  ? "Загрузка…"
+                  : "Изображение будет показано в карточке и на странице товара"}
               </div>
             </div>
           </Field>
@@ -365,8 +368,9 @@ export default function AdminProductsClient() {
           <Field label="Варианты (объём/цена/остаток)">
             <div className="space-y-2">
               <div className="text-xs text-gray-500">
-                Если варианты заполнены, на витрине цена и остаток зависят от выбранного объёма.
-                Если пусто — используется обычная цена/остаток товара.
+                Если варианты заполнены, на витрине цена и остаток зависят от
+                выбранного объёма. Если пусто — используется обычная цена/остаток
+                товара.
               </div>
 
               {form.variants.length > 0 && (
@@ -377,7 +381,9 @@ export default function AdminProductsClient() {
                         className="col-span-4 border rounded-xl px-3 py-2"
                         placeholder="Напр. 50 мл"
                         value={v.label}
-                        onChange={(e) => setVariantRow(idx, { label: e.target.value })}
+                        onChange={(e) =>
+                          setVariantRow(idx, { label: e.target.value })
+                        }
                       />
 
                       <input
@@ -386,10 +392,15 @@ export default function AdminProductsClient() {
                         inputMode="numeric"
                         value={v.price}
                         onChange={(e) =>
-                          setVariantRow(idx, { price: e.target.value.replace(/[^\d]/g, "") })
+                          setVariantRow(idx, {
+                            price: e.target.value.replace(/[^\d]/g, ""),
+                          })
                         }
                         onBlur={(e) => {
-                          const n = Math.max(0, Math.trunc(Number(e.target.value) || 0));
+                          const n = Math.max(
+                            0,
+                            Math.trunc(Number(e.target.value) || 0),
+                          );
                           setVariantRow(idx, { price: String(n) });
                         }}
                       />
@@ -400,10 +411,15 @@ export default function AdminProductsClient() {
                         inputMode="numeric"
                         value={v.stock}
                         onChange={(e) =>
-                          setVariantRow(idx, { stock: e.target.value.replace(/[^\d]/g, "") })
+                          setVariantRow(idx, {
+                            stock: e.target.value.replace(/[^\d]/g, ""),
+                          })
                         }
                         onBlur={(e) => {
-                          const n = Math.max(0, Math.trunc(Number(e.target.value) || 0));
+                          const n = Math.max(
+                            0,
+                            Math.trunc(Number(e.target.value) || 0),
+                          );
                           setVariantRow(idx, { stock: String(n) });
                         }}
                       />
@@ -484,37 +500,41 @@ export default function AdminProductsClient() {
             return (
               <div
                 key={p.id}
-                className="rounded-2xl border p-3 flex items-center justify-between gap-4"
+                className="rounded-2xl border p-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
               >
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 min-w-0">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={p.image}
                     alt={p.name}
-                    className="w-16 h-16 object-cover rounded-lg"
+                    className="w-16 h-16 object-cover rounded-lg shrink-0"
                   />
-                  <div>
-                    <div className="font-semibold flex items-center gap-2">
-                      {p.name}
+
+                  <div className="min-w-0">
+                    <div className="font-semibold flex flex-wrap items-center gap-2">
+                      <span className="truncate">{p.name}</span>
+
                       {p.isPopular && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 border border-yellow-200">
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 border border-yellow-200 shrink-0">
                           Популярный
                         </span>
                       )}
+
                       {variantsCount > 0 && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 border">
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 border shrink-0">
                           Вариантов: {variantsCount}
                         </span>
                       )}
                     </div>
-                    <div className="text-sm text-gray-500">
+
+                    <div className="text-sm text-gray-500 break-words">
                       {(p.brand?.name ?? "—")} •{" "}
                       {Number(p.price).toLocaleString("ru-RU")} ₸ • {p.stock} шт
                     </div>
                   </div>
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2 w-full sm:w-auto sm:flex-nowrap sm:justify-end">
                   <button className="btn" onClick={() => edit(p)} type="button">
                     Ред.
                   </button>
