@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import ShopGridClient from "@/components/ShopGridClient";
-import FavoritesButton from "@/components/FavoritesButton"; // ✅ ДОБАВИЛИ
+import FavoritesButton from "@/components/FavoritesButton";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +26,6 @@ type Variant = {
   price: number;
   stock: number;
   sku?: string;
- informing.
 };
 
 // Нормализатор Prisma JsonValue -> Variant[] | null
@@ -124,7 +123,6 @@ export default async function ShopPage({ searchParams }: Props) {
             Цена ↓
           </SortLink>
 
-          {/* ✅ Кнопка избранного рядом с сортировкой */}
           <FavoritesButton />
         </div>
       </div>
