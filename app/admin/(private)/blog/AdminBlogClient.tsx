@@ -23,7 +23,7 @@ type DraftOptions = {
   includeFAQ: boolean;
   includeChecklist: boolean;
   includeMistakes: boolean;
-  includeTable: boolean;
+  // includeTable: boolean; // УДАЛЕНО
 };
 
 const UPLOAD_COVER_ENDPOINT = "/api/upload/product-image";
@@ -45,7 +45,6 @@ const defaultDraft: DraftOptions = {
   includeFAQ: true,
   includeChecklist: true,
   includeMistakes: true,
-  includeTable: true,
 };
 
 export default function AdminBlogClient() {
@@ -59,7 +58,6 @@ export default function AdminBlogClient() {
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // обложка: загрузка/генерация
   const [coverUploading, setCoverUploading] = useState(false);
   const [coverGenerating, setCoverGenerating] = useState(false);
 
@@ -72,7 +70,6 @@ export default function AdminBlogClient() {
     load();
   }, []);
 
-  // slug из title (только при создании и пока slug не трогали руками)
   useEffect(() => {
     if (!editing && !slugTouched) {
       setForm((f) => ({ ...f, slug: slugify(f.title) }));
@@ -218,7 +215,7 @@ export default function AdminBlogClient() {
     }
 
     setBusy(true);
-    setMsg("Генерация насыщенного черновика…");
+    setMsg("Генерация черновика…");
 
     const res = await fetch("/api/posts/generate", {
       method: "POST",
@@ -236,7 +233,7 @@ export default function AdminBlogClient() {
           faq: draft.includeFAQ,
           checklist: draft.includeChecklist,
           mistakes: draft.includeMistakes,
-          table: draft.includeTable,
+          // table: draft.includeTable, // УДАЛЕНО
         },
       }),
     });
@@ -264,7 +261,7 @@ export default function AdminBlogClient() {
   }
 
   return (
-    <div className="w-full max-w-full overflow-x-hidden grid md:grid-cols-2 gap-8">
+    <div className="w-full max-w-full grid md:grid-cols-2 gap-6 sm:gap-8">
       {/* ФОРМА */}
       <div className="space-y-3 min-w-0">
         <h2 className="text-xl font-semibold">{editing ? "Редактировать пост" : "Создать пост"}</h2>
@@ -301,7 +298,7 @@ export default function AdminBlogClient() {
           </Field>
 
           {/* ОБЛОЖКА */}
-          <div className="rounded-2xl border p-4 space-y-3 bg-white/70 backdrop-blur min-w-0">
+          <div className="rounded-2xl border p-3 sm:p-4 space-y-3 bg-white/70 backdrop-blur min-w-0">
             <div className="font-semibold">Обложка</div>
 
             <div className="grid sm:grid-cols-2 gap-3 min-w-0">
@@ -326,7 +323,7 @@ export default function AdminBlogClient() {
               <div className="flex flex-col gap-2 min-w-0">
                 <button
                   type="button"
-                  className="px-4 py-2 rounded border disabled:opacity-50 w-full"
+                  className="px-4 py-2 rounded border disabled:opacity-50 self-start"
                   onClick={generateCoverFromTopic}
                   disabled={busy || coverUploading || coverGenerating || !form.title.trim()}
                   title={!form.title.trim() ? "Сначала укажи заголовок" : undefined}
@@ -366,7 +363,7 @@ export default function AdminBlogClient() {
           </div>
 
           {/* НАСТРОЙКИ ГЕНЕРАЦИИ */}
-          <div className="rounded-2xl border p-4 space-y-3 bg-white/70 backdrop-blur min-w-0">
+          <div className="rounded-2xl border p-3 sm:p-4 space-y-3 bg-white/70 backdrop-blur min-w-0">
             <div className="font-semibold">Генерация черновика</div>
 
             <Field label="Для кого (аудитория)">
@@ -441,19 +438,10 @@ export default function AdminBlogClient() {
                 />
                 <span>Ошибки/мифы</span>
               </label>
-
-              <label className="inline-flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={draft.includeTable}
-                  onChange={(e) => setDraftField("includeTable", e.target.checked)}
-                />
-                <span>Таблица</span>
-              </label>
             </div>
 
             <div className="text-xs text-gray-500 break-words">
-              Для кликабельного плана рекомендуем генерировать заголовки как отдельные строки вида **Заголовок**.
+              Заголовки секций должны быть отдельными строками вида <span className="font-mono">**Заголовок**</span>.
             </div>
           </div>
 
@@ -467,7 +455,7 @@ export default function AdminBlogClient() {
             />
           </Field>
 
-          <div className="flex flex-wrap gap-3 items-center min-w-0">
+          <div className="flex flex-wrap gap-2 sm:gap-3 items-center min-w-0">
             <button
               className="px-4 py-2 rounded bg-black text-white disabled:opacity-50"
               type="submit"
@@ -511,7 +499,7 @@ export default function AdminBlogClient() {
 
         <div className="grid grid-cols-1 gap-3 min-w-0">
           {items.map((p) => (
-            <div key={p.id} className="rounded-2xl border p-3 flex flex-col gap-2 min-w-0">
+            <div key={p.id} className="rounded-2xl border p-3 sm:p-4 flex flex-col gap-2 min-w-0">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
                   <div className="font-semibold truncate">{p.title}</div>
@@ -520,7 +508,7 @@ export default function AdminBlogClient() {
                   </div>
                 </div>
 
-                <div className="flex flex-wrap gap-2 w-full sm:w-auto sm:flex-nowrap sm:justify-end">
+                <div className="flex flex-wrap gap-2 sm:flex-nowrap sm:justify-end">
                   <button className="btn text-xs" onClick={() => edit(p)} type="button">
                     Ред.
                   </button>
