@@ -508,14 +508,16 @@ export default function AdminBlogClient() {
         <div className="grid grid-cols-1 gap-3">
           {items.map((p) => (
             <div key={p.id} className="rounded-2xl border p-3 flex flex-col gap-2">
-              <div className="flex justify-between items-start gap-2">
-                <div>
-                  <div className="font-semibold">{p.title}</div>
-                  <div className="text-xs text-gray-500">
+              {/* верхняя строка: на мобиле в колонку, на sm+ в строку */}
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <div className="font-semibold truncate">{p.title}</div>
+                  <div className="text-xs text-gray-500 break-words">
                     /blog/{p.slug} • {p.category}
                   </div>
                 </div>
-                <div className="flex gap-2">
+
+                <div className="flex flex-wrap gap-2 w-full sm:w-auto sm:flex-nowrap sm:justify-end">
                   <button className="btn text-xs" onClick={() => edit(p)} type="button">
                     Ред.
                   </button>
