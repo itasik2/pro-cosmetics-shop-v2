@@ -9,17 +9,15 @@ type Body = {
   topic?: string;
   category?: string;
 
-  // опции (все необязательные, чтобы не ломать старые вызовы)
   audience?: string;
   tone?: "neutral" | "simple" | "expert" | "marketing";
   depth?: "short" | "standard" | "deep";
 
   blocks?: {
-    //slides?: boolean; // оставляем возможность, но по умолчанию выключено
     faq?: boolean;
     checklist?: boolean;
     mistakes?: boolean;
-    table?: boolean;
+    // table?: boolean; // УДАЛЕНО
   };
 };
 
@@ -68,23 +66,17 @@ function extractJsonFromText(raw: string) {
 
 export async function POST(req: Request) {
   try {
-    // 1) Пускаем только админа
     const session = await auth();
     const adminEmail = (process.env.AUTH_ADMIN_EMAIL || "").toLowerCase();
 
-    if (
-      !session?.user?.email ||
-      session.user.email.toLowerCase() !== adminEmail
-    ) {
+    if (!session?.user?.email || session.user.email.toLowerCase() !== adminEmail) {
       return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
 
-    // 2) Проверка ключа
     if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json({ error: "no_api_key" }, { status: 500 });
     }
 
-    // 3) Читаем вход
     const json = (await req.json().catch(() => ({}))) as Body;
 
     const topic = (json.topic || "").trim();
@@ -93,34 +85,21 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "topic_required" }, { status: 400 });
     }
 
-    // 4) Дефолты (чтобы старые вызовы работали)
-    const audience =
-      (json.audience || "широкая аудитория").trim() || "широкая аудитория";
+    const audience = (json.audience || "широкая аудитория").trim() || "широкая аудитория";
     const tone = (json.tone || "expert") as NonNullable<Body["tone"]>;
     const depth = (json.depth || "deep") as NonNullable<Body["depth"]>;
 
-    // ВАЖНО: slides по умолчанию выключено, “План” всегда запрещён
     const blocks = {
-     // slides: boolOrDefault(json.blocks?.slides, false),
       faq: boolOrDefault(json.blocks?.faq, true),
       checklist: boolOrDefault(json.blocks?.checklist, true),
       mistakes: boolOrDefault(json.blocks?.mistakes, true),
-      table: boolOrDefault(json.blocks?.table, true),
     };
 
-    // Слайд-выжимки: опционально. Сейчас выключено по умолчанию.
-    //const slidesRule = blocks.slides
-     // ? `В конце КАЖДОГО раздела добавляй блок:
-//**Слайд-выжимка**
-//- 3–5 коротких тезисов`
-     // : `Не добавляй "Слайд-выжимка" нигде.`;
-
-    const tableRule = blocks.table
-      ? `Добавь 1 таблицу в Markdown (с символами |), практическую: сравнение вариантов/сценариев применения/комбинаций. Таблица должна быть внутри отдельного раздела с жирным заголовком.`
-      : `Таблицу не добавляй.`;
-
     const faqRule = blocks.faq
-      ? `Добавь отдельный раздел **FAQ** (8–12 вопросов и коротких ответов).`
+      ? `Добавь отдельный раздел **FAQ** (8–12 пар). Формат КАЖДОЙ пары строго такой:
+**Вопрос?**
+Ответ обычным текстом со следующей строки.
+Никаких "Вопрос:"/"Ответ:" и не в одну строку. Между парами — пустая строка.`
       : `FAQ не добавляй.`;
 
     const mistakesRule = blocks.mistakes
@@ -131,8 +110,6 @@ export async function POST(req: Request) {
       ? `Добавь отдельный раздел **Чек-лист** (10–15 коротких пунктов).`
       : `Чек-лист не добавляй.`;
 
-    // 5) Промпт
-    // Требования: без "План", без "Лид", заголовки только **...**, без ##/### и без ---
     const prompt = `
 Ты — редактор и эксперт по уходу за кожей для интернет-магазина профессиональной косметики.
 Сгенерируй насыщенную, структурированную статью, которую легко читать.
@@ -166,12 +143,11 @@ export async function POST(req: Request) {
    - заголовок **...**
    - 3–6 тезисов списком ИЛИ 1–2 абзаца (можно комбинировать)
    - как выбрать / как применять / как сочетать / на что обратить внимание
-   
-3) ${tableRule}
-4) ${mistakesRule}
-5) ${checklistRule}
-6) ${faqRule}
-7) Заверши разделом **Вывод** (кратко + предложение задать вопрос в Q&A на сайте)
+
+3) ${mistakesRule}
+4) ${checklistRule}
+5) ${faqRule}
+6) Заверши разделом **Вывод** (кратко + предложение задать вопрос в Q&A на сайте)
 
 Содержательные требования:
 - Практика важнее воды: больше шагов, критериев выбора, предупреждений, комбинаций.
@@ -179,7 +155,6 @@ export async function POST(req: Request) {
 - Если есть ограничения (беременность/ретиноиды/кислоты/чувствительность) — формулируй как осторожность и общий совет обратиться к специалисту.
 `.trim();
 
-    // 6) Вызов модели
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
@@ -195,19 +170,15 @@ export async function POST(req: Request) {
 
     const raw = completion.choices[0]?.message?.content || "";
 
-    // 7) Парсим JSON
     const parsed = extractJsonFromText(raw);
     if (!parsed) {
       return NextResponse.json({ error: "llm_parse_error", raw }, { status: 500 });
     }
 
     const title =
-      typeof parsed.title === "string" && parsed.title.trim()
-        ? parsed.title.trim()
-        : topic;
+      typeof parsed.title === "string" && parsed.title.trim() ? parsed.title.trim() : topic;
 
-    const content =
-      typeof parsed.content === "string" ? parsed.content.trim() : "";
+    const content = typeof parsed.content === "string" ? parsed.content.trim() : "";
 
     const outCategory =
       typeof parsed.category === "string" && parsed.category.trim()
@@ -218,11 +189,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "llm_empty_content", raw }, { status: 500 });
     }
 
-    return NextResponse.json({
-      title,
-      content,
-      category: outCategory,
-    });
+    return NextResponse.json({ title, content, category: outCategory });
   } catch (err: any) {
     const status = err?.status || err?.response?.status;
     const msg = err?.message || "unknown";
@@ -239,9 +206,6 @@ export async function POST(req: Request) {
     }
 
     console.error("POST /api/posts/generate error:", err);
-    return NextResponse.json(
-      { error: "server_error", message: msg },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "server_error", message: msg }, { status: 500 });
   }
 }
