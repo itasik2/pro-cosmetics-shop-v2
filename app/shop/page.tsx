@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import ShopGridClient from "@/components/ShopGridClient";
+import FavoritesButton from "@/components/FavoritesButton"; // ✅ ДОБАВИЛИ
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,7 @@ type Variant = {
   price: number;
   stock: number;
   sku?: string;
+ informing.
 };
 
 // Нормализатор Prisma JsonValue -> Variant[] | null
@@ -40,10 +42,8 @@ function toVariants(v: unknown): Variant[] | null {
     const id = typeof obj.id === "string" ? obj.id : null;
     const label = typeof obj.label === "string" ? obj.label : null;
 
-    const price =
-      typeof obj.price === "number" ? obj.price : Number(obj.price);
-    const stock =
-      typeof obj.stock === "number" ? obj.stock : Number(obj.stock);
+    const price = typeof obj.price === "number" ? obj.price : Number(obj.price);
+    const stock = typeof obj.stock === "number" ? obj.stock : Number(obj.stock);
 
     if (!id || !label) continue;
     if (!Number.isFinite(price) || !Number.isFinite(stock)) continue;
@@ -70,9 +70,7 @@ export default async function ShopPage({ searchParams }: Props) {
     select: { id: true, name: true, slug: true },
   });
 
-  const selectedBrand = brandSlug
-    ? brands.find((b) => b.slug === brandSlug) || null
-    : null;
+  const selectedBrand = brandSlug ? brands.find((b) => b.slug === brandSlug) || null : null;
 
   const orderBy =
     sort === "price_asc"
@@ -94,11 +92,10 @@ export default async function ShopPage({ searchParams }: Props) {
       createdAt: true,
       category: true,
       brand: { select: { name: true } },
-      variants: true, // <-- ВАЖНО: чтобы варианты приходили
+      variants: true,
     },
   });
 
-  // Приводим variants к понятному клиенту типу (Variant[] | null)
   const productsForClient = products.map((p) => ({
     ...p,
     variants: toVariants((p as any).variants),
@@ -115,8 +112,8 @@ export default async function ShopPage({ searchParams }: Props) {
           </div>
         </div>
 
-        {/* Сортировка */}
-        <div className="flex flex-wrap gap-2 text-sm">
+        {/* Сортировка + Избранное */}
+        <div className="flex flex-wrap items-center gap-2 text-sm">
           <SortLink currentBrand={brandSlug} currentSort={sort} value="new">
             Новинки
           </SortLink>
@@ -126,6 +123,9 @@ export default async function ShopPage({ searchParams }: Props) {
           <SortLink currentBrand={brandSlug} currentSort={sort} value="price_desc">
             Цена ↓
           </SortLink>
+
+          {/* ✅ Кнопка избранного рядом с сортировкой */}
+          <FavoritesButton />
         </div>
       </div>
 
@@ -146,7 +146,7 @@ export default async function ShopPage({ searchParams }: Props) {
         ))}
       </div>
 
-      {/* Клиентская сетка + избранное */}
+      {/* Клиентская сетка */}
       <ShopGridClient products={productsForClient} />
     </div>
   );
