@@ -191,36 +191,35 @@ export default function AdminReviewsClient() {
         <div className="grid grid-cols-1 gap-3">
           {items.map((r) => (
             <div key={r.id} className="rounded-2xl border p-3 flex flex-col gap-2">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="font-semibold">{r.name}</div>
-                  <div className="text-xs text-gray-500">
-                    Оценка: {r.rating}/5 •{" "}
-                    {r.isPublic ? "Опубликован" : "Скрыт"}
+              {/* Верх: на мобиле — колонка, на sm+ — строка */}
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <div className="font-semibold truncate">{r.name}</div>
+                  <div className="text-xs text-gray-500 break-words">
+                    Оценка: {r.rating}/5 • {r.isPublic ? "Опубликован" : "Скрыт"}
                   </div>
                 </div>
-                <div className="flex gap-2">
-                  <button className="btn text-xs" onClick={() => edit(r)}>
+
+                <div className="flex flex-wrap gap-2 w-full sm:w-auto sm:flex-nowrap sm:justify-end">
+                  <button className="btn text-xs" onClick={() => edit(r)} type="button">
                     Ред.
                   </button>
-                  <button className="btn text-xs" onClick={() => togglePublic(r)}>
+                  <button className="btn text-xs" onClick={() => togglePublic(r)} type="button">
                     {r.isPublic ? "Скрыть" : "Показать"}
                   </button>
-                  <button className="btn text-xs" onClick={() => remove(r.id)}>
+                  <button className="btn text-xs" onClick={() => remove(r.id)} type="button">
                     Удалить
                   </button>
                 </div>
               </div>
 
-              <div className="text-sm text-gray-700 whitespace-pre-line">
+              <div className="text-sm text-gray-700 whitespace-pre-line break-words">
                 {r.text}
               </div>
             </div>
           ))}
 
-          {items.length === 0 && (
-            <div className="text-sm text-gray-500">Отзывов пока нет</div>
-          )}
+          {items.length === 0 && <div className="text-sm text-gray-500">Отзывов пока нет</div>}
         </div>
       </div>
     </div>
