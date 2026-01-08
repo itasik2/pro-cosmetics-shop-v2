@@ -482,7 +482,7 @@ export default function AdminBlogClient() {
               onClick={generateDraft}
               disabled={!canGenerate}
             >
-              Сгенерировать насыщенный черновик
+              Сгенерировать черновик
             </button>
 
             {(editing || form.title || form.slug || form.content || form.image) && (
