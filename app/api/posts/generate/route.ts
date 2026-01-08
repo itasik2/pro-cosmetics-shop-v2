@@ -15,7 +15,7 @@ type Body = {
   depth?: "short" | "standard" | "deep";
 
   blocks?: {
-    slides?: boolean; // оставляем возможность, но по умолчанию выключено
+    //slides?: boolean; // оставляем возможность, но по умолчанию выключено
     faq?: boolean;
     checklist?: boolean;
     mistakes?: boolean;
@@ -101,7 +101,7 @@ export async function POST(req: Request) {
 
     // ВАЖНО: slides по умолчанию выключено, “План” всегда запрещён
     const blocks = {
-      slides: boolOrDefault(json.blocks?.slides, false),
+     // slides: boolOrDefault(json.blocks?.slides, false),
       faq: boolOrDefault(json.blocks?.faq, true),
       checklist: boolOrDefault(json.blocks?.checklist, true),
       mistakes: boolOrDefault(json.blocks?.mistakes, true),
@@ -109,7 +109,7 @@ export async function POST(req: Request) {
     };
 
     // Слайд-выжимки: опционально. Сейчас выключено по умолчанию.
-    const slidesRule = blocks.slides
+    //const slidesRule = blocks.slides
       ? `В конце КАЖДОГО раздела добавляй блок:
 **Слайд-выжимка**
 - 3–5 коротких тезисов`
@@ -166,7 +166,7 @@ export async function POST(req: Request) {
    - заголовок **...**
    - 3–6 тезисов списком ИЛИ 1–2 абзаца (можно комбинировать)
    - мини-практику: как выбрать / как применять / как сочетать / на что обратить внимание
-   - ${slidesRule}
+   // - ${slidesRule}
 3) ${tableRule}
 4) ${mistakesRule}
 5) ${checklistRule}
