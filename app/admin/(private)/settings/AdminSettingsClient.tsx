@@ -1,17 +1,14 @@
-// app/admin/(private)/settings/AdminSettingsClient.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
 
-// ВАЖНО: поставь сюда путь к твоему существующему upload endpoint,
-// который загружает файл в Cloudinary и возвращает JSON с URL.
 const UPLOAD_ENDPOINT = "/api/upload"; // <-- замени на свой, если другой
 
 type Settings = {
   id: "default";
   scheduleEnabled: boolean;
-  scheduleStart: string | null; // ISO
-  scheduleEnd: string | null; // ISO
+  scheduleStart: string | null;
+  scheduleEnd: string | null;
 
   backgroundUrl: string;
 
@@ -19,7 +16,7 @@ type Settings = {
   bannerText: string;
   bannerHref: string | null;
 
-  updatedAt: string; // ISO
+  updatedAt: string;
 };
 
 type ApiGetResponse = {
@@ -32,23 +29,10 @@ function toISOorNull(v: string) {
   return s ? s : null;
 }
 
-/**
- * Cloudinary optimization:
- * Вставляет трансформации после /upload/
- * - f_auto: GIF -> animated WebP (если поддерживается)
- * - q_auto: качество авто
- * - w_1920,c_limit: ограничение ширины
- *
- * Работает и для jpg/png/webp/gif.
- */
 function toOptimizedCloudinaryUrl(url: string) {
   const u = (url || "").trim();
   if (!u) return "";
-
-  // Cloudinary типично: .../image/upload/<public_id>...
   if (!u.includes("/upload/")) return u;
-
-  // если трансформации уже вставлены — не дублируем
   if (u.includes("/upload/f_auto")) return u;
 
   return u.replace("/upload/", "/upload/f_auto,q_auto,w_1920,c_limit/");
@@ -74,6 +58,7 @@ export default function AdminSettingsClient() {
   async function load() {
     setLoading(true);
     setMsg(null);
+
     try {
       const res = await fetch("/api/site-settings", { cache: "no-store" });
       const data = (await res.json().catch(() => ({}))) as ApiGetResponse;
@@ -114,11 +99,20 @@ export default function AdminSettingsClient() {
       bannerText: (bannerText || "").trim(),
       bannerHref: toISOorNull(bannerHref),
     };
-  }, [scheduleEnabled, scheduleStart, scheduleEnd, backgroundUrl, bannerEnabled, bannerText, bannerHref]);
+  }, [
+    scheduleEnabled,
+    scheduleStart,
+    scheduleEnd,
+    backgroundUrl,
+    bannerEnabled,
+    bannerText,
+    bannerHref,
+  ]);
 
   async function save() {
     setBusy(true);
     setMsg(null);
+
     try {
       const res = await fetch("/api/site-settings", {
         method: "PUT",
@@ -160,9 +154,12 @@ export default function AdminSettingsClient() {
         return;
       }
 
-      // поддержим разные форматы ответа upload endpoint
       const rawUrl = String(
-        data?.secure_url || data?.url || data?.result?.secure_url || data?.result?.url || "",
+        data?.secure_url ||
+          data?.url ||
+          data?.result?.secure_url ||
+          data?.result?.url ||
+          "",
       ).trim();
 
       if (!rawUrl) {
@@ -170,7 +167,6 @@ export default function AdminSettingsClient() {
         return;
       }
 
-      // КЛЮЧЕВОЕ: оптимизируем Cloudinary URL (GIF -> animated WebP)
       const optimized = toOptimizedCloudinaryUrl(rawUrl);
       setBackgroundUrl(optimized);
 
@@ -180,11 +176,10 @@ export default function AdminSettingsClient() {
     } finally {
       setBusy(false);
     }
-  
+  }
 
   return (
     <div className="max-w-3xl space-y-6">
-      {/* ШАПКА: на мобильном в колонку, чтобы ничего не разъезжалось */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div className="min-w-0">
           <h2 className="text-2xl font-bold">Настройки сайта</h2>
@@ -210,7 +205,6 @@ export default function AdminSettingsClient() {
         <div className="text-sm text-gray-500">Загрузка…</div>
       ) : (
         <>
-          {/* Расписание UTC */}
           <div className="rounded-2xl border p-4 space-y-3">
             <div className="font-semibold">Автовключение по датам (UTC)</div>
 
@@ -251,7 +245,6 @@ export default function AdminSettingsClient() {
             </div>
           </div>
 
-          {/* Фон */}
           <div className="rounded-2xl border p-4 space-y-3">
             <div className="font-semibold">Фон сайта</div>
 
@@ -288,8 +281,6 @@ export default function AdminSettingsClient() {
                 {backgroundUrl ? (
                   <div className="mt-3">
                     <div className="text-sm text-gray-600 mb-2">Превью</div>
-
-                    {/* ВАЖНО: overflow-hidden + img block/max-w-full => не вылезает */}
                     <div className="rounded-xl border overflow-hidden">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
@@ -304,7 +295,6 @@ export default function AdminSettingsClient() {
             </div>
           </div>
 
-          {/* Баннер */}
           <div className="rounded-2xl border p-4 space-y-3">
             <div className="font-semibold">Баннер</div>
 
@@ -333,3 +323,12 @@ export default function AdminSettingsClient() {
                 className="w-full border rounded-xl px-3 py-2"
                 value={bannerHref}
                 onChange={(e) => setBannerHref(e.target.value)}
+                placeholder="https://... или /shop"
+              />
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
