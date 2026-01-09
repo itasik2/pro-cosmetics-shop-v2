@@ -7,15 +7,25 @@ type Props = { productId: string };
 function readSet(key: string): Set<string> {
   try {
     const raw = localStorage.getItem(key);
-    const arr = raw ? (JSON.parse(raw) as string[]) : [];
-    return new Set(arr);
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return new Set();
+
+    // нормализуем: только строки, без пустых
+    const ids = parsed.map((x) => String(x)).filter(Boolean);
+    return new Set(ids);
   } catch {
     return new Set();
   }
 }
 
 function writeSet(key: string, set: Set<string>) {
-  localStorage.setItem(key, JSON.stringify(Array.from(set)));
+  // гарантируем уникальность и чистые строки
+  const uniq = Array.from(new Set(Array.from(set).map((x) => String(x)).filter(Boolean)));
+
+  localStorage.setItem(key, JSON.stringify(uniq));
+
+  // КЛЮЧЕВОЕ: в этой же вкладке "storage" НЕ сработает, поэтому шлём свои события
+  window.dispatchEvent(new Event("favorites:changed"));
   window.dispatchEvent(new Event("storage-sync"));
 }
 
@@ -27,12 +37,22 @@ export default function FavoriteButton({ productId }: Props) {
 
   useEffect(() => {
     sync();
+
+    const onStorage = (e: StorageEvent) => {
+      // сработает в другой вкладке
+      if (e.key === favKey) sync();
+    };
+
     const onSync = () => sync();
-    window.addEventListener("storage", onSync);
-    window.addEventListener("storage-sync", onSync);
+
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("storage-sync", onSync as any);
+    window.addEventListener("favorites:changed", onSync as any);
+
     return () => {
-      window.removeEventListener("storage", onSync);
-      window.removeEventListener("storage-sync", onSync);
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("storage-sync", onSync as any);
+      window.removeEventListener("favorites:changed", onSync as any);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productId]);
@@ -41,8 +61,11 @@ export default function FavoriteButton({ productId }: Props) {
     const set = readSet(favKey);
     if (set.has(productId)) set.delete(productId);
     else set.add(productId);
+
     writeSet(favKey, set);
-    sync();
+
+    // локально обновим сразу, не дожидаясь слушателей
+    setFav(set.has(productId));
   };
 
   return (
@@ -60,9 +83,7 @@ export default function FavoriteButton({ productId }: Props) {
         viewBox="0 0 24 24"
         className={
           "h-5 w-5 transition " +
-          (fav
-            ? "fill-red-500 stroke-red-500"
-            : "fill-transparent stroke-red-500")
+          (fav ? "fill-red-500 stroke-red-500" : "fill-transparent stroke-red-500")
         }
         strokeWidth="2"
         strokeLinecap="round"
