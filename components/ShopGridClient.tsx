@@ -37,47 +37,42 @@ function readFavorites(): Set<string> {
 }
 
 export default function ShopGridClient({ products }: { products: Product[] }) {
-  const searchParams = useSearchParams();
-  const favMode = (searchParams.get("fav") || "") === "1"; // <-- главный флаг
+  const sp = useSearchParams();
+  const favMode = (sp.get("fav") || "") === "1";
 
   const [favIds, setFavIds] = useState<Set<string>>(new Set());
 
-  const syncFav = () => setFavIds(readFavorites());
-
   useEffect(() => {
-    syncFav();
+    const sync = () => setFavIds(readFavorites());
+    sync();
 
-    const onChanged = () => syncFav();
-    const onSync = () => syncFav();
-
-    window.addEventListener("favorites:changed", onChanged as any);
+    const onSync = () => sync();
+    window.addEventListener("favorites:changed", onSync as any);
     window.addEventListener("storage-sync", onSync as any);
+    window.addEventListener("storage", onSync as any);
 
     return () => {
-      window.removeEventListener("favorites:changed", onChanged as any);
+      window.removeEventListener("favorites:changed", onSync as any);
       window.removeEventListener("storage-sync", onSync as any);
+      window.removeEventListener("storage", onSync as any);
     };
   }, []);
 
   const visible = useMemo(() => {
     if (!favMode) return products;
-    // порядок сохраняется (значит сортировка продолжит работать внутри избранного)
+    // порядок сохраняется, значит сортировка (серверная) будет работать и внутри избранного
     return products.filter((p) => favIds.has(p.id));
   }, [favMode, favIds, products]);
 
-  return (
-    <>
-      {visible.length === 0 ? (
-        <div className="text-sm text-gray-500 mt-4">
-          {favMode ? "Нет товаров в избранном." : "Товары не найдены."}
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 mt-4">
-          {visible.map((p) => (
-            <ProductCard key={p.id} product={p} />
-          ))}
-        </div>
-      )}
-    </>
+  return visible.length === 0 ? (
+    <div className="text-sm text-gray-500 mt-4">
+      {favMode ? "Нет товаров в избранном." : "Товары не найдены."}
+    </div>
+  ) : (
+    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 mt-4">
+      {visible.map((p) => (
+        <ProductCard key={p.id} product={p} />
+      ))}
+    </div>
   );
 }
