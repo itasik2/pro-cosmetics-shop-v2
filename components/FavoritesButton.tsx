@@ -27,37 +27,39 @@ export default function FavoritesButton() {
     const sync = () => setCount(readFavCount());
     sync();
 
-    const onChanged = () => sync();
-
-    window.addEventListener("favorites:changed", onChanged as any);
-    window.addEventListener("storage-sync", onChanged as any);
-    window.addEventListener("storage", onChanged as any);
+    const onSync = () => sync();
+    window.addEventListener("favorites:changed", onSync as any);
+    window.addEventListener("storage-sync", onSync as any);
+    window.addEventListener("storage", onSync as any);
 
     return () => {
-      window.removeEventListener("favorites:changed", onChanged as any);
-      window.removeEventListener("storage-sync", onChanged as any);
-      window.removeEventListener("storage", onChanged as any);
+      window.removeEventListener("favorites:changed", onSync as any);
+      window.removeEventListener("storage-sync", onSync as any);
+      window.removeEventListener("storage", onSync as any);
     };
   }, []);
 
   const badge = useMemo(() => count, [count]);
 
-  function toggle() {
+  function toggleFav() {
     const params = new URLSearchParams(sp.toString());
 
     if (favMode) params.delete("fav");
     else params.set("fav", "1");
 
     const qs = params.toString();
-    router.push(qs ? `${pathname}?${qs}` : pathname);
+    const nextUrl = qs ? `${pathname}?${qs}` : pathname;
+
+    router.push(nextUrl, { scroll: false });
+    router.refresh(); // <-- КЛЮЧЕВОЕ: гарантируем перерасчёт списка/сервера
   }
 
   return (
     <button
       type="button"
-      onClick={toggle}
+      onClick={toggleFav}
       className={
-        "px-3 py-1 rounded-full text-sm border inline-flex items-center gap-2 " +
+        "px-3 py-1 rounded-full text-sm border inline-flex items-center gap-2 transition " +
         (favMode
           ? "bg-black text-white border-black"
           : "bg-white text-gray-700 hover:bg-gray-50")
