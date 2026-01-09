@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import ProductCard from "@/components/ProductCard";
 
 type Variant = {
@@ -9,7 +8,6 @@ type Variant = {
   label: string;
   price: number;
   stock: number;
-  sku?: string;
 };
 
 type Product = {
@@ -25,83 +23,73 @@ type Product = {
   variants?: Variant[] | null;
 };
 
+type ActiveControl = "favorites" | null;
+
 function readFavorites(): Set<string> {
   try {
     const raw = localStorage.getItem("favorites");
     const arr = raw ? (JSON.parse(raw) as string[]) : [];
-    return new Set(Array.isArray(arr) ? arr : []);
+    return new Set(arr.map(String));
   } catch {
     return new Set();
   }
 }
 
 export default function ShopGridClient({ products }: { products: Product[] }) {
-  const searchParams = useSearchParams();
-
-  // URL-параметры (нужны для сброса фильтра при смене сортировки/бренда)
-  const sortParam = searchParams.get("sort") || "new";
-  const brandParam = searchParams.get("brand") || "";
-
-  const [onlyFav, setOnlyFav] = useState(false);
+  const [activeControl, setActiveControl] = useState<ActiveControl>(null);
   const [favIds, setFavIds] = useState<Set<string>>(new Set());
 
   const syncFav = () => setFavIds(readFavorites());
 
-  // 1) Подхват избранного и синхронизация между вкладками/компонентами
   useEffect(() => {
     syncFav();
-
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === "favorites") syncFav();
-    };
-
     const onSync = () => syncFav();
-
-    window.addEventListener("storage", onStorage);
-    window.addEventListener("favorites:changed", onSync as any);
-
+    window.addEventListener("favorites:changed", onSync);
+    window.addEventListener("storage-sync", onSync);
     return () => {
-      window.removeEventListener("storage", onStorage);
-      window.removeEventListener("favorites:changed", onSync as any);
+      window.removeEventListener("favorites:changed", onSync);
+      window.removeEventListener("storage-sync", onSync);
     };
   }, []);
-
-  // 2) Обработчик клика по кнопке в шапке (FavoritesButton)
-  useEffect(() => {
-    const onOpen = () => {
-      setOnlyFav((v) => {
-        const next = !v;
-        window.dispatchEvent(new CustomEvent("favorites:state", { detail: next }));
-        return next;
-      });
-    };
-
-    window.addEventListener("favorites:open", onOpen as any);
-
-    // сообщим начальное состояние кнопке
-    window.dispatchEvent(new CustomEvent("favorites:state", { detail: onlyFav }));
-
-    return () => window.removeEventListener("favorites:open", onOpen as any);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // 3) Сброс фильтра "только избранное" при смене сортировки или бренда
-  useEffect(() => {
-    setOnlyFav(false);
-    window.dispatchEvent(new CustomEvent("favorites:state", { detail: false }));
-  }, [sortParam, brandParam]);
 
   const visible = useMemo(() => {
-    if (!onlyFav) return products;
+    if (activeControl !== "favorites") return products;
     return products.filter((p) => favIds.has(p.id));
-  }, [onlyFav, favIds, products]);
+  }, [activeControl, favIds, products]);
+
+  const favCount = favIds.size;
 
   return (
     <>
-      {/* Сетка товаров */}
+      {/* КНОПКИ УПРАВЛЕНИЯ */}
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() =>
+            setActiveControl((v) => (v === "favorites" ? null : "favorites"))
+          }
+          className={
+            "relative px-3 py-1 rounded-full text-sm border transition " +
+            (activeControl === "favorites"
+              ? "bg-black text-white border-black"
+              : "bg-white text-gray-700 hover:bg-gray-50")
+          }
+        >
+          Избранное
+          {favCount > 0 && (
+            <span className="ml-2 inline-flex items-center justify-center rounded-full bg-gray-200 text-gray-800 text-[10px] px-2">
+              {favCount}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {/* СЕТКА */}
       {visible.length === 0 ? (
         <div className="text-sm text-gray-500 mt-4">
-          {onlyFav ? "Нет товаров в избранном." : "Товары не найдены."}
+          {activeControl === "favorites"
+            ? "В избранном пока нет товаров."
+            : "Товары не найдены."}
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 mt-4">
