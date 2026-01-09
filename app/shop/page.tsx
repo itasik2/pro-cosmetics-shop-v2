@@ -16,6 +16,7 @@ type Props = {
   searchParams?: {
     brand?: string;
     sort?: string;
+    fav?: string; // <-- ДОБАВИЛИ
   };
 };
 
@@ -62,6 +63,7 @@ function toVariants(v: unknown): Variant[] | null {
 export default async function ShopPage({ searchParams }: Props) {
   const brandSlug = (searchParams?.brand || "").trim();
   const sort = (searchParams?.sort || "new").trim();
+  const fav = (searchParams?.fav || "").trim(); // <-- ДОБАВИЛИ ("1" или "")
 
   const brands = await prisma.brand.findMany({
     where: { isActive: true },
@@ -113,13 +115,13 @@ export default async function ShopPage({ searchParams }: Props) {
 
         {/* Сортировка + Избранное */}
         <div className="flex flex-wrap items-center gap-2 text-sm">
-          <SortLink currentBrand={brandSlug} currentSort={sort} value="new">
+          <SortLink currentBrand={brandSlug} currentSort={sort} currentFav={fav} value="new">
             Новинки
           </SortLink>
-          <SortLink currentBrand={brandSlug} currentSort={sort} value="price_asc">
+          <SortLink currentBrand={brandSlug} currentSort={sort} currentFav={fav} value="price_asc">
             Цена ↑
           </SortLink>
-          <SortLink currentBrand={brandSlug} currentSort={sort} value="price_desc">
+          <SortLink currentBrand={brandSlug} currentSort={sort} currentFav={fav} value="price_desc">
             Цена ↓
           </SortLink>
 
@@ -129,7 +131,7 @@ export default async function ShopPage({ searchParams }: Props) {
 
       {/* Фильтр по бренду */}
       <div className="flex flex-wrap gap-2">
-        <BrandLink isActive={!brandSlug} href={buildHref("", sort)}>
+        <BrandLink isActive={!brandSlug} href={buildHref("", sort, fav)}>
           Все
         </BrandLink>
 
@@ -137,7 +139,7 @@ export default async function ShopPage({ searchParams }: Props) {
           <BrandLink
             key={b.id}
             isActive={b.slug === brandSlug}
-            href={buildHref(b.slug, sort)}
+            href={buildHref(b.slug, sort, fav)}
           >
             {b.name}
           </BrandLink>
@@ -150,10 +152,11 @@ export default async function ShopPage({ searchParams }: Props) {
   );
 }
 
-function buildHref(brandSlug: string, sort: string) {
+function buildHref(brandSlug: string, sort: string, fav: string) {
   const params = new URLSearchParams();
   if (brandSlug) params.set("brand", brandSlug);
   if (sort && sort !== "new") params.set("sort", sort);
+  if (fav === "1") params.set("fav", "1"); // <-- КЛЮЧЕВОЕ
   const qs = params.toString();
   return qs ? `/shop?${qs}` : "/shop";
 }
@@ -185,15 +188,17 @@ function BrandLink({
 function SortLink({
   currentBrand,
   currentSort,
+  currentFav,
   value,
   children,
 }: {
   currentBrand: string;
   currentSort: string;
+  currentFav: string;
   value: string;
   children: React.ReactNode;
 }) {
-  const href = buildHref(currentBrand, value);
+  const href = buildHref(currentBrand, value, currentFav);
   const isActive = (currentSort || "new") === value;
 
   return (
