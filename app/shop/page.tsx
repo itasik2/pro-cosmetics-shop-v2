@@ -3,6 +3,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import ShopGridClient from "@/components/ShopGridClient";
 import FavoritesButton from "@/components/FavoritesButton";
+import InStockButton from "@/components/InStockButton";
 
 export const dynamic = "force-dynamic";
 
@@ -64,6 +65,7 @@ export default async function ShopPage({ searchParams }: Props) {
   const brandSlug = (searchParams?.brand || "").trim();
   const sort = (searchParams?.sort || "new").trim();
   const fav = (searchParams?.fav || "").trim(); // <-- ДОБАВИЛИ ("1" или "")
+  const instock = (searchParams?.instock || "").trim();
 
   const brands = await prisma.brand.findMany({
     where: { isActive: true },
@@ -125,6 +127,7 @@ export default async function ShopPage({ searchParams }: Props) {
             Цена ↓
           </SortLink>
 
+          <InStockButton />
           <FavoritesButton />
         </div>
       </div>
@@ -156,7 +159,8 @@ function buildHref(brandSlug: string, sort: string, fav: string) {
   const params = new URLSearchParams();
   if (brandSlug) params.set("brand", brandSlug);
   if (sort && sort !== "new") params.set("sort", sort);
-  if (fav === "1") params.set("fav", "1"); // <-- КЛЮЧЕВОЕ
+  if (fav === "1") params.set("fav", "1");
+  if (instock === "1") params.set("instock", "1");
   const qs = params.toString();
   return qs ? `/shop?${qs}` : "/shop";
 }
@@ -189,16 +193,18 @@ function SortLink({
   currentBrand,
   currentSort,
   currentFav,
+  currentInStock,
   value,
   children,
 }: {
   currentBrand: string;
   currentSort: string;
   currentFav: string;
+  currentInStock: string;
   value: string;
   children: React.ReactNode;
 }) {
-  const href = buildHref(currentBrand, value, currentFav);
+  const href = buildHref(currentBrand, value, currentFav, currentInStock);
   const isActive = (currentSort || "new") === value;
 
   return (
