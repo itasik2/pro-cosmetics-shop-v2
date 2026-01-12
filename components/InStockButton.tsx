@@ -19,7 +19,7 @@ export default function InStockButton() {
     const nextUrl = qs ? `${pathname}?${qs}` : pathname;
 
     router.push(nextUrl, { scroll: false });
-    router.refresh();
+    // router.refresh();
   }
 
   return (
