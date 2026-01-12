@@ -51,7 +51,8 @@ export default function FavoritesButton() {
     const nextUrl = qs ? `${pathname}?${qs}` : pathname;
 
     router.push(nextUrl, { scroll: false });
-    router.refresh(); // <-- КЛЮЧЕВОЕ: гарантируем перерасчёт списка/сервера
+    // router.refresh(); 
+    // <-- КЛЮЧЕВОЕ: гарантируем перерасчёт списка/сервера
   }
 
   return (
