@@ -17,7 +17,8 @@ type Props = {
   searchParams?: {
     brand?: string;
     sort?: string;
-    fav?: string; // <-- ДОБАВИЛИ
+    fav?: string;
+    instock?: string;
   };
 };
 
@@ -117,13 +118,13 @@ export default async function ShopPage({ searchParams }: Props) {
 
         {/* Сортировка + Избранное */}
         <div className="flex flex-wrap items-center gap-2 text-sm">
-          <SortLink currentBrand={brandSlug} currentSort={sort} currentFav={fav} value="new">
+          <SortLink currentBrand={brandSlug} currentSort={sort} currentFav={fav} currentInStock={instock} value="new">
             Новинки
           </SortLink>
-          <SortLink currentBrand={brandSlug} currentSort={sort} currentFav={fav} value="price_asc">
+          <SortLink currentBrand={brandSlug} currentSort={sort} currentFav={fav} currentInStock={instock} value="price_asc">
             Цена ↑
           </SortLink>
-          <SortLink currentBrand={brandSlug} currentSort={sort} currentFav={fav} value="price_desc">
+          <SortLink currentBrand={brandSlug} currentSort={sort} currentFav={fav} currentInStock={instock} value="price_desc">
             Цена ↓
           </SortLink>
 
@@ -134,7 +135,7 @@ export default async function ShopPage({ searchParams }: Props) {
 
       {/* Фильтр по бренду */}
       <div className="flex flex-wrap gap-2">
-        <BrandLink isActive={!brandSlug} href={buildHref("", sort, fav)}>
+        <BrandLink isActive={!brandSlug} href={buildHref("", sort, fav, instock)}>
           Все
         </BrandLink>
 
@@ -142,7 +143,7 @@ export default async function ShopPage({ searchParams }: Props) {
           <BrandLink
             key={b.id}
             isActive={b.slug === brandSlug}
-            href={buildHref(b.slug, sort, fav)}
+            href={buildHref(b.slug, sort, fav, instock)}
           >
             {b.name}
           </BrandLink>
@@ -155,7 +156,7 @@ export default async function ShopPage({ searchParams }: Props) {
   );
 }
 
-function buildHref(brandSlug: string, sort: string, fav: string) {
+function buildHref(brandSlug: string, sort: string, fav: string, instock: string) {
   const params = new URLSearchParams();
   if (brandSlug) params.set("brand", brandSlug);
   if (sort && sort !== "new") params.set("sort", sort);
