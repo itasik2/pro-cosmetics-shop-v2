@@ -36,9 +36,16 @@ function readFavorites(): Set<string> {
   }
 }
 
+function isInStock(p: Product) {
+  const vars = Array.isArray(p.variants) ? p.variants : null;
+  if (vars && vars.length > 0) return vars.some((v) => (Number(v.stock) || 0) > 0);
+  return (Number(p.stock) || 0) > 0;
+}
+
 export default function ShopGridClient({ products }: { products: Product[] }) {
   const sp = useSearchParams();
   const favMode = (sp.get("fav") || "") === "1";
+  const inStockMode = (sp.get("instock") || "") === "1";
 
   const [favIds, setFavIds] = useState<Set<string>>(new Set());
 
@@ -59,10 +66,19 @@ export default function ShopGridClient({ products }: { products: Product[] }) {
   }, []);
 
   const visible = useMemo(() => {
-    if (!favMode) return products;
-    // порядок сохраняется, значит сортировка (серверная) будет работать и внутри избранного
-    return products.filter((p) => favIds.has(p.id));
-  }, [favMode, favIds, products]);
+    let list = products;
+
+    if (favMode) {
+      list = list.filter((p) => favIds.has(p.id));
+    }
+
+    if (inStockMode) {
+      list = list.filter((p) => isInStock(p));
+    }
+
+    // порядок НЕ меняем -> сортировка (серверная) сохраняется и в избранном
+    return list;
+  }, [products, favMode, inStockMode, favIds]);
 
   return visible.length === 0 ? (
     <div className="text-sm text-gray-500 mt-4">
