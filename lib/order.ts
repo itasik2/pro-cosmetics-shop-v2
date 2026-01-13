@@ -10,6 +10,8 @@ type Variant = {
   sku?: string;
 };
 
+type BuildOrderError = "empty_cart" | "nothing_to_order" | null;
+
 export function normalizeVariants(v: any): Variant[] {
   if (!Array.isArray(v)) return [];
   return v
@@ -104,11 +106,13 @@ export async function buildOrderFromCart(cart: CartItem[]) {
     });
   }
 
+  
+
   const total = items.reduce((s, x) => s + x.lineTotal, 0);
 
   if (items.length === 0 || total <= 0) {
     return { items: [], total: 0, error: "nothing_to_order" as const };
   }
 
-  return { items, total, error: null as const };
+  return { items, total, error: null as BuildOrderError };
 }
