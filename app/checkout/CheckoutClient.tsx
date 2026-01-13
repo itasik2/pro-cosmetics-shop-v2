@@ -12,27 +12,6 @@ import {
   type CartItem,
 } from "@/lib/cartStorage";
 
-/** localStorage ключ для выбранных позиций */
-const SELECTED_KEY = "cart_selected";
-
-function getSelectedKeys(): string[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(SELECTED_KEY);
-    const arr = raw ? (JSON.parse(raw) as string[]) : [];
-    return Array.isArray(arr) ? arr.filter((x) => typeof x === "string" && x.length > 0) : [];
-  } catch {
-    return [];
-  }
-}
-
-function setSelectedKeys(keys: string[]) {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(SELECTED_KEY, JSON.stringify(Array.from(new Set(keys))));
-  // синхронизируем UI как и cartStorage
-  window.dispatchEvent(new Event("storage-sync"));
-}
-
 type ProductVariant = {
   id: string;
   label: string;
@@ -73,13 +52,13 @@ export default function CheckoutClient() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // selection
+  // selection (НЕ сохраняем в localStorage — чтобы не было циклов и чтобы F5 сбрасывал)
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   // form visibility
   const [showForm, setShowForm] = useState(false);
 
-  // form fields
+  // form
   const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
@@ -90,44 +69,29 @@ export default function CheckoutClient() {
   const [submitting, setSubmitting] = useState(false);
   const [submitErr, setSubmitErr] = useState<string | null>(null);
 
-  const sync = () => setCart(getCart());
+  const sync = () => {
+    const c = getCart();
+    setCart(c);
+    // при изменении корзины — оставляем только существующие ключи;
+    // если выбор пустой, выбираем всё (MVP удобство)
+    const keys = c.map((x) => x.id);
+    setSelected((prev) => {
+      const kept = new Set([...prev].filter((k) => keys.includes(k)));
+      if (kept.size === 0 && keys.length > 0) keys.forEach((k) => kept.add(k));
+      return kept;
+    });
+  };
 
   useEffect(() => {
-    // первичная синхронизация
     sync();
-
-    // первичная инициализация выбора
-    const currentCart = getCart();
-    const cartKeys = currentCart.map((x) => x.id);
-
-    const saved = getSelectedKeys().filter((k) => cartKeys.includes(k));
-    const initial = saved.length > 0 ? saved : cartKeys;
-
-    setSelected(new Set(initial));
-    setSelectedKeys(initial);
-
-    const onSync = () => {
-      const nextCart = getCart();
-      setCart(nextCart);
-
-      const keys = nextCart.map((x) => x.id);
-
-      setSelected((prev) => {
-        // держим выбор только в рамках текущей корзины
-        const kept = new Set([...prev].filter((k) => keys.includes(k)));
-        // если ничего не выбрано, а корзина не пустая — выберем всё (MVP удобство)
-        if (kept.size === 0 && keys.length > 0) keys.forEach((k) => kept.add(k));
-        setSelectedKeys([...kept]);
-        return kept;
-      });
-    };
-
+    const onSync = () => sync();
     window.addEventListener("storage", onSync);
     window.addEventListener("storage-sync", onSync);
     return () => {
       window.removeEventListener("storage", onSync);
       window.removeEventListener("storage-sync", onSync);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const idsKey = useMemo(() => {
@@ -231,6 +195,15 @@ export default function CheckoutClient() {
     }>;
   }, [cart, productMap]);
 
+  // если rows изменились (например загрузились товары), и выбор пустой — выберем всё
+  useEffect(() => {
+    if (rows.length === 0) return;
+    setSelected((prev) => {
+      if (prev.size > 0) return prev;
+      return new Set(rows.map((r) => r.cartKey));
+    });
+  }, [rows]);
+
   const totalAll = useMemo(
     () => rows.reduce((sum, r) => sum + r.unitPrice * r.qty, 0),
     [rows],
@@ -248,42 +221,36 @@ export default function CheckoutClient() {
 
   const selectedCount = selectedRows.length;
 
-  const clearCart = () => {
-    writeCart([]);
-    setSelected(new Set());
-    setSelectedKeys([]);
-    setShowForm(false);
-    sync();
-  };
-
   const toggleOne = (key: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
-      setSelectedKeys([...next]);
       return next;
     });
   };
 
   const selectAll = () => {
-    const keys = rows.map((r) => r.cartKey);
-    const next = new Set(keys);
-    setSelected(next);
-    setSelectedKeys(keys);
+    setSelected(new Set(rows.map((r) => r.cartKey)));
   };
 
   const clearSelection = () => {
-    const next = new Set<string>();
-    setSelected(next);
-    setSelectedKeys([]);
+    setSelected(new Set());
     setShowForm(false);
   };
 
   const deleteSelected = () => {
     const keys = Array.from(selected);
     keys.forEach((k) => setQtyStorage(k, 0));
-    clearSelection();
+    setSelected(new Set());
+    setShowForm(false);
+    sync();
+  };
+
+  const clearCart = () => {
+    writeCart([]);
+    setSelected(new Set());
+    setShowForm(false);
     sync();
   };
 
@@ -324,7 +291,7 @@ export default function CheckoutClient() {
           deliveryType,
           address: addr,
           comment: comment.trim(),
-          cart: cartSelected, // только выбранные
+          cart: cartSelected, // только выбранные позиции
         }),
       });
 
@@ -338,10 +305,8 @@ export default function CheckoutClient() {
       // удаляем из корзины только выбранные позиции
       cartSelected.forEach((it) => setQtyStorage(it.id, 0));
 
-      // сброс выбора/формы
       setShowForm(false);
       setSelected(new Set());
-      setSelectedKeys([]);
 
       router.push(`/checkout/success?order=${encodeURIComponent(orderNumber)}`);
     } catch (e: any) {
@@ -398,7 +363,7 @@ export default function CheckoutClient() {
               </button>
               <button
                 type="button"
-                className="px-3 py-1 rounded-full text-sm border bg-white hover:bg-gray-50"
+                className="px-3 py-1 rounded-full text-sm border bg-white hover:bg-gray-50 disabled:opacity-50"
                 onClick={clearSelection}
                 disabled={selected.size === 0}
               >
@@ -505,9 +470,11 @@ export default function CheckoutClient() {
             <div className="rounded-2xl border p-4 shadow-sm">
               <div className="flex items-center justify-between gap-3">
                 <div className="text-sm text-gray-600">
-                  Всего в корзине: <span className="font-semibold">{totalAll.toLocaleString("ru-RU")} ₸</span>
+                  Всего в корзине:{" "}
+                  <span className="font-semibold">{totalAll.toLocaleString("ru-RU")} ₸</span>
                   <span className="mx-2">•</span>
-                  К оплате: <span className="font-semibold">{totalSelected.toLocaleString("ru-RU")} ₸</span>
+                  К оплате:{" "}
+                  <span className="font-semibold">{totalSelected.toLocaleString("ru-RU")} ₸</span>
                 </div>
                 <button
                   type="button"
