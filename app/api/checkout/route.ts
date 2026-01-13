@@ -25,12 +25,15 @@ const CheckoutSchema = z.object({
     .min(1),
 });
 
+function asArrayVariants(v: unknown): any[] {
+  return Array.isArray(v) ? v : [];
+}
+
 export async function POST(req: Request) {
   try {
     const json = await req.json().catch(() => ({}));
     const data = CheckoutSchema.parse(json);
 
-    // address обязателен только для delivery
     const address =
       data.deliveryType === "delivery" ? String(data.address || "").trim() : "";
 
@@ -41,7 +44,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // Серверный пересчет корзины
+    // Серверный пересчёт корзины (цены/qty/доступность)
     const built = await buildOrderFromCart(data.cart);
     if (built.error) {
       return NextResponse.json(
@@ -50,41 +53,107 @@ export async function POST(req: Request) {
       );
     }
 
-    // Генерируем номер
     const orderNumber = makeOrderNumber();
 
-    const order = await prisma.order.create({
-      data: {
-        orderNumber,
-        customerName: data.customerName.trim(),
-        phone: data.phone.trim(),
-        email: data.email ? String(data.email).trim() : null,
-        deliveryType: data.deliveryType,
-        address: address || null,
-        comment: data.comment ? String(data.comment).trim() : null,
-        currency: "KZT",
-        totalAmount: built.total,
-        status: "NEW",
-        items: {
-          create: built.items.map((it) => ({
-            productId: it.productId,
-            variantId: it.variantId,
-            title: it.title,
-            unitPrice: it.unitPrice,
-            qty: it.qty,
-            lineTotal: it.lineTotal,
-            image: it.image ?? null,
-            sku: it.sku ?? null,
-          })),
+    const created = await prisma.$transaction(async (tx) => {
+      // Перечитать товары в рамках транзакции (для актуальных остатков)
+      const productIds = Array.from(new Set(built.items.map((x) => x.productId)));
+
+      const products = await tx.product.findMany({
+        where: { id: { in: productIds } },
+        select: {
+          id: true,
+          stock: true,
+          variants: true,
         },
-      },
-      select: { id: true, orderNumber: true, totalAmount: true },
+      });
+
+      const map = new Map(products.map((p) => [p.id, p]));
+
+      // 1) Проверка остатков
+      for (const it of built.items) {
+        const p = map.get(it.productId);
+        if (!p) throw new Error("product_missing");
+
+        if (!it.variantId) {
+          if ((p.stock ?? 0) < it.qty) throw new Error("out_of_stock");
+        } else {
+          const variants = asArrayVariants(p.variants);
+          const idx = variants.findIndex((v) => String(v?.id ?? "") === it.variantId);
+          if (idx < 0) throw new Error("variant_missing");
+          const vStock = Math.trunc(Number(variants[idx]?.stock) || 0);
+          if (vStock < it.qty) throw new Error("out_of_stock");
+        }
+      }
+
+      // 2) Списание остатков
+      // base: атомарно decrement
+      // variant: обновление JSON (MVP)
+      for (const it of built.items) {
+        const p = map.get(it.productId)!;
+
+        if (!it.variantId) {
+          await tx.product.update({
+            where: { id: it.productId },
+            data: { stock: { decrement: it.qty } },
+          });
+        } else {
+          const variants = asArrayVariants(p.variants);
+          const idx = variants.findIndex((v) => String(v?.id ?? "") === it.variantId);
+          if (idx < 0) throw new Error("variant_missing");
+
+          const current = variants[idx] ?? {};
+          const nextStock = Math.trunc(Number(current.stock) || 0) - it.qty;
+
+          const nextVariants = [...variants];
+          nextVariants[idx] = { ...current, stock: nextStock };
+
+          await tx.product.update({
+            where: { id: it.productId },
+            data: { variants: nextVariants as any },
+          });
+
+          // чтобы повторные списания в одной транзакции (если вдруг дубль) были консистентны
+          map.set(it.productId, { ...p, variants: nextVariants } as any);
+        }
+      }
+
+      // 3) Создание заказа
+      const order = await tx.order.create({
+        data: {
+          orderNumber,
+          customerName: data.customerName.trim(),
+          phone: data.phone.trim(),
+          email: data.email ? String(data.email).trim() : null,
+          deliveryType: data.deliveryType,
+          address: address || null,
+          comment: data.comment ? String(data.comment).trim() : null,
+          currency: "KZT",
+          totalAmount: built.total,
+          status: "NEW",
+          items: {
+            create: built.items.map((it) => ({
+              productId: it.productId,
+              variantId: it.variantId,
+              title: it.title,
+              unitPrice: it.unitPrice,
+              qty: it.qty,
+              lineTotal: it.lineTotal,
+              image: it.image ?? null,
+              sku: it.sku ?? null,
+            })),
+          },
+        },
+        select: { id: true, orderNumber: true, totalAmount: true },
+      });
+
+      return order;
     });
 
-    // уведомление админу (если настроено)
+    // уведомление админу (после успешной транзакции)
     await notifyAdminNewOrder({
-      orderNumber: order.orderNumber,
-      totalAmount: order.totalAmount,
+      orderNumber: created.orderNumber,
+      totalAmount: created.totalAmount,
       customerName: data.customerName,
       phone: data.phone,
       deliveryType: data.deliveryType,
@@ -92,7 +161,7 @@ export async function POST(req: Request) {
     });
 
     return NextResponse.json(
-      { ok: true, orderId: order.id, orderNumber: order.orderNumber },
+      { ok: true, orderId: created.id, orderNumber: created.orderNumber },
       { status: 200 },
     );
   } catch (e: any) {
@@ -102,7 +171,22 @@ export async function POST(req: Request) {
         { status: 400 },
       );
     }
-    console.error("CHECKOUT CREATE ORDER ERROR:", e?.message || e);
+
+    const msg = String(e?.message || "");
+    if (msg === "out_of_stock") {
+      return NextResponse.json(
+        { error: "out_of_stock", message: "Не хватает товара на складе. Обновите корзину." },
+        { status: 409 },
+      );
+    }
+    if (msg === "variant_missing" || msg === "product_missing") {
+      return NextResponse.json(
+        { error: "not_available", message: "Часть товаров недоступна. Обновите корзину." },
+        { status: 409 },
+      );
+    }
+
+    console.error("CHECKOUT CREATE ORDER ERROR:", msg || e);
     return NextResponse.json({ error: "server_error" }, { status: 500 });
   }
 }
