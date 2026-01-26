@@ -83,13 +83,24 @@ export default async function ShopPage({ searchParams }: Props) {
   // WHERE: бренд + (новинки по флагу) + (в наличии если instock=1)
   const whereBase: any = {};
 
-  if (selectedBrand) whereBase.brandId = selectedBrand.id;
+  if (selectedBrand) {
+    whereBase.brandId = selectedBrand.id;
+  }
+  
+  if (sort === "new") {
+    const DAYS = 14;
+    const from = new Date(Date.now() - DAYS * 24 * 60 * 60 * 1000);
+  
+    whereBase.OR = [
+      { isNew: true },
+      { createdAt: { gte: from } },
+    ];
+  }
+  
+  if (instock === "1") {
+    whereBase.stock = { gt: 0 };
+  }
 
-  // Новинки: только то, что отмечено из админки
-  if (sort === "new") whereBase.isNew = true;
-
-  // В наличии: базово по stock продукта (для вариантов будет точнее в клиенте, но серверный фильтр — по stock)
-  if (instock === "1") whereBase.stock = { gt: 0 };
 
   const orderBy =
     sort === "price_asc"
