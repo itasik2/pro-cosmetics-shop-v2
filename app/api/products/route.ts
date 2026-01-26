@@ -22,20 +22,23 @@ const ProductSchema = z.object({
 });
 
 export async function GET() {
+  // ВАЖНО: для админ-редактирования нужны ВСЕ поля формы
   const rows = await prisma.product.findMany({
     orderBy: { createdAt: "desc" },
     select: {
       id: true,
       name: true,
+      brandId: true,        // <-- ДОБАВЛЕНО
+      description: true,    // <-- ДОБАВЛЕНО
       image: true,
+      category: true,
       price: true,
       stock: true,
-      category: true,
       isPopular: true,
-      isNew: true, // <-- ДОБАВЛЕНО
+      isNew: true,          // <-- ДОБАВЛЕНО
       createdAt: true,
       variants: true,
-      brand: { select: { name: true } },
+      brand: { select: { id: true, name: true } }, // <-- расширил (id полезен)
     },
   });
 
@@ -59,9 +62,7 @@ export async function POST(req: Request) {
         where: { id: parsed.brandId },
         select: { id: true },
       });
-      if (!b) {
-        return NextResponse.json({ error: "brand_not_found" }, { status: 400 });
-      }
+      if (!b) return NextResponse.json({ error: "brand_not_found" }, { status: 400 });
     }
 
     const created = await prisma.product.create({
@@ -83,10 +84,7 @@ export async function POST(req: Request) {
     return NextResponse.json(created);
   } catch (e: any) {
     if (e?.name === "ZodError") {
-      return NextResponse.json(
-        { error: "validation", issues: e.issues },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "validation", issues: e.issues }, { status: 400 });
     }
     return NextResponse.json({ error: "failed_to_create" }, { status: 500 });
   }
