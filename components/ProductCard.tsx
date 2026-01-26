@@ -53,14 +53,12 @@ export default function ProductCard({ product }: ProductCardProps) {
   return (
     <div
       className="
-        group card relative cursor-pointer
-        transition
+        group card relative
+        transition-shadow
         duration-150
         ease-out
-        hover:-translate-y-0.5
         hover:shadow-lg
-        focus-visible:shadow-lg
-        focus-visible:outline-none
+        focus-within:shadow-lg
       "
     >
       {/* Бейджи */}
