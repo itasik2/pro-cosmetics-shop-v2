@@ -1,7 +1,7 @@
 // app/shop/[id]/page.tsx
 import { prisma } from "@/lib/prisma";
-import Link from "next/link";
 import type { Metadata } from "next";
+import ProductDetailsClient from "./ProductDetailsClient";
 
 type Props = { params: { id: string } };
 
@@ -23,16 +23,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   return {
     title: `${product.name} – купить в pro.cosmetics`,
-    description: `${brandName ? `${brandName}. ` : ""}Категория: ${
-      product.category
-    }. Цена: ${product.price.toLocaleString(
-      "ru-RU"
+    description: `${brandName ? `${brandName}. ` : ""}Категория: ${product.category}. Цена: ${product.price.toLocaleString(
+      "ru-RU",
     )} ₸. Заказать с доставкой по Казахстану.`,
     openGraph: {
       title: `${product.name} – pro.cosmetics`,
-      description: `${
-        brandName ? `${brandName}. ` : ""
-      }Категория: ${product.category}.`,
+      description: `${brandName ? `${brandName}. ` : ""}Категория: ${product.category}.`,
       images: product.image ? [product.image] : [],
     },
   };
@@ -41,62 +37,23 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function ProductPage({ params }: Props) {
   const product = await prisma.product.findUnique({
     where: { id: params.id },
-    include: { brand: true },
+    // можно include оставить, но лучше select для контроля
+    select: {
+      id: true,
+      name: true,
+      image: true,
+      price: true,
+      stock: true,
+      description: true,
+      category: true,
+      variants: true,
+      brand: { select: { name: true } },
+    },
   });
 
   if (!product) {
     return <div className="py-10">Товар не найден</div>;
   }
 
-  const brandName = product.brand?.name ?? "—";
-
-  return (
-    <div className="grid md:grid-cols-2 gap-8 py-10">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={product.image}
-        alt={product.name}
-        className="w-full rounded-3xl border object-cover max-h-[480px]"
-      />
-
-      <div className="space-y-4">
-        <div className="text-sm text-gray-500">
-          {brandName} • {product.category}
-        </div>
-
-        <h1 className="text-3xl font-bold">{product.name}</h1>
-
-        <div className="text-gray-600 whitespace-pre-line">
-          {product.description}
-        </div>
-
-        {/* Кнопка "Спросить о товаре" — сразу под описанием */}
-        <div className="flex flex-wrap items-center gap-3">
-          <Link
-            href={`/ask?productId=${encodeURIComponent(product.id)}`}
-            className="px-4 py-2 rounded-xl border bg-white/80 backdrop-blur hover:bg-white transition text-sm"
-          >
-            Спросить о товаре
-          </Link>
-
-          <div className="text-xs text-gray-500">
-            Откроется Q&amp;A с контекстом этого товара
-          </div>
-        </div>
-
-        <div className="text-2xl font-semibold">
-          {product.price.toLocaleString("ru-RU")} ₸
-        </div>
-
-        <form action="/checkout" method="GET">
-          <input type="hidden" name="id" value={product.id} />
-          <button className="btn">В корзину</button>
-        </form>
-
-        <Link href="/shop" className="text-sm text-gray-500 hover:underline">
-          ← Вернуться в каталог
-        </Link>
-      </div>
-    </div>
-  );
+  return <ProductDetailsClient product={product as any} />;
 }
