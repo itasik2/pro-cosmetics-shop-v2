@@ -14,21 +14,21 @@ type VariantFormRow = {
   price: string;
   stock: string;
   sku?: string;
-  image?: string; // <-- ДОБАВЛЕНО
+  image?: string; // фото варианта (опционально)
 };
 
 type Product = {
   id: string;
   name: string;
   brandId: string | null;
-  brand?: { id: string; name: string } | null;
-  description: string;
+  brand?: { id?: string; name: string } | null;
+  description?: string; // может не прийти из списка (если API не select-ит)
   image: string;
   category: string;
   price: number;
   stock: number;
   isPopular: boolean;
-  isNew: boolean;
+  isNew?: boolean;
   variants?: any;
 };
 
@@ -57,7 +57,11 @@ export default function AdminProductsClient() {
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // upload main image
   const [uploading, setUploading] = useState(false);
+
+  // upload variant image
+  const [variantUploadingId, setVariantUploadingId] = useState<string | null>(null);
 
   async function load() {
     const [prodRes, brandRes] = await Promise.all([
@@ -99,14 +103,7 @@ export default function AdminProductsClient() {
       ...f,
       variants: [
         ...f.variants,
-        {
-          id: makeVariantId(),
-          label: "",
-          price: "",
-          stock: "",
-          sku: "",
-          image: "", // <-- ДОБАВЛЕНО
-        },
+        { id: makeVariantId(), label: "", price: "", stock: "", sku: "", image: "" },
       ],
     }));
   }
@@ -142,10 +139,13 @@ export default function AdminProductsClient() {
     }
   }
 
-  // <-- ДОБАВЛЕНО: загрузка изображения для варианта
   async function uploadVariantImage(file: File, idx: number) {
     setMsg(null);
-    setUploading(true);
+
+    const row = form.variants[idx];
+    if (!row) return;
+
+    setVariantUploadingId(row.id);
 
     try {
       const fd = new FormData();
@@ -170,7 +170,7 @@ export default function AdminProductsClient() {
     } catch (e: any) {
       setMsg(`Ошибка загрузки варианта: ${e?.message || "upload_failed"}`);
     } finally {
-      setUploading(false);
+      setVariantUploadingId(null);
     }
   }
 
@@ -183,20 +183,18 @@ export default function AdminProductsClient() {
       form.variants && form.variants.length > 0
         ? form.variants
             .map((v) => {
+              const id = String(v.id || "").trim() || makeVariantId();
               const label = String(v.label || "").trim();
+
               const price = Math.max(0, Math.trunc(Number(v.price) || 0));
               const stock = Math.max(0, Math.trunc(Number(v.stock) || 0));
-              const sku = v.sku ? String(v.sku).trim() : undefined;
-              const image = v.image ? String(v.image).trim() : "";
 
-              return {
-                id: String(v.id || "").trim() || makeVariantId(),
-                label,
-                price,
-                stock,
-                sku,
-                image: image || undefined, // <-- ДОБАВЛЕНО
-              };
+              const sku = v.sku ? String(v.sku).trim() : undefined;
+
+              const imageRaw = v.image ? String(v.image).trim() : "";
+              const image = imageRaw.length > 0 ? imageRaw : undefined;
+
+              return { id, label, price, stock, sku, image };
             })
             .filter((v) => v.label.length > 0)
         : null;
@@ -232,7 +230,7 @@ export default function AdminProductsClient() {
       setEditing(null);
       load();
     } else {
-      setMsg(`Ошибка: ${data?.error || data?.message || res.status}`);
+      setMsg(`Ошибка: ${data?.error || res.status}`);
     }
   }
 
@@ -253,27 +251,27 @@ export default function AdminProductsClient() {
           price: String(Math.trunc(Number(v?.price) || 0)),
           stock: String(Math.trunc(Number(v?.stock) || 0)),
           sku: v?.sku ? String(v.sku) : "",
-          image: v?.image ? String(v.image) : "", // <-- ДОБАВЛЕНО
+          image: v?.image ? String(v.image) : "",
         }))
       : [];
 
     setForm({
-      name: p.name,
+      name: p.name ?? "",
       brandId: p.brandId ?? "",
-      description: p.description,
-      image: p.image,
-      category: p.category,
-      price: String(Math.trunc(p.price)),
-      stock: String(p.stock ?? 0),
-      isPopular: p.isPopular ?? false,
-      isNew: p.isNew ?? false,
+      description: String((p as any).description ?? ""), // если API не отдает description — будет пусто
+      image: p.image ?? "/seed/cleanser.jpg",
+      category: p.category ?? "",
+      price: String(Math.trunc(Number(p.price) || 0)),
+      stock: String(Math.trunc(Number(p.stock) || 0)),
+      isPopular: !!p.isPopular,
+      isNew: !!(p as any).isNew,
       variants: vForm,
     });
   }
 
   return (
     <div className="grid md:grid-cols-2 gap-8">
-      <div className="space-y-3">
+      <div className="space-y-3 min-w-0">
         <h2 className="text-xl font-semibold">{editing ? "Редактировать" : "Добавить"} товар</h2>
 
         <form className="space-y-3" onSubmit={save}>
@@ -299,23 +297,19 @@ export default function AdminProductsClient() {
                 </option>
               ))}
             </select>
-
-            <div className="text-xs text-gray-500 mt-1">
-              Бренды берутся из /api/brands (активные).
-            </div>
           </Field>
 
           <Field label="Описание">
             <textarea
               required
-              rows={3}
+              rows={4}
               className="w-full border rounded-xl px-3 py-2"
               value={form.description}
               onChange={(e) => setField("description", e.target.value)}
             />
           </Field>
 
-          <Field label="Загрузить изображение (файл)">
+          <Field label="Загрузить изображение товара (файл)">
             <input
               type="file"
               accept="image/*"
@@ -329,11 +323,11 @@ export default function AdminProductsClient() {
               }}
             />
             <div className="text-xs text-gray-500 mt-1">
-              Файл загрузится и URL подставится в поле ниже.
+              Файл загрузится в Cloudinary и URL подставится в поле ниже.
             </div>
           </Field>
 
-          <Field label="URL изображения">
+          <Field label="URL изображения товара">
             <input
               required
               className="w-full border rounded-xl px-3 py-2"
@@ -342,7 +336,7 @@ export default function AdminProductsClient() {
             />
           </Field>
 
-          <Field label="Превью">
+          <Field label="Превью товара">
             <div className="flex items-center gap-3">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
@@ -398,7 +392,7 @@ export default function AdminProductsClient() {
             />
           </Field>
 
-          {/* ВАРИАНТЫ + ФОТО */}
+          {/* ВАРИАНТЫ — исправленная верстка */}
           <Field label="Варианты (объём/цена/остаток/фото)">
             <div className="space-y-2">
               <div className="text-xs text-gray-500">
@@ -411,82 +405,104 @@ export default function AdminProductsClient() {
                     const preview =
                       (v.image && String(v.image).trim()) || form.image || "/seed/cleanser.jpg";
 
+                    const uploadingThis = variantUploadingId === v.id;
+
                     return (
-                      <div key={v.id} className="rounded-2xl border p-3 space-y-2">
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <input
-                            className="col-span-12 sm:col-span-3 border rounded-xl px-3 py-2"
-                            placeholder="Напр. 50 мл"
-                            value={v.label}
-                            onChange={(e) => setVariantRow(idx, { label: e.target.value })}
-                          />
+                      <div key={v.id} className="rounded-2xl border p-3 space-y-3 min-w-0">
+                        {/* ROW 1 */}
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-2 items-start min-w-0">
+                          <div className="md:col-span-3 min-w-0">
+                            <input
+                              className="w-full border rounded-xl px-3 py-2"
+                              placeholder="Напр. 50 мл"
+                              value={v.label}
+                              onChange={(e) => setVariantRow(idx, { label: e.target.value })}
+                            />
+                          </div>
 
-                          <input
-                            className="col-span-6 sm:col-span-2 border rounded-xl px-3 py-2"
-                            placeholder="Цена ₸"
-                            inputMode="numeric"
-                            value={v.price}
-                            onChange={(e) =>
-                              setVariantRow(idx, { price: e.target.value.replace(/[^\d]/g, "") })
-                            }
-                            onBlur={(e) => {
-                              const n = Math.max(0, Math.trunc(Number(e.target.value) || 0));
-                              setVariantRow(idx, { price: String(n) });
-                            }}
-                          />
+                          <div className="md:col-span-2 min-w-0">
+                            <input
+                              className="w-full border rounded-xl px-3 py-2"
+                              placeholder="Цена ₸"
+                              inputMode="numeric"
+                              value={v.price}
+                              onChange={(e) =>
+                                setVariantRow(idx, { price: e.target.value.replace(/[^\d]/g, "") })
+                              }
+                              onBlur={(e) => {
+                                const n = Math.max(0, Math.trunc(Number(e.target.value) || 0));
+                                setVariantRow(idx, { price: String(n) });
+                              }}
+                            />
+                          </div>
 
-                          <input
-                            className="col-span-6 sm:col-span-2 border rounded-xl px-3 py-2"
-                            placeholder="Остаток"
-                            inputMode="numeric"
-                            value={v.stock}
-                            onChange={(e) =>
-                              setVariantRow(idx, { stock: e.target.value.replace(/[^\d]/g, "") })
-                            }
-                            onBlur={(e) => {
-                              const n = Math.max(0, Math.trunc(Number(e.target.value) || 0));
-                              setVariantRow(idx, { stock: String(n) });
-                            }}
-                          />
+                          <div className="md:col-span-2 min-w-0">
+                            <input
+                              className="w-full border rounded-xl px-3 py-2"
+                              placeholder="Остаток"
+                              inputMode="numeric"
+                              value={v.stock}
+                              onChange={(e) =>
+                                setVariantRow(idx, { stock: e.target.value.replace(/[^\d]/g, "") })
+                              }
+                              onBlur={(e) => {
+                                const n = Math.max(0, Math.trunc(Number(e.target.value) || 0));
+                                setVariantRow(idx, { stock: String(n) });
+                              }}
+                            />
+                          </div>
 
-                          <input
-                            className="col-span-12 sm:col-span-3 border rounded-xl px-3 py-2"
-                            placeholder="Фото варианта (URL, опционально)"
-                            value={v.image ?? ""}
-                            onChange={(e) => setVariantRow(idx, { image: e.target.value })}
-                          />
-
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="col-span-10 sm:col-span-1 border rounded-xl px-3 py-2 bg-white"
-                            disabled={uploading}
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (!file) return;
-                              uploadVariantImage(file, idx);
-                              e.currentTarget.value = "";
-                            }}
-                            title="Загрузить фото варианта"
-                          />
-
-                          <button
-                            type="button"
-                            className="col-span-2 sm:col-span-1 px-3 py-2 rounded-xl border hover:bg-gray-50"
-                            onClick={() => removeVariantRow(idx)}
-                          >
-                            Удалить
-                          </button>
+                          <div className="md:col-span-5 min-w-0">
+                            <input
+                              className="w-full border rounded-xl px-3 py-2"
+                              placeholder="Фото варианта (URL, опционально)"
+                              value={v.image ?? ""}
+                              onChange={(e) => setVariantRow(idx, { image: e.target.value })}
+                            />
+                          </div>
                         </div>
 
-                        <div className="flex items-center gap-2 text-xs text-gray-500">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={preview}
-                            alt="variant preview"
-                            className="w-10 h-10 rounded-lg object-cover border bg-gray-50"
-                          />
-                          <span>Превью варианта (если нет фото — основное).</span>
+                        {/* ROW 2 */}
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 min-w-0">
+                          <div className="flex items-center gap-2 min-w-0">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={preview}
+                              alt="variant preview"
+                              className="w-12 h-12 rounded-xl object-cover border bg-gray-50 shrink-0"
+                            />
+                            <div className="text-xs text-gray-500 min-w-0">
+                              <div className="truncate">
+                                Превью: {v.image ? "фото варианта" : "основное фото товара"}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            <label className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border hover:bg-gray-50 cursor-pointer text-sm whitespace-nowrap">
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                disabled={uploadingThis}
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (!file) return;
+                                  uploadVariantImage(file, idx);
+                                  e.currentTarget.value = "";
+                                }}
+                              />
+                              {uploadingThis ? "Загрузка…" : "Загрузить фото"}
+                            </label>
+
+                            <button
+                              type="button"
+                              className="px-3 py-2 rounded-xl border hover:bg-gray-50 text-sm whitespace-nowrap"
+                              onClick={() => removeVariantRow(idx)}
+                            >
+                              Удалить вариант
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );
@@ -555,7 +571,7 @@ export default function AdminProductsClient() {
         </form>
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-3 min-w-0">
         <h2 className="text-xl font-semibold">Товары</h2>
 
         <div className="grid grid-cols-1 gap-3">
@@ -565,17 +581,21 @@ export default function AdminProductsClient() {
             return (
               <div
                 key={p.id}
-                className="rounded-2xl border p-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
+                className="rounded-2xl border p-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 min-w-0"
               >
                 <div className="flex items-center gap-3 min-w-0">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={p.image} alt={p.name} className="w-16 h-16 object-cover rounded-lg shrink-0" />
+                  <img
+                    src={p.image}
+                    alt={p.name}
+                    className="w-16 h-16 object-cover rounded-lg shrink-0"
+                  />
 
                   <div className="min-w-0">
-                    <div className="font-semibold flex flex-wrap items-center gap-2">
+                    <div className="font-semibold flex flex-wrap items-center gap-2 min-w-0">
                       <span className="truncate">{p.name}</span>
 
-                      {p.isNew && (
+                      {(p as any).isNew && (
                         <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 shrink-0">
                           Новинка
                         </span>
@@ -595,7 +615,8 @@ export default function AdminProductsClient() {
                     </div>
 
                     <div className="text-sm text-gray-500 break-words">
-                      {(p.brand?.name ?? "—")} • {Number(p.price).toLocaleString("ru-RU")} ₸ • {p.stock} шт
+                      {(p.brand?.name ?? "—")} • {Number(p.price).toLocaleString("ru-RU")} ₸ •{" "}
+                      {p.stock} шт
                     </div>
                   </div>
                 </div>
@@ -621,7 +642,7 @@ export default function AdminProductsClient() {
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="space-y-1">
+    <div className="space-y-1 min-w-0">
       <label className="block text-sm text-gray-600">{label}</label>
       {children}
     </div>
