@@ -11,8 +11,8 @@ type Brand = {
 type VariantFormRow = {
   id: string;
   label: string;
-  price: string; // строка в форме
-  stock: string; // строка в форме
+  price: string;
+  stock: string;
   sku?: string;
 };
 
@@ -27,8 +27,7 @@ type Product = {
   price: number;
   stock: number;
   isPopular: boolean;
-
-  // Json из Prisma
+  isNew: boolean; // <-- ДОБАВЛЕНО
   variants?: any;
 };
 
@@ -41,8 +40,7 @@ const emptyForm = {
   price: "",
   stock: "",
   isPopular: false,
-
-  // ДОБАВЛЕНО
+  isNew: false, // <-- ДОБАВЛЕНО
   variants: [] as VariantFormRow[],
 };
 
@@ -58,7 +56,6 @@ export default function AdminProductsClient() {
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // загрузка файла
   const [uploading, setUploading] = useState(false);
 
   async function load() {
@@ -75,10 +72,7 @@ export default function AdminProductsClient() {
     load();
   }, []);
 
-  function setField<K extends keyof typeof emptyForm>(
-    k: K,
-    v: (typeof emptyForm)[K],
-  ) {
+  function setField<K extends keyof typeof emptyForm>(k: K, v: (typeof emptyForm)[K]) {
     setForm((f) => ({ ...f, [k]: v }));
   }
 
@@ -102,10 +96,7 @@ export default function AdminProductsClient() {
   function addVariantRow() {
     setForm((f) => ({
       ...f,
-      variants: [
-        ...f.variants,
-        { id: makeVariantId(), label: "", price: "", stock: "", sku: "" },
-      ],
+      variants: [...f.variants, { id: makeVariantId(), label: "", price: "", stock: "", sku: "" }],
     }));
   }
 
@@ -145,7 +136,6 @@ export default function AdminProductsClient() {
     setBusy(true);
     setMsg(null);
 
-    // Нормализация variants для API (Json)
     const variants =
       form.variants && form.variants.length > 0
         ? form.variants
@@ -168,8 +158,7 @@ export default function AdminProductsClient() {
       price: Math.max(0, Math.trunc(Number(form.price) || 0)),
       stock: Math.max(0, Math.trunc(Number(form.stock) || 0)),
       isPopular: !!form.isPopular,
-
-      // ДОБАВЛЕНО
+      isNew: !!form.isNew, // <-- ДОБАВЛЕНО
       variants,
     };
 
@@ -224,8 +213,7 @@ export default function AdminProductsClient() {
       price: String(Math.trunc(p.price)),
       stock: String(p.stock ?? 0),
       isPopular: p.isPopular ?? false,
-
-      // ДОБАВЛЕНО
+      isNew: p.isNew ?? false, // <-- ДОБАВЛЕНО
       variants: vForm,
     });
   }
@@ -233,9 +221,7 @@ export default function AdminProductsClient() {
   return (
     <div className="grid md:grid-cols-2 gap-8">
       <div className="space-y-3">
-        <h2 className="text-xl font-semibold">
-          {editing ? "Редактировать" : "Добавить"} товар
-        </h2>
+        <h2 className="text-xl font-semibold">{editing ? "Редактировать" : "Добавить"} товар</h2>
 
         <form className="space-y-3" onSubmit={save}>
           <Field label="Название">
@@ -262,8 +248,7 @@ export default function AdminProductsClient() {
             </select>
 
             <div className="text-xs text-gray-500 mt-1">
-              Бренды берутся из /api/brands (активные). Управление брендами
-              вынесем отдельной страницей.
+              Бренды берутся из /api/brands (активные). Управление брендами вынесем отдельной страницей.
             </div>
           </Field>
 
@@ -277,7 +262,6 @@ export default function AdminProductsClient() {
             />
           </Field>
 
-          {/* Загрузка изображения файлом */}
           <Field label="Загрузить изображение (файл)">
             <input
               type="file"
@@ -305,7 +289,6 @@ export default function AdminProductsClient() {
             />
           </Field>
 
-          {/* Превью */}
           <Field label="Превью">
             <div className="flex items-center gap-3">
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -315,9 +298,7 @@ export default function AdminProductsClient() {
                 className="w-20 h-20 object-cover rounded-xl border bg-gray-50"
               />
               <div className="text-xs text-gray-500">
-                {uploading
-                  ? "Загрузка…"
-                  : "Изображение будет показано в карточке и на странице товара"}
+                {uploading ? "Загрузка…" : "Изображение будет показано в карточке и на странице товара"}
               </div>
             </div>
           </Field>
@@ -364,13 +345,10 @@ export default function AdminProductsClient() {
             />
           </Field>
 
-          {/* ВАРИАНТЫ */}
           <Field label="Варианты (объём/цена/остаток)">
             <div className="space-y-2">
               <div className="text-xs text-gray-500">
-                Если варианты заполнены, на витрине цена и остаток зависят от
-                выбранного объёма. Если пусто — используется обычная цена/остаток
-                товара.
+                Если варианты заполнены, на витрине цена и остаток зависят от выбранного объёма. Если пусто — используется обычная цена/остаток товара.
               </div>
 
               {form.variants.length > 0 && (
@@ -381,9 +359,7 @@ export default function AdminProductsClient() {
                         className="col-span-4 border rounded-xl px-3 py-2"
                         placeholder="Напр. 50 мл"
                         value={v.label}
-                        onChange={(e) =>
-                          setVariantRow(idx, { label: e.target.value })
-                        }
+                        onChange={(e) => setVariantRow(idx, { label: e.target.value })}
                       />
 
                       <input
@@ -391,16 +367,9 @@ export default function AdminProductsClient() {
                         placeholder="Цена ₸"
                         inputMode="numeric"
                         value={v.price}
-                        onChange={(e) =>
-                          setVariantRow(idx, {
-                            price: e.target.value.replace(/[^\d]/g, ""),
-                          })
-                        }
+                        onChange={(e) => setVariantRow(idx, { price: e.target.value.replace(/[^\d]/g, "") })}
                         onBlur={(e) => {
-                          const n = Math.max(
-                            0,
-                            Math.trunc(Number(e.target.value) || 0),
-                          );
+                          const n = Math.max(0, Math.trunc(Number(e.target.value) || 0));
                           setVariantRow(idx, { price: String(n) });
                         }}
                       />
@@ -410,16 +379,9 @@ export default function AdminProductsClient() {
                         placeholder="Остаток"
                         inputMode="numeric"
                         value={v.stock}
-                        onChange={(e) =>
-                          setVariantRow(idx, {
-                            stock: e.target.value.replace(/[^\d]/g, ""),
-                          })
-                        }
+                        onChange={(e) => setVariantRow(idx, { stock: e.target.value.replace(/[^\d]/g, "") })}
                         onBlur={(e) => {
-                          const n = Math.max(
-                            0,
-                            Math.trunc(Number(e.target.value) || 0),
-                          );
+                          const n = Math.max(0, Math.trunc(Number(e.target.value) || 0));
                           setVariantRow(idx, { stock: String(n) });
                         }}
                       />
@@ -446,15 +408,26 @@ export default function AdminProductsClient() {
             </div>
           </Field>
 
-          <Field label="Популярный товар (показывать на главной)">
-            <label className="inline-flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={form.isPopular}
-                onChange={(e) => setField("isPopular", e.target.checked)}
-              />
-              <span>Показывать в блоке «Популярные»</span>
-            </label>
+          <Field label="Новинка / Популярный">
+            <div className="flex flex-col gap-2 text-sm">
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={form.isNew}
+                  onChange={(e) => setField("isNew", e.target.checked)}
+                />
+                <span>Новинка</span>
+              </label>
+
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={form.isPopular}
+                  onChange={(e) => setField("isPopular", e.target.checked)}
+                />
+                <span>Показывать в блоке «Популярные»</span>
+              </label>
+            </div>
           </Field>
 
           <div className="flex items-center gap-3">
@@ -482,9 +455,7 @@ export default function AdminProductsClient() {
 
           {msg && <div className="text-sm">{msg}</div>}
 
-          <p className="text-xs text-gray-500">
-            Цена вводится и хранится в тенге (целое число).
-          </p>
+          <p className="text-xs text-gray-500">Цена вводится и хранится в тенге (целое число).</p>
         </form>
       </div>
 
@@ -493,9 +464,7 @@ export default function AdminProductsClient() {
 
         <div className="grid grid-cols-1 gap-3">
           {items.map((p) => {
-            const variantsCount = Array.isArray((p as any).variants)
-              ? (p as any).variants.length
-              : 0;
+            const variantsCount = Array.isArray((p as any).variants) ? (p as any).variants.length : 0;
 
             return (
               <div
@@ -504,15 +473,17 @@ export default function AdminProductsClient() {
               >
                 <div className="flex items-center gap-3 min-w-0">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={p.image}
-                    alt={p.name}
-                    className="w-16 h-16 object-cover rounded-lg shrink-0"
-                  />
+                  <img src={p.image} alt={p.name} className="w-16 h-16 object-cover rounded-lg shrink-0" />
 
                   <div className="min-w-0">
                     <div className="font-semibold flex flex-wrap items-center gap-2">
                       <span className="truncate">{p.name}</span>
+
+                      {p.isNew && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 shrink-0">
+                          Новинка
+                        </span>
+                      )}
 
                       {p.isPopular && (
                         <span className="text-[10px] px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 border border-yellow-200 shrink-0">
@@ -528,8 +499,7 @@ export default function AdminProductsClient() {
                     </div>
 
                     <div className="text-sm text-gray-500 break-words">
-                      {(p.brand?.name ?? "—")} •{" "}
-                      {Number(p.price).toLocaleString("ru-RU")} ₸ • {p.stock} шт
+                      {(p.brand?.name ?? "—")} • {Number(p.price).toLocaleString("ru-RU")} ₸ • {p.stock} шт
                     </div>
                   </div>
                 </div>
@@ -546,9 +516,7 @@ export default function AdminProductsClient() {
             );
           })}
 
-          {items.length === 0 && (
-            <div className="text-sm text-gray-500">Пока пусто</div>
-          )}
+          {items.length === 0 && <div className="text-sm text-gray-500">Пока пусто</div>}
         </div>
       </div>
     </div>
