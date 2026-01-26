@@ -183,8 +183,8 @@ function buildHref(brandSlug: string, sort: string, fav: string, instock: string
   const params = new URLSearchParams();
   if (brandSlug) params.set("brand", brandSlug);
 
-  // "new" и "" не пишем в URL, чтобы "Новинки" могла выключаться
-  if (sort && sort !== "new") params.set("sort", sort);
+  // ВАЖНО: пишем sort всегда, если он задан (включая "new")
+  if (sort) params.set("sort", sort);
 
   if (fav === "1") params.set("fav", "1");
   if (instock === "1") params.set("instock", "1");
@@ -232,15 +232,14 @@ function SortLink({
   value: string;
   children: React.ReactNode;
 }) {
-  const isActive =
-    value === "new" ? (currentSort || "") === "new" : (currentSort || "") === value;
+  const isActive = currentSort === value;
 
-  // TOGGLE: если уже "new", то сбрасываем (href без sort)
+  // TOGGLE только для "new"
   const nextSort =
     value === "new"
       ? isActive
-        ? "" // сброс фильтра
-        : "new"
+        ? ""     // сброс
+        : "new"  // включить
       : value;
 
   const href = buildHref(currentBrand, nextSort, currentFav, currentInStock);
@@ -259,3 +258,4 @@ function SortLink({
     </Link>
   );
 }
+
