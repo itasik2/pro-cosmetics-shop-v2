@@ -14,6 +14,7 @@ type VariantFormRow = {
   price: string;
   stock: string;
   sku?: string;
+  image?: string; // <-- ДОБАВЛЕНО
 };
 
 type Product = {
@@ -27,7 +28,7 @@ type Product = {
   price: number;
   stock: number;
   isPopular: boolean;
-  isNew: boolean; // <-- ДОБАВЛЕНО
+  isNew: boolean;
   variants?: any;
 };
 
@@ -40,7 +41,7 @@ const emptyForm = {
   price: "",
   stock: "",
   isPopular: false,
-  isNew: false, // <-- ДОБАВЛЕНО
+  isNew: false,
   variants: [] as VariantFormRow[],
 };
 
@@ -96,7 +97,17 @@ export default function AdminProductsClient() {
   function addVariantRow() {
     setForm((f) => ({
       ...f,
-      variants: [...f.variants, { id: makeVariantId(), label: "", price: "", stock: "", sku: "" }],
+      variants: [
+        ...f.variants,
+        {
+          id: makeVariantId(),
+          label: "",
+          price: "",
+          stock: "",
+          sku: "",
+          image: "", // <-- ДОБАВЛЕНО
+        },
+      ],
     }));
   }
 
@@ -123,9 +134,41 @@ export default function AdminProductsClient() {
       if (!url) throw new Error("no_url_returned");
 
       setField("image", url);
-      setMsg("Изображение загружено");
+      setMsg("Изображение товара загружено");
     } catch (e: any) {
       setMsg(`Ошибка загрузки: ${e?.message || "upload_failed"}`);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  // <-- ДОБАВЛЕНО: загрузка изображения для варианта
+  async function uploadVariantImage(file: File, idx: number) {
+    setMsg(null);
+    setUploading(true);
+
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+
+      const res = await fetch("/api/upload/product-image", {
+        method: "POST",
+        body: fd,
+      });
+
+      const data = await res.json().catch(() => ({} as any));
+      if (!res.ok) {
+        const err = data?.error || res.status;
+        throw new Error(String(err));
+      }
+
+      const url = String(data?.url || "").trim();
+      if (!url) throw new Error("no_url_returned");
+
+      setVariantRow(idx, { image: url });
+      setMsg("Изображение варианта загружено");
+    } catch (e: any) {
+      setMsg(`Ошибка загрузки варианта: ${e?.message || "upload_failed"}`);
     } finally {
       setUploading(false);
     }
@@ -139,13 +182,22 @@ export default function AdminProductsClient() {
     const variants =
       form.variants && form.variants.length > 0
         ? form.variants
-            .map((v) => ({
-              id: String(v.id || "").trim() || makeVariantId(),
-              label: String(v.label || "").trim(),
-              price: Math.max(0, Math.trunc(Number(v.price) || 0)),
-              stock: Math.max(0, Math.trunc(Number(v.stock) || 0)),
-              sku: v.sku ? String(v.sku).trim() : undefined,
-            }))
+            .map((v) => {
+              const label = String(v.label || "").trim();
+              const price = Math.max(0, Math.trunc(Number(v.price) || 0));
+              const stock = Math.max(0, Math.trunc(Number(v.stock) || 0));
+              const sku = v.sku ? String(v.sku).trim() : undefined;
+              const image = v.image ? String(v.image).trim() : "";
+
+              return {
+                id: String(v.id || "").trim() || makeVariantId(),
+                label,
+                price,
+                stock,
+                sku,
+                image: image || undefined, // <-- ДОБАВЛЕНО
+              };
+            })
             .filter((v) => v.label.length > 0)
         : null;
 
@@ -158,7 +210,7 @@ export default function AdminProductsClient() {
       price: Math.max(0, Math.trunc(Number(form.price) || 0)),
       stock: Math.max(0, Math.trunc(Number(form.stock) || 0)),
       isPopular: !!form.isPopular,
-      isNew: !!form.isNew, // <-- ДОБАВЛЕНО
+      isNew: !!form.isNew,
       variants,
     };
 
@@ -180,7 +232,7 @@ export default function AdminProductsClient() {
       setEditing(null);
       load();
     } else {
-      setMsg(`Ошибка: ${data?.error || res.status}`);
+      setMsg(`Ошибка: ${data?.error || data?.message || res.status}`);
     }
   }
 
@@ -201,6 +253,7 @@ export default function AdminProductsClient() {
           price: String(Math.trunc(Number(v?.price) || 0)),
           stock: String(Math.trunc(Number(v?.stock) || 0)),
           sku: v?.sku ? String(v.sku) : "",
+          image: v?.image ? String(v.image) : "", // <-- ДОБАВЛЕНО
         }))
       : [];
 
@@ -213,7 +266,7 @@ export default function AdminProductsClient() {
       price: String(Math.trunc(p.price)),
       stock: String(p.stock ?? 0),
       isPopular: p.isPopular ?? false,
-      isNew: p.isNew ?? false, // <-- ДОБАВЛЕНО
+      isNew: p.isNew ?? false,
       variants: vForm,
     });
   }
@@ -248,7 +301,7 @@ export default function AdminProductsClient() {
             </select>
 
             <div className="text-xs text-gray-500 mt-1">
-              Бренды берутся из /api/brands (активные). Управление брендами вынесем отдельной страницей.
+              Бренды берутся из /api/brands (активные).
             </div>
           </Field>
 
@@ -276,7 +329,7 @@ export default function AdminProductsClient() {
               }}
             />
             <div className="text-xs text-gray-500 mt-1">
-              Файл загрузится в Cloudinary и URL подставится в поле ниже.
+              Файл загрузится и URL подставится в поле ниже.
             </div>
           </Field>
 
@@ -345,56 +398,99 @@ export default function AdminProductsClient() {
             />
           </Field>
 
-          <Field label="Варианты (объём/цена/остаток)">
+          {/* ВАРИАНТЫ + ФОТО */}
+          <Field label="Варианты (объём/цена/остаток/фото)">
             <div className="space-y-2">
               <div className="text-xs text-gray-500">
-                Если варианты заполнены, на витрине цена и остаток зависят от выбранного объёма. Если пусто — используется обычная цена/остаток товара.
+                Если у варианта фото не задано — используется основное фото товара.
               </div>
 
               {form.variants.length > 0 && (
-                <div className="space-y-2">
-                  {form.variants.map((v, idx) => (
-                    <div key={v.id} className="grid grid-cols-12 gap-2 items-center">
-                      <input
-                        className="col-span-4 border rounded-xl px-3 py-2"
-                        placeholder="Напр. 50 мл"
-                        value={v.label}
-                        onChange={(e) => setVariantRow(idx, { label: e.target.value })}
-                      />
+                <div className="space-y-3">
+                  {form.variants.map((v, idx) => {
+                    const preview =
+                      (v.image && String(v.image).trim()) || form.image || "/seed/cleanser.jpg";
 
-                      <input
-                        className="col-span-3 border rounded-xl px-3 py-2"
-                        placeholder="Цена ₸"
-                        inputMode="numeric"
-                        value={v.price}
-                        onChange={(e) => setVariantRow(idx, { price: e.target.value.replace(/[^\d]/g, "") })}
-                        onBlur={(e) => {
-                          const n = Math.max(0, Math.trunc(Number(e.target.value) || 0));
-                          setVariantRow(idx, { price: String(n) });
-                        }}
-                      />
+                    return (
+                      <div key={v.id} className="rounded-2xl border p-3 space-y-2">
+                        <div className="grid grid-cols-12 gap-2 items-center">
+                          <input
+                            className="col-span-12 sm:col-span-3 border rounded-xl px-3 py-2"
+                            placeholder="Напр. 50 мл"
+                            value={v.label}
+                            onChange={(e) => setVariantRow(idx, { label: e.target.value })}
+                          />
 
-                      <input
-                        className="col-span-3 border rounded-xl px-3 py-2"
-                        placeholder="Остаток"
-                        inputMode="numeric"
-                        value={v.stock}
-                        onChange={(e) => setVariantRow(idx, { stock: e.target.value.replace(/[^\d]/g, "") })}
-                        onBlur={(e) => {
-                          const n = Math.max(0, Math.trunc(Number(e.target.value) || 0));
-                          setVariantRow(idx, { stock: String(n) });
-                        }}
-                      />
+                          <input
+                            className="col-span-6 sm:col-span-2 border rounded-xl px-3 py-2"
+                            placeholder="Цена ₸"
+                            inputMode="numeric"
+                            value={v.price}
+                            onChange={(e) =>
+                              setVariantRow(idx, { price: e.target.value.replace(/[^\d]/g, "") })
+                            }
+                            onBlur={(e) => {
+                              const n = Math.max(0, Math.trunc(Number(e.target.value) || 0));
+                              setVariantRow(idx, { price: String(n) });
+                            }}
+                          />
 
-                      <button
-                        type="button"
-                        className="col-span-2 px-3 py-2 rounded-xl border hover:bg-gray-50"
-                        onClick={() => removeVariantRow(idx)}
-                      >
-                        Удалить
-                      </button>
-                    </div>
-                  ))}
+                          <input
+                            className="col-span-6 sm:col-span-2 border rounded-xl px-3 py-2"
+                            placeholder="Остаток"
+                            inputMode="numeric"
+                            value={v.stock}
+                            onChange={(e) =>
+                              setVariantRow(idx, { stock: e.target.value.replace(/[^\d]/g, "") })
+                            }
+                            onBlur={(e) => {
+                              const n = Math.max(0, Math.trunc(Number(e.target.value) || 0));
+                              setVariantRow(idx, { stock: String(n) });
+                            }}
+                          />
+
+                          <input
+                            className="col-span-12 sm:col-span-3 border rounded-xl px-3 py-2"
+                            placeholder="Фото варианта (URL, опционально)"
+                            value={v.image ?? ""}
+                            onChange={(e) => setVariantRow(idx, { image: e.target.value })}
+                          />
+
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="col-span-10 sm:col-span-1 border rounded-xl px-3 py-2 bg-white"
+                            disabled={uploading}
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+                              uploadVariantImage(file, idx);
+                              e.currentTarget.value = "";
+                            }}
+                            title="Загрузить фото варианта"
+                          />
+
+                          <button
+                            type="button"
+                            className="col-span-2 sm:col-span-1 px-3 py-2 rounded-xl border hover:bg-gray-50"
+                            onClick={() => removeVariantRow(idx)}
+                          >
+                            Удалить
+                          </button>
+                        </div>
+
+                        <div className="flex items-center gap-2 text-xs text-gray-500">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={preview}
+                            alt="variant preview"
+                            className="w-10 h-10 rounded-lg object-cover border bg-gray-50"
+                          />
+                          <span>Превью варианта (если нет фото — основное).</span>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 
