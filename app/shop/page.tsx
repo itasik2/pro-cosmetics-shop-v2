@@ -1,3 +1,4 @@
+
 // app/shop/page.tsx
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
@@ -65,10 +66,10 @@ function toVariants(v: unknown): Variant[] | null {
 export default async function ShopPage({ searchParams }: Props) {
   const brandSlug = (searchParams?.brand || "").trim();
 
-  // ВАЖНО: по умолчанию сортировки нет (""), чтобы "Новинки" могла выключаться
+  // по умолчанию сортировки нет (""), чтобы "Новинки" могла выключаться
   const sort = (searchParams?.sort || "").trim();
 
-  const fav = (searchParams?.fav || "").trim(); // "1" или ""
+  const fav = (searchParams?.fav || "").trim();
   const instock = (searchParams?.instock || "").trim();
 
   const brands = await prisma.brand.findMany({
@@ -79,15 +80,26 @@ export default async function ShopPage({ searchParams }: Props) {
 
   const selectedBrand = brandSlug ? brands.find((b) => b.slug === brandSlug) || null : null;
 
+  // WHERE: бренд + (новинки по флагу) + (в наличии если instock=1)
+  const whereBase: any = {};
+
+  if (selectedBrand) whereBase.brandId = selectedBrand.id;
+
+  // Новинки: только то, что отмечено из админки
+  if (sort === "new") whereBase.isNew = true;
+
+  // В наличии: базово по stock продукта (для вариантов будет точнее в клиенте, но серверный фильтр — по stock)
+  if (instock === "1") whereBase.stock = { gt: 0 };
+
   const orderBy =
     sort === "price_asc"
       ? [{ price: "asc" as const }, { createdAt: "desc" as const }]
       : sort === "price_desc"
       ? [{ price: "desc" as const }, { createdAt: "desc" as const }]
-      : [{ createdAt: "desc" as const }]; // дефолтный порядок (как был)
+      : [{ createdAt: "desc" as const }];
 
   const products = await prisma.product.findMany({
-    where: selectedBrand ? { brandId: selectedBrand.id } : undefined,
+    where: Object.keys(whereBase).length ? whereBase : undefined,
     orderBy,
     select: {
       id: true,
@@ -96,6 +108,7 @@ export default async function ShopPage({ searchParams }: Props) {
       price: true,
       stock: true,
       isPopular: true,
+      isNew: true, // <-- ДОБАВЛЕНО
       createdAt: true,
       category: true,
       brand: { select: { name: true } },
@@ -119,7 +132,6 @@ export default async function ShopPage({ searchParams }: Props) {
           </div>
         </div>
 
-        {/* Сортировка + Избранное */}
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <SortLink
             currentBrand={brandSlug}
@@ -156,7 +168,6 @@ export default async function ShopPage({ searchParams }: Props) {
         </div>
       </div>
 
-      {/* Фильтр по бренду */}
       <div className="flex flex-wrap gap-2">
         <BrandLink isActive={!brandSlug} href={buildHref("", sort, fav, instock)}>
           Все
@@ -173,7 +184,6 @@ export default async function ShopPage({ searchParams }: Props) {
         ))}
       </div>
 
-      {/* Клиентская сетка */}
       <ShopGridClient products={productsForClient} />
     </div>
   );
@@ -182,13 +192,9 @@ export default async function ShopPage({ searchParams }: Props) {
 function buildHref(brandSlug: string, sort: string, fav: string, instock: string) {
   const params = new URLSearchParams();
   if (brandSlug) params.set("brand", brandSlug);
-
-  // ВАЖНО: пишем sort всегда, если он задан (включая "new")
   if (sort) params.set("sort", sort);
-
   if (fav === "1") params.set("fav", "1");
   if (instock === "1") params.set("instock", "1");
-
   const qs = params.toString();
   return qs ? `/shop?${qs}` : "/shop";
 }
@@ -235,12 +241,7 @@ function SortLink({
   const isActive = currentSort === value;
 
   // TOGGLE только для "new"
-  const nextSort =
-    value === "new"
-      ? isActive
-        ? ""     // сброс
-        : "new"  // включить
-      : value;
+  const nextSort = value === "new" ? (isActive ? "" : "new") : value;
 
   const href = buildHref(currentBrand, nextSort, currentFav, currentInStock);
 
@@ -258,4 +259,3 @@ function SortLink({
     </Link>
   );
 }
-
