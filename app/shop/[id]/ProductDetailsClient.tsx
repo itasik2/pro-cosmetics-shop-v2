@@ -45,10 +45,7 @@ export default function ProductDetailsClient({ product }: { product: Product }) 
   const variants = useMemo(() => normalizeVariants(product.variants), [product.variants]);
   const hasVariants = variants.length > 0;
 
-  const defaultVariant = hasVariants
-    ? variants.find((v) => v.stock > 0) ?? variants[0]
-    : null;
-
+  const defaultVariant = hasVariants ? variants.find((v) => v.stock > 0) ?? variants[0] : null;
   const [variantId, setVariantId] = useState<string | null>(defaultVariant?.id ?? null);
 
   const selectedVariant = hasVariants
@@ -66,28 +63,28 @@ export default function ProductDetailsClient({ product }: { product: Product }) 
 
   return (
     <div className="grid md:grid-cols-2 gap-8 py-10">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={imageToShow}
-        alt={product.name}
-        className="w-full rounded-3xl border object-cover max-h-[480px]"
-      />
-
+      {/* LEFT: фото + (цена/варианты/купить) */}
       <div className="space-y-4">
-        <div className="text-sm text-gray-500">
-          {brandName} • {product.category}
-        </div>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={imageToShow}
+          alt={product.name}
+          className="w-full rounded-3xl border object-cover max-h-[480px]"
+        />
 
-        <h1 className="text-3xl font-bold">{product.name}</h1>
+        {/* Цена */}
+        <div className="text-2xl font-semibold">{priceToShow.toLocaleString("ru-RU")} ₸</div>
 
         {/* Варианты */}
         {hasVariants && (
           <div className="space-y-2">
             <div className="text-sm font-semibold">Варианты</div>
+
             <div className="flex flex-wrap gap-2">
               {variants.map((v) => {
                 const active = v.id === variantId;
                 const disabled = v.stock <= 0;
+
                 return (
                   <button
                     key={v.id}
@@ -112,30 +109,10 @@ export default function ProductDetailsClient({ product }: { product: Product }) 
             <div className={"text-xs " + (inStock ? "text-emerald-700" : "text-gray-500")}>
               {inStock ? `В наличии: ${stockToUse}` : "Нет в наличии"}
             </div>
-
-            <div className="text-xs text-gray-500">
-              Если у варианта задано фото — оно показывается при выборе. Иначе используется основное фото товара.
-            </div>
           </div>
         )}
 
-        <div className="text-gray-600 whitespace-pre-line">{product.description}</div>
-
-        {/* Кнопка "Спросить о товаре" — как у тебя */}
-        <div className="flex flex-wrap items-center gap-3">
-          <Link
-            href={`/ask?productId=${encodeURIComponent(product.id)}`}
-            className="px-4 py-2 rounded-xl border bg-white/80 backdrop-blur hover:bg-white transition text-sm"
-          >
-            Спросить о товаре
-          </Link>
-
-          <div className="text-xs text-gray-500">Откроется Q&amp;A с контекстом этого товара</div>
-        </div>
-
-        <div className="text-2xl font-semibold">{priceToShow.toLocaleString("ru-RU")} ₸</div>
-
-        {/* В корзину: через localStorage (поддержка variantId) */}
+        {/* Купить */}
         <div>
           <AddToCartButton
             productId={product.id}
@@ -148,6 +125,30 @@ export default function ProductDetailsClient({ product }: { product: Product }) 
         <Link href="/shop" className="text-sm text-gray-500 hover:underline">
           ← Вернуться в каталог
         </Link>
+      </div>
+
+      {/* RIGHT: текст/описание/спросить */}
+      <div className="space-y-4">
+        <div className="text-sm text-gray-500">
+          {brandName} • {product.category}
+        </div>
+
+        <h1 className="text-3xl font-bold">{product.name}</h1>
+
+        {/* Описание */}
+        <div className="text-gray-600 whitespace-pre-line">{product.description}</div>
+
+        {/* Спросить */}
+        <div className="flex flex-wrap items-center gap-3">
+          <Link
+            href={`/ask?productId=${encodeURIComponent(product.id)}`}
+            className="px-4 py-2 rounded-xl border bg-white/80 backdrop-blur hover:bg-white transition text-sm"
+          >
+            Спросить о товаре
+          </Link>
+
+          <div className="text-xs text-gray-500">Откроется Q&amp;A с контекстом этого товара</div>
+        </div>
       </div>
     </div>
   );
