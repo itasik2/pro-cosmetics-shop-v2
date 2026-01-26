@@ -64,8 +64,11 @@ function toVariants(v: unknown): Variant[] | null {
 
 export default async function ShopPage({ searchParams }: Props) {
   const brandSlug = (searchParams?.brand || "").trim();
-  const sort = (searchParams?.sort || "new").trim();
-  const fav = (searchParams?.fav || "").trim(); // <-- ДОБАВИЛИ ("1" или "")
+
+  // ВАЖНО: по умолчанию сортировки нет (""), чтобы "Новинки" могла выключаться
+  const sort = (searchParams?.sort || "").trim();
+
+  const fav = (searchParams?.fav || "").trim(); // "1" или ""
   const instock = (searchParams?.instock || "").trim();
 
   const brands = await prisma.brand.findMany({
@@ -81,7 +84,7 @@ export default async function ShopPage({ searchParams }: Props) {
       ? [{ price: "asc" as const }, { createdAt: "desc" as const }]
       : sort === "price_desc"
       ? [{ price: "desc" as const }, { createdAt: "desc" as const }]
-      : [{ createdAt: "desc" as const }];
+      : [{ createdAt: "desc" as const }]; // дефолтный порядок (как был)
 
   const products = await prisma.product.findMany({
     where: selectedBrand ? { brandId: selectedBrand.id } : undefined,
@@ -118,13 +121,33 @@ export default async function ShopPage({ searchParams }: Props) {
 
         {/* Сортировка + Избранное */}
         <div className="flex flex-wrap items-center gap-2 text-sm">
-          <SortLink currentBrand={brandSlug} currentSort={sort} currentFav={fav} currentInStock={instock} value="new">
+          <SortLink
+            currentBrand={brandSlug}
+            currentSort={sort}
+            currentFav={fav}
+            currentInStock={instock}
+            value="new"
+          >
             Новинки
           </SortLink>
-          <SortLink currentBrand={brandSlug} currentSort={sort} currentFav={fav} currentInStock={instock} value="price_asc">
+
+          <SortLink
+            currentBrand={brandSlug}
+            currentSort={sort}
+            currentFav={fav}
+            currentInStock={instock}
+            value="price_asc"
+          >
             Цена ↑
           </SortLink>
-          <SortLink currentBrand={brandSlug} currentSort={sort} currentFav={fav} currentInStock={instock} value="price_desc">
+
+          <SortLink
+            currentBrand={brandSlug}
+            currentSort={sort}
+            currentFav={fav}
+            currentInStock={instock}
+            value="price_desc"
+          >
             Цена ↓
           </SortLink>
 
@@ -159,9 +182,13 @@ export default async function ShopPage({ searchParams }: Props) {
 function buildHref(brandSlug: string, sort: string, fav: string, instock: string) {
   const params = new URLSearchParams();
   if (brandSlug) params.set("brand", brandSlug);
+
+  // "new" и "" не пишем в URL, чтобы "Новинки" могла выключаться
   if (sort && sort !== "new") params.set("sort", sort);
+
   if (fav === "1") params.set("fav", "1");
   if (instock === "1") params.set("instock", "1");
+
   const qs = params.toString();
   return qs ? `/shop?${qs}` : "/shop";
 }
@@ -205,8 +232,18 @@ function SortLink({
   value: string;
   children: React.ReactNode;
 }) {
-  const href = buildHref(currentBrand, value, currentFav, currentInStock);
-  const isActive = (currentSort || "new") === value;
+  const isActive =
+    value === "new" ? (currentSort || "") === "new" : (currentSort || "") === value;
+
+  // TOGGLE: если уже "new", то сбрасываем (href без sort)
+  const nextSort =
+    value === "new"
+      ? isActive
+        ? "" // сброс фильтра
+        : "new"
+      : value;
+
+  const href = buildHref(currentBrand, nextSort, currentFav, currentInStock);
 
   return (
     <Link
