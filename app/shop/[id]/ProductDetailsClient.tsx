@@ -118,6 +118,7 @@ export default function ProductDetailsClient({ product }: { product: Product }) 
 <div className={"mt-1 text-xs " + (inStock ? "text-emerald-700" : "text-gray-500")}>
   {inStock ? `В наличии: ${stockToUse}` : "Под заказ/нет"}
 </div>
+      </div>  
 
 <div className="mt-2 flex items-center justify-between gap-4">
   <div className="text-xs text-gray-500">
