@@ -76,56 +76,58 @@ export default function ProductDetailsClient({ product }: { product: Product }) 
         <div className="text-2xl font-semibold">{priceToShow.toLocaleString("ru-RU")} ₸</div>
 
         {/* Варианты */}
-        {hasVariants && (
-          <div className="space-y-2">
-            <div className="text-sm font-semibold">Варианты</div>
+{hasVariants && (
+  <div className="mt-2 flex flex-wrap gap-2">
+    {variants.map((v) => {
+      const active = v.id === variantId;
+      const disabled = v.stock <= 0;
 
-            <div className="flex flex-wrap gap-2">
-              {variants.map((v) => {
-                const active = v.id === variantId;
-                const disabled = v.stock <= 0;
+      return (
+        <button
+          key={v.id}
+          type="button"
+          disabled={disabled}
+          onClick={() => setVariantId(v.id)}
+          className={
+            "px-3 py-1 rounded-full text-xs border transition " +
+            (active ? "bg-black text-white" : "bg-white") +
+            (disabled ? " opacity-40 cursor-not-allowed" : " hover:bg-gray-50")
+          }
+          title={disabled ? "Нет в наличии" : ""}
+        >
+          {v.label}
+        </button>
+      );
+    })}
+  </div>
+)}
 
-                return (
-                  <button
-                    key={v.id}
-                    type="button"
-                    disabled={disabled}
-                    onClick={() => setVariantId(v.id)}
-                    className={
-                      "px-3 py-1 rounded-full text-xs border transition " +
-                      (active
-                        ? "bg-black text-white border-black"
-                        : "bg-white text-gray-700 hover:bg-gray-50") +
-                      (disabled ? " opacity-40 cursor-not-allowed" : "")
-                    }
-                    title={disabled ? "Нет в наличии" : ""}
-                  >
-                    {v.label}
-                  </button>
-                );
-              })}
-            </div>
+<div className="flex items-center justify-between mt-2 gap-2">
+  <div className="font-semibold text-2xl">
+    {priceToShow.toLocaleString("ru-RU")} ₸
+  </div>
 
-            <div className={"text-xs " + (inStock ? "text-emerald-700" : "text-gray-500")}>
-              {inStock ? `В наличии: ${stockToUse}` : "Нет в наличии"}
-            </div>
-          </div>
-        )}
+  <AddToCartButton
+    productId={product.id}
+    variantId={selectedVariant?.id ?? null}
+    disabled={stockToUse <= 0}
+    maxStock={stockToUse}
+  />
+</div>
 
-        {/* Купить */}
-        <div>
-          <AddToCartButton
-            productId={product.id}
-            variantId={selectedVariant?.id ?? null}
-            disabled={stockToUse <= 0}
-            maxStock={stockToUse}
-          />
-        </div>
+<div className={"mt-1 text-xs " + (inStock ? "text-emerald-700" : "text-gray-500")}>
+  {inStock ? `В наличии: ${stockToUse}` : "Под заказ/нет"}
+</div>
 
-        <Link href="/shop" className="text-sm text-gray-500 hover:underline">
-          ← Вернуться в каталог
-        </Link>
-      </div>
+<div className="mt-2 flex items-center justify-between gap-4">
+  <div className="text-xs text-gray-500">
+    {brandName} • {product.category}
+  </div>
+
+  <Link href="/shop" className="text-xs text-gray-600 hover:underline whitespace-nowrap">
+    ← Вернуться в каталог
+  </Link>
+</div>
 
       {/* RIGHT: текст/описание/спросить */}
       <div className="space-y-4">
