@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import AddToCartButton from "@/components/AddToCartButton";
 
 type Variant = {
@@ -13,58 +13,61 @@ type Variant = {
   image?: string;
 };
 
-type Product = {
-  id: string;
-  name: string;
-  image: string;
-  price: number;
-  stock: number;
-  description: string;
-  category: string;
-  brand?: { name: string } | null;
-  variants?: any;
+type Props = {
+  product: {
+    id: string;
+    name: string;
+    image: string;
+    description: string;
+    price: number;
+    stock: number;
+    category: string;
+    brand?: { name: string } | null;
+    variants?: any;
+  };
 };
 
 function normalizeVariants(v: any): Variant[] {
   if (!Array.isArray(v)) return [];
   return v
     .map((x) => ({
-      id: String(x?.id ?? ""),
-      label: String(x?.label ?? ""),
-      price: Math.trunc(Number(x?.price) || 0),
-      stock: Math.trunc(Number(x?.stock) || 0),
-      sku: x?.sku ? String(x.sku) : undefined,
-      image: x?.image ? String(x.image) : undefined,
+      id: String(x.id),
+      label: String(x.label),
+      price: Number(x.price),
+      stock: Number(x.stock),
+      sku: x.sku,
+      image: x.image,
     }))
-    .filter((x) => x.id && x.label);
+    .filter((v) => v.id && v.label);
 }
 
-export default function ProductDetailsClient({ product }: { product: Product }) {
-  const brandName = product.brand?.name ?? "—";
-
-  const variants = useMemo(() => normalizeVariants(product.variants), [product.variants]);
+export default function ProductDetailsClient({ product }: Props) {
+  const variants = useMemo(() => normalizeVariants(product.variants), [product]);
   const hasVariants = variants.length > 0;
 
-  const defaultVariant = hasVariants ? variants.find((v) => v.stock > 0) ?? variants[0] : null;
-  const [variantId, setVariantId] = useState<string | null>(defaultVariant?.id ?? null);
+  const defaultVariant =
+    variants.find((v) => v.stock > 0) ?? variants[0] ?? null;
+
+  const [variantId, setVariantId] = useState<string | null>(
+    defaultVariant?.id ?? null
+  );
 
   const selectedVariant = hasVariants
     ? variants.find((v) => v.id === variantId) ?? defaultVariant
     : null;
 
-  const priceToShow = Number(selectedVariant?.price ?? product.price) || 0;
-  const stockToUse = Math.trunc(Number(selectedVariant?.stock ?? product.stock) || 0);
+  const priceToShow = selectedVariant?.price ?? product.price;
+  const stockToUse = selectedVariant?.stock ?? product.stock;
   const inStock = stockToUse > 0;
 
-  const imageToShow =
-    selectedVariant?.image && String(selectedVariant.image).trim().length > 0
-      ? String(selectedVariant.image).trim()
-      : product.image;
+  const imageToShow = selectedVariant?.image || product.image;
+  const brandName = product.brand?.name ?? "—";
 
   return (
-    <div className="grid md:grid-cols-2 gap-8 py-10">
-      {/* LEFT: фото + (цена/варианты/купить) */}
-      <div className="space-y-4">
+    <div className="grid md:grid-cols-2 gap-8">
+      {/* ЛЕВАЯ КОЛОНКА */}
+      <div>
+        {/* Фото */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={imageToShow}
@@ -72,86 +75,87 @@ export default function ProductDetailsClient({ product }: { product: Product }) 
           className="w-full rounded-3xl border object-cover max-h-[480px]"
         />
 
-        {/* Цена */}
-        <div className="text-2xl font-semibold">{priceToShow.toLocaleString("ru-RU")} ₸</div>
+        {/* ВАРИАНТЫ */}
+        {hasVariants && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {variants.map((v) => {
+              const active = v.id === variantId;
+              const disabled = v.stock <= 0;
 
-        {/* Варианты */}
-{hasVariants && (
-  <div className="mt-2 flex flex-wrap gap-2">
-    {variants.map((v) => {
-      const active = v.id === variantId;
-      const disabled = v.stock <= 0;
+              return (
+                <button
+                  key={v.id}
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => setVariantId(v.id)}
+                  className={
+                    "px-3 py-1 rounded-full text-xs border transition " +
+                    (active ? "bg-black text-white" : "bg-white") +
+                    (disabled
+                      ? " opacity-40 cursor-not-allowed"
+                      : " hover:bg-gray-50")
+                  }
+                >
+                  {v.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
-      return (
-        <button
-          key={v.id}
-          type="button"
-          disabled={disabled}
-          onClick={() => setVariantId(v.id)}
-          className={
-            "px-3 py-1 rounded-full text-xs border transition " +
-            (active ? "bg-black text-white" : "bg-white") +
-            (disabled ? " opacity-40 cursor-not-allowed" : " hover:bg-gray-50")
-          }
-          title={disabled ? "Нет в наличии" : ""}
-        >
-          {v.label}
-        </button>
-      );
-    })}
-  </div>
-)}
+        {/* ЦЕНА + КУПИТЬ */}
+        <div className="flex items-center justify-between mt-3 gap-3">
+          <div className="font-semibold text-2xl">
+            {priceToShow.toLocaleString("ru-RU")} ₸
+          </div>
 
-<div className="flex items-center justify-between mt-2 gap-2">
-  <div className="font-semibold text-2xl">
-    {priceToShow.toLocaleString("ru-RU")} ₸
-  </div>
-
-  <AddToCartButton
-    productId={product.id}
-    variantId={selectedVariant?.id ?? null}
-    disabled={stockToUse <= 0}
-    maxStock={stockToUse}
-  />
-</div>
-
-<div className={"mt-1 text-xs " + (inStock ? "text-emerald-700" : "text-gray-500")}>
-  {inStock ? `В наличии: ${stockToUse}` : "Под заказ/нет"}
-</div>
-      </div>  
-
-<div className="mt-2 flex items-center justify-between gap-4">
-  <div className="text-xs text-gray-500">
-    {brandName} • {product.category}
-  </div>
-
-  <Link href="/shop" className="text-xs text-gray-600 hover:underline whitespace-nowrap">
-    ← Вернуться в каталог
-  </Link>
-</div>
-
-      {/* RIGHT: текст/описание/спросить */}
-      <div className="space-y-4">
-        <div className="text-sm text-gray-500">
-          {brandName} • {product.category}
+          <AddToCartButton
+            productId={product.id}
+            variantId={selectedVariant?.id ?? null}
+            disabled={!inStock}
+            maxStock={stockToUse}
+          />
         </div>
 
+        {/* НАЛИЧИЕ */}
+        <div
+          className={
+            "mt-1 text-xs " +
+            (inStock ? "text-emerald-700" : "text-gray-500")
+          }
+        >
+          {inStock ? `В наличии: ${stockToUse}` : "Под заказ / нет"}
+        </div>
+
+        {/* НИЖНЯЯ СТРОКА */}
+        <div className="mt-2 flex items-center justify-between">
+          <div className="text-xs text-gray-500">
+            {brandName} • {product.category}
+          </div>
+
+          <Link
+            href="/shop"
+            className="text-xs text-gray-600 hover:underline"
+          >
+            ← Вернуться в каталог
+          </Link>
+        </div>
+      </div>
+
+      {/* ПРАВАЯ КОЛОНКА */}
+      <div className="space-y-4">
         <h1 className="text-3xl font-bold">{product.name}</h1>
 
-        {/* Описание */}
-        <div className="text-gray-600 whitespace-pre-line">{product.description}</div>
-
-        {/* Спросить */}
-        <div className="flex flex-wrap items-center gap-3">
-          <Link
-            href={`/ask?productId=${encodeURIComponent(product.id)}`}
-            className="px-4 py-2 rounded-xl border bg-white/80 backdrop-blur hover:bg-white transition text-sm"
-          >
-            Спросить о товаре
-          </Link>
-
-          <div className="text-xs text-gray-500">Откроется Q&amp;A с контекстом этого товара</div>
+        <div className="text-gray-600 whitespace-pre-line">
+          {product.description}
         </div>
+
+        <Link
+          href={`/ask?productId=${encodeURIComponent(product.id)}`}
+          className="inline-block px-4 py-2 rounded-xl border bg-white hover:bg-gray-50 text-sm"
+        >
+          Спросить о товаре
+        </Link>
       </div>
     </div>
   );
