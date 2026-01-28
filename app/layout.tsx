@@ -63,6 +63,13 @@ export default async function RootLayout({
 
   return (
     <html lang="ru">
+
+    <head>
+        <Script
+          defer src="https://cloud.umami.is/script.js" data-website-id="2dd3b462-10a8-4940-bdd8-db47fe10261f"
+        />
+      </head>
+      
       <body className="min-h-screen">
         {/* ФОН: фиксированный слой, не зависит от высоты страницы */}
         {backgroundUrl ? (
