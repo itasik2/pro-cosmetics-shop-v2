@@ -2,15 +2,7 @@ import { prisma } from "@/lib/prisma";
 import type { Metadata } from "next";
 import ProductDetailsClient from "./ProductDetailsClient";
 
-export function TrackProductView({ productId }: { productId: string }) {
-  useEffect(() => {
-    window.umami?.track("view_product", {
-      productId,
-    });
-  }, [productId]);
 
-  return null;
-}
 
 type Props = { params: { id: string } };
 
