@@ -65,9 +65,10 @@ export default async function RootLayout({
     <html lang="ru">
 
     <head>
-        <Script
+        <script
           defer src="https://cloud.umami.is/script.js" data-website-id="2dd3b462-10a8-4940-bdd8-db47fe10261f"
-        />
+        >
+        </script>
       </head>
       
       <body className="min-h-screen">
