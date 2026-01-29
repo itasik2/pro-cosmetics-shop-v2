@@ -65,7 +65,7 @@ export default function ProductDetailsClient({ product }: Props) {
   const brandName = product.brand?.name ?? "—";
 
   return (
-    <TrackProductView productId={product.id} variantId={selectedVariant?.id ?? null}></TrackProductView>
+  
     <div className="grid md:grid-cols-2 gap-8">
       {/* ЛЕВАЯ КОЛОНКА */}
       <div>
