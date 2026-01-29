@@ -1,5 +1,14 @@
 // app/checkout/success/page.tsx
 import Link from "next/link";
+import SuccessClient from "./success-client";
+
+export default function SuccessPage({
+  searchParams,
+}: {
+  searchParams?: { order?: string };
+}) {
+  return <SuccessClient order={searchParams?.order || ""} />;
+}
 
 export default function CheckoutSuccessPage({
   searchParams,
