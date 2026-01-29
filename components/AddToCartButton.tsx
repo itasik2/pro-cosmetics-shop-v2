@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getQty, setQty, makeCartKey } from "@/lib/cartStorage";
+import { track } from "@/lib/analytics";
 
 type Props = {
   productId: string;
@@ -43,11 +44,24 @@ export default function AddToCartButton({
 
   const addOne = () => {
     if (!canBuy) return;
+
+    // analytics
+    track("add_to_cart", {
+      productId,
+      variantId: variantId ?? "base",
+    });
+
     const next = setQty(cartKey, qty + 1, maxStock);
     setQtyState(next);
   };
 
   const decOne = () => {
+    // analytics (опционально)
+    track("remove_from_cart", {
+      productId,
+      variantId: variantId ?? "base",
+    });
+
     const next = setQty(cartKey, qty - 1, maxStock);
     setQtyState(next);
   };
