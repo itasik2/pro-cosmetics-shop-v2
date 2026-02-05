@@ -33,8 +33,9 @@ export default function Navbar() {
     <header className="border-b bg-white/70 backdrop-blur sticky top-0 z-50">
       <div className="container flex items-center justify-between py-3">
         <Link href="/" className="font-bold tracking-tight text-lg">
-          pro.cosmetics
+          {process.env.NEXT_PUBLIC_SITE_BRAND ?? "Shop"}
         </Link>
+
 
         <nav className="hidden md:flex gap-6 text-sm">
           {/* Новая кнопка */}
