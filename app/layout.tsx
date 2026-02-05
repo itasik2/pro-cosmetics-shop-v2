@@ -7,8 +7,8 @@ import Providers from "./providers";
 import { prisma } from "@/lib/prisma";
 
 export const metadata: Metadata = {
-  title: "Pro Cosmetics Shop",
-  description: "Профессиональная косметика. Быстро, честно, без блёсток.",
+  title: process.env.SITE_TITLE ?? "Shop",
+  description: process.env.SITE_DESCRIPTION ?? "",
 };
 
 function activeNow(s: {
@@ -61,18 +61,22 @@ export default async function RootLayout({
     ? String(settings?.bannerHref || "").trim()
     : "";
 
+  const umamiId = process.env.UMAMI_WEBSITE_ID;
+
   return (
     <html lang="ru">
-
-    <head>
-        <script
-          defer src="https://cloud.umami.is/script.js" data-website-id="2dd3b462-10a8-4940-bdd8-db47fe10261f"
-        >
-        </script>
+      <head>
+        {umamiId ? (
+          <script
+            defer
+            src="https://cloud.umami.is/script.js"
+            data-website-id={umamiId}
+          />
+        ) : null}
       </head>
-      
+
       <body className="min-h-screen">
-        {/* ФОН: фиксированный слой, не зависит от высоты страницы */}
+        {/* ФОН */}
         {backgroundUrl ? (
           <div
             className="fixed inset-0 -z-10 bg-cover bg-center bg-no-repeat"
@@ -81,12 +85,11 @@ export default async function RootLayout({
           />
         ) : null}
 
-        {/* Контент поверх фона */}
+        {/* Контент */}
         <div className="min-h-screen flex flex-col bg-white/85">
           <Providers>
             <Navbar />
 
-            {/* Баннер (без закрытия, как проще) */}
             {bannerEnabled && bannerText ? (
               <div className="border-b bg-white/80 backdrop-blur">
                 <div className="container mx-auto py-2 text-sm text-gray-800 flex items-center justify-between gap-3">
