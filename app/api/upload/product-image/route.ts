@@ -3,6 +3,7 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { v2 as cloudinary } from "cloudinary";
+import { requireAdmin } from "@/lib/adminGuard";
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME!,
@@ -11,6 +12,9 @@ cloudinary.config({
 });
 
 export async function POST(req: Request) {
+  const forbidden = await requireAdmin();
+  if (forbidden) return forbidden;
+
   try {
     if (
       !process.env.CLOUDINARY_CLOUD_NAME ||

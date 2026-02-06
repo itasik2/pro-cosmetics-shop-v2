@@ -4,7 +4,7 @@ export const revalidate = 0;
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
-import { auth } from "@/lib/auth";
+import { requireAdmin } from "@/lib/adminGuard";
 
 const ProductSchema = z.object({
   name: z.string().min(2),
@@ -24,13 +24,8 @@ const ProductSchema = z.object({
 type Params = { params: { id: string } };
 
 export async function PUT(req: Request, { params }: Params) {
-  const session = await auth();
-  const adminEmail = (process.env.AUTH_ADMIN_EMAIL || "").toLowerCase();
-  const email = (session?.user?.email || "").toLowerCase();
-
-  if (!email || email !== adminEmail) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  }
+  const forbidden = await requireAdmin();
+  if (forbidden) return forbidden;
 
   try {
     const parsed = ProductSchema.parse(await req.json());
@@ -75,13 +70,8 @@ export async function PUT(req: Request, { params }: Params) {
 }
 
 export async function DELETE(_req: Request, { params }: Params) {
-  const session = await auth();
-  const adminEmail = (process.env.AUTH_ADMIN_EMAIL || "").toLowerCase();
-  const email = (session?.user?.email || "").toLowerCase();
-
-  if (!email || email !== adminEmail) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  }
+  const forbidden = await requireAdmin();
+  if (forbidden) return forbidden;
 
   await prisma.product.delete({ where: { id: params.id } });
   return NextResponse.json({ ok: true });
