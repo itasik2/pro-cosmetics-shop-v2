@@ -1,17 +1,10 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { auth } from "@/lib/auth";
 import { z } from "zod";
+import { requireAdmin, isAdminRequest } from "@/lib/adminGuard";
 
 export const runtime = "nodejs";
 export const revalidate = 0;
-
-async function isAdmin() {
-  const session = await auth();
-  const adminEmail = (process.env.AUTH_ADMIN_EMAIL || "").toLowerCase();
-  const email = (session?.user?.email || "").toLowerCase();
-  return !!email && email === adminEmail;
-}
 
 // GET /api/brands
 // - публично: активные бренды для витрины/форм
@@ -21,7 +14,7 @@ export async function GET(req: Request) {
   const all = url.searchParams.get("all") === "1";
 
   if (all) {
-    if (!(await isAdmin())) {
+    if (!(await isAdminRequest())) {
       return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
     const items = await prisma.brand.findMany({
@@ -46,9 +39,8 @@ const BrandSchema = z.object({
 });
 
 export async function POST(req: Request) {
-  if (!(await isAdmin())) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  }
+  const forbidden = await requireAdmin();
+  if (forbidden) return forbidden;
 
   try {
     const parsed = BrandSchema.parse(await req.json());
