@@ -4,6 +4,8 @@ export const revalidate = 0;
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireAdmin } from "@/lib/adminGuard";
+import { z } from "zod";
 
 const ID = "default";
 
@@ -23,6 +25,16 @@ function computeActiveNow(s: {
   return true;
 }
 
+const SiteSettingsSchema = z.object({
+  scheduleEnabled: z.boolean().optional().default(false),
+  scheduleStart: z.string().datetime().optional().nullable(),
+  scheduleEnd: z.string().datetime().optional().nullable(),
+  backgroundUrl: z.string().optional().default(""),
+  bannerEnabled: z.boolean().optional().default(false),
+  bannerText: z.string().optional().default(""),
+  bannerHref: z.string().optional().nullable(),
+});
+
 export async function GET() {
   const settings = await prisma.themeSettings.findUnique({ where: { id: ID } });
 
@@ -39,43 +51,53 @@ export async function GET() {
       settings,
       activeNow,
     },
-    { status: 200 }
+    { status: 200 },
   );
 }
 
 export async function PUT(req: Request) {
-  const body = (await req.json().catch(() => ({}))) as any;
+  const forbidden = await requireAdmin();
+  if (forbidden) return forbidden;
 
-  // приведение типов + безопасные строки
-  const data = {
-    scheduleEnabled: !!body.scheduleEnabled,
-    scheduleStart: body.scheduleStart ? new Date(body.scheduleStart) : null,
-    scheduleEnd: body.scheduleEnd ? new Date(body.scheduleEnd) : null,
+  try {
+    const body = SiteSettingsSchema.parse(await req.json().catch(() => ({})));
 
-    backgroundUrl: String(body.backgroundUrl ?? "").trim(),
+    const data = {
+      scheduleEnabled: !!body.scheduleEnabled,
+      scheduleStart: body.scheduleStart ? new Date(body.scheduleStart) : null,
+      scheduleEnd: body.scheduleEnd ? new Date(body.scheduleEnd) : null,
 
-    bannerEnabled: !!body.bannerEnabled,
-    bannerText: String(body.bannerText ?? "").trim(),
-    bannerHref: body.bannerHref ? String(body.bannerHref).trim() : null,
-  };
+      backgroundUrl: String(body.backgroundUrl ?? "").trim(),
 
-  const saved = await prisma.themeSettings.upsert({
-    where: { id: ID },
-    create: { id: ID, ...data },
-    update: data,
-  });
+      bannerEnabled: !!body.bannerEnabled,
+      bannerText: String(body.bannerText ?? "").trim(),
+      bannerHref: body.bannerHref ? String(body.bannerHref).trim() : null,
+    };
 
-  const activeNow = computeActiveNow({
-    scheduleEnabled: !!saved.scheduleEnabled,
-    scheduleStart: saved.scheduleStart ?? null,
-    scheduleEnd: saved.scheduleEnd ?? null,
-  });
+    const saved = await prisma.themeSettings.upsert({
+      where: { id: ID },
+      create: { id: ID, ...data },
+      update: data,
+    });
 
-  return NextResponse.json(
-    {
-      settings: saved,
-      activeNow,
-    },
-    { status: 200 }
-  );
+    const activeNow = computeActiveNow({
+      scheduleEnabled: !!saved.scheduleEnabled,
+      scheduleStart: saved.scheduleStart ?? null,
+      scheduleEnd: saved.scheduleEnd ?? null,
+    });
+
+    return NextResponse.json(
+      {
+        settings: saved,
+        activeNow,
+      },
+      { status: 200 },
+    );
+  } catch (e: any) {
+    if (e?.name === "ZodError") {
+      return NextResponse.json({ error: "validation", issues: e.issues }, { status: 400 });
+    }
+
+    return NextResponse.json({ error: "failed_to_save" }, { status: 500 });
+  }
 }
