@@ -5,12 +5,14 @@ export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   const ip = getClientIp(req);
-  const rl = checkRateLimit(`ask:${ip}`, 12, 60_000);
-  if (!rl.ok) {
-    return new Response("Too many requests", {
-      status: 429,
-      headers: { "Retry-After": String(rl.retryAfterSec) },
-    });
+  if (ip) {
+    const rl = checkRateLimit(`ask:${ip}`, 12, 60_000);
+    if (!rl.ok) {
+      return new Response("Too many requests", {
+        status: 429,
+        headers: { "Retry-After": String(rl.retryAfterSec) },
+      });
+    }
   }
 
   const { query } = await req.json();

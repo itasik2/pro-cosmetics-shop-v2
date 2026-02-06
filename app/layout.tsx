@@ -7,6 +7,8 @@ import Providers from "./providers";
 import { prisma } from "@/lib/prisma";
 import { SITE_DESCRIPTION, SITE_KEY, SITE_TITLE } from "@/lib/siteConfig";
 
+const LEGACY_SETTINGS_ID = "default";
+
 export const metadata: Metadata = {
   title: SITE_TITLE,
   description: SITE_DESCRIPTION,
@@ -36,9 +38,13 @@ export default async function RootLayout({
   // читаем настройки; если модели еще нет/миграция не применена — сайт не падает
   let settings: any = null;
   try {
-    settings = await prisma.themeSettings.findUnique({
-      where: { id: SITE_KEY },
-    });
+    settings =
+      (await prisma.themeSettings.findUnique({
+        where: { id: SITE_KEY },
+      })) ||
+      (SITE_KEY === LEGACY_SETTINGS_ID
+        ? null
+        : await prisma.themeSettings.findUnique({ where: { id: LEGACY_SETTINGS_ID } }));
   } catch {
     settings = null;
   }

@@ -32,12 +32,14 @@ function asArrayVariants(v: unknown): any[] {
 
 export async function POST(req: Request) {
   const ip = getClientIp(req);
-  const rl = checkRateLimit(`checkout:${ip}`, 8, 60_000);
-  if (!rl.ok) {
-    return NextResponse.json(
-      { error: "too_many_requests", message: "Слишком много запросов. Попробуйте позже." },
-      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
-    );
+  if (ip) {
+    const rl = checkRateLimit(`checkout:${ip}`, 8, 60_000);
+    if (!rl.ok) {
+      return NextResponse.json(
+        { error: "too_many_requests", message: "Слишком много запросов. Попробуйте позже." },
+        { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
+      );
+    }
   }
 
   try {
