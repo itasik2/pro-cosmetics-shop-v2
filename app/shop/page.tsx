@@ -5,13 +5,14 @@ import { prisma } from "@/lib/prisma";
 import ShopGridClient from "@/components/ShopGridClient";
 import FavoritesButton from "@/components/FavoritesButton";
 import InStockButton from "@/components/InStockButton";
+import { SITE_BRAND } from "@/lib/siteConfig";
 
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Каталог – pro.cosmetics",
+  title: `Каталог – ${SITE_BRAND}`,
   description:
-    "Каталог профессиональной косметики pro.cosmetics: очищающие гели, пенки, сыворотки, кремы и другие средства для ухода за кожей.",
+    `Каталог ${SITE_BRAND}: очищающие гели, пенки, сыворотки, кремы и другие средства для ухода за кожей.`,
 };
 
 type Props = {

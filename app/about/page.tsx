@@ -1,8 +1,9 @@
 // app/about/page.tsx
+import { SITE_BRAND } from "@/lib/siteConfig";
 export const metadata = {
-  title: "О нас – pro.cosmetics",
+  title: `О нас – ${SITE_BRAND}`,
   description:
-    "Магазин профессиональной косметики pro.cosmetics. Мы подбираем рабочие средства с понятными составами и честными описаниями.",
+    `Магазин профессиональной косметики ${SITE_BRAND}. Мы подбираем рабочие средства с понятными составами и честными описаниями.`,
 };
 
 export default function AboutPage() {
@@ -10,7 +11,7 @@ export default function AboutPage() {
     <div className="space-y-4 py-6">
       <h1 className="text-3xl font-bold">О нас</h1>
       <p className="text-gray-700">
-        pro.cosmetics — это небольшой магазин профессиональной косметики для
+        {SITE_BRAND} — это небольшой магазин профессиональной косметики для
         домашнего ухода. Мы выбираем только те средства, которые готовы
         использовать сами: без лишней «магии маркетинга», с понятными
         составами и честными описаниями.

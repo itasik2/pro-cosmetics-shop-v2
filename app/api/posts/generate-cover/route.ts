@@ -2,9 +2,9 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { openai } from "@/lib/openai";
 import { v2 as cloudinary } from "cloudinary";
+import { requireAdmin } from "@/lib/adminGuard";
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME!,
@@ -27,12 +27,8 @@ function pickStyle(category: string) {
 
 export async function POST(req: Request) {
   try {
-    // только админ
-    const session = await auth();
-    const adminEmail = (process.env.AUTH_ADMIN_EMAIL || "").toLowerCase();
-    if (!session?.user?.email || session.user.email.toLowerCase() !== adminEmail) {
-      return NextResponse.json({ error: "forbidden" }, { status: 403 });
-    }
+    const forbidden = await requireAdmin();
+    if (forbidden) return forbidden;
 
     // cloudinary env
     if (

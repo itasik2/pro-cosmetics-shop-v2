@@ -5,10 +5,11 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import Providers from "./providers";
 import { prisma } from "@/lib/prisma";
+import { SITE_DESCRIPTION, SITE_KEY, SITE_TITLE } from "@/lib/siteConfig";
 
 export const metadata: Metadata = {
-  title: process.env.SITE_TITLE ?? "Shop",
-  description: process.env.SITE_DESCRIPTION ?? "",
+  title: SITE_TITLE,
+  description: SITE_DESCRIPTION,
 };
 
 function activeNow(s: {
@@ -36,7 +37,7 @@ export default async function RootLayout({
   let settings: any = null;
   try {
     settings = await prisma.themeSettings.findUnique({
-      where: { id: "default" },
+      where: { id: SITE_KEY },
     });
   } catch {
     settings = null;

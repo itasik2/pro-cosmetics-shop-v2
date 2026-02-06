@@ -7,6 +7,7 @@ import { z } from "zod";
 import { buildOrderFromCart, makeOrderNumber } from "@/lib/order";
 import { prisma } from "@/lib/prisma";
 import { notifyAdminNewOrder } from "@/lib/notify";
+import { checkRateLimit, getClientIp } from "@/lib/rateLimit";
 
 const CheckoutSchema = z.object({
   customerName: z.string().min(2).max(80),
@@ -30,6 +31,15 @@ function asArrayVariants(v: unknown): any[] {
 }
 
 export async function POST(req: Request) {
+  const ip = getClientIp(req);
+  const rl = checkRateLimit(`checkout:${ip}`, 8, 60_000);
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "too_many_requests", message: "Слишком много запросов. Попробуйте позже." },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
+    );
+  }
+
   try {
     const json = await req.json().catch(() => ({}));
     const data = CheckoutSchema.parse(json);

@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { auth } from "@/lib/auth";
+import { z } from "zod";
+import { requireAdmin, isAdminRequest } from "@/lib/adminGuard";
 
 export const runtime = "nodejs";
 
-async function requireAdmin() {
-  const session = await auth();
-  const adminEmail = (process.env.AUTH_ADMIN_EMAIL || "").toLowerCase();
-  const email = (session?.user?.email || "").toLowerCase();
-  if (!email || email !== adminEmail) return null;
-  return session;
-}
+const ReviewCreateSchema = z.object({
+  name: z.string().min(1),
+  text: z.string().min(1),
+  rating: z.coerce.number().int().min(1).max(5).optional().default(5),
+  isPublic: z.boolean().optional().default(true),
+});
 
 // Публично можно читать только опубликованные отзывы (для главной)
 export async function GET(req: Request) {
@@ -18,8 +18,7 @@ export async function GET(req: Request) {
   const all = url.searchParams.get("all") === "1";
 
   if (all) {
-    const session = await requireAdmin();
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!(await isAdminRequest())) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
     const items = await prisma.review.findMany({
       orderBy: { createdAt: "desc" },
@@ -35,23 +34,26 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const session = await requireAdmin();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const forbidden = await requireAdmin();
+  if (forbidden) return forbidden;
 
-  const body = await req.json().catch(() => ({} as any));
+  try {
+    const body = ReviewCreateSchema.parse(await req.json().catch(() => ({})));
 
-  const name = String(body?.name || "").trim();
-  const text = String(body?.text || "").trim();
-  const rating = Math.min(5, Math.max(1, Math.trunc(Number(body?.rating) || 5)));
-  const isPublic = body?.isPublic !== false;
+    const created = await prisma.review.create({
+      data: {
+        name: body.name.trim(),
+        text: body.text.trim(),
+        rating: body.rating,
+        isPublic: body.isPublic,
+      },
+    });
 
-  if (!name || !text) {
-    return NextResponse.json({ error: "name and text are required" }, { status: 400 });
+    return NextResponse.json(created);
+  } catch (e: any) {
+    if (e?.name === "ZodError") {
+      return NextResponse.json({ error: "validation", issues: e.issues }, { status: 400 });
+    }
+    return NextResponse.json({ error: "failed_to_create" }, { status: 500 });
   }
-
-  const created = await prisma.review.create({
-    data: { name, text, rating, isPublic },
-  });
-
-  return NextResponse.json(created);
 }

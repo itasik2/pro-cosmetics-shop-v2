@@ -1,3 +1,4 @@
+import { SITE_BRAND, getScopedEnv } from "@/lib/siteConfig";
 // lib/notify.ts
 type NotifyArgs = {
   orderNumber: string;
@@ -9,8 +10,8 @@ type NotifyArgs = {
 };
 
 export async function notifyAdminNewOrder(args: NotifyArgs) {
-  const adminEmail = (process.env.ADMIN_EMAIL || "").trim();
-  const resendKey = (process.env.RESEND_API_KEY || "").trim();
+  const adminEmail = getScopedEnv("ADMIN_EMAIL").trim();
+  const resendKey = getScopedEnv("RESEND_API_KEY").trim();
 
   if (!adminEmail) return; // тихо пропускаем
 
@@ -38,7 +39,7 @@ export async function notifyAdminNewOrder(args: NotifyArgs) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      from: "pro.cosmetics <onboarding@resend.dev>",
+      from: `${SITE_BRAND} <onboarding@resend.dev>`,
       to: [adminEmail],
       subject,
       text: lines.join("\n"),

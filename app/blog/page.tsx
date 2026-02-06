@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { SITE_BRAND } from "@/lib/siteConfig";
 
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Блог и новости – pro.cosmetics",
+  title: `Блог и новости – ${SITE_BRAND}`,
   description:
-    "Статьи по уходу за кожей, разборы составов и новости магазина pro.cosmetics. Подборка материалов для осознанного ухода.",
+    `Статьи по уходу за кожей, разборы составов и новости магазина ${SITE_BRAND}.`,
 };
 
 export default async function BlogIndex() {

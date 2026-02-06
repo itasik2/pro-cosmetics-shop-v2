@@ -1,9 +1,10 @@
 // app/sitemap.ts
 import type { MetadataRoute } from "next";
 import { prisma } from "@/lib/prisma";
+import { getPublicBaseUrl } from "@/lib/siteConfig";
 
 function getBaseUrl() {
-  return (process.env.NEXT_PUBLIC_URL || "https://pro-cosmetics.example").replace(/\/$/, "");
+  return getPublicBaseUrl();
 }
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {

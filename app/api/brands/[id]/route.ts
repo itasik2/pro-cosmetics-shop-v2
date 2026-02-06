@@ -1,17 +1,10 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { auth } from "@/lib/auth";
 import { z } from "zod";
+import { requireAdmin } from "@/lib/adminGuard";
 
 export const runtime = "nodejs";
 export const revalidate = 0;
-
-async function isAdmin() {
-  const session = await auth();
-  const adminEmail = (process.env.AUTH_ADMIN_EMAIL || "").toLowerCase();
-  const email = (session?.user?.email || "").toLowerCase();
-  return !!email && email === adminEmail;
-}
 
 const BrandUpdateSchema = z
   .object({
@@ -25,9 +18,8 @@ const BrandUpdateSchema = z
 type Params = { params: { id: string } };
 
 export async function PUT(req: Request, { params }: Params) {
-  if (!(await isAdmin())) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  }
+  const forbidden = await requireAdmin();
+  if (forbidden) return forbidden;
 
   try {
     const parsed = BrandUpdateSchema.parse(await req.json());
@@ -56,9 +48,8 @@ export async function PUT(req: Request, { params }: Params) {
 }
 
 export async function DELETE(_req: Request, { params }: Params) {
-  if (!(await isAdmin())) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  }
+  const forbidden = await requireAdmin();
+  if (forbidden) return forbidden;
 
   // Безопасно: отвязываем товары от бренда, затем удаляем бренд
   await prisma.product.updateMany({

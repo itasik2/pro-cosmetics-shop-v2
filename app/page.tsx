@@ -2,13 +2,14 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import ProductCard from "@/components/ProductCard";
+import { SITE_BRAND } from "@/lib/siteConfig";
 
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "pro.cosmetics – профессиональная косметика для домашнего ухода",
+  title: `${SITE_BRAND} – профессиональная косметика для домашнего ухода`,
   description:
-    "Магазин профессиональной косметики pro.cosmetics: очищение, сыворотки, кремы для лица и тела. Честные составы и понятные описания, доставка по Казахстану.",
+    `Магазин ${SITE_BRAND}: очищение, сыворотки, кремы для лица и тела. Честные составы и понятные описания, доставка по Казахстану.`,
 };
 
 export default async function Home() {
