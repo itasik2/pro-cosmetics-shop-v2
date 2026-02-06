@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import ProductCard from "@/components/ProductCard";
-import { SITE_BRAND } from "@/lib/siteConfig";
+import { SITE_BRAND, SITE_HERO_SUBTITLE, SITE_HERO_TITLE } from "@/lib/siteConfig";
 
 export const dynamic = "force-dynamic";
 
@@ -37,11 +37,10 @@ export default async function Home() {
       {/* HERO */}
       <section className="rounded-3xl bg-white/70 backdrop-blur border p-10">
         <h1 className="text-3xl md:text-5xl font-bold tracking-tight">
-          Профессиональная косметика с любовью для Вас!
+          {SITE_HERO_TITLE}
         </h1>
         <p className="mt-3 text-gray-600 max-w-2xl">
-          Только проверенные позиции. Нормальные составы, честные описания и цены
-          без магии маркетинга.
+          {SITE_HERO_SUBTITLE}
         </p>
         <div className="mt-6">
           <Link href="/shop" className="btn">

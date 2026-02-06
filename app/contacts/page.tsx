@@ -3,7 +3,7 @@ import { SITE_BRAND } from "@/lib/siteConfig";
 export const metadata = {
   title: `Контакты – ${SITE_BRAND}`,
   description:
-    `Связаться с магазином ${SITE_BRAND}: телефон, email и социальные сети.`,
+    `Связаться с ${SITE_BRAND}: телефон, email и социальные сети.`,
 };
 
 export default function ContactsPage() {

@@ -46,6 +46,17 @@
 - **Опционально для shared runtime:** можно использовать scoped-переменные вида `AUTH_ADMIN_EMAIL_<SITE_KEY_UPPER>`, `AUTH_ADMIN_PASSWORD_<SITE_KEY_UPPER>`, `ADMIN_EMAIL_<SITE_KEY_UPPER>`, `RESEND_API_KEY_<SITE_KEY_UPPER>`.
 - API настроек сайта (`/api/site-settings`) и тема читаются/сохраняются отдельно по `SITE_KEY`, поэтому контент и оформление не смешиваются между сайтами при общей кодовой базе.
 
+### Быстрое обновление `fito-apteka-shop-v2` по этому шаблону
+1. Создайте отдельный Vercel-проект и отдельную БД для `fito-apteka-shop-v2`.
+2. Установите ENV минимум:
+   - `SITE_KEY=fitoapteka`
+   - `NEXT_PUBLIC_SITE_BRAND=fitoapteka.kz`
+   - `NEXT_PUBLIC_URL=https://fitoapteka.kz`
+   - `DATABASE_URL` (своя, отдельная)
+   - `AUTH_ADMIN_EMAIL` / `AUTH_ADMIN_PASSWORD` (свои)
+3. Выполните миграции Prisma в окружении fito-проекта.
+4. Проверьте `/api/site-settings` и админку `/admin` — настройки и доступ должны быть изолированы от procosmetics.
+
 ## Что внутри
 - Next.js 14 App Router
 - Tailwind CSS
