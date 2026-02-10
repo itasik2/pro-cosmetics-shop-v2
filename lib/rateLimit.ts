@@ -42,8 +42,16 @@ export function checkRateLimit(
   };
 }
 
-export function getClientIp(req: Request) {
+export function getClientIp(req: Request): string | null {
   const xff = req.headers.get("x-forwarded-for") || "";
-  const candidate = xff.split(",")[0]?.trim();
-  return candidate || "unknown";
+  const xffCandidate = xff.split(",")[0]?.trim();
+  if (xffCandidate) return xffCandidate;
+
+  const realIp = (req.headers.get("x-real-ip") || "").trim();
+  if (realIp) return realIp;
+
+  const cfIp = (req.headers.get("cf-connecting-ip") || "").trim();
+  if (cfIp) return cfIp;
+
+  return null;
 }

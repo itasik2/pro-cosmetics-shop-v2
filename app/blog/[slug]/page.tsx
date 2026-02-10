@@ -1,5 +1,6 @@
 // app/blog/[slug]/page.tsx
 import { prisma } from "@/lib/prisma";
+import { SITE_BRAND } from "@/lib/siteConfig";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 
@@ -136,7 +137,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   if (!post) {
     return {
-      title: "Материал не найден – pro.cosmetics",
+      title: `Материал не найден – ${SITE_BRAND}`,
       description: "Статья не найдена или была удалена.",
       alternates: { canonical: "/blog" },
     };
@@ -144,16 +145,16 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   const shortBase = post.content.replace(/\s+/g, " ").trim();
   const short =
-    (shortBase.length > 0 ? shortBase.slice(0, 150) : "Материал блога pro.cosmetics") +
+    (shortBase.length > 0 ? shortBase.slice(0, 150) : `Материал блога ${SITE_BRAND}`) +
     (shortBase.length > 150 ? "..." : "");
 
   return {
-    title: `${post.title} – блог pro.cosmetics`,
+    title: `${post.title} – блог ${SITE_BRAND}`,
     description: short,
     alternates: { canonical: `/blog/${slug}` },
     openGraph: {
       type: "article",
-      title: `${post.title} – блог pro.cosmetics`,
+      title: `${post.title} – блог ${SITE_BRAND}`,
       description: short,
       url: `/blog/${slug}`,
       images: post.image ? [{ url: post.image }] : [],

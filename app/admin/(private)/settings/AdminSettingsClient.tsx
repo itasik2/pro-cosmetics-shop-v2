@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 const UPLOAD_ENDPOINT = "/api/upload"; // <-- замени на свой, если другой
 
 type Settings = {
-  id: "default";
+  id: string;
   scheduleEnabled: boolean;
   scheduleStart: string | null;
   scheduleEnd: string | null;

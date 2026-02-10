@@ -1,8 +1,9 @@
 // app/contacts/page.tsx
+import { SITE_BRAND } from "@/lib/siteConfig";
 export const metadata = {
-  title: "Контакты – pro.cosmetics",
+  title: `Контакты – ${SITE_BRAND}`,
   description:
-    "Связаться с магазином профессиональной косметики pro.cosmetics: телефон, email и социальные сети.",
+    `Связаться с ${SITE_BRAND}: телефон, email и социальные сети.`,
 };
 
 export default function ContactsPage() {

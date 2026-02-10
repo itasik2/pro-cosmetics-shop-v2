@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import type { Metadata } from "next";
 import ProductDetailsClient from "./ProductDetailsClient";
+import { SITE_BRAND } from "@/lib/siteConfig";
 
 
 type Props = { params: { id: string } };
@@ -13,12 +14,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   if (!product) {
     return {
-      title: "Товар не найден – pro.cosmetics",
+      title: `Товар не найден – ${SITE_BRAND}`,
     };
   }
 
   return {
-    title: `${product.name} – pro.cosmetics`,
+    title: `${product.name} – ${SITE_BRAND}`,
     description: `${product.brand?.name ?? ""} ${product.category}. Цена ${product.price} ₸`,
     openGraph: {
       title: product.name,

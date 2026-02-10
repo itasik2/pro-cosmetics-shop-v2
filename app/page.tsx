@@ -2,13 +2,14 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import ProductCard from "@/components/ProductCard";
+import { SITE_BRAND, SITE_HERO_SUBTITLE, SITE_HERO_TITLE } from "@/lib/siteConfig";
 
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "pro.cosmetics – профессиональная косметика для домашнего ухода",
+  title: `${SITE_BRAND} – профессиональная косметика для домашнего ухода`,
   description:
-    "Магазин профессиональной косметики pro.cosmetics: очищение, сыворотки, кремы для лица и тела. Честные составы и понятные описания, доставка по Казахстану.",
+    `Магазин ${SITE_BRAND}: очищение, сыворотки, кремы для лица и тела. Честные составы и понятные описания, доставка по Казахстану.`,
 };
 
 export default async function Home() {
@@ -36,11 +37,10 @@ export default async function Home() {
       {/* HERO */}
       <section className="rounded-3xl bg-white/70 backdrop-blur border p-10">
         <h1 className="text-3xl md:text-5xl font-bold tracking-tight">
-          Профессиональная косметика с любовью для Вас!
+          {SITE_HERO_TITLE}
         </h1>
         <p className="mt-3 text-gray-600 max-w-2xl">
-          Только проверенные позиции. Нормальные составы, честные описания и цены
-          без магии маркетинга.
+          {SITE_HERO_SUBTITLE}
         </p>
         <div className="mt-6">
           <Link href="/shop" className="btn">

@@ -5,10 +5,13 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import Providers from "./providers";
 import { prisma } from "@/lib/prisma";
+import { SITE_DESCRIPTION, SITE_KEY, SITE_TITLE } from "@/lib/siteConfig";
+
+const LEGACY_SETTINGS_ID = "default";
 
 export const metadata: Metadata = {
-  title: process.env.SITE_TITLE ?? "Shop",
-  description: process.env.SITE_DESCRIPTION ?? "",
+  title: SITE_TITLE,
+  description: SITE_DESCRIPTION,
 };
 
 function activeNow(s: {
@@ -35,9 +38,13 @@ export default async function RootLayout({
   // читаем настройки; если модели еще нет/миграция не применена — сайт не падает
   let settings: any = null;
   try {
-    settings = await prisma.themeSettings.findUnique({
-      where: { id: "default" },
-    });
+    settings =
+      (await prisma.themeSettings.findUnique({
+        where: { id: SITE_KEY },
+      })) ||
+      (SITE_KEY === LEGACY_SETTINGS_ID
+        ? null
+        : await prisma.themeSettings.findUnique({ where: { id: LEGACY_SETTINGS_ID } }));
   } catch {
     settings = null;
   }

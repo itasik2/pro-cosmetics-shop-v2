@@ -2,6 +2,7 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { z } from "zod";
+import { getScopedEnv } from "@/lib/siteConfig";
 
 export const authConfig = {
   trustHost: true,
@@ -21,8 +22,8 @@ export const authConfig = {
         const parsed = schema.safeParse(creds);
         if (!parsed.success) return null;
 
-        const adminEmail = (process.env.AUTH_ADMIN_EMAIL || "").toLowerCase().trim();
-        const adminPass = process.env.AUTH_ADMIN_PASSWORD || "";
+        const adminEmail = getScopedEnv("AUTH_ADMIN_EMAIL").toLowerCase().trim();
+        const adminPass = getScopedEnv("AUTH_ADMIN_PASSWORD");
 
         if (!adminEmail || !adminPass) return null;
 

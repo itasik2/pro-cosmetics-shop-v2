@@ -5,8 +5,6 @@ export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   const ip = getClientIp(req);
-
-  // Rate limit ТОЛЬКО если IP определён
   if (ip) {
     const rl = checkRateLimit(`ask:${ip}`, 12, 60_000);
     if (!rl.ok) {

@@ -5,9 +5,11 @@ export const revalidate = 0;
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/adminGuard";
+import { SITE_KEY } from "@/lib/siteConfig";
 import { z } from "zod";
 
-const ID = "default";
+const ID = SITE_KEY;
+const LEGACY_ID = "default";
 
 function computeActiveNow(s: {
   scheduleEnabled: boolean;
@@ -36,7 +38,9 @@ const SiteSettingsSchema = z.object({
 });
 
 export async function GET() {
-  const settings = await prisma.themeSettings.findUnique({ where: { id: ID } });
+  const settings =
+    (await prisma.themeSettings.findUnique({ where: { id: ID } })) ||
+    (ID === LEGACY_ID ? null : await prisma.themeSettings.findUnique({ where: { id: LEGACY_ID } }));
 
   const activeNow = settings
     ? computeActiveNow({
@@ -74,9 +78,17 @@ export async function PUT(req: Request) {
       bannerHref: body.bannerHref ? String(body.bannerHref).trim() : null,
     };
 
+    const primary = await prisma.themeSettings.findUnique({ where: { id: ID }, select: { id: true } });
+    const legacy =
+      ID === LEGACY_ID
+        ? null
+        : await prisma.themeSettings.findUnique({ where: { id: LEGACY_ID }, select: { id: true } });
+
+    const targetId = primary?.id || legacy?.id || ID;
+
     const saved = await prisma.themeSettings.upsert({
-      where: { id: ID },
-      create: { id: ID, ...data },
+      where: { id: targetId },
+      create: { id: targetId, ...data },
       update: data,
     });
 

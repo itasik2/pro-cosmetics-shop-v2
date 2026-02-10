@@ -1,5 +1,6 @@
 // components/Footer.tsx
 import Link from "next/link";
+import { SITE_BRAND } from "@/lib/siteConfig";
 
 function SocialIcon({
   href,
@@ -60,7 +61,7 @@ export default function Footer() {
         {/* МОБИЛЬНАЯ ВЕРСИЯ */}
         <div className="flex flex-col gap-3 md:hidden">
           <div>
-            <div className="font-semibold text-base">pro.cosmetics</div>
+            <div className="font-semibold text-base">{SITE_BRAND}</div>
             <p>
               Магазин профессиональной косметики для домашнего ухода:
               понятные составы и честные описания.
@@ -154,7 +155,7 @@ export default function Footer() {
         {/* ДЕСКТОП/ПЛАНШЕТ */}
         <div className="hidden md:flex md:flex-row md:items-start md:justify-between md:gap-10">
           <div className="md:w-1/2 space-y-2 max-w-md">
-            <div className="font-semibold text-base">pro.cosmetics</div>
+            <div className="font-semibold text-base">{SITE_BRAND}</div>
             <p>
               Магазин профессиональной косметики для домашнего ухода. Подбираем
               рабочие средства без лишнего шума: понятные составы, честные
@@ -270,7 +271,7 @@ export default function Footer() {
 
       <div className="border-t">
         <div className="container mx-auto py-3 flex flex-col md:flex-row items-center justify-between gap-2 text-[11px] text-gray-500">
-          <div>© {new Date().getFullYear()} pro.cosmetics. Все права защищены.</div>
+          <div>© {new Date().getFullYear()} {SITE_BRAND}. Все права защищены.</div>
           <div>
             Не является публичной офертой. Перед применением средств
             консультируйтесь со специалистом.

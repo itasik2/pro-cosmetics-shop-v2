@@ -1,8 +1,9 @@
 // app/robots.txt/route.ts
 import { NextResponse } from "next/server";
+import { getPublicBaseUrl } from "@/lib/siteConfig";
 
 function getBaseUrl() {
-  return (process.env.NEXT_PUBLIC_URL || "https://pro-cosmetics.example").replace(/\/$/, "");
+  return getPublicBaseUrl();
 }
 
 export function GET() {
