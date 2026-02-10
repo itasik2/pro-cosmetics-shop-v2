@@ -47,7 +47,8 @@ export async function POST(req: Request) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     return Response.json({
-      answer: "ИИ не настроен (нет OPENAI_API_KEY). Добавьте ключ и повторите вопрос.",
+      answer:
+        "ИИ не настроен (нет OPENAI_API_KEY). Добавьте ключ и повторите вопрос.",
       usedContext: context.slice(0, 1500),
     });
   }
@@ -76,7 +77,9 @@ export async function POST(req: Request) {
   });
 
   const data = await res.json().catch(() => ({} as any));
-  const answer = data?.choices?.[0]?.message?.content ?? "Не удалось получить ответ.";
+  const answer =
+    data?.choices?.[0]?.message?.content ??
+    "Не удалось получить ответ.";
 
   return Response.json({ answer });
 }
