@@ -7,7 +7,7 @@ import { SITE_BRAND, SITE_HERO_SUBTITLE, SITE_HERO_TITLE } from "@/lib/siteConfi
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: `${SITE_BRAND} – профессиональная косметика для домашнего ухода`,
+  title: "профессиональная косметика для домашнего ухода",${SITE_BRAND},
   description:
     `Магазин ${SITE_BRAND}: очищение, сыворотки, кремы для лица и тела. Честные составы и понятные описания, доставка по Казахстану.`,
 };
