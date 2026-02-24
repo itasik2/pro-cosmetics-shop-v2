@@ -1,5 +1,6 @@
 // components/Footer.tsx
 import Link from "next/link";
+import Image from "next/image";
 import { SITE_BRAND } from "@/lib/siteConfig";
 
 function SocialIcon({
@@ -61,7 +62,15 @@ export default function Footer() {
         {/* МОБИЛЬНАЯ ВЕРСИЯ */}
         <div className="flex flex-col gap-3 md:hidden">
           <div>
-            <div className="font-semibold text-base">{SITE_BRAND}</div>
+            <Link href="/" className="inline-flex" aria-label="На главную">
+              <Image
+                src="/brand/footer-logo.svg"
+                alt={SITE_BRAND}
+                width={160}
+                height={40}
+                className="h-10 w-auto"
+              />
+            </Link>
             <p>
               Магазин профессиональной косметики для домашнего ухода:
               понятные составы и честные описания.
@@ -155,7 +164,15 @@ export default function Footer() {
         {/* ДЕСКТОП/ПЛАНШЕТ */}
         <div className="hidden md:flex md:flex-row md:items-start md:justify-between md:gap-10">
           <div className="md:w-1/2 space-y-2 max-w-md">
-            <div className="font-semibold text-base">{SITE_BRAND}</div>
+            <Link href="/" className="inline-flex" aria-label="На главную">
+              <Image
+                src="/brand/footer-logo.svg"
+                alt={SITE_BRAND}
+                width={180}
+                height={44}
+                className="h-11 w-auto"
+              />
+            </Link>
             <p>
               Магазин профессиональной косметики для домашнего ухода. Подбираем
               рабочие средства без лишнего шума: понятные составы, честные
