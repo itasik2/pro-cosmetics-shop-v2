@@ -1,4 +1,3 @@
-
 // app/shop/page.tsx
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
@@ -9,12 +8,6 @@ import { SITE_BRAND } from "@/lib/siteConfig";
 
 export const dynamic = "force-dynamic";
 
-export const metadata = {
-  title: `Каталог – ${SITE_BRAND}`,
-  description:
-    `Каталог ${SITE_BRAND}: очищающие гели, пенки, сыворотки, кремы и другие средства для ухода за кожей.`,
-};
-
 type Props = {
   searchParams?: {
     brand?: string;
@@ -24,7 +17,51 @@ type Props = {
   };
 };
 
-// Тип варианта для клиента
+/* ===========================
+   SEO: ДИНАМИЧЕСКИЕ МЕТАДАННЫЕ
+=========================== */
+export async function generateMetadata({ searchParams }: Props) {
+  const brandSlug = (searchParams?.brand || "").trim();
+  const sort = (searchParams?.sort || "").trim();
+
+  const brands = await prisma.brand.findMany({
+    where: { isActive: true },
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    select: { name: true, slug: true },
+  });
+
+  const selectedBrand = brandSlug
+    ? brands.find((b) => b.slug === brandSlug) || null
+    : null;
+
+  const brandNames = brands.map((b) => b.name).slice(0, 6).join(", ");
+
+  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://yourdomain.kz";
+
+  // Если выбран бренд
+  if (selectedBrand) {
+    return {
+      title: `${selectedBrand.name} – купить в Казахстане | ${SITE_BRAND}`,
+      description: `Каталог ${selectedBrand.name} в интернет-магазине ${SITE_BRAND}. Профессиональная косметика с доставкой по Казахстану.`,
+      alternates: {
+        canonical: `${baseUrl}/shop?brand=${selectedBrand.slug}`,
+      },
+    };
+  }
+
+  return {
+    title: `Профессиональная косметика – каталог брендов | ${SITE_BRAND}`,
+    description: `Каталог профессиональной косметики: ${brandNames}. Доставка по Казахстану. Оригинальная продукция и честные составы.`,
+    alternates: {
+      canonical: `${baseUrl}/shop`,
+    },
+  };
+}
+
+/* ===========================
+   ТИП VARIANT
+=========================== */
+
 type Variant = {
   id: string;
   label: string;
@@ -33,11 +70,11 @@ type Variant = {
   sku?: string;
 };
 
-// Нормализатор Prisma JsonValue -> Variant[] | null
 function toVariants(v: unknown): Variant[] | null {
   if (!Array.isArray(v)) return null;
 
   const out: Variant[] = [];
+
   for (const item of v) {
     if (!item || typeof item !== "object") continue;
 
@@ -46,8 +83,11 @@ function toVariants(v: unknown): Variant[] | null {
     const id = typeof obj.id === "string" ? obj.id : null;
     const label = typeof obj.label === "string" ? obj.label : null;
 
-    const price = typeof obj.price === "number" ? obj.price : Number(obj.price);
-    const stock = typeof obj.stock === "number" ? obj.stock : Number(obj.stock);
+    const price =
+      typeof obj.price === "number" ? obj.price : Number(obj.price);
+
+    const stock =
+      typeof obj.stock === "number" ? obj.stock : Number(obj.stock);
 
     if (!id || !label) continue;
     if (!Number.isFinite(price) || !Number.isFinite(stock)) continue;
@@ -64,12 +104,13 @@ function toVariants(v: unknown): Variant[] | null {
   return out.length ? out : null;
 }
 
+/* ===========================
+   СТРАНИЦА КАТАЛОГА
+=========================== */
+
 export default async function ShopPage({ searchParams }: Props) {
   const brandSlug = (searchParams?.brand || "").trim();
-
-  // по умолчанию сортировки нет (""), чтобы "Новинки" могла выключаться
   const sort = (searchParams?.sort || "").trim();
-
   const fav = (searchParams?.fav || "").trim();
   const instock = (searchParams?.instock || "").trim();
 
@@ -79,29 +120,29 @@ export default async function ShopPage({ searchParams }: Props) {
     select: { id: true, name: true, slug: true },
   });
 
-  const selectedBrand = brandSlug ? brands.find((b) => b.slug === brandSlug) || null : null;
+  const selectedBrand = brandSlug
+    ? brands.find((b) => b.slug === brandSlug) || null
+    : null;
 
-  // WHERE: бренд + (новинки по флагу) + (в наличии если instock=1)
   const whereBase: any = {};
 
   if (selectedBrand) {
     whereBase.brandId = selectedBrand.id;
   }
-  
+
   if (sort === "new") {
     const DAYS = 14;
     const from = new Date(Date.now() - DAYS * 24 * 60 * 60 * 1000);
-  
+
     whereBase.OR = [
       { isNew: true },
       { createdAt: { gte: from } },
     ];
   }
-  
+
   if (instock === "1") {
     whereBase.stock = { gt: 0 };
   }
-
 
   const orderBy =
     sort === "price_asc"
@@ -120,7 +161,7 @@ export default async function ShopPage({ searchParams }: Props) {
       price: true,
       stock: true,
       isPopular: true,
-      isNew: true, // <-- ДОБАВЛЕНО
+      isNew: true,
       createdAt: true,
       category: true,
       brand: { select: { name: true } },
@@ -134,14 +175,15 @@ export default async function ShopPage({ searchParams }: Props) {
   }));
 
   return (
-
     <div className="space-y-6 py-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
           <h2 className="text-2xl font-bold">Каталог</h2>
           <div className="text-sm text-gray-500 mt-1">
-            {selectedBrand ? `Бренд: ${selectedBrand.name}` : "Все бренды"} •{" "}
-            {productsForClient.length} поз.
+            {selectedBrand
+              ? `Бренд: ${selectedBrand.name}`
+              : "Все бренды"}{" "}
+            • {productsForClient.length} поз.
           </div>
         </div>
 
@@ -182,7 +224,10 @@ export default async function ShopPage({ searchParams }: Props) {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <BrandLink isActive={!brandSlug} href={buildHref("", sort, fav, instock)}>
+        <BrandLink
+          isActive={!brandSlug}
+          href={buildHref("", sort, fav, instock)}
+        >
           Все
         </BrandLink>
 
@@ -202,12 +247,22 @@ export default async function ShopPage({ searchParams }: Props) {
   );
 }
 
-function buildHref(brandSlug: string, sort: string, fav: string, instock: string) {
+/* ===========================
+   ВСПОМОГАТЕЛЬНЫЕ КОМПОНЕНТЫ
+=========================== */
+
+function buildHref(
+  brandSlug: string,
+  sort: string,
+  fav: string,
+  instock: string
+) {
   const params = new URLSearchParams();
   if (brandSlug) params.set("brand", brandSlug);
   if (sort) params.set("sort", sort);
   if (fav === "1") params.set("fav", "1");
   if (instock === "1") params.set("instock", "1");
+
   const qs = params.toString();
   return qs ? `/shop?${qs}` : "/shop";
 }
@@ -252,11 +307,14 @@ function SortLink({
   children: React.ReactNode;
 }) {
   const isActive = currentSort === value;
-
-  // TOGGLE только для "new"
   const nextSort = value === "new" ? (isActive ? "" : "new") : value;
 
-  const href = buildHref(currentBrand, nextSort, currentFav, currentInStock);
+  const href = buildHref(
+    currentBrand,
+    nextSort,
+    currentFav,
+    currentInStock
+  );
 
   return (
     <Link
