@@ -2,15 +2,60 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import ProductCard from "@/components/ProductCard";
-import { SITE_BRAND, SITE_HERO_SUBTITLE, SITE_HERO_TITLE } from "@/lib/siteConfig";
+import {
+  SITE_BRAND,
+  SITE_HERO_SUBTITLE,
+  SITE_HERO_TITLE,
+} from "@/lib/siteConfig";
 
 export const dynamic = "force-dynamic";
 
-export const metadata = {
-  title: "профессиональная косметика для домашнего ухода",
-  description:
-    `Магазин ${SITE_BRAND}: очищение, сыворотки, кремы для лица и тела. Честные составы и понятные описания, доставка по Казахстану.`,
-};
+/* ===========================
+   SEO: ДИНАМИЧЕСКИЕ МЕТАДАННЫЕ
+=========================== */
+
+export async function generateMetadata() {
+  const brands = await prisma.brand.findMany({
+    where: { isActive: true },
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    select: { name: true },
+  });
+
+  const brandNames = brands.map((b) => b.name).slice(0, 6).join(", ");
+
+  const baseUrl =
+    process.env.NEXT_PUBLIC_SITE_URL || "https://yourdomain.kz";
+
+  return {
+    title: `Профессиональная косметика купить в Казахстане | ${SITE_BRAND}`,
+    description: `Интернет-магазин ${SITE_BRAND}. Профессиональная косметика: ${brandNames}. Оригинальная продукция, доставка по Казахстану.`,
+    keywords: [
+      "профессиональная косметика",
+      "косметика для лица",
+      "уход за кожей",
+      "купить косметику",
+      "интернет магазин косметики",
+      "косметика Казахстан",
+      SITE_BRAND,
+      ...brands.map((b) => b.name),
+    ],
+    alternates: {
+      canonical: baseUrl,
+    },
+    openGraph: {
+      title: `Профессиональная косметика | ${SITE_BRAND}`,
+      description: `Профессиональный уход за кожей. Доставка по Казахстану.`,
+      url: baseUrl,
+      siteName: SITE_BRAND,
+      locale: "ru_KZ",
+      type: "website",
+    },
+  };
+}
+
+/* ===========================
+   СТРАНИЦА
+=========================== */
 
 export default async function Home() {
   const popular = await prisma.product.findMany({
@@ -34,8 +79,9 @@ export default async function Home() {
 
   return (
     <main className="space-y-10">
+
       {/* HERO */}
-      <section className="rounded-3xl bg-white/70 backdrop-blur border p-10">
+      <section className="rounded-3xl bg-white border p-10">
         <h1 className="text-3xl md:text-5xl font-bold tracking-tight">
           {SITE_HERO_TITLE}
         </h1>
@@ -53,15 +99,17 @@ export default async function Home() {
       <section className="space-y-4">
         <div className="flex items-baseline justify-between">
           <h2 className="text-2xl font-semibold">Популярные товары</h2>
-          <Link href="/shop" className="text-sm text-gray-500 hover:underline">
+          <Link
+            href="/shop"
+            className="text-sm text-gray-500 hover:underline"
+          >
             Смотреть весь каталог
           </Link>
         </div>
 
         {popular.length === 0 ? (
           <div className="text-sm text-gray-500">
-            Пока нет отмеченных популярных товаров. Отметь нужные позиции в
-            админке.
+            Пока нет отмеченных популярных товаров.
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
@@ -76,13 +124,18 @@ export default async function Home() {
       <section className="space-y-4">
         <div className="flex items-baseline justify-between">
           <h2 className="text-2xl font-semibold">Новинки</h2>
-          <Link href="/shop" className="text-sm text-gray-500 hover:underline">
+          <Link
+            href="/shop"
+            className="text-sm text-gray-500 hover:underline"
+          >
             Смотреть весь каталог
           </Link>
         </div>
 
         {newArrivals.length === 0 ? (
-          <div className="text-sm text-gray-500">Пока нет товаров.</div>
+          <div className="text-sm text-gray-500">
+            Пока нет товаров.
+          </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
             {newArrivals.map((p) => (
@@ -92,22 +145,26 @@ export default async function Home() {
         )}
       </section>
 
-      {/* ОТЗЫВЫ КЛИЕНТОВ */}
+      {/* ОТЗЫВЫ */}
       <section className="space-y-4">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-2xl font-semibold">Отзывы клиентов</h2>
-        </div>
+        <h2 className="text-2xl font-semibold">
+          Отзывы клиентов
+        </h2>
 
         {reviews.length === 0 ? (
-          <div className="text-sm text-gray-500">Пока нет отзывов.</div>
+          <div className="text-sm text-gray-500">
+            Пока нет отзывов.
+          </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {reviews.map((r) => (
               <div
                 key={r.id}
-                className="rounded-3xl border p-5 bg-white/80 backdrop-blur"
+                className="rounded-3xl border p-5 bg-white"
               >
-                <div className="text-sm font-medium">{r.name}</div>
+                <div className="text-sm font-medium">
+                  {r.name}
+                </div>
                 <div className="text-xs text-gray-500 mt-1">
                   Оценка: {r.rating}/5
                 </div>
@@ -119,6 +176,7 @@ export default async function Home() {
           </div>
         )}
       </section>
+
     </main>
   );
 }
