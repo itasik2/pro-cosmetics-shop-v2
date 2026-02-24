@@ -1,0 +1,23 @@
+<svg viewBox="0 0 1200 500" xmlns="http://www.w3.org/2000/svg">
+
+  <!-- PRO -->
+  <text x="50%" y="230"
+        text-anchor="middle"
+        font-family="Cinzel, serif"
+        font-size="205"
+        letter-spacing="4"
+        fill="#f2f2f2">
+    PRO
+  </text>
+
+  <!-- COSMETICS -->
+  <text x="50%" y="315"
+        text-anchor="middle"
+        font-family="Cinzel, serif"
+        font-size="70"
+        letter-spacing="15"
+        fill="#cccccc">
+    COSMETICS
+  </text>
+
+</svg>
