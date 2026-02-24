@@ -1,0 +1,21 @@
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+
+  <!-- Светлый фон с серой рамкой -->
+  <rect x="5" y="5"
+        width="502" height="502"
+        rx="60"
+        fill="#ffffff"
+        stroke="#333333"
+        stroke-width="10"/>
+
+  <!-- Текст -->
+  <text x="50%" y="310"
+        text-anchor="middle"
+        font-family="Cinzel, serif"
+        font-size="230"
+        fill="#111111"
+        letter-spacing="6">
+    PRO
+  </text>
+
+</svg>
