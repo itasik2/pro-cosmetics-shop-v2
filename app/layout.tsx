@@ -12,6 +12,9 @@ const LEGACY_SETTINGS_ID = "default";
 export const metadata: Metadata = {
   title: SITE_TITLE,
   description: SITE_DESCRIPTION,
+  icons: {
+    icon: "/brand/favicon.svg",
+  },
 };
 
 function activeNow(s: {
