@@ -2,6 +2,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
@@ -32,8 +33,15 @@ export default function Navbar() {
   return (
     <header className="border-b bg-white/70 backdrop-blur sticky top-0 z-50">
       <div className="container flex items-center justify-between py-3">
-        <Link href="/" className="font-bold tracking-tight text-lg">
-          {process.env.NEXT_PUBLIC_SITE_BRAND ?? "Shop"}
+        <Link href="/" className="inline-flex items-center" aria-label="На главную">
+          <Image
+            src="/brand/header-logo.svg"
+            alt={process.env.NEXT_PUBLIC_SITE_BRAND ?? "Shop"}
+            width={220}
+            height={56}
+            priority
+            className="h-14 w-auto"
+          />
         </Link>
 
 
