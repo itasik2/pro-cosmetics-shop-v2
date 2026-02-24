@@ -24,7 +24,7 @@ export async function generateMetadata() {
   const brandNames = brands.map((b) => b.name).slice(0, 6).join(", ");
 
   const baseUrl =
-    process.env.NEXT_PUBLIC_SITE_URL || "https://yourdomain.kz";
+    process.env.NEXT_PUBLIC_SITE_URL || "https://www.procosmetics.kz/z";
 
   return {
     title: `Профессиональная косметика купить в Казахстане | ${SITE_BRAND}`,
