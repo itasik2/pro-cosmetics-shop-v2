@@ -1,4 +1,3 @@
-// components/Navbar.tsx
 "use client";
 
 import Link from "next/link";
@@ -25,32 +24,29 @@ export default function Navbar() {
       href === "/" ? pathname === "/" : pathname.startsWith(href);
 
     return (
-      "hover:underline " +
+      "hover:underline transition-colors " +
       (isActive ? "font-semibold text-gray-900" : "text-gray-700")
     );
   };
 
   return (
-    <header className="border-b bg-white/70 backdrop-blur sticky top-0 z-50">
-      <div className="container flex items-center justify-between py-3">
+    <header className="sticky top-0 z-50 bg-white border-b">
+      <div className="container flex items-center justify-between py-4">
         <Link href="/" className="inline-flex items-center" aria-label="На главную">
           <Image
             src="/brand/header-logo.svg"
-            alt={process.env.NEXT_PUBLIC_SITE_BRAND ?? "Shop"}
-            width={160}
-            height={40}
+            alt="PRO COSMETICS"
+            width={300}
+            height={70}
             priority
-            className="h-10 w-auto"
+            className="h-14 w-auto"
           />
         </Link>
 
-
         <nav className="hidden md:flex gap-6 text-sm">
-          {/* Новая кнопка */}
           <Link href="/" className={navLinkClass("/")}>
             Главная
           </Link>
-
           <Link href="/shop" className={navLinkClass("/shop")}>
             Каталог
           </Link>
@@ -66,12 +62,9 @@ export default function Navbar() {
           <Link href="/ask" className={navLinkClass("/ask")}>
             Q&amp;A
           </Link>
-
-          {/* вместо "Админ" */}
           <Link href={adminHref} className={navLinkClass(adminHref)}>
             {status === "loading" ? "…" : adminLabel}
           </Link>
-
           <Link href="/checkout" className={navLinkClass("/checkout")}>
             Корзина
           </Link>
@@ -83,13 +76,11 @@ export default function Navbar() {
       </div>
 
       {open && (
-        <div className="md:hidden border-t">
-          <div className="container py-2 flex flex-col gap-2 text-sm">
-            {/* Новая кнопка */}
+        <div className="md:hidden border-t bg-white">
+          <div className="container py-3 flex flex-col gap-3 text-sm">
             <Link href="/" className={navLinkClass("/")}>
               Главная
             </Link>
-
             <Link href="/shop" className={navLinkClass("/shop")}>
               Каталог
             </Link>
@@ -105,11 +96,9 @@ export default function Navbar() {
             <Link href="/ask" className={navLinkClass("/ask")}>
               Q&amp;A
             </Link>
-
             <Link href={adminHref} className={navLinkClass(adminHref)}>
               {status === "loading" ? "…" : adminLabel}
             </Link>
-
             <Link href="/checkout" className={navLinkClass("/checkout")}>
               Корзина
             </Link>
