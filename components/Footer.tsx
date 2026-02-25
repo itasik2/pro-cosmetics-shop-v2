@@ -56,6 +56,12 @@ export default function Footer() {
   const whatsappUrl = "https://wa.me/7700XXXXXXX";
   const tiktokUrl = "https://www.tiktok.com/@your_profile";
 
+  const siteBrand = (process.env.NEXT_PUBLIC_SITE_BRAND || "").toLowerCase();
+  const isProCosmeticsTenant = !siteBrand || siteBrand.includes("procosmetics");
+  const footerLogoSrc =
+    process.env.NEXT_PUBLIC_FOOTER_LOGO_SRC ||
+    (isProCosmeticsTenant ? "/brand/footer-logo.svg" : "");
+
   return (
     <footer className="border-t mt-10 text-sm text-gray-600 bg-white">
       <div className="container mx-auto py-5">
@@ -63,13 +69,17 @@ export default function Footer() {
         <div className="flex flex-col gap-3 md:hidden">
           <div>
             <Link href="/" className="inline-flex" aria-label="На главную">
-              <Image
-                src="/brand/footer-logo.svg"
-                alt={SITE_BRAND}
-                width={200}
-                height={52}
-                className="h-12 w-auto"
-              />
+              {footerLogoSrc ? (
+                <Image
+                  src={footerLogoSrc}
+                  alt={SITE_BRAND}
+                  width={200}
+                  height={52}
+                  className="h-12 w-auto"
+                />
+              ) : (
+                <span className="text-xl font-semibold text-gray-900">{SITE_BRAND}</span>
+              )}
             </Link>
             <p>
               Магазин профессиональной косметики для домашнего ухода:
@@ -165,13 +175,17 @@ export default function Footer() {
         <div className="hidden md:flex md:flex-row md:items-start md:justify-between md:gap-10">
           <div className="md:w-1/2 space-y-2 max-w-md">
             <Link href="/" className="inline-flex" aria-label="На главную">
-              <Image
-                src="/brand/footer-logo.svg"
-                alt={SITE_BRAND}
-                width={240}
-                height={60}
-                className="h-14 w-auto"
-              />
+              {footerLogoSrc ? (
+                <Image
+                  src={footerLogoSrc}
+                  alt={SITE_BRAND}
+                  width={240}
+                  height={60}
+                  className="h-14 w-auto"
+                />
+              ) : (
+                <span className="text-2xl font-semibold text-gray-900">{SITE_BRAND}</span>
+              )}
             </Link>
             <p>
               Магазин профессиональной косметики для домашнего ухода. Подбираем

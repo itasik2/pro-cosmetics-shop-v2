@@ -30,18 +30,30 @@ export default function Navbar() {
     );
   };
 
+  const siteBrand = (process.env.NEXT_PUBLIC_SITE_BRAND || "").toLowerCase();
+  const isProCosmeticsTenant = !siteBrand || siteBrand.includes("procosmetics");
+  const headerLogoSrc =
+    process.env.NEXT_PUBLIC_HEADER_LOGO_SRC ||
+    (isProCosmeticsTenant ? "/brand/header-logo.svg" : "");
+
   return (
     <header className="border-b bg-white/70 backdrop-blur sticky top-0 z-50">
       <div className="container flex items-center justify-between py-3">
         <Link href="/" className="inline-flex items-center" aria-label="На главную">
-          <Image
-            src="/brand/header-logo.svg"
-            alt={process.env.NEXT_PUBLIC_SITE_BRAND ?? "Shop"}
-            width={220}
-            height={56}
-            priority
-            className="h-14 w-auto"
-          />
+          {headerLogoSrc ? (
+            <Image
+              src={headerLogoSrc}
+              alt={process.env.NEXT_PUBLIC_SITE_BRAND ?? "Shop"}
+              width={220}
+              height={56}
+              priority
+              className="h-14 w-auto"
+            />
+          ) : (
+            <span className="text-2xl font-bold tracking-tight text-gray-900">
+              {process.env.NEXT_PUBLIC_SITE_BRAND ?? "Shop"}
+            </span>
+          )}
         </Link>
 
 

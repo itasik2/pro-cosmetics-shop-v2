@@ -8,12 +8,15 @@ import { prisma } from "@/lib/prisma";
 import { SITE_DESCRIPTION, SITE_KEY, SITE_TITLE } from "@/lib/siteConfig";
 
 const LEGACY_SETTINGS_ID = "default";
+const faviconIcon =
+  process.env.SITE_FAVICON ||
+  (SITE_KEY === "procosmetics" ? "/brand/favicon.svg" : "/favicon.ico");
 
 export const metadata: Metadata = {
   title: SITE_TITLE,
   description: SITE_DESCRIPTION,
   icons: {
-    icon: "/brand/favicon.svg",
+    icon: faviconIcon,
   },
 };
 
