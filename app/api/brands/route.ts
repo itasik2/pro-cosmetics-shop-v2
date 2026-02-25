@@ -6,6 +6,18 @@ import { requireAdmin, isAdminRequest } from "@/lib/adminGuard";
 export const runtime = "nodejs";
 export const revalidate = 0;
 
+const slugRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+function normalizeSlug(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
 // GET /api/brands
 // - публично: активные бренды для витрины/форм
 // - админ: ?all=1 — все бренды
@@ -32,8 +44,8 @@ export async function GET(req: Request) {
 }
 
 const BrandSchema = z.object({
-  name: z.string().min(1),
-  slug: z.string().min(1),
+  name: z.string().trim().min(1).max(80),
+  slug: z.string().trim().min(1).max(120),
   sortOrder: z.number().int().optional().default(0),
   isActive: z.boolean().optional().default(true),
 });
@@ -44,11 +56,16 @@ export async function POST(req: Request) {
 
   try {
     const parsed = BrandSchema.parse(await req.json());
+    const normalizedSlug = normalizeSlug(parsed.slug);
+
+    if (!slugRegex.test(normalizedSlug)) {
+      return NextResponse.json({ error: "validation", issues: [{ path: ["slug"], message: "invalid_slug" }] }, { status: 400 });
+    }
 
     const created = await prisma.brand.create({
       data: {
-        name: parsed.name.trim(),
-        slug: parsed.slug.trim(),
+        name: parsed.name,
+        slug: normalizedSlug,
         sortOrder: parsed.sortOrder ?? 0,
         isActive: parsed.isActive ?? true,
       },
@@ -61,6 +78,10 @@ export async function POST(req: Request) {
         { error: "validation", issues: e.issues },
         { status: 400 },
       );
+    }
+
+    if (e?.code === "P2002") {
+      return NextResponse.json({ error: "brand_already_exists" }, { status: 409 });
     }
 
     // уникальные индексы name/slug могут дать Prisma error

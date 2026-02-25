@@ -84,6 +84,10 @@ type Variant = {
 };
 
 // Нормализатор Prisma JsonValue -> Variant[] | null
+function serializeJsonLd(value: unknown) {
+  return JSON.stringify(value).replace(/</g, "\u003c");
+}
+
 function toVariants(v: unknown): Variant[] | null {
   if (!Array.isArray(v)) return null;
 
@@ -214,7 +218,7 @@ export default async function ShopPage({ searchParams }: Props) {
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(collectionJsonLd) }}
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(collectionJsonLd) }}
       />
 
       <div className="space-y-6 py-6">
