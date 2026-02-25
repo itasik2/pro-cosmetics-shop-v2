@@ -25,6 +25,20 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: path === "" ? 1 : 0.7,
   }));
 
+
+  const brands = await prisma.brand.findMany({
+    where: { isActive: true },
+    select: { slug: true, updatedAt: true },
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+  });
+
+  const brandRoutes: MetadataRoute.Sitemap = brands.map((b) => ({
+    url: `${baseUrl}/shop?brand=${b.slug}`,
+    lastModified: b.updatedAt || new Date(),
+    changeFrequency: "weekly",
+    priority: 0.75,
+  }));
+
   // Динамические товары
   const products = await prisma.product.findMany({
     select: { id: true, updatedAt: true },
@@ -51,5 +65,5 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   // Можно позже добавить другие динамические сущности (категории и т.п.)
 
-  return [...staticRoutes, ...productRoutes, ...postRoutes];
+  return [...staticRoutes, ...brandRoutes, ...productRoutes, ...postRoutes];
 }

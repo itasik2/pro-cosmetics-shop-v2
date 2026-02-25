@@ -1,19 +1,13 @@
-
 // app/shop/page.tsx
+import type { Metadata } from "next";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import ShopGridClient from "@/components/ShopGridClient";
 import FavoritesButton from "@/components/FavoritesButton";
 import InStockButton from "@/components/InStockButton";
-import { SITE_BRAND } from "@/lib/siteConfig";
+import { getPublicBaseUrl, SITE_BRAND } from "@/lib/siteConfig";
 
 export const dynamic = "force-dynamic";
-
-export const metadata = {
-  title: `Каталог – ${SITE_BRAND}`,
-  description:
-    `Каталог ${SITE_BRAND}: очищающие гели, пенки, сыворотки, кремы и другие средства для ухода за кожей.`,
-};
 
 type Props = {
   searchParams?: {
@@ -23,6 +17,62 @@ type Props = {
     instock?: string;
   };
 };
+
+type ActiveBrand = {
+  id: string;
+  name: string;
+  slug: string;
+};
+
+async function getActiveBrands(): Promise<ActiveBrand[]> {
+  try {
+    return await prisma.brand.findMany({
+      where: { isActive: true },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+      select: { id: true, name: true, slug: true },
+    });
+  } catch {
+    return [];
+  }
+}
+
+export async function generateMetadata({ searchParams }: Props): Promise<Metadata> {
+  const brands = await getActiveBrands();
+  const brandSlug = (searchParams?.brand || "").trim();
+  const selectedBrand = brandSlug ? brands.find((b) => b.slug === brandSlug) || null : null;
+
+  const brandNames = brands.map((b) => b.name);
+  const topBrands = brandNames.slice(0, 8).join(", ");
+
+  const title = selectedBrand
+    ? `${selectedBrand.name} — каталог | ${SITE_BRAND}`
+    : `Каталог брендов — ${SITE_BRAND}`;
+
+  const description = selectedBrand
+    ? `Купить ${selectedBrand.name} в ${SITE_BRAND}: оригинальная профессиональная косметика, актуальные цены и доставка по Казахстану.`
+    : `Каталог ${SITE_BRAND}: профессиональная косметика по брендам (${topBrands || "уход для лица и тела"}).`;
+
+  return {
+    title,
+    description,
+    keywords: [
+      SITE_BRAND,
+      "профессиональная косметика",
+      "косметика Казахстан",
+      "уход за кожей",
+      ...brandNames,
+    ],
+    alternates: {
+      canonical: selectedBrand ? `/shop?brand=${selectedBrand.slug}` : "/shop",
+    },
+    openGraph: {
+      title,
+      description,
+      type: "website",
+      url: selectedBrand ? `/shop?brand=${selectedBrand.slug}` : "/shop",
+    },
+  };
+}
 
 // Тип варианта для клиента
 type Variant = {
@@ -73,12 +123,7 @@ export default async function ShopPage({ searchParams }: Props) {
   const fav = (searchParams?.fav || "").trim();
   const instock = (searchParams?.instock || "").trim();
 
-  const brands = await prisma.brand.findMany({
-    where: { isActive: true },
-    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-    select: { id: true, name: true, slug: true },
-  });
-
+  const brands = await getActiveBrands();
   const selectedBrand = brandSlug ? brands.find((b) => b.slug === brandSlug) || null : null;
 
   // WHERE: бренд + (новинки по флагу) + (в наличии если instock=1)
@@ -87,28 +132,24 @@ export default async function ShopPage({ searchParams }: Props) {
   if (selectedBrand) {
     whereBase.brandId = selectedBrand.id;
   }
-  
+
   if (sort === "new") {
     const DAYS = 14;
     const from = new Date(Date.now() - DAYS * 24 * 60 * 60 * 1000);
-  
-    whereBase.OR = [
-      { isNew: true },
-      { createdAt: { gte: from } },
-    ];
+
+    whereBase.OR = [{ isNew: true }, { createdAt: { gte: from } }];
   }
-  
+
   if (instock === "1") {
     whereBase.stock = { gt: 0 };
   }
-
 
   const orderBy =
     sort === "price_asc"
       ? [{ price: "asc" as const }, { createdAt: "desc" as const }]
       : sort === "price_desc"
-      ? [{ price: "desc" as const }, { createdAt: "desc" as const }]
-      : [{ createdAt: "desc" as const }];
+        ? [{ price: "desc" as const }, { createdAt: "desc" as const }]
+        : [{ createdAt: "desc" as const }];
 
   const products = await prisma.product.findMany({
     where: Object.keys(whereBase).length ? whereBase : undefined,
@@ -120,7 +161,7 @@ export default async function ShopPage({ searchParams }: Props) {
       price: true,
       stock: true,
       isPopular: true,
-      isNew: true, // <-- ДОБАВЛЕНО
+      isNew: true,
       createdAt: true,
       category: true,
       brand: { select: { name: true } },
@@ -133,72 +174,114 @@ export default async function ShopPage({ searchParams }: Props) {
     variants: toVariants((p as any).variants),
   }));
 
-  return (
+  const baseUrl = getPublicBaseUrl();
+  const brandEntities = brands.map((b) => ({ "@type": "Brand", name: b.name }));
+  const collectionJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    name: selectedBrand ? `Каталог ${selectedBrand.name}` : `Каталог ${SITE_BRAND}`,
+    url: `${baseUrl}${selectedBrand ? `/shop?brand=${selectedBrand.slug}` : "/shop"}`,
+    description: selectedBrand
+      ? `Профессиональная косметика бренда ${selectedBrand.name} в ${SITE_BRAND}.`
+      : `Каталог профессиональной косметики ${SITE_BRAND} по брендам.`,
+    about: brandEntities,
+    mainEntity: {
+      "@type": "ItemList",
+      itemListElement: products.slice(0, 12).map((p, index) => ({
+        "@type": "ListItem",
+        position: index + 1,
+        url: `${baseUrl}/shop/${p.id}`,
+        item: {
+          "@type": "Product",
+          name: p.name,
+          brand: p.brand?.name || undefined,
+          category: p.category,
+          offers: {
+            "@type": "Offer",
+            priceCurrency: "KZT",
+            price: Number(p.price),
+            availability:
+              Number(p.stock) > 0
+                ? "https://schema.org/InStock"
+                : "https://schema.org/OutOfStock",
+          },
+        },
+      })),
+    },
+  };
 
-    <div className="space-y-6 py-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-        <div>
-          <h2 className="text-2xl font-bold">Каталог</h2>
-          <div className="text-sm text-gray-500 mt-1">
-            {selectedBrand ? `Бренд: ${selectedBrand.name}` : "Все бренды"} •{" "}
-            {productsForClient.length} поз.
+  return (
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(collectionJsonLd) }}
+      />
+
+      <div className="space-y-6 py-6">
+        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <div>
+            <h2 className="text-2xl font-bold">Каталог</h2>
+            <div className="text-sm text-gray-500 mt-1">
+              {selectedBrand ? `Бренд: ${selectedBrand.name}` : "Все бренды"} •{" "}
+              {productsForClient.length} поз.
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <SortLink
+              currentBrand={brandSlug}
+              currentSort={sort}
+              currentFav={fav}
+              currentInStock={instock}
+              value="new"
+            >
+              Новинки
+            </SortLink>
+
+            <SortLink
+              currentBrand={brandSlug}
+              currentSort={sort}
+              currentFav={fav}
+              currentInStock={instock}
+              value="price_asc"
+            >
+              Цена ↑
+            </SortLink>
+
+            <SortLink
+              currentBrand={brandSlug}
+              currentSort={sort}
+              currentFav={fav}
+              currentInStock={instock}
+              value="price_desc"
+            >
+              Цена ↓
+            </SortLink>
+
+            <InStockButton />
+            <FavoritesButton />
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <SortLink
-            currentBrand={brandSlug}
-            currentSort={sort}
-            currentFav={fav}
-            currentInStock={instock}
-            value="new"
-          >
-            Новинки
-          </SortLink>
-
-          <SortLink
-            currentBrand={brandSlug}
-            currentSort={sort}
-            currentFav={fav}
-            currentInStock={instock}
-            value="price_asc"
-          >
-            Цена ↑
-          </SortLink>
-
-          <SortLink
-            currentBrand={brandSlug}
-            currentSort={sort}
-            currentFav={fav}
-            currentInStock={instock}
-            value="price_desc"
-          >
-            Цена ↓
-          </SortLink>
-
-          <InStockButton />
-          <FavoritesButton />
-        </div>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        <BrandLink isActive={!brandSlug} href={buildHref("", sort, fav, instock)}>
-          Все
-        </BrandLink>
-
-        {brands.map((b) => (
-          <BrandLink
-            key={b.id}
-            isActive={b.slug === brandSlug}
-            href={buildHref(b.slug, sort, fav, instock)}
-          >
-            {b.name}
+        <div className="flex flex-wrap gap-2">
+          <BrandLink isActive={!brandSlug} href={buildHref("", sort, fav, instock)}>
+            Все
           </BrandLink>
-        ))}
-      </div>
 
-      <ShopGridClient products={productsForClient} />
-    </div>
+          {brands.map((b) => (
+            <BrandLink
+              key={b.id}
+              isActive={b.slug === brandSlug}
+              href={buildHref(b.slug, sort, fav, instock)}
+            >
+              {b.name}
+            </BrandLink>
+          ))}
+        </div>
+
+        <ShopGridClient products={productsForClient} />
+      </div>
+    </>
   );
 }
 
