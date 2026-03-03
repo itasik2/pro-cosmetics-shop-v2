@@ -6,7 +6,7 @@
         font-family="Cinzel, serif"
         font-size="205"
         letter-spacing="4"
-        fill="#f2f2f2">
+        fill="#333333">
     PRO
   </text>
 
@@ -16,7 +16,7 @@
         font-family="Cinzel, serif"
         font-size="70"
         letter-spacing="15"
-        fill="#cccccc">
+        fill="#333333">
     COSMETICS
   </text>
 
