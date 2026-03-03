@@ -79,7 +79,7 @@ export default function ProductCard({ product }: ProductCardProps) {
     <div
       className={
         "card relative h-full flex flex-col " +
-        "transition-colors hover:bg-gray-50"
+        "transition-colors shadow-sm hover:shadow-md transition-all duration-200 border border-brand-soft/50"
       }
     >
       {/* Бейджи */}
