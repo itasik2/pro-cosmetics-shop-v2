@@ -60,7 +60,7 @@ export default function Footer() {
     <footer className="border-t mt-10 text-sm text-gray-600 bg-white">
       <div className="container mx-auto py-5">
         {/* МОБИЛЬНАЯ ВЕРСИЯ */}
-        <div className="flex flex-col gap-3 md:hidden">
+        <div className="flex flex-col gap-4 md:hidden">
           <div>
             <Link href="/" className="inline-flex" aria-label="На главную">
               <Image
