@@ -40,7 +40,7 @@ function WhatsAppIcon({ className }: { className?: string }) {
     <svg
       aria-hidden="true"
       viewBox="0 0 32 32"
-      className={className || "w-6 h-6"}
+      className={className || "w-4 h-4"}
       fill="currentColor"
       xmlns="http://www.w3.org/2000/svg"
     >
@@ -66,8 +66,8 @@ export default function Footer() {
               <Image
                 src="/brand/footer-logo.svg"
                 alt={SITE_BRAND}
-                width={160}
-                height={40}
+                width={180}
+                height={60}
                 className="h-10 w-auto"
               />
             </Link>
