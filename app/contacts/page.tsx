@@ -12,7 +12,7 @@ export default function ContactsPage() {
       <h1 className="text-3xl font-bold">Контакты</h1>
 
       <div className="space-y-2 text-gray-700">
-        <div>Телефон: +7 (XXX) XXX-XX-XX</div>
+        <div>Телефон: +7 (707) 191-91-04</div>
         <div>Email: sales@vita-services.com</div>
         <div>Адрес: Павлодар, Казахстан</div>
       </div>
@@ -35,7 +35,7 @@ export default function ContactsPage() {
             Telegram
           </a>
           <a
-            href="https://wa.me/7700XXXXXXX"
+            href="https://wa.me/77071919104"
             target="_blank"
             rel="noreferrer"
           >
