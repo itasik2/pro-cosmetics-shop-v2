@@ -88,18 +88,18 @@ export default async function RootLayout({
         ) : null}
       </head>
 
-      <body className="min-h-screen">
+      <body className="min-h-screen bg-transparent">
         {/* ФОН */}
         {backgroundUrl ? (
           <div
-            className="fixed inset-0 -z-10 bg-cover bg-center bg-no-repeat"
-            style={{ backgroundImage: `url(${backgroundUrl})` }}
+            className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat pointer-events-none"
+            style={{ backgroundImage: `url(\"${backgroundUrl}\")` }}
             aria-hidden="true"
           />
         ) : null}
 
         {/* Контент */}
-        <div className="min-h-screen flex flex-col bg-white/85">
+        <div className="relative z-10 min-h-screen flex flex-col bg-white/85">
           <Providers>
             <Navbar />
 
