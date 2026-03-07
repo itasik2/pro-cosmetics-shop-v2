@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-const UPLOAD_ENDPOINT = "/api/upload"; // <-- замени на свой, если другой
+const UPLOAD_ENDPOINT = "/api/upload/product-image";
 
 type Settings = {
   id: string;
