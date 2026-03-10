@@ -8,6 +8,7 @@ import AddToCartButton from "./AddToCartButton";
 type ProductCardProps = {
   product: {
     id: string;
+    slug: string;
     name: string;
     image: string;
     price: number;
@@ -108,7 +109,7 @@ export default function ProductCard({ product }: ProductCardProps) {
 
       {/* Кликабельная зона фото -> подробнее */}
       <Link
-        href={`/shop/${product.id}`}
+        href={`/shop/${product.slug}`}
         className="block aspect-square w-full bg-gray-100 rounded-xl mb-3 overflow-hidden"
         aria-label={`Открыть товар: ${product.name}`}
       >
@@ -179,7 +180,7 @@ export default function ProductCard({ product }: ProductCardProps) {
         </div>
 
         <div className="mt-2">
-          <Link href={`/shop/${product.id}`} className="text-xs text-gray-600 hover:underline">
+          <Link href={`/shop/${product.slug}`} className="text-xs text-gray-600 hover:underline">
             Подробнее
           </Link>
         </div>
