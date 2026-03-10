@@ -1,46 +1,20 @@
 import { prisma } from "@/lib/prisma";
-import type { Metadata } from "next";
-import ProductDetailsClient from "./ProductDetailsClient";
-import { SITE_BRAND } from "@/lib/siteConfig";
+import { redirect, notFound } from "next/navigation";
 
+export const dynamic = "force-dynamic";
 
-type Props = { params: { id: string } };
+type Props = {
+  params: { id: string };
+};
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
+export default async function ProductRedirect({ params }: Props) {
+
   const product = await prisma.product.findUnique({
     where: { id: params.id },
-    include: { brand: true },
+    select: { slug: true },
   });
 
-  if (!product) {
-    return {
-      title: `Товар не найден – ${SITE_BRAND}`,
-    };
-  }
+  if (!product) notFound();
 
-  return {
-    title: `${product.name} – ${SITE_BRAND}`,
-    description: `${product.brand?.name ?? ""} ${product.category}. Цена ${product.price} ₸`,
-    openGraph: {
-      title: product.name,
-      images: [product.image],
-    },
-  };
-}
-
-export default async function ProductPage({ params }: Props) {
-  const product = await prisma.product.findUnique({
-    where: { id: params.id },
-    include: { brand: true },
-  });
-
-  if (!product) {
-    return <div className="py-10">Товар не найден</div>;
-  }
-
-  return (
-    <div className="py-10">
-      <ProductDetailsClient product={product} />
-    </div>
-  );
+  redirect(`/shop/${product.slug}`);
 }
