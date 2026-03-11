@@ -14,6 +14,7 @@ type Variant = {
 
 type Product = {
   id: string;
+  slug: string;
   name: string;
   image: string;
   price: number;
@@ -22,7 +23,7 @@ type Product = {
   createdAt: Date | string;
   category: string;
   brand?: { name: string } | null;
-  variants?: Variant[] | null;
+  variants?: any;
 };
 
 function readFavorites(): Set<string> {
