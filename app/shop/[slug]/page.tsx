@@ -1,8 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
-import ProductDetailsClient from "../[id]/ProductDetailsClient";
-import { SITE_BRAND, getPublicBaseUrl } from "@/lib/siteConfig";
 import type { Metadata } from "next";
+import ProductDetailsClient from "@/components/ProductDetailsClient";
+import { SITE_BRAND, getPublicBaseUrl } from "@/lib/siteConfig";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +11,6 @@ type Props = {
 };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
-
   const product = await prisma.product.findUnique({
     where: { slug: params.slug },
     include: { brand: true },
@@ -27,25 +26,21 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   return {
     title: `${product.name} купить – ${SITE_BRAND}`,
-    description:
-      `${product.brand?.name ?? ""} ${product.category}. Цена ${product.price} ₸. Доставка по Казахстану.`,
-
+    description: `${product.brand?.name ?? ""} ${product.category}. Цена ${product.price} ₸. Доставка по Казахстану.`,
     alternates: {
       canonical: `${baseUrl}/shop/${product.slug}`,
     },
-
     openGraph: {
       title: product.name,
       description: product.description.slice(0, 150),
-      images: [product.image],
+      images: product.image ? [product.image] : [],
       url: `${baseUrl}/shop/${product.slug}`,
-      type: "product",
+      type: "website",
     },
   };
 }
 
 export default async function ProductPage({ params }: Props) {
-
   const product = await prisma.product.findUnique({
     where: { slug: params.slug },
     include: { brand: true },
