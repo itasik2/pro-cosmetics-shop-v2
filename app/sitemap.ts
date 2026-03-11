@@ -51,5 +51,17 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   // Можно позже добавить другие динамические сущности (категории и т.п.)
 
-  return [...staticRoutes, ...productRoutes, ...postRoutes];
+  const brands = await prisma.brand.findMany({
+  where: { isActive: true },
+  select: { slug: true, updatedAt: true },
+});
+
+const brandRoutes: MetadataRoute.Sitemap = brands.map((b) => ({
+  url: `${baseUrl}/brand/${b.slug}`,
+  lastModified: b.updatedAt || new Date(),
+  changeFrequency: "weekly",
+  priority: 0.8,
+}));
+
+  return [...staticRoutes, ...productRoutes, ...postRoutes, ...brandRoutes];
 }
