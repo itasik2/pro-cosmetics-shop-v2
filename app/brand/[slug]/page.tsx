@@ -4,7 +4,13 @@ import { notFound } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
-export async function generateMetadata({ params }) {
+type PageProps = {
+  params: {
+    slug: string;
+  };
+};
+
+export async function generateMetadata({ params }: PageProps) {
   const brand = await prisma.brand.findUnique({
     where: { slug: params.slug },
   });
@@ -17,7 +23,7 @@ export async function generateMetadata({ params }) {
   };
 }
 
-export default async function BrandPage({ params }) {
+export default async function BrandPage({ params }: PageProps) {
   const brand = await prisma.brand.findUnique({
     where: { slug: params.slug },
   });
@@ -31,17 +37,13 @@ export default async function BrandPage({ params }) {
 
   return (
     <main className="space-y-6">
-
-      <h1 className="text-3xl font-bold">
-        {brand.name}
-      </h1>
+      <h1 className="text-3xl font-bold">{brand.name}</h1>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {products.map((p) => (
           <ProductCard key={p.id} product={p} />
         ))}
       </div>
-
     </main>
   );
 }
