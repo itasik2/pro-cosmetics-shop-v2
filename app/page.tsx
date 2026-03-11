@@ -24,7 +24,7 @@ export async function generateMetadata() {
   const brandNames = brands.map((b) => b.name).slice(0, 6).join(", ");
 
   const baseUrl =
-    process.env.NEXT_PUBLIC_SITE_URL || "https://www.procosmetics.kz/z";
+    process.env.NEXT_PUBLIC_SITE_URL || "https://www.procosmetics.kz";
 
   return {
     title: `Профессиональная косметика купить в Казахстане | ${SITE_BRAND}`,
@@ -58,17 +58,46 @@ export async function generateMetadata() {
 =========================== */
 
 export default async function Home() {
+
   const popular = await prisma.product.findMany({
     where: { isPopular: true },
-    include: { brand: true },
     orderBy: { createdAt: "desc" },
     take: 8,
+    select: {
+      id: true,
+      slug: true,
+      name: true,
+      image: true,
+      price: true,
+      stock: true,
+      isPopular: true,
+      createdAt: true,
+      category: true,
+      variants: true,
+      brand: {
+        select: { name: true },
+      },
+    },
   });
 
   const newArrivals = await prisma.product.findMany({
-    include: { brand: true },
     orderBy: { createdAt: "desc" },
     take: 8,
+    select: {
+      id: true,
+      slug: true,
+      name: true,
+      image: true,
+      price: true,
+      stock: true,
+      isPopular: true,
+      createdAt: true,
+      category: true,
+      variants: true,
+      brand: {
+        select: { name: true },
+      },
+    },
   });
 
   const reviews = await prisma.review.findMany({
