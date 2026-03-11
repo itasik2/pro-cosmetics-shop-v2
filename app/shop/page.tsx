@@ -154,19 +154,20 @@ export default async function ShopPage({ searchParams }: Props) {
   const products = await prisma.product.findMany({
     where: Object.keys(whereBase).length ? whereBase : undefined,
     orderBy,
-    select: {
-      id: true,
-      name: true,
-      image: true,
-      price: true,
-      stock: true,
-      isPopular: true,
-      isNew: true,
-      createdAt: true,
-      category: true,
-      brand: { select: { name: true } },
-      variants: true,
-    },
+   select: {
+  id: true,
+  slug: true,
+  name: true,
+  image: true,
+  price: true,
+  stock: true,
+  isPopular: true,
+  isNew: true,
+  createdAt: true,
+  category: true,
+  brand: { select: { name: true } },
+  variants: true,
+},
   });
 
   const productsForClient = products.map((p) => ({
