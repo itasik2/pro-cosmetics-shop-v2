@@ -124,7 +124,16 @@ export default function ProductCard({ product }: ProductCardProps) {
 
       {/* Бренд/категория */}
       <div className="text-sm text-gray-500">
-        {product.brand?.name ?? product.category}
+        {product.brand ? (
+  <Link
+    href={`/brand/${product.brand.name.toLowerCase()}`}
+    className="hover:underline"
+  >
+    {product.brand.name}
+  </Link>
+) : (
+  product.category
+)}
       </div>
 
       {/* Название: фиксируем высоту, чтобы сетка не “прыгала” */}
