@@ -27,6 +27,20 @@ export async function generateMetadata() {
     process.env.NEXT_PUBLIC_SITE_URL || "https://www.procosmetics.kz";
 
   return {
+    <script
+type="application/ld+json"
+dangerouslySetInnerHTML={{
+__html: JSON.stringify({
+"@context":"https://schema.org",
+"@type":"Store",
+name: SITE_BRAND,
+brand: brands.map(b => ({
+"@type":"Brand",
+name: b.name
+}))
+})
+}}
+/>
     title: `Профессиональная косметика купить в Казахстане | ${SITE_BRAND}`,
     description: `Интернет-магазин ${SITE_BRAND}. Профессиональная косметика: ${brandNames}. Оригинальная продукция, доставка по Казахстану.`,
     keywords: [
