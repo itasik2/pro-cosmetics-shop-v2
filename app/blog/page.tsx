@@ -1,14 +1,43 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { SITE_BRAND } from "@/lib/siteConfig";
+import { SITE_BRAND, getPublicBaseUrl } from "@/lib/siteConfig";
+import { buildBrandIntentKeywords } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
 
-export const metadata = {
-  title: `Блог и новости – ${SITE_BRAND}`,
-  description:
-    `Статьи по уходу за кожей, разборы составов и новости магазина ${SITE_BRAND}.`,
-};
+export async function generateMetadata() {
+  const [posts, brands] = await Promise.all([
+    prisma.post.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 8,
+      select: { title: true, category: true },
+    }),
+    prisma.brand.findMany({
+      where: { isActive: true },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+      select: { name: true },
+    }),
+  ]);
+
+  const baseUrl = getPublicBaseUrl();
+
+  return {
+    title: `Блог и новости – ${SITE_BRAND}`,
+    description:
+      `Статьи по уходу за кожей, разборы составов и новости магазина ${SITE_BRAND}.`,
+    keywords: [
+      "блог о косметике",
+      "как выбрать крем",
+      "уход за кожей советы",
+      ...posts.map((p) => p.title),
+      ...posts.map((p) => `${p.category} блог`).filter(Boolean),
+      ...buildBrandIntentKeywords(brands, ["крем", "уход"]).slice(0, 20),
+    ],
+    alternates: {
+      canonical: `${baseUrl}/blog`,
+    },
+  };
+}
 
 export default async function BlogIndex() {
   const posts = await prisma.post.findMany({ orderBy: { createdAt: "desc" } });

@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
 import ProductCard from "@/components/ProductCard";
 import { SITE_BRAND, getPublicBaseUrl } from "@/lib/siteConfig";
+import { buildBrandIntentKeywords } from "@/lib/seo";
 import type { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
@@ -28,7 +29,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     title: `${brand.name} купить – ${SITE_BRAND}`,
     description:
       `Каталог косметики ${brand.name}. Профессиональная косметика ${brand.name} с доставкой по Казахстану.`,
-
+    keywords: [
+      ...buildBrandIntentKeywords([brand], ["крем", "сыворотка", "уход"]),
+      `${brand.name} Казахстан`,
+    ],
     alternates: {
       canonical: `${baseUrl}/brand/${brand.slug}`,
     },
