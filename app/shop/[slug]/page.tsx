@@ -26,7 +26,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   return {
     title: `${product.name} купить – ${SITE_BRAND}`,
-    description: `${product.brand?.name ?? ""} ${product.category}. Цена ${product.price} ₸. Доставка по Казахстану.`,
+    description: `${product.brand?.name ?? ""} ${product.category}. Цена ${product.price} ₸.`,
     alternates: {
       canonical: `${baseUrl}/shop/${product.slug}`,
     },
@@ -48,9 +48,44 @@ export default async function ProductPage({ params }: Props) {
 
   if (!product) notFound();
 
+  const baseUrl = getPublicBaseUrl();
+
+  const schema = {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: product.name,
+    image: product.image ? [`${product.image}`] : [],
+    description: product.description,
+    brand: product.brand?.name
+      ? {
+          "@type": "Brand",
+          name: product.brand.name,
+        }
+      : undefined,
+    offers: {
+      "@type": "Offer",
+      priceCurrency: "KZT",
+      price: product.price,
+      availability:
+        product.stock > 0
+          ? "https://schema.org/InStock"
+          : "https://schema.org/OutOfStock",
+      url: `${baseUrl}/shop/${product.slug}`,
+    },
+  };
+
   return (
-    <div className="py-10">
-      <ProductDetailsClient product={product} />
-    </div>
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(schema),
+        }}
+      />
+
+      <div className="py-10">
+        <ProductDetailsClient product={product} />
+      </div>
+    </>
   );
 }
