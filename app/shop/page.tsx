@@ -4,7 +4,8 @@ import { prisma } from "@/lib/prisma";
 import ShopGridClient from "@/components/ShopGridClient";
 import FavoritesButton from "@/components/FavoritesButton";
 import InStockButton from "@/components/InStockButton";
-import { SITE_BRAND } from "@/lib/siteConfig";
+import { SITE_BRAND, getPublicBaseUrl } from "@/lib/siteConfig";
+import { buildBrandIntentKeywords } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
 
@@ -36,13 +37,19 @@ export async function generateMetadata({ searchParams }: Props) {
 
   const brandNames = brands.map((b) => b.name).slice(0, 6).join(", ");
 
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://yourdomain.kz";
+  const baseUrl = getPublicBaseUrl();
+  const brandIntentKeywords = buildBrandIntentKeywords(brands, ["крем", "тоник", "сыворотка"]);
 
   // Если выбран бренд
   if (selectedBrand) {
     return {
       title: `${selectedBrand.name} – купить в Казахстане | ${SITE_BRAND}`,
       description: `Каталог ${selectedBrand.name} в интернет-магазине ${SITE_BRAND}. Профессиональная косметика с доставкой по Казахстану.`,
+      keywords: [
+        `купить косметику ${selectedBrand.name}`,
+        `купить крем ${selectedBrand.name}`,
+        `косметика ${selectedBrand.name}`,
+      ],
       alternates: {
         canonical: `${baseUrl}/shop?brand=${selectedBrand.slug}`,
       },
@@ -52,6 +59,11 @@ export async function generateMetadata({ searchParams }: Props) {
   return {
     title: `Профессиональная косметика – каталог брендов | ${SITE_BRAND}`,
     description: `Каталог профессиональной косметики: ${brandNames}. Доставка по Казахстану. Оригинальная продукция и честные составы.`,
+    keywords: [
+      "каталог косметики",
+      "купить косметику",
+      ...brandIntentKeywords,
+    ],
     alternates: {
       canonical: `${baseUrl}/shop`,
     },

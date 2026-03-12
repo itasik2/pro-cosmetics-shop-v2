@@ -6,7 +6,9 @@ import {
   SITE_BRAND,
   SITE_HERO_SUBTITLE,
   SITE_HERO_TITLE,
+  getPublicBaseUrl,
 } from "@/lib/siteConfig";
+import { buildBrandIntentKeywords } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
 
@@ -23,8 +25,8 @@ export async function generateMetadata() {
 
   const brandNames = brands.map((b) => b.name).slice(0, 6).join(", ");
 
-  const baseUrl =
-    process.env.NEXT_PUBLIC_SITE_URL || "https://www.procosmetics.kz";
+  const baseUrl = getPublicBaseUrl();
+  const brandIntentKeywords = buildBrandIntentKeywords(brands, ["крем", "сыворотка", "маска"]);
 
   return {
     title: `Профессиональная косметика купить в Казахстане | ${SITE_BRAND}`,
@@ -38,6 +40,7 @@ export async function generateMetadata() {
       "косметика Казахстан",
       SITE_BRAND,
       ...brands.map((b) => b.name),
+      ...brandIntentKeywords,
     ],
     alternates: {
       canonical: baseUrl,

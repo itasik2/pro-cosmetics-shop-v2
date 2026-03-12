@@ -27,6 +27,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return {
     title: `${product.name} купить – ${SITE_BRAND}`,
     description: `${product.brand?.name ?? ""} ${product.category}. Цена ${product.price} ₸.`,
+    keywords: [
+      `купить ${product.name}`,
+      product.brand?.name ? `купить крем ${product.brand.name}` : "",
+      product.brand?.name ? `косметика ${product.brand.name}` : "",
+      `${product.category} купить`,
+    ].filter(Boolean),
     alternates: {
       canonical: `${baseUrl}/shop/${product.slug}`,
     },
