@@ -1,29 +1,42 @@
 import { prisma } from "@/lib/prisma";
-import ProductCard from "@/components/ProductCard";
 import { notFound } from "next/navigation";
+import ProductCard from "@/components/ProductCard";
+import { SITE_BRAND, getPublicBaseUrl } from "@/lib/siteConfig";
+import type { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
 
-type PageProps = {
-  params: {
-    slug: string;
-  };
+type Props = {
+  params: { slug: string };
 };
 
-export async function generateMetadata({ params }: PageProps) {
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+
   const brand = await prisma.brand.findUnique({
     where: { slug: params.slug },
   });
 
-  if (!brand) return {};
+  if (!brand) {
+    return {
+      title: `Бренд не найден – ${SITE_BRAND}`,
+    };
+  }
+
+  const baseUrl = getPublicBaseUrl();
 
   return {
-    title: `${brand.name} — купить в Казахстане`,
-    description: `Каталог косметики ${brand.name}. Доставка по Казахстану.`,
+    title: `${brand.name} купить – ${SITE_BRAND}`,
+    description:
+      `Каталог косметики ${brand.name}. Профессиональная косметика ${brand.name} с доставкой по Казахстану.`,
+
+    alternates: {
+      canonical: `${baseUrl}/brand/${brand.slug}`,
+    },
   };
 }
 
-export default async function BrandPage({ params }: PageProps) {
+export default async function BrandPage({ params }: Props) {
+
   const brand = await prisma.brand.findUnique({
     where: { slug: params.slug },
   });
@@ -32,18 +45,35 @@ export default async function BrandPage({ params }: PageProps) {
 
   const products = await prisma.product.findMany({
     where: { brandId: brand.id },
-    include: { brand: true },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      slug: true,
+      name: true,
+      image: true,
+      price: true,
+      stock: true,
+      isPopular: true,
+      createdAt: true,
+      category: true,
+      variants: true,
+      brand: { select: { name: true } },
+    },
   });
 
   return (
-    <main className="space-y-6">
-      <h1 className="text-3xl font-bold">{brand.name}</h1>
+    <div className="space-y-6">
+
+      <h1 className="text-3xl font-bold">
+        {brand.name}
+      </h1>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {products.map((p) => (
           <ProductCard key={p.id} product={p} />
         ))}
       </div>
-    </main>
+
+    </div>
   );
 }
