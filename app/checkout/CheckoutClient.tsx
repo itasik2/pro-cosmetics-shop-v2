@@ -22,6 +22,7 @@ type ProductVariant = {
 
 type Product = {
   id: string;
+  slug: string;
   name: string;
   image: string;
   price: number;
@@ -180,7 +181,7 @@ export default function CheckoutClient() {
           stock,
           image: p.image,
           brandOrCategory: p.brand?.name ?? p.category,
-          link: `/shop/${p.id}`,
+          link: `/shop/${p.slug}`,
         };
       })
       .filter(Boolean) as Array<{
