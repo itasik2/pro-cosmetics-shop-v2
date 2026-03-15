@@ -18,6 +18,7 @@ export async function POST(req: Request) {
     where: { id: { in: uniqueIds } },
     select: {
       id: true,
+      slug: true,
       name: true,
       image: true,
       price: true,
