@@ -53,13 +53,9 @@ export default function CheckoutClient() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // selection (НЕ сохраняем в localStorage — чтобы не было циклов и чтобы F5 сбрасывал)
   const [selected, setSelected] = useState<Set<string>>(new Set());
-
-  // form visibility
   const [showForm, setShowForm] = useState(false);
 
-  // form
   const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
@@ -73,8 +69,7 @@ export default function CheckoutClient() {
   const sync = () => {
     const c = getCart();
     setCart(c);
-    // при изменении корзины — оставляем только существующие ключи;
-    // если выбор пустой, выбираем всё (MVP удобство)
+
     const keys = c.map((x) => x.id);
     setSelected((prev) => {
       const kept = new Set([...prev].filter((k) => keys.includes(k)));
@@ -92,7 +87,6 @@ export default function CheckoutClient() {
       window.removeEventListener("storage", onSync);
       window.removeEventListener("storage-sync", onSync);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const idsKey = useMemo(() => {
@@ -131,8 +125,7 @@ export default function CheckoutClient() {
         setLoading(false);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idsKey]);
+  }, [idsKey, cart]);
 
   const productMap = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
 
@@ -156,8 +149,7 @@ export default function CheckoutClient() {
     }
 
     clampCartToStock(stockMap);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [products, idsKey]);
+  }, [products, idsKey, cart, productMap]);
 
   const rows = useMemo(() => {
     return cart
@@ -181,7 +173,7 @@ export default function CheckoutClient() {
           stock,
           image: p.image,
           brandOrCategory: p.brand?.name ?? p.category,
-          link: `/api/products/by-id-redirect/${encodeURIComponent(p.id)}`,
+          link: `/shop/${p.slug}`,
         };
       })
       .filter(Boolean) as Array<{
@@ -196,7 +188,6 @@ export default function CheckoutClient() {
     }>;
   }, [cart, productMap]);
 
-  // если rows изменились (например загрузились товары), и выбор пустой — выберем всё
   useEffect(() => {
     if (rows.length === 0) return;
     setSelected((prev) => {
@@ -292,7 +283,7 @@ export default function CheckoutClient() {
           deliveryType,
           address: addr,
           comment: comment.trim(),
-          cart: cartSelected, // только выбранные позиции
+          cart: cartSelected,
         }),
       });
 
@@ -303,7 +294,6 @@ export default function CheckoutClient() {
 
       const orderNumber = String(data.orderNumber || "");
 
-      // удаляем из корзины только выбранные позиции
       cartSelected.forEach((it) => setQtyStorage(it.id, 0));
 
       setShowForm(false);
@@ -410,7 +400,6 @@ export default function CheckoutClient() {
                       aria-label="Выбрать позицию"
                     />
 
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={r.image}
                       alt={r.title}
