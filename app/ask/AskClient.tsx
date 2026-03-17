@@ -200,7 +200,7 @@ ${brand}${Number(product.price).toLocaleString("ru-RU")} ₸
         <div className="flex items-center gap-2">
           {productId ? (
             <Link
-              href={`/shop/${encodeURIComponent(productId)}`}
+              href={`/api/products/by-id-redirect/${encodeURIComponent(productId)}`}
               className="px-3 py-2 rounded-xl border bg-white/80 hover:bg-white transition text-sm"
             >
               К товару
