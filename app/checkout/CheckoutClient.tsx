@@ -181,7 +181,7 @@ export default function CheckoutClient() {
           stock,
           image: p.image,
           brandOrCategory: p.brand?.name ?? p.category,
-          link: `/shop/${p.slug}`,
+          link: `/api/products/by-id-redirect/${encodeURIComponent(p.id)}`,
         };
       })
       .filter(Boolean) as Array<{
