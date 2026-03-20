@@ -12,6 +12,7 @@ export const dynamic = "force-dynamic";
 type Props = {
   searchParams?: {
     brand?: string;
+    category?: string
     sort?: string;
     fav?: string;
     instock?: string;
