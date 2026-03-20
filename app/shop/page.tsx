@@ -24,6 +24,7 @@ type Props = {
 =========================== */
 export async function generateMetadata({ searchParams }: Props) {
   const brandSlug = (searchParams?.brand || "").trim();
+  const categorySlug = (searchParams?.category || "").trim();
   const sort = (searchParams?.sort || "").trim();
 
   const brands = await prisma.brand.findMany({
@@ -41,21 +42,39 @@ export async function generateMetadata({ searchParams }: Props) {
   const baseUrl = getPublicBaseUrl();
   const brandIntentKeywords = buildBrandIntentKeywords(brands, ["крем", "тоник", "сыворотка"]);
 
-  // Если выбран бренд
-  if (selectedBrand) {
-    return {
-      title: `${selectedBrand.name} – купить в Казахстане | ${SITE_BRAND}`,
-      description: `Каталог ${selectedBrand.name} в интернет-магазине ${SITE_BRAND}. Профессиональная косметика с доставкой по Казахстану.`,
-      keywords: [
-        `купить косметику ${selectedBrand.name}`,
-        `купить крем ${selectedBrand.name}`,
-        `косметика ${selectedBrand.name}`,
-      ],
-      alternates: {
-        canonical: `${baseUrl}/shop?brand=${selectedBrand.slug}`,
-      },
-    };
-  }
+  // если бренд + категория
+if (selectedBrand && categorySlug) {
+  return {
+    title: `${selectedBrand.name} ${categorySlug} – купить в Казахстане | ${SITE_BRAND}`,
+    description: `${categorySlug} ${selectedBrand.name}. Профессиональная косметика с доставкой.`,
+    alternates: {
+      canonical: `${baseUrl}/shop?brand=${selectedBrand.slug}&category=${categorySlug}`,
+    },
+  };
+}
+
+// только категория
+if (categorySlug) {
+  return {
+    title: `${categorySlug} – купить в Казахстане | ${SITE_BRAND}`,
+    description: `Категория ${categorySlug}. Профессиональная косметика.`,
+    alternates: {
+      canonical: `${baseUrl}/shop?category=${categorySlug}`,
+    },
+  };
+}
+
+// только бренд
+if (selectedBrand) {
+  return {
+    title: `${selectedBrand.name} – купить в Казахстане | ${SITE_BRAND}`,
+    description: `Каталог ${selectedBrand.name}.`,
+    alternates: {
+      canonical: `${baseUrl}/shop?brand=${selectedBrand.slug}`,
+    },
+  };
+}
+ 
 
   return {
     title: `Профессиональная косметика – каталог брендов | ${SITE_BRAND}`,
@@ -142,6 +161,15 @@ export default async function ShopPage({ searchParams }: Props) {
   if (selectedBrand) {
     whereBase.brandId = selectedBrand.id;
   }
+
+  if (categorySlug) {
+  const categoryName = categorySlug.replace(/-/g, " ");
+
+  whereBase.category = {
+    contains: categoryName,
+    mode: "insensitive",
+  };
+}
 
   if (sort === "new") {
     const DAYS = 14;
@@ -240,7 +268,7 @@ export default async function ShopPage({ searchParams }: Props) {
       <div className="flex flex-wrap gap-2">
         <BrandLink
           isActive={!brandSlug}
-          href={buildHref("", sort, fav, instock)}
+          href={buildHref("", categorySlug, sort, fav, instock)}
         >
           Все
         </BrandLink>
@@ -249,7 +277,7 @@ export default async function ShopPage({ searchParams }: Props) {
           <BrandLink
             key={b.id}
             isActive={b.slug === brandSlug}
-            href={buildHref(b.slug, sort, fav, instock)}
+            href={buildHref(b.slug, categorySlug, sort, fav, instock)}
           >
             {b.name}
           </BrandLink>
@@ -267,12 +295,15 @@ export default async function ShopPage({ searchParams }: Props) {
 
 function buildHref(
   brandSlug: string,
+  categorySlug: string,
   sort: string,
   fav: string,
   instock: string
 ) {
   const params = new URLSearchParams();
+
   if (brandSlug) params.set("brand", brandSlug);
+  if (categorySlug) params.set("category", categorySlug);
   if (sort) params.set("sort", sort);
   if (fav === "1") params.set("fav", "1");
   if (instock === "1") params.set("instock", "1");
