@@ -284,6 +284,18 @@ export default async function ShopPage({ searchParams }: Props) {
         ))}
       </div>
 
+      <div className="flex flex-wrap gap-2">
+  {["kremy", "syvorotki", "toniki"].map((cat) => (
+    <BrandLink
+      key={cat}
+      isActive={categorySlug === cat}
+      href={buildHref(brandSlug, cat, sort, fav, instock)}
+    >
+      {cat}
+    </BrandLink>
+  ))}
+</div>
+
       <ShopGridClient products={productsForClient} />
     </div>
   );
