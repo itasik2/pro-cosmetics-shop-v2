@@ -6,6 +6,7 @@ import Footer from "@/components/Footer";
 import Providers from "./providers";
 import { prisma } from "@/lib/prisma";
 import { SITE_DESCRIPTION, SITE_KEY, SITE_TITLE } from "@/lib/siteConfig";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 const LEGACY_SETTINGS_ID = "default";
 
@@ -123,6 +124,7 @@ export default async function RootLayout({
             <Footer />
           </Providers>
         </div>
+        <SpeedInsights />
       </body>
     </html>
   );
