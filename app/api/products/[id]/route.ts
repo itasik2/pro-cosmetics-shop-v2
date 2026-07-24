@@ -20,6 +20,10 @@ const ProductSchema = z.object({
   variants: z.any().nullable().optional(),
 });
 
+const PublishSchema = z.object({
+  isPublished: z.boolean(),
+});
+
 type Params = { params: { id: string } };
 
 export async function PUT(req: Request, { params }: Params) {
@@ -76,6 +80,67 @@ export async function PUT(req: Request, { params }: Params) {
       { status: 500 },
     );
   }
+}
+
+export async function PATCH(req: Request, { params }: Params) {
+  const forbidden = await requireAdmin();
+  if (forbidden) return forbidden;
+
+  const parsed = PublishSchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "validation", issues: parsed.error.issues },
+      { status: 400 },
+    );
+  }
+
+  const product = await prisma.product.findUnique({
+    where: { id: params.id },
+    select: {
+      id: true,
+      name: true,
+      description: true,
+      image: true,
+      category: true,
+      price: true,
+      brandId: true,
+      isPublished: true,
+    },
+  });
+  if (!product) {
+    return NextResponse.json({ error: "product_not_found" }, { status: 404 });
+  }
+
+  if (parsed.data.isPublished) {
+    const missing: string[] = [];
+    const description = product.description.trim().toLocaleLowerCase("ru-RU");
+    if (!product.brandId) missing.push("бренд");
+    if (!description || description === "описание готовится") missing.push("описание");
+    if (!product.image || product.image === "/seed/cleanser.jpg") missing.push("фотография");
+    if (!product.category.trim()) missing.push("категория");
+    if (product.price <= 0) missing.push("цена");
+
+    if (missing.length) {
+      return NextResponse.json(
+        {
+          error: "product_not_ready_for_publication",
+          message: `Перед публикацией заполните: ${missing.join(", ")}.`,
+          missing,
+        },
+        { status: 409 },
+      );
+    }
+  }
+
+  const updated = await prisma.product.update({
+    where: { id: product.id },
+    data: {
+      isPublished: parsed.data.isPublished,
+      enrichmentStatus: parsed.data.isPublished ? "READY" : "PENDING",
+    },
+    include: { brand: true, supplier: true },
+  });
+  return NextResponse.json(updated);
 }
 
 export async function DELETE(_req: Request, { params }: Params) {
