@@ -21,15 +21,25 @@ function parseSourceDate(value: string | null) {
   return value ? new Date(`${value}T00:00:00.000Z`) : null;
 }
 
-async function ensureAngiopharmBrand() {
+function normalizeBrandName(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+async function ensureBrand(name: string) {
+  const normalizedName = normalizeBrandName(name);
+  if (!normalizedName) throw new Error("brand_required");
+
+  const baseSlug = slugify(normalizedName);
+  if (!baseSlug) throw new Error("brand_slug_empty");
+
   const existing = await prisma.brand.findFirst({
     where: {
       OR: [
-        { slug: "angiopharm" },
-        { name: { equals: "ANGIOPHARM", mode: "insensitive" } },
+        { slug: baseSlug },
+        { name: { equals: normalizedName, mode: "insensitive" } },
       ],
     },
-    select: { id: true },
+    select: { id: true, name: true },
   });
 
   if (existing) {
@@ -40,14 +50,15 @@ async function ensureAngiopharmBrand() {
     return existing;
   }
 
+  const slug = await uniqueSlug({ model: "brand", value: baseSlug });
   return prisma.brand.create({
     data: {
-      name: "ANGIOPHARM",
-      slug: "angiopharm",
+      name: normalizedName,
+      slug,
       isActive: true,
       sortOrder: 0,
     },
-    select: { id: true },
+    select: { id: true, name: true },
   });
 }
 
@@ -57,6 +68,7 @@ async function updateExistingProduct(input: {
   parsed: ParsedImportRow;
   importId: string;
   supplierId: string;
+  brandId: string;
   sourceOnly: boolean;
 }) {
   const product = await input.tx.product.findUnique({
@@ -77,6 +89,7 @@ async function updateExistingProduct(input: {
   await input.tx.product.update({
     where: { id: product.id },
     data: {
+      brandId: input.brandId,
       supplierId: input.supplierId,
       supplierSku: input.parsed.supplierSku,
       sourcePrice: input.parsed.sourcePrice,
@@ -130,8 +143,8 @@ export async function POST(_req: Request, { params }: Params) {
     );
   }
 
-  const brand = await ensureAngiopharmBrand();
   const sourceOnly = normalizePriceMode(priceImport.priceMode) === "SOURCE_ONLY";
+  const brandCache = new Map<string, { id: string; name: string }>();
 
   let createdRows = 0;
   let updatedRows = 0;
@@ -155,18 +168,31 @@ export async function POST(_req: Request, { params }: Params) {
         throw new Error("sku_required_for_apply");
       }
 
+      const brandKey = normalizeBrandName(parsed.brand).toLocaleLowerCase("ru-RU");
+      let brand = brandCache.get(brandKey);
+      if (!brand) {
+        brand = await ensureBrand(parsed.brand);
+        brandCache.set(brandKey, brand);
+      }
+
+      const skuOwner = await prisma.product.findFirst({
+        where: {
+          supplierId: priceImport.supplierId,
+          supplierSku: parsed.supplierSku,
+        },
+        select: { id: true, brandId: true },
+      });
+
+      if (skuOwner && skuOwner.brandId && skuOwner.brandId !== brand.id) {
+        throw new Error("supplier_sku_used_by_another_brand");
+      }
+
       const matchedProduct = row.productId
-        ? await prisma.product.findUnique({
-            where: { id: row.productId },
+        ? await prisma.product.findFirst({
+            where: { id: row.productId, brandId: brand.id },
             select: { id: true },
           })
-        : await prisma.product.findFirst({
-            where: {
-              supplierId: priceImport.supplierId,
-              supplierSku: parsed.supplierSku,
-            },
-            select: { id: true },
-          });
+        : skuOwner;
 
       if (matchedProduct) {
         const productId = await prisma.$transaction((tx) =>
@@ -176,6 +202,7 @@ export async function POST(_req: Request, { params }: Params) {
             parsed,
             importId: priceImport.id,
             supplierId: priceImport.supplierId,
+            brandId: brand.id,
             sourceOnly,
           }),
         );
@@ -197,7 +224,7 @@ export async function POST(_req: Request, { params }: Params) {
       }
 
       const baseSlug = slugify(
-        `${parsed.normalizedName}-${parsed.volumeLabel || parsed.supplierSku}`,
+        `${brand.name}-${parsed.normalizedName}-${parsed.volumeLabel || parsed.supplierSku}`,
       );
       const slug = await uniqueSlug({ model: "product", value: baseSlug });
       const initialPrice = sourceOnly ? parsed.sourcePrice : parsed.salePrice;
