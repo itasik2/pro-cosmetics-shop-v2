@@ -149,7 +149,9 @@ export async function POST(req: Request) {
         const existing = row.supplierSku
           ? existingBySku.get(row.supplierSku)
           : undefined;
-        const action = !row.supplierSku
+        const requiresManualReview =
+          !row.supplierSku || row.warnings.includes("duplicate_sku_in_file");
+        const action = requiresManualReview
           ? ImportRowAction.MANUAL_REVIEW
           : existing
             ? ImportRowAction.UPDATE
@@ -169,7 +171,7 @@ export async function POST(req: Request) {
           productId: existing?.id ?? null,
           action,
           confidence: row.confidence,
-          selected: action !== ImportRowAction.MANUAL_REVIEW,
+          selected: !requiresManualReview,
           rawData: {
             originalName: row.originalName,
             volumeLabel: row.volumeLabel,
@@ -198,7 +200,10 @@ export async function POST(req: Request) {
     const sourceDate = parsed.sourceDate
       ? new Date(`${parsed.sourceDate}T00:00:00.000Z`)
       : null;
-    const validRows = parsed.rows.filter((row) => row.confidence >= 80).length;
+    const validRows = rowData.filter(
+      (row) =>
+        row.confidence >= 80 && row.action !== ImportRowAction.MANUAL_REVIEW,
+    ).length;
     const manualRows = rowData.filter(
       (row) => row.action === ImportRowAction.MANUAL_REVIEW,
     ).length;
@@ -221,6 +226,7 @@ export async function POST(req: Request) {
         parser: {
           pageCount: parsed.pageCount,
           warnings: parsed.warnings,
+          manualReviewRows: manualRows,
         },
       },
       { status: 201 },
