@@ -12,47 +12,58 @@ type Variant = {
 
 type BuildOrderError = "empty_cart" | "nothing_to_order" | null;
 
-export function normalizeVariants(v: any): Variant[] {
-  if (!Array.isArray(v)) return [];
-  return v
-    .map((x) => ({
-      id: String(x?.id ?? ""),
-      label: String(x?.label ?? ""),
-      price: Math.trunc(Number(x?.price) || 0),
-      stock: Math.trunc(Number(x?.stock) || 0),
-      sku: x?.sku ? String(x.sku) : undefined,
-    }))
-    .filter((x) => x.id && x.label);
+export function normalizeVariants(value: unknown): Variant[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((item) => {
+      const row = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+      return {
+        id: String(row.id ?? ""),
+        label: String(row.label ?? ""),
+        price: Math.trunc(Number(row.price) || 0),
+        stock: Math.trunc(Number(row.stock) || 0),
+        sku: row.sku ? String(row.sku) : undefined,
+      };
+    })
+    .filter((variant) => variant.id && variant.label);
 }
 
 export function makeOrderNumber() {
-  // YYYYMMDD-XXXXXX (коротко, уникально)
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  const rand = Math.random().toString(36).slice(2, 8).toUpperCase();
-  return `${y}${m}${day}-${rand}`;
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const random = Math.random().toString(36).slice(2, 8).toUpperCase();
+  return `${year}${month}${day}-${random}`;
 }
 
 export async function buildOrderFromCart(cart: CartItem[]) {
-  // 1) нормализуем корзину и собираем ids
   const safeCart = (Array.isArray(cart) ? cart : [])
-    .map((x) => ({ id: String(x?.id ?? ""), qty: Math.trunc(Number(x?.qty) || 0) }))
-    .filter((x) => x.id && x.qty > 0)
+    .map((item) => ({
+      id: String(item?.id ?? ""),
+      qty: Math.trunc(Number(item?.qty) || 0),
+    }))
+    .filter((item) => item.id && item.qty > 0)
     .slice(0, 200);
 
   const productIds = Array.from(
-    new Set(safeCart.map((x) => parseCartKey(x.id).productId).filter(Boolean)),
+    new Set(
+      safeCart
+        .map((item) => parseCartKey(item.id).productId)
+        .filter(Boolean),
+    ),
   ).slice(0, 100);
 
   if (safeCart.length === 0 || productIds.length === 0) {
     return { items: [], total: 0, error: "empty_cart" as const };
   }
 
-  // 2) грузим товары
   const products = await prisma.product.findMany({
-    where: { id: { in: productIds } },
+    where: {
+      id: { in: productIds },
+      isPublished: true,
+    },
     select: {
       id: true,
       name: true,
@@ -63,9 +74,7 @@ export async function buildOrderFromCart(cart: CartItem[]) {
     },
   });
 
-  const map = new Map(products.map((p) => [p.id, p]));
-
-  // 3) собираем позиции заказа (snapshot)
+  const productMap = new Map(products.map((product) => [product.id, product]));
   const items: Array<{
     productId: string;
     variantId: string | null;
@@ -77,39 +86,38 @@ export async function buildOrderFromCart(cart: CartItem[]) {
     sku?: string | null;
   }> = [];
 
-  for (const it of safeCart) {
-    const { productId, variantId } = parseCartKey(it.id);
-    const p = map.get(productId);
-    if (!p) continue;
+  for (const cartItem of safeCart) {
+    const { productId, variantId } = parseCartKey(cartItem.id);
+    const product = productMap.get(productId);
+    if (!product) continue;
 
-    const variants = normalizeVariants(p.variants);
-    const v = variantId ? variants.find((x) => x.id === variantId) : null;
+    const variants = normalizeVariants(product.variants);
+    const variant = variantId
+      ? variants.find((item) => item.id === variantId)
+      : null;
 
-    const unitPrice = v ? v.price : p.price;
-    const stock = v ? v.stock : p.stock;
-
-    // если товара нет в наличии — не добавляем
+    const unitPrice = variant ? variant.price : product.price;
+    const stock = variant ? variant.stock : product.stock;
     if (stock <= 0 || unitPrice <= 0) continue;
 
-    const qty = Math.max(1, Math.min(it.qty, stock));
-    const title = v ? `${p.name} (${v.label})` : p.name;
+    const qty = Math.max(1, Math.min(cartItem.qty, stock));
+    const title = variant
+      ? `${product.name} (${variant.label})`
+      : product.name;
 
     items.push({
-      productId: p.id,
-      variantId: v ? v.id : null,
+      productId: product.id,
+      variantId: variant ? variant.id : null,
       title,
       unitPrice,
       qty,
       lineTotal: unitPrice * qty,
-      image: p.image ?? null,
-      sku: v?.sku ?? null,
+      image: product.image ?? null,
+      sku: variant?.sku ?? null,
     });
   }
 
-  
-
-  const total = items.reduce((s, x) => s + x.lineTotal, 0);
-
+  const total = items.reduce((sum, item) => sum + item.lineTotal, 0);
   if (items.length === 0 || total <= 0) {
     return { items: [], total: 0, error: "nothing_to_order" as const };
   }
