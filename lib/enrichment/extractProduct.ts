@@ -156,6 +156,7 @@ function selectorImages(
       const raw =
         $(element).attr("src") ||
         $(element).attr("data-src") ||
+        $(element).attr("data-large-img-url") ||
         $(element).attr("href");
       const url = asUrl(raw, baseUrl);
       if (url) images.push(url);
@@ -171,6 +172,91 @@ function metaContent($: cheerio.CheerioAPI, selector: string) {
   return cleanText($(selector).first().attr("content"));
 }
 
+function normalizeSearchText(value: string) {
+  return value.toLocaleLowerCase("ru-RU").replace(/ё/g, "е");
+}
+
+function labeledSection(input: {
+  text: string;
+  starts: string[];
+  ends: string[];
+  maxLength: number;
+}) {
+  const search = normalizeSearchText(input.text);
+  let startIndex = -1;
+  let startLength = 0;
+
+  for (const label of input.starts) {
+    const normalizedLabel = normalizeSearchText(label);
+    const index = search.indexOf(normalizedLabel);
+    if (index >= 0 && (startIndex < 0 || index < startIndex)) {
+      startIndex = index;
+      startLength = normalizedLabel.length;
+    }
+  }
+
+  if (startIndex < 0) return null;
+
+  const contentStart = startIndex + startLength;
+  let contentEnd = input.text.length;
+  for (const label of input.ends) {
+    const index = search.indexOf(normalizeSearchText(label), contentStart);
+    if (index >= contentStart && index < contentEnd) contentEnd = index;
+  }
+
+  return cleanText(input.text.slice(contentStart, contentEnd), input.maxLength);
+}
+
+function skuFromText(text: string) {
+  const match = text.match(
+    /(?:артикул|sku|код\s+товара)\s*:?\s*([A-ZА-Я0-9][A-ZА-Я0-9._/-]{1,39})/iu,
+  );
+  return cleanText(match?.[1], 100);
+}
+
+function localizedPriceFromText(text: string) {
+  const match = text.match(
+    /(\d[\d\s]{0,12}(?:[.,]\d{1,2})?)\s*(?:₸|тг\.?|kzt)/iu,
+  );
+  if (!match) return null;
+
+  const normalized = match[1].replace(/\s+/g, "").replace(",", ".");
+  const price = Number(normalized);
+  return Number.isFinite(price) && price >= 0 ? price : null;
+}
+
+function likelyIngredientList($: cheerio.CheerioAPI) {
+  let best: { text: string; score: number } | null = null;
+
+  $("p, div, td, li").each((_, element) => {
+    const directText = $(element)
+      .clone()
+      .children()
+      .remove()
+      .end()
+      .text();
+    const text = cleanText(directText, 8_000);
+    if (!text || text.length < 50) return;
+
+    const commaCount = (text.match(/,/g) || []).length;
+    const latinCount = (text.match(/[A-Za-z]/g) || []).length;
+    const letterCount = (text.match(/[A-Za-zА-Яа-яЁё]/g) || []).length;
+    const latinRatio = letterCount ? latinCount / letterCount : 0;
+
+    if (commaCount < 4 || latinRatio < 0.55) return;
+    const score = commaCount * 10 + latinRatio * 100 + Math.min(text.length, 500) / 10;
+    if (!best || score > best.score) best = { text, score };
+  });
+
+  return best?.text || null;
+}
+
+function isLikelyProductImage(url: string) {
+  return !/(?:logo|icon|sprite|payment|instagram|whatsapp|facebook|telegram|favicon)/i.test(
+    url,
+  );
+}
+
 export function extractProductFromHtml(input: {
   buffer: Buffer;
   finalUrl: string;
@@ -180,6 +266,7 @@ export function extractProductFromHtml(input: {
   const nodes = parseJsonLdScripts($);
   const productNode =
     nodes.find((node) => typeIncludesProduct(node["@type"])) ?? null;
+  const bodyText = cleanText($("body").text(), 200_000) || "";
 
   const selectorTitle = selectorText($, input.selectors?.title, 500);
   const selectorDescription = selectorText(
@@ -198,9 +285,30 @@ export function extractProductFromHtml(input: {
     8_000,
   );
 
+  const fallbackApplication = labeledSection({
+    text: bodyText,
+    starts: ["СПОСОБ ПРИМЕНЕНИЯ:", "СПОСОБ ПРИМЕНЕНИЯ"],
+    ends: [
+      "ОПИСАНИЕ:",
+      "ОПИСАНИЕ",
+      "АКТИВНЫЕ КОМПОНЕНТЫ",
+      "ХАРАКТЕРИСТИКИ",
+      "СОСТАВ",
+      "КОНТАКТЫ",
+    ],
+    maxLength: 8_000,
+  });
+  const fallbackDescription = labeledSection({
+    text: bodyText,
+    starts: ["ОПИСАНИЕ:", "ОПИСАНИЕ"],
+    ends: ["ХАРАКТЕРИСТИКИ", "СОСТАВ", "КОНТАКТЫ"],
+    maxLength: 12_000,
+  });
+
   const title =
     selectorTitle ||
     cleanText(productNode?.name, 500) ||
+    cleanText($("h1").first().text(), 500) ||
     metaContent($, "meta[property='og:title']") ||
     metaContent($, "meta[name='twitter:title']") ||
     cleanText($("title").first().text(), 500);
@@ -208,6 +316,7 @@ export function extractProductFromHtml(input: {
   const description =
     selectorDescription ||
     cleanText(productNode?.description) ||
+    fallbackDescription ||
     metaContent($, "meta[property='og:description']") ||
     metaContent($, "meta[name='description']") ||
     metaContent($, "meta[name='twitter:description']");
@@ -235,8 +344,25 @@ export function extractProductFromHtml(input: {
     images,
   );
   images.push(...selectorImages($, input.selectors?.images, input.finalUrl));
+  if (images.length < 2) {
+    images.push(
+      ...selectorImages(
+        $,
+        "main img, #content img, .product-info img, .product-image img, .thumbnails img, a.thumbnail",
+        input.finalUrl,
+      ),
+    );
+  }
 
   const offers = readOffers(productNode?.offers);
+  const fallbackPrice = localizedPriceFromText(bodyText);
+  const fallbackCurrency =
+    fallbackPrice !== null && /(?:₸|тг\.?|kzt)/iu.test(bodyText) ? "KZT" : null;
+  const brand =
+    readBrand(productNode?.brand) ||
+    metaContent($, "meta[property='product:brand']") ||
+    metaContent($, "meta[name='brand']") ||
+    (/\bANGIOPHARM\b/i.test(`${title || ""} ${bodyText}`) ? "ANGIOPHARM" : null);
 
   return {
     title,
@@ -244,16 +370,21 @@ export function extractProductFromHtml(input: {
     sku:
       cleanText(productNode?.sku, 100) ||
       cleanText(productNode?.mpn, 100) ||
-      cleanText(productNode?.productID, 100),
-    brand: readBrand(productNode?.brand),
+      cleanText(productNode?.productID, 100) ||
+      skuFromText(bodyText),
+    brand,
     canonicalUrl,
-    images: [...new Set(images)].slice(0, 12),
+    images: [...new Set(images.filter(isLikelyProductImage))].slice(0, 12),
     ingredients:
-      selectorIngredients || cleanText(productNode?.ingredients, 8_000),
+      selectorIngredients ||
+      cleanText(productNode?.ingredients, 8_000) ||
+      likelyIngredientList($),
     application:
-      selectorApplication || cleanText(productNode?.usageInfo, 8_000),
-    price: offers.price,
-    currency: offers.currency,
+      selectorApplication ||
+      cleanText(productNode?.usageInfo, 8_000) ||
+      fallbackApplication,
+    price: offers.price ?? fallbackPrice,
+    currency: offers.currency || fallbackCurrency,
     rawJsonLd: productNode,
   };
 }
