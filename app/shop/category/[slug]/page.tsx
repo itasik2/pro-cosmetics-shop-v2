@@ -30,12 +30,14 @@ export default async function CategoryPage({ params }: Props) {
 
   const products = await prisma.product.findMany({
     where: {
+      isPublished: true,
       category: {
         contains: categoryName,
         mode: "insensitive",
       },
     },
     include: { brand: true },
+    orderBy: { createdAt: "desc" },
   });
 
   if (!products.length) notFound();
@@ -45,8 +47,8 @@ export default async function CategoryPage({ params }: Props) {
       <h1 className="text-3xl font-bold">{categoryName}</h1>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {products.map((p) => (
-          <ProductCard key={p.id} product={p} />
+        {products.map((product) => (
+          <ProductCard key={product.id} product={product} />
         ))}
       </div>
     </main>
