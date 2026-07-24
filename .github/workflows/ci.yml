@@ -20,6 +20,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -40,7 +42,10 @@ jobs:
           retention-days: 3
 
       - name: Commit generated package lock
-        if: github.event_name == 'push' && github.ref == 'refs/heads/feat/price-import-mvp'
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.head_ref == 'feat/price-import-mvp' &&
+          github.event.pull_request.head.repo.full_name == github.repository
         shell: bash
         run: |
           if [ -z "$(git status --porcelain -- package-lock.json)" ]; then
