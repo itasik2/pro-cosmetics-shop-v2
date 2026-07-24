@@ -10,15 +10,20 @@ type Props = {
   params: { slug: string };
 };
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const product = await prisma.product.findUnique({
-    where: { slug: params.slug },
+async function getPublicProduct(slug: string) {
+  return prisma.product.findFirst({
+    where: { slug, isPublished: true },
     include: { brand: true },
   });
+}
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const product = await getPublicProduct(params.slug);
 
   if (!product) {
     return {
       title: `Товар не найден – ${SITE_BRAND}`,
+      robots: { index: false, follow: false },
     };
   }
 
@@ -47,21 +52,17 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 }
 
 export default async function ProductPage({ params }: Props) {
-  const product = await prisma.product.findUnique({
-    where: { slug: params.slug },
-    include: { brand: true },
-  });
-
+  const product = await getPublicProduct(params.slug);
   if (!product) notFound();
 
   const baseUrl = getPublicBaseUrl();
-
   const schema = {
     "@context": "https://schema.org",
     "@type": "Product",
     name: product.name,
-    image: product.image ? [`${product.image}`] : [],
+    image: product.image ? [product.image] : [],
     description: product.description,
+    sku: product.supplierSku || undefined,
     brand: product.brand?.name
       ? {
           "@type": "Brand",
