@@ -10,10 +10,14 @@ type Props = {
   params: { slug: string };
 };
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const brand = await prisma.brand.findUnique({
-    where: { slug: params.slug },
+async function getPublicBrand(slug: string) {
+  return prisma.brand.findFirst({
+    where: { slug, isActive: true },
   });
+}
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const brand = await getPublicBrand(params.slug);
 
   if (!brand) {
     return { title: `Бренд не найден – ${SITE_BRAND}` };
@@ -30,37 +34,33 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       `${brand.name} Казахстан`,
     ],
     alternates: {
-      canonical: `${baseUrl}/brands/${brand.slug}`,
+      canonical: `${baseUrl}/brand/${brand.slug}`,
     },
     openGraph: {
-      title: `${brand.name}`,
+      title: brand.name,
       description: `Косметика ${brand.name}`,
-      url: `${baseUrl}/brands/${brand.slug}`,
+      url: `${baseUrl}/brand/${brand.slug}`,
       type: "website",
     },
   };
 }
 
 export default async function BrandPage({ params }: Props) {
-  const brand = await prisma.brand.findUnique({
-    where: { slug: params.slug },
-  });
-
+  const brand = await getPublicBrand(params.slug);
   if (!brand) notFound();
 
   const products = await prisma.product.findMany({
-    where: { brandId: brand.id },
+    where: { brandId: brand.id, isPublished: true },
     include: { brand: true },
     orderBy: { createdAt: "desc" },
   });
 
   const baseUrl = getPublicBaseUrl();
-
   const schema = {
     "@context": "https://schema.org",
     "@type": "Brand",
     name: brand.name,
-    url: `${baseUrl}/brands/${brand.slug}`,
+    url: `${baseUrl}/brand/${brand.slug}`,
   };
 
   return (
@@ -77,8 +77,8 @@ export default async function BrandPage({ params }: Props) {
           <div className="text-gray-500">Товары отсутствуют</div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {products.map((p) => (
-              <ProductCard key={p.id} product={p} />
+            {products.map((product) => (
+              <ProductCard key={product.id} product={product} />
             ))}
           </div>
         )}
