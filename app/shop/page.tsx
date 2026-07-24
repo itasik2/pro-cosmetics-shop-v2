@@ -12,12 +12,40 @@ export const dynamic = "force-dynamic";
 type Props = {
   searchParams?: {
     brand?: string;
-    category?: string
+    category?: string;
     sort?: string;
     fav?: string;
     instock?: string;
   };
 };
+
+type CategoryOption = {
+  slug: string;
+  label: string;
+  searchTerms: string[];
+};
+
+const CATEGORY_OPTIONS: CategoryOption[] = [
+  {
+    slug: "kremy",
+    label: "Кремы",
+    searchTerms: ["крем", "флюид"],
+  },
+  {
+    slug: "syvorotki",
+    label: "Сыворотки",
+    searchTerms: ["сыворотка"],
+  },
+  {
+    slug: "toniki",
+    label: "Тоники",
+    searchTerms: ["тоник", "тонер", "лосьон"],
+  },
+];
+
+function findCategory(slug: string) {
+  return CATEGORY_OPTIONS.find((item) => item.slug === slug) ?? null;
+}
 
 /* ===========================
    SEO: ДИНАМИЧЕСКИЕ МЕТАДАННЫЕ
@@ -34,66 +62,62 @@ export async function generateMetadata({ searchParams }: Props) {
   });
 
   const selectedBrand = brandSlug
-    ? brands.find((b) => b.slug === brandSlug) || null
+    ? brands.find((brand) => brand.slug === brandSlug) || null
     : null;
+  const selectedCategory = findCategory(categorySlug);
 
-  const brandNames = brands.map((b) => b.name).slice(0, 6).join(", ");
-
+  const brandNames = brands.map((brand) => brand.name).slice(0, 6).join(", ");
   const baseUrl = getPublicBaseUrl();
-  const brandIntentKeywords = buildBrandIntentKeywords(brands, ["крем", "тоник", "сыворотка"]);
+  const brandIntentKeywords = buildBrandIntentKeywords(brands, [
+    "крем",
+    "тоник",
+    "сыворотка",
+  ]);
 
-  // если бренд + категория
-if (selectedBrand && categorySlug) {
-  return {
-    title: `${selectedBrand.name} ${categorySlug} – купить в Казахстане | ${SITE_BRAND}`,
-    description: `${categorySlug} ${selectedBrand.name}. Профессиональная косметика с доставкой.`,
-    alternates: {
-      canonical: `${baseUrl}/shop?brand=${selectedBrand.slug}&category=${categorySlug}`,
-    },
-  };
-}
+  if (selectedBrand && selectedCategory) {
+    return {
+      title: `${selectedBrand.name}: ${selectedCategory.label.toLowerCase()} – купить в Казахстане | ${SITE_BRAND}`,
+      description: `${selectedCategory.label} ${selectedBrand.name}. Профессиональная косметика с доставкой по Казахстану.`,
+      alternates: {
+        canonical: `${baseUrl}/shop?brand=${selectedBrand.slug}&category=${selectedCategory.slug}`,
+      },
+    };
+  }
 
-// только категория
-if (categorySlug) {
-  return {
-    title: `${categorySlug} – купить в Казахстане | ${SITE_BRAND}`,
-    description: `Категория ${categorySlug}. Профессиональная косметика.`,
-    alternates: {
-      canonical: `${baseUrl}/shop?category=${categorySlug}`,
-    },
-  };
-}
+  if (selectedCategory) {
+    return {
+      title: `${selectedCategory.label} – купить в Казахстане | ${SITE_BRAND}`,
+      description: `${selectedCategory.label} профессиональных косметических брендов с доставкой по Казахстану.`,
+      alternates: {
+        canonical: `${baseUrl}/shop?category=${selectedCategory.slug}`,
+      },
+    };
+  }
 
-// только бренд
-if (selectedBrand) {
-  return {
-    title: `${selectedBrand.name} – купить в Казахстане | ${SITE_BRAND}`,
-    description: `Каталог ${selectedBrand.name}.`,
-    alternates: {
-      canonical: `${baseUrl}/shop?brand=${selectedBrand.slug}`,
-    },
-  };
-}
- 
+  if (selectedBrand) {
+    return {
+      title: `${selectedBrand.name} – купить в Казахстане | ${SITE_BRAND}`,
+      description: `Каталог профессиональной косметики ${selectedBrand.name}.`,
+      alternates: {
+        canonical: `${baseUrl}/shop?brand=${selectedBrand.slug}`,
+      },
+    };
+  }
 
   return {
     title: `Профессиональная косметика – каталог брендов | ${SITE_BRAND}`,
     description: `Каталог профессиональной косметики: ${brandNames}. Доставка по Казахстану. Оригинальная продукция и честные составы.`,
-    keywords: [
-      "каталог косметики",
-      "купить косметику",
-      ...brandIntentKeywords,
-    ],
+    keywords: ["каталог косметики", "купить косметику", ...brandIntentKeywords],
     alternates: {
       canonical: `${baseUrl}/shop`,
     },
+    robots: sort || categorySlug || brandSlug ? { index: false, follow: true } : undefined,
   };
 }
 
 /* ===========================
    ТИП VARIANT
 =========================== */
-
 type Variant = {
   id: string;
   label: string;
@@ -102,46 +126,43 @@ type Variant = {
   sku?: string;
 };
 
-function toVariants(v: unknown): Variant[] | null {
-  if (!Array.isArray(v)) return null;
+function toVariants(value: unknown): Variant[] | null {
+  if (!Array.isArray(value)) return null;
 
-  const out: Variant[] = [];
+  const variants: Variant[] = [];
 
-  for (const item of v) {
+  for (const item of value) {
     if (!item || typeof item !== "object") continue;
 
-    const obj = item as any;
-
-    const id = typeof obj.id === "string" ? obj.id : null;
-    const label = typeof obj.label === "string" ? obj.label : null;
-
+    const object = item as Record<string, unknown>;
+    const id = typeof object.id === "string" ? object.id : null;
+    const label = typeof object.label === "string" ? object.label : null;
     const price =
-      typeof obj.price === "number" ? obj.price : Number(obj.price);
-
+      typeof object.price === "number" ? object.price : Number(object.price);
     const stock =
-      typeof obj.stock === "number" ? obj.stock : Number(obj.stock);
+      typeof object.stock === "number" ? object.stock : Number(object.stock);
 
     if (!id || !label) continue;
     if (!Number.isFinite(price) || !Number.isFinite(stock)) continue;
 
-    out.push({
+    variants.push({
       id,
       label,
       price: Math.max(0, Math.trunc(price)),
       stock: Math.max(0, Math.trunc(stock)),
-      sku: typeof obj.sku === "string" ? obj.sku : undefined,
+      sku: typeof object.sku === "string" ? object.sku : undefined,
     });
   }
 
-  return out.length ? out : null;
+  return variants.length ? variants : null;
 }
 
 /* ===========================
    СТРАНИЦА КАТАЛОГА
 =========================== */
-
 export default async function ShopPage({ searchParams }: Props) {
   const brandSlug = (searchParams?.brand || "").trim();
+  const categorySlug = (searchParams?.category || "").trim();
   const sort = (searchParams?.sort || "").trim();
   const fav = (searchParams?.fav || "").trim();
   const instock = (searchParams?.instock || "").trim();
@@ -153,32 +174,39 @@ export default async function ShopPage({ searchParams }: Props) {
   });
 
   const selectedBrand = brandSlug
-    ? brands.find((b) => b.slug === brandSlug) || null
+    ? brands.find((brand) => brand.slug === brandSlug) || null
     : null;
+  const selectedCategory = findCategory(categorySlug);
 
-  const whereBase: any = {};
+  const whereBase: Record<string, unknown> = {};
+  const andConditions: Record<string, unknown>[] = [];
 
   if (selectedBrand) {
     whereBase.brandId = selectedBrand.id;
   }
 
-  if (categorySlug) {
-  const categoryName = categorySlug.replace(/-/g, " ");
-
-  whereBase.category = {
-    contains: categoryName,
-    mode: "insensitive",
-  };
-}
+  if (selectedCategory) {
+    andConditions.push({
+      OR: selectedCategory.searchTerms.map((term) => ({
+        category: {
+          contains: term,
+          mode: "insensitive",
+        },
+      })),
+    });
+  }
 
   if (sort === "new") {
-    const DAYS = 14;
-    const from = new Date(Date.now() - DAYS * 24 * 60 * 60 * 1000);
+    const days = 14;
+    const from = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-    whereBase.OR = [
-      { isNew: true },
-      { createdAt: { gte: from } },
-    ];
+    andConditions.push({
+      OR: [{ isNew: true }, { createdAt: { gte: from } }],
+    });
+  }
+
+  if (andConditions.length) {
+    whereBase.AND = andConditions;
   }
 
   if (instock === "1") {
@@ -189,31 +217,31 @@ export default async function ShopPage({ searchParams }: Props) {
     sort === "price_asc"
       ? [{ price: "asc" as const }, { createdAt: "desc" as const }]
       : sort === "price_desc"
-      ? [{ price: "desc" as const }, { createdAt: "desc" as const }]
-      : [{ createdAt: "desc" as const }];
+        ? [{ price: "desc" as const }, { createdAt: "desc" as const }]
+        : [{ createdAt: "desc" as const }];
 
   const products = await prisma.product.findMany({
     where: Object.keys(whereBase).length ? whereBase : undefined,
     orderBy,
-   select: {
-  id: true,
-  slug: true,
-  name: true,
-  image: true,
-  price: true,
-  stock: true,
-  isPopular: true,
-  isNew: true,
-  createdAt: true,
-  category: true,
-  brand: { select: { name: true } },
-  variants: true,
-},
+    select: {
+      id: true,
+      slug: true,
+      name: true,
+      image: true,
+      price: true,
+      stock: true,
+      isPopular: true,
+      isNew: true,
+      createdAt: true,
+      category: true,
+      brand: { select: { name: true } },
+      variants: true,
+    },
   });
 
-  const productsForClient = products.map((p) => ({
-    ...p,
-    variants: toVariants((p as any).variants),
+  const productsForClient = products.map((product) => ({
+    ...product,
+    variants: toVariants(product.variants),
   }));
 
   return (
@@ -221,10 +249,8 @@ export default async function ShopPage({ searchParams }: Props) {
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
           <h2 className="text-2xl font-bold">Каталог</h2>
-          <div className="text-sm text-gray-500 mt-1">
-            {selectedBrand
-              ? `Бренд: ${selectedBrand.name}`
-              : "Все бренды"}{" "}
+          <div className="mt-1 text-sm text-gray-500">
+            {selectedBrand ? `Бренд: ${selectedBrand.name}` : "Все бренды"}{" "}
             • {productsForClient.length} поз.
           </div>
         </div>
@@ -232,6 +258,7 @@ export default async function ShopPage({ searchParams }: Props) {
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <SortLink
             currentBrand={brandSlug}
+            currentCategory={categorySlug}
             currentSort={sort}
             currentFav={fav}
             currentInStock={instock}
@@ -242,6 +269,7 @@ export default async function ShopPage({ searchParams }: Props) {
 
           <SortLink
             currentBrand={brandSlug}
+            currentCategory={categorySlug}
             currentSort={sort}
             currentFav={fav}
             currentInStock={instock}
@@ -252,6 +280,7 @@ export default async function ShopPage({ searchParams }: Props) {
 
           <SortLink
             currentBrand={brandSlug}
+            currentCategory={categorySlug}
             currentSort={sort}
             currentFav={fav}
             currentInStock={instock}
@@ -270,31 +299,38 @@ export default async function ShopPage({ searchParams }: Props) {
           isActive={!brandSlug}
           href={buildHref("", categorySlug, sort, fav, instock)}
         >
-          Все
+          Все бренды
         </BrandLink>
 
-        {brands.map((b) => (
+        {brands.map((brand) => (
           <BrandLink
-            key={b.id}
-            isActive={b.slug === brandSlug}
-            href={buildHref(b.slug, categorySlug, sort, fav, instock)}
+            key={brand.id}
+            isActive={brand.slug === brandSlug}
+            href={buildHref(brand.slug, categorySlug, sort, fav, instock)}
           >
-            {b.name}
+            {brand.name}
           </BrandLink>
         ))}
       </div>
 
       <div className="flex flex-wrap gap-2">
-  {["kremy", "syvorotki", "toniki"].map((cat) => (
-    <BrandLink
-      key={cat}
-      isActive={categorySlug === cat}
-      href={buildHref(brandSlug, cat, sort, fav, instock)}
-    >
-      {cat}
-    </BrandLink>
-  ))}
-</div>
+        <BrandLink
+          isActive={!categorySlug}
+          href={buildHref(brandSlug, "", sort, fav, instock)}
+        >
+          Все категории
+        </BrandLink>
+
+        {CATEGORY_OPTIONS.map((category) => (
+          <BrandLink
+            key={category.slug}
+            isActive={categorySlug === category.slug}
+            href={buildHref(brandSlug, category.slug, sort, fav, instock)}
+          >
+            {category.label}
+          </BrandLink>
+        ))}
+      </div>
 
       <ShopGridClient products={productsForClient} />
     </div>
@@ -304,13 +340,12 @@ export default async function ShopPage({ searchParams }: Props) {
 /* ===========================
    ВСПОМОГАТЕЛЬНЫЕ КОМПОНЕНТЫ
 =========================== */
-
 function buildHref(
   brandSlug: string,
   categorySlug: string,
   sort: string,
   fav: string,
-  instock: string
+  instock: string,
 ) {
   const params = new URLSearchParams();
 
@@ -320,8 +355,8 @@ function buildHref(
   if (fav === "1") params.set("fav", "1");
   if (instock === "1") params.set("instock", "1");
 
-  const qs = params.toString();
-  return qs ? `/shop?${qs}` : "/shop";
+  const query = params.toString();
+  return query ? `/shop?${query}` : "/shop";
 }
 
 function BrandLink({
@@ -337,9 +372,9 @@ function BrandLink({
     <Link
       href={href}
       className={
-        "px-3 py-1 rounded-full text-sm border " +
+        "rounded-full border px-3 py-1 text-sm " +
         (isActive
-          ? "bg-black text-white border-black"
+          ? "border-black bg-black text-white"
           : "bg-white text-gray-700 hover:bg-gray-50")
       }
     >
@@ -350,6 +385,7 @@ function BrandLink({
 
 function SortLink({
   currentBrand,
+  currentCategory,
   currentSort,
   currentFav,
   currentInStock,
@@ -357,6 +393,7 @@ function SortLink({
   children,
 }: {
   currentBrand: string;
+  currentCategory: string;
   currentSort: string;
   currentFav: string;
   currentInStock: string;
@@ -364,22 +401,23 @@ function SortLink({
   children: React.ReactNode;
 }) {
   const isActive = currentSort === value;
-  const nextSort = value === "new" ? (isActive ? "" : "new") : value;
+  const nextSort = isActive ? "" : value;
 
   const href = buildHref(
     currentBrand,
+    currentCategory,
     nextSort,
     currentFav,
-    currentInStock
+    currentInStock,
   );
 
   return (
     <Link
       href={href}
       className={
-        "px-3 py-1 rounded-full text-sm border " +
+        "rounded-full border px-3 py-1 text-sm " +
         (isActive
-          ? "bg-black text-white border-black"
+          ? "border-black bg-black text-white"
           : "bg-white text-gray-700 hover:bg-gray-50")
       }
     >
