@@ -1,7 +1,7 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-import { ImportRowAction } from "@prisma/client";
+import { ImportRowAction, PriceImportStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/adminGuard";
@@ -71,4 +71,30 @@ export async function PATCH(req: Request, { params }: Params) {
 
   const priceImport = await readImport(params.id);
   return NextResponse.json(priceImport);
+}
+
+export async function DELETE(_req: Request, { params }: Params) {
+  const forbidden = await requireAdmin();
+  if (forbidden) return forbidden;
+
+  const priceImport = await prisma.priceImport.findUnique({
+    where: { id: params.id },
+    select: { id: true, status: true, fileName: true },
+  });
+
+  if (!priceImport) {
+    return NextResponse.json({ error: "import_not_found" }, { status: 404 });
+  }
+  if (priceImport.status === PriceImportStatus.APPLIED) {
+    return NextResponse.json(
+      {
+        error: "applied_import_cannot_be_deleted",
+        message: "Применённый импорт хранится как журнал изменений товаров и цен.",
+      },
+      { status: 409 },
+    );
+  }
+
+  await prisma.priceImport.delete({ where: { id: priceImport.id } });
+  return NextResponse.json({ ok: true, fileName: priceImport.fileName });
 }
