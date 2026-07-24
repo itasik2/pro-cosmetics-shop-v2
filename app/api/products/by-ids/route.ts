@@ -15,7 +15,10 @@ export async function POST(req: Request) {
   const uniqueIds = Array.from(new Set(ids)).slice(0, 100);
 
   const rows = await prisma.product.findMany({
-    where: { id: { in: uniqueIds } },
+    where: {
+      id: { in: uniqueIds },
+      isPublished: true,
+    },
     select: {
       id: true,
       slug: true,
@@ -24,13 +27,15 @@ export async function POST(req: Request) {
       price: true,
       stock: true,
       category: true,
-      variants: true, // <-- ДОБАВЛЕНО
+      variants: true,
       brand: { select: { name: true } },
     },
   });
 
-  const map = new Map(rows.map((p) => [p.id, p]));
-  const ordered = uniqueIds.map((id) => map.get(id)).filter(Boolean);
+  const map = new Map(rows.map((product) => [product.id, product]));
+  const ordered = uniqueIds
+    .map((id) => map.get(id))
+    .filter((product): product is NonNullable<typeof product> => Boolean(product));
 
   return NextResponse.json({ products: ordered });
 }

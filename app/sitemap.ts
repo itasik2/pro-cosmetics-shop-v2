@@ -3,14 +3,9 @@ import type { MetadataRoute } from "next";
 import { prisma } from "@/lib/prisma";
 import { getPublicBaseUrl } from "@/lib/siteConfig";
 
-function getBaseUrl() {
-  return getPublicBaseUrl();
-}
-
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const baseUrl = getBaseUrl();
+  const baseUrl = getPublicBaseUrl();
 
-  // Статические страницы
   const staticRoutes: MetadataRoute.Sitemap = [
     "",
     "/shop",
@@ -25,43 +20,43 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: path === "" ? 1 : 0.7,
   }));
 
-  // Динамические товары
   const products = await prisma.product.findMany({
-  select: { slug: true, updatedAt: true },
-});
+    where: { isPublished: true },
+    select: { slug: true, updatedAt: true },
+  });
 
-  const productRoutes: MetadataRoute.Sitemap = products.map((p) => ({
-    url: `${baseUrl}/shop/${p.slug}`,
-    lastModified: p.updatedAt || new Date(),
+  const productRoutes: MetadataRoute.Sitemap = products.map((product) => ({
+    url: `${baseUrl}/shop/${product.slug}`,
+    lastModified: product.updatedAt,
     changeFrequency: "weekly",
     priority: 0.8,
   }));
 
-  // Динамические посты блога
   const posts = await prisma.post.findMany({
     select: { slug: true, updatedAt: true },
   });
 
-  const postRoutes: MetadataRoute.Sitemap = posts.map((p) => ({
-    url: `${baseUrl}/blog/${p.slug}`,
-    lastModified: p.updatedAt || new Date(),
+  const postRoutes: MetadataRoute.Sitemap = posts.map((post) => ({
+    url: `${baseUrl}/blog/${post.slug}`,
+    lastModified: post.updatedAt,
     changeFrequency: "weekly",
     priority: 0.6,
   }));
 
-  // Можно позже добавить другие динамические сущности (категории и т.п.)
-
   const brands = await prisma.brand.findMany({
-  where: { isActive: true },
-  select: { slug: true, updatedAt: true },
-});
+    where: {
+      isActive: true,
+      products: { some: { isPublished: true } },
+    },
+    select: { slug: true, updatedAt: true },
+  });
 
-const brandRoutes: MetadataRoute.Sitemap = brands.map((b) => ({
-  url: `${baseUrl}/brand/${b.slug}`,
-  lastModified: b.updatedAt || new Date(),
-  changeFrequency: "weekly",
-  priority: 0.8,
-}));
+  const brandRoutes: MetadataRoute.Sitemap = brands.map((brand) => ({
+    url: `${baseUrl}/brand/${brand.slug}`,
+    lastModified: brand.updatedAt,
+    changeFrequency: "weekly",
+    priority: 0.8,
+  }));
 
   return [...staticRoutes, ...productRoutes, ...postRoutes, ...brandRoutes];
 }

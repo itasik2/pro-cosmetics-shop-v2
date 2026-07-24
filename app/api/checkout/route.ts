@@ -2,6 +2,7 @@
 export const runtime = "nodejs";
 export const revalidate = 0;
 
+import type { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { buildOrderFromCart, makeOrderNumber } from "@/lib/order";
@@ -26,26 +27,35 @@ const CheckoutSchema = z.object({
     .min(1),
 });
 
-function asArrayVariants(v: unknown): any[] {
-  return Array.isArray(v) ? v : [];
+function asArrayVariants(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value)
+    ? value.filter(
+        (item): item is Record<string, unknown> =>
+          Boolean(item) && typeof item === "object",
+      )
+    : [];
 }
 
 export async function POST(req: Request) {
   const ip = getClientIp(req);
   if (ip) {
-    const rl = checkRateLimit(`checkout:${ip}`, 8, 60_000);
-    if (!rl.ok) {
+    const rateLimit = checkRateLimit(`checkout:${ip}`, 8, 60_000);
+    if (!rateLimit.ok) {
       return NextResponse.json(
-        { error: "too_many_requests", message: "Слишком много запросов. Попробуйте позже." },
-        { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
+        {
+          error: "too_many_requests",
+          message: "Слишком много запросов. Попробуйте позже.",
+        },
+        {
+          status: 429,
+          headers: { "Retry-After": String(rateLimit.retryAfterSec) },
+        },
       );
     }
   }
 
   try {
-    const json = await req.json().catch(() => ({}));
-    const data = CheckoutSchema.parse(json);
-
+    const data = CheckoutSchema.parse(await req.json().catch(() => ({})));
     const address =
       data.deliveryType === "delivery" ? String(data.address || "").trim() : "";
 
@@ -56,23 +66,28 @@ export async function POST(req: Request) {
       );
     }
 
-    // Серверный пересчёт корзины (цены/qty/доступность)
     const built = await buildOrderFromCart(data.cart);
     if (built.error) {
       return NextResponse.json(
-        { error: built.error, message: "Корзина пуста или товары недоступны" },
+        {
+          error: built.error,
+          message: "Корзина пуста или товары недоступны",
+        },
         { status: 400 },
       );
     }
 
     const orderNumber = makeOrderNumber();
-
     const created = await prisma.$transaction(async (tx) => {
-      // Перечитать товары в рамках транзакции (для актуальных остатков)
-      const productIds = Array.from(new Set(built.items.map((x) => x.productId)));
+      const productIds = Array.from(
+        new Set(built.items.map((item) => item.productId)),
+      );
 
       const products = await tx.product.findMany({
-        where: { id: { in: productIds } },
+        where: {
+          id: { in: productIds },
+          isPublished: true,
+        },
         select: {
           id: true,
           stock: true,
@@ -80,89 +95,94 @@ export async function POST(req: Request) {
         },
       });
 
-      const map = new Map(products.map((p) => [p.id, p]));
+      const productMap = new Map(
+        products.map((product) => [product.id, product]),
+      );
 
-      // 1) Проверка остатков
-      for (const it of built.items) {
-        const p = map.get(it.productId);
-        if (!p) throw new Error("product_missing");
+      for (const item of built.items) {
+        const product = productMap.get(item.productId);
+        if (!product) throw new Error("product_missing");
 
-        if (!it.variantId) {
-          if ((p.stock ?? 0) < it.qty) throw new Error("out_of_stock");
-        } else {
-          const variants = asArrayVariants(p.variants);
-          const idx = variants.findIndex((v) => String(v?.id ?? "") === it.variantId);
-          if (idx < 0) throw new Error("variant_missing");
-          const vStock = Math.trunc(Number(variants[idx]?.stock) || 0);
-          if (vStock < it.qty) throw new Error("out_of_stock");
+        if (!item.variantId) {
+          if (product.stock < item.qty) throw new Error("out_of_stock");
+          continue;
         }
+
+        const variants = asArrayVariants(product.variants);
+        const variant = variants.find(
+          (row) => String(row.id ?? "") === item.variantId,
+        );
+        if (!variant) throw new Error("variant_missing");
+
+        const variantStock = Math.trunc(Number(variant.stock) || 0);
+        if (variantStock < item.qty) throw new Error("out_of_stock");
       }
 
-      // 2) Списание остатков
-      // base: атомарно decrement
-      // variant: обновление JSON (MVP)
-      for (const it of built.items) {
-        const p = map.get(it.productId)!;
+      for (const item of built.items) {
+        const product = productMap.get(item.productId);
+        if (!product) throw new Error("product_missing");
 
-        if (!it.variantId) {
+        if (!item.variantId) {
           await tx.product.update({
-            where: { id: it.productId },
-            data: { stock: { decrement: it.qty } },
+            where: { id: item.productId },
+            data: { stock: { decrement: item.qty } },
           });
-        } else {
-          const variants = asArrayVariants(p.variants);
-          const idx = variants.findIndex((v) => String(v?.id ?? "") === it.variantId);
-          if (idx < 0) throw new Error("variant_missing");
-
-          const current = variants[idx] ?? {};
-          const nextStock = Math.trunc(Number(current.stock) || 0) - it.qty;
-
-          const nextVariants = [...variants];
-          nextVariants[idx] = { ...current, stock: nextStock };
-
-          await tx.product.update({
-            where: { id: it.productId },
-            data: { variants: nextVariants as any },
-          });
-
-          // чтобы повторные списания в одной транзакции (если вдруг дубль) были консистентны
-          map.set(it.productId, { ...p, variants: nextVariants } as any);
+          continue;
         }
+
+        const variants = asArrayVariants(product.variants);
+        const index = variants.findIndex(
+          (row) => String(row.id ?? "") === item.variantId,
+        );
+        if (index < 0) throw new Error("variant_missing");
+
+        const current = variants[index] || {};
+        const nextStock = Math.trunc(Number(current.stock) || 0) - item.qty;
+        const nextVariants = [...variants];
+        nextVariants[index] = { ...current, stock: nextStock };
+
+        await tx.product.update({
+          where: { id: item.productId },
+          data: {
+            variants: nextVariants as unknown as Prisma.InputJsonValue,
+          },
+        });
+
+        productMap.set(item.productId, {
+          ...product,
+          variants: nextVariants as unknown as Prisma.JsonValue,
+        });
       }
 
-      // 3) Создание заказа
-      const order = await tx.order.create({
+      return tx.order.create({
         data: {
           orderNumber,
           customerName: data.customerName.trim(),
           phone: data.phone.trim(),
-          email: data.email ? String(data.email).trim() : null,
+          email: data.email ? data.email.trim() : null,
           deliveryType: data.deliveryType,
           address: address || null,
-          comment: data.comment ? String(data.comment).trim() : null,
+          comment: data.comment ? data.comment.trim() : null,
           currency: "KZT",
           totalAmount: built.total,
           status: "NEW",
           items: {
-            create: built.items.map((it) => ({
-              productId: it.productId,
-              variantId: it.variantId,
-              title: it.title,
-              unitPrice: it.unitPrice,
-              qty: it.qty,
-              lineTotal: it.lineTotal,
-              image: it.image ?? null,
-              sku: it.sku ?? null,
+            create: built.items.map((item) => ({
+              productId: item.productId,
+              variantId: item.variantId,
+              title: item.title,
+              unitPrice: item.unitPrice,
+              qty: item.qty,
+              lineTotal: item.lineTotal,
+              image: item.image ?? null,
+              sku: item.sku ?? null,
             })),
           },
         },
         select: { id: true, orderNumber: true, totalAmount: true },
       });
-
-      return order;
     });
 
-    // уведомление админу (после успешной транзакции)
     await notifyAdminNewOrder({
       orderNumber: created.orderNumber,
       totalAmount: created.totalAmount,
@@ -173,32 +193,42 @@ export async function POST(req: Request) {
     });
 
     return NextResponse.json(
-      { ok: true, orderId: created.id, orderNumber: created.orderNumber },
+      {
+        ok: true,
+        orderId: created.id,
+        orderNumber: created.orderNumber,
+      },
       { status: 200 },
     );
-  } catch (e: any) {
-    if (e?.name === "ZodError") {
+  } catch (error: any) {
+    if (error?.name === "ZodError") {
       return NextResponse.json(
-        { error: "validation_error", issues: e.issues },
+        { error: "validation_error", issues: error.issues },
         { status: 400 },
       );
     }
 
-    const msg = String(e?.message || "");
-    if (msg === "out_of_stock") {
+    const message = String(error?.message || "");
+    if (message === "out_of_stock") {
       return NextResponse.json(
-        { error: "out_of_stock", message: "Не хватает товара на складе. Обновите корзину." },
+        {
+          error: "out_of_stock",
+          message: "Не хватает товара на складе. Обновите корзину.",
+        },
         { status: 409 },
       );
     }
-    if (msg === "variant_missing" || msg === "product_missing") {
+    if (message === "variant_missing" || message === "product_missing") {
       return NextResponse.json(
-        { error: "not_available", message: "Часть товаров недоступна. Обновите корзину." },
+        {
+          error: "not_available",
+          message: "Часть товаров недоступна. Обновите корзину.",
+        },
         { status: 409 },
       );
     }
 
-    console.error("CHECKOUT CREATE ORDER ERROR:", msg || e);
+    console.error("CHECKOUT CREATE ORDER ERROR:", message || error);
     return NextResponse.json({ error: "server_error" }, { status: 500 });
   }
 }

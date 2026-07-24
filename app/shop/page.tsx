@@ -1,4 +1,5 @@
 // app/shop/page.tsx
+import type { Prisma } from "@prisma/client";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import ShopGridClient from "@/components/ShopGridClient";
@@ -47,9 +48,6 @@ function findCategory(slug: string) {
   return CATEGORY_OPTIONS.find((item) => item.slug === slug) ?? null;
 }
 
-/* ===========================
-   SEO: ДИНАМИЧЕСКИЕ МЕТАДАННЫЕ
-=========================== */
 export async function generateMetadata({ searchParams }: Props) {
   const brandSlug = (searchParams?.brand || "").trim();
   const categorySlug = (searchParams?.category || "").trim();
@@ -81,6 +79,7 @@ export async function generateMetadata({ searchParams }: Props) {
       alternates: {
         canonical: `${baseUrl}/shop?brand=${selectedBrand.slug}&category=${selectedCategory.slug}`,
       },
+      robots: { index: false, follow: true },
     };
   }
 
@@ -91,6 +90,7 @@ export async function generateMetadata({ searchParams }: Props) {
       alternates: {
         canonical: `${baseUrl}/shop?category=${selectedCategory.slug}`,
       },
+      robots: { index: false, follow: true },
     };
   }
 
@@ -101,6 +101,7 @@ export async function generateMetadata({ searchParams }: Props) {
       alternates: {
         canonical: `${baseUrl}/shop?brand=${selectedBrand.slug}`,
       },
+      robots: { index: false, follow: true },
     };
   }
 
@@ -111,26 +112,23 @@ export async function generateMetadata({ searchParams }: Props) {
     alternates: {
       canonical: `${baseUrl}/shop`,
     },
-    robots: sort || categorySlug || brandSlug ? { index: false, follow: true } : undefined,
+    robots: sort ? { index: false, follow: true } : undefined,
   };
 }
 
-/* ===========================
-   ТИП VARIANT
-=========================== */
 type Variant = {
   id: string;
   label: string;
   price: number;
   stock: number;
   sku?: string;
+  image?: string;
 };
 
 function toVariants(value: unknown): Variant[] | null {
   if (!Array.isArray(value)) return null;
 
   const variants: Variant[] = [];
-
   for (const item of value) {
     if (!item || typeof item !== "object") continue;
 
@@ -151,15 +149,13 @@ function toVariants(value: unknown): Variant[] | null {
       price: Math.max(0, Math.trunc(price)),
       stock: Math.max(0, Math.trunc(stock)),
       sku: typeof object.sku === "string" ? object.sku : undefined,
+      image: typeof object.image === "string" ? object.image : undefined,
     });
   }
 
   return variants.length ? variants : null;
 }
 
-/* ===========================
-   СТРАНИЦА КАТАЛОГА
-=========================== */
 export default async function ShopPage({ searchParams }: Props) {
   const brandSlug = (searchParams?.brand || "").trim();
   const categorySlug = (searchParams?.category || "").trim();
@@ -168,7 +164,10 @@ export default async function ShopPage({ searchParams }: Props) {
   const instock = (searchParams?.instock || "").trim();
 
   const brands = await prisma.brand.findMany({
-    where: { isActive: true },
+    where: {
+      isActive: true,
+      products: { some: { isPublished: true } },
+    },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
     select: { id: true, name: true, slug: true },
   });
@@ -178,13 +177,7 @@ export default async function ShopPage({ searchParams }: Props) {
     : null;
   const selectedCategory = findCategory(categorySlug);
 
-  const whereBase: Record<string, unknown> = {};
-  const andConditions: Record<string, unknown>[] = [];
-
-  if (selectedBrand) {
-    whereBase.brandId = selectedBrand.id;
-  }
-
+  const andConditions: Prisma.ProductWhereInput[] = [];
   if (selectedCategory) {
     andConditions.push({
       OR: selectedCategory.searchTerms.map((term) => ({
@@ -199,29 +192,27 @@ export default async function ShopPage({ searchParams }: Props) {
   if (sort === "new") {
     const days = 14;
     const from = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-
     andConditions.push({
       OR: [{ isNew: true }, { createdAt: { gte: from } }],
     });
   }
 
-  if (andConditions.length) {
-    whereBase.AND = andConditions;
-  }
+  const where: Prisma.ProductWhereInput = {
+    isPublished: true,
+    ...(selectedBrand ? { brandId: selectedBrand.id } : {}),
+    ...(instock === "1" ? { stock: { gt: 0 } } : {}),
+    ...(andConditions.length ? { AND: andConditions } : {}),
+  };
 
-  if (instock === "1") {
-    whereBase.stock = { gt: 0 };
-  }
-
-  const orderBy =
+  const orderBy: Prisma.ProductOrderByWithRelationInput[] =
     sort === "price_asc"
-      ? [{ price: "asc" as const }, { createdAt: "desc" as const }]
+      ? [{ price: "asc" }, { createdAt: "desc" }]
       : sort === "price_desc"
-        ? [{ price: "desc" as const }, { createdAt: "desc" as const }]
-        : [{ createdAt: "desc" as const }];
+        ? [{ price: "desc" }, { createdAt: "desc" }]
+        : [{ createdAt: "desc" }];
 
   const products = await prisma.product.findMany({
-    where: Object.keys(whereBase).length ? whereBase : undefined,
+    where,
     orderBy,
     select: {
       id: true,
@@ -248,10 +239,10 @@ export default async function ShopPage({ searchParams }: Props) {
     <div className="space-y-6 py-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
-          <h2 className="text-2xl font-bold">Каталог</h2>
+          <h1 className="text-2xl font-bold">Каталог</h1>
           <div className="mt-1 text-sm text-gray-500">
-            {selectedBrand ? `Бренд: ${selectedBrand.name}` : "Все бренды"}{" "}
-            • {productsForClient.length} поз.
+            {selectedBrand ? `Бренд: ${selectedBrand.name}` : "Все бренды"} •{" "}
+            {productsForClient.length} поз.
           </div>
         </div>
 
@@ -266,7 +257,6 @@ export default async function ShopPage({ searchParams }: Props) {
           >
             Новинки
           </SortLink>
-
           <SortLink
             currentBrand={brandSlug}
             currentCategory={categorySlug}
@@ -277,7 +267,6 @@ export default async function ShopPage({ searchParams }: Props) {
           >
             Цена ↑
           </SortLink>
-
           <SortLink
             currentBrand={brandSlug}
             currentCategory={categorySlug}
@@ -288,47 +277,46 @@ export default async function ShopPage({ searchParams }: Props) {
           >
             Цена ↓
           </SortLink>
-
           <InStockButton />
           <FavoritesButton />
         </div>
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <BrandLink
+        <FilterLink
           isActive={!brandSlug}
           href={buildHref("", categorySlug, sort, fav, instock)}
         >
           Все бренды
-        </BrandLink>
+        </FilterLink>
 
         {brands.map((brand) => (
-          <BrandLink
+          <FilterLink
             key={brand.id}
             isActive={brand.slug === brandSlug}
             href={buildHref(brand.slug, categorySlug, sort, fav, instock)}
           >
             {brand.name}
-          </BrandLink>
+          </FilterLink>
         ))}
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <BrandLink
+        <FilterLink
           isActive={!categorySlug}
           href={buildHref(brandSlug, "", sort, fav, instock)}
         >
           Все категории
-        </BrandLink>
+        </FilterLink>
 
         {CATEGORY_OPTIONS.map((category) => (
-          <BrandLink
+          <FilterLink
             key={category.slug}
             isActive={categorySlug === category.slug}
             href={buildHref(brandSlug, category.slug, sort, fav, instock)}
           >
             {category.label}
-          </BrandLink>
+          </FilterLink>
         ))}
       </div>
 
@@ -337,9 +325,6 @@ export default async function ShopPage({ searchParams }: Props) {
   );
 }
 
-/* ===========================
-   ВСПОМОГАТЕЛЬНЫЕ КОМПОНЕНТЫ
-=========================== */
 function buildHref(
   brandSlug: string,
   categorySlug: string,
@@ -359,7 +344,7 @@ function buildHref(
   return query ? `/shop?${query}` : "/shop";
 }
 
-function BrandLink({
+function FilterLink({
   href,
   isActive,
   children,
@@ -403,17 +388,15 @@ function SortLink({
   const isActive = currentSort === value;
   const nextSort = isActive ? "" : value;
 
-  const href = buildHref(
-    currentBrand,
-    currentCategory,
-    nextSort,
-    currentFav,
-    currentInStock,
-  );
-
   return (
     <Link
-      href={href}
+      href={buildHref(
+        currentBrand,
+        currentCategory,
+        nextSort,
+        currentFav,
+        currentInStock,
+      )}
       className={
         "rounded-full border px-3 py-1 text-sm " +
         (isActive
