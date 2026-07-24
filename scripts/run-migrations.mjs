@@ -2,6 +2,29 @@
 
 import { spawnSync } from "node:child_process";
 
+function isTruthy(value) {
+  return ["1", "true", "yes", "on"].includes(String(value || "").toLowerCase());
+}
+
+function sleep(milliseconds) {
+  Atomics.wait(
+    new Int32Array(new SharedArrayBuffer(4)),
+    0,
+    0,
+    milliseconds,
+  );
+}
+
+if (
+  process.env.VERCEL_ENV === "preview" &&
+  !isTruthy(process.env.RUN_MIGRATIONS_ON_PREVIEW)
+) {
+  console.log(
+    "[migrate] Skipping database migrations for Vercel Preview. Set RUN_MIGRATIONS_ON_PREVIEW=true to override.",
+  );
+  process.exit(0);
+}
+
 const explicitCandidates = [
   ["DIRECT_URL", process.env.DIRECT_URL],
   ["DATABASE_URL_UNPOOLED", process.env.DATABASE_URL_UNPOOLED],
@@ -70,23 +93,48 @@ if (hostname.includes("-pooler")) {
   process.exit(1);
 }
 
-console.log(`[migrate] Running Prisma migrations through ${sourceName} (${hostname}).`);
+const maxAttempts = 3;
 
-const result = spawnSync(
-  process.platform === "win32" ? "npx.cmd" : "npx",
-  ["prisma", "migrate", "deploy"],
-  {
-    stdio: "inherit",
-    env: {
-      ...process.env,
-      DATABASE_URL: directUrl,
+for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+  console.log(
+    `[migrate] Running Prisma migrations through ${sourceName} (${hostname}), attempt ${attempt}/${maxAttempts}.`,
+  );
+
+  const result = spawnSync(
+    process.platform === "win32" ? "npx.cmd" : "npx",
+    ["prisma", "migrate", "deploy"],
+    {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        DATABASE_URL: directUrl,
+      },
     },
-  },
-);
+  );
 
-if (result.error) {
-  console.error(`[migrate] Failed to start Prisma: ${result.error.message}`);
-  process.exit(1);
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+
+  if (result.error) {
+    console.error(`[migrate] Failed to start Prisma: ${result.error.message}`);
+    process.exit(1);
+  }
+
+  if (result.status === 0) process.exit(0);
+
+  const output = `${result.stdout || ""}\n${result.stderr || ""}`;
+  const advisoryLockTimeout =
+    output.includes("P1002") || /advisory lock/i.test(output);
+
+  if (!advisoryLockTimeout || attempt === maxAttempts) {
+    process.exit(result.status ?? 1);
+  }
+
+  const delayMs = attempt * 15_000;
+  console.warn(
+    `[migrate] Advisory lock timeout detected. Retrying in ${delayMs / 1000} seconds.`,
+  );
+  sleep(delayMs);
 }
 
-process.exit(result.status ?? 1);
+process.exit(1);
