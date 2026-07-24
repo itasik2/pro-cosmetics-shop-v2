@@ -45,7 +45,18 @@ export async function ensureDefaultSupplierSources(input: {
   brandName?: string | null;
 }) {
   const supplierHint = normalizeHint(`${input.supplierSlug} ${input.supplierName || ""}`);
-  const brandHint = normalizeHint(input.brandName);
+  const brandNames = input.brandName
+    ? [input.brandName]
+    : (
+        await prisma.product.findMany({
+          where: { supplierId: input.supplierId, brandId: { not: null } },
+          select: { brand: { select: { name: true } } },
+          distinct: ["brandId"],
+        })
+      )
+        .map((product) => product.brand?.name || "")
+        .filter(Boolean);
+  const brandHints = brandNames.map(normalizeHint);
   const defaults: Array<{
     name: string;
     domain: string;
@@ -53,12 +64,13 @@ export async function ensureDefaultSupplierSources(input: {
     priority: number;
   }> = [];
 
-  if (
+  const hasAngiopharm =
     supplierHint.includes("angiopharm") ||
     supplierHint.includes("ангиофарм") ||
-    brandHint.includes("angiopharm") ||
-    brandHint.includes("ангиофарм")
-  ) {
+    brandHints.some(
+      (hint) => hint.includes("angiopharm") || hint.includes("ангиофарм"),
+    );
+  if (hasAngiopharm) {
     defaults.push(
       {
         name: "ANGIOPHARM Казахстан",
@@ -75,10 +87,10 @@ export async function ensureDefaultSupplierSources(input: {
     );
   }
 
-  if (
-    brandHint.includes("mesaltera") ||
-    brandHint.includes("мезальтера")
-  ) {
+  const hasMesaltera = brandHints.some(
+    (hint) => hint.includes("mesaltera") || hint.includes("мезальтера"),
+  );
+  if (hasMesaltera) {
     defaults.push({
       name: "Laboratory THOSCANE, производитель MESALTERA",
       domain: "thoscane.ru",
