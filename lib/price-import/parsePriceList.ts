@@ -1,10 +1,12 @@
 import { parseAngiopharmPdf } from "./angiopharmPdf";
 import { parseGenericPdf } from "./genericPdf";
-import type { PriceParseResult, PriceParserMode } from "./types";
+import { parseMesalteraPdf } from "./mesalteraPdf";
+import type { ParsedPriceRow, PriceParseResult, PriceParserMode } from "./types";
 
 function normalizeParserMode(value: unknown): PriceParserMode {
   const mode = String(value || "AUTO").toUpperCase();
   if (mode === "ANGIOPHARM_PDF") return "ANGIOPHARM_PDF";
+  if (mode === "MESALTERA_PDF") return "MESALTERA_PDF";
   if (mode === "GENERIC_PDF") return "GENERIC_PDF";
   return "AUTO";
 }
@@ -14,6 +16,14 @@ function normalizeHint(value: string) {
     .toLocaleLowerCase("ru-RU")
     .replace(/ё/g, "е")
     .replace(/[^a-zа-я0-9]+/g, "");
+}
+
+function normalizeText(value: string) {
+  return value
+    .toLocaleLowerCase("ru-RU")
+    .replace(/ё/g, "е")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function isAngiopharmHint(fileName: string, defaultBrand: string) {
@@ -26,6 +36,55 @@ function isAngiopharmHint(fileName: string, defaultBrand: string) {
     brandHint === "angiopharm" ||
     brandHint === "ангиофарм"
   );
+}
+
+function isMesalteraHint(fileName: string, defaultBrand: string) {
+  const fileHint = normalizeHint(fileName);
+  const brandHint = normalizeHint(defaultBrand);
+
+  return (
+    fileHint.includes("mesaltera") ||
+    fileHint.includes("мезальтера") ||
+    brandHint === "mesaltera" ||
+    brandHint === "мезальтера"
+  );
+}
+
+const MESALTERA_CATEGORIES = new Map(
+  [
+    "Профессиональный уход для всех типов кожи",
+    "Солнцезащитные средства",
+    "Эксперт-гели для аппаратной косметологии и самостоятельного применения",
+    "Уход за проблемной и жирной кожей",
+    "Омолаживающий уход",
+    "Уход за чувствительной и раздраженной кожей",
+    "Уход за сухой обезвоженной кожей",
+    "Мультикислотные пилинги",
+    "Аксессуары",
+  ].map((label) => [normalizeText(label), label]),
+);
+
+function sanitizeMesalteraRows(rows: ParsedPriceRow[]) {
+  const seen = new Set<string>();
+  let currentCategory = "Mesaltera";
+  const result: ParsedPriceRow[] = [];
+
+  for (const row of rows) {
+    const category = MESALTERA_CATEGORIES.get(normalizeText(row.category));
+    if (category) currentCategory = category;
+
+    const key = row.supplierSku || `${normalizeText(row.normalizedName)}::${row.volumeLabel}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    result.push({
+      ...row,
+      category: currentCategory,
+      productLineName: currentCategory,
+    });
+  }
+
+  return result.map((row, index) => ({ ...row, rowNumber: index + 1 }));
 }
 
 function toIsoDate(day: string, month: string, year: string) {
@@ -84,10 +143,11 @@ export async function parsePriceListPdf(input: {
   const parserMode = normalizeParserMode(input.parserMode);
   const defaultBrand = String(input.defaultBrand || "").replace(/\s+/g, " ").trim();
   const angiopharmHint = isAngiopharmHint(input.fileName, defaultBrand);
+  const mesalteraHint = isMesalteraHint(input.fileName, defaultBrand);
+
   const useAngiopharmParser =
     parserMode === "ANGIOPHARM_PDF" ||
     (angiopharmHint && (parserMode === "AUTO" || !defaultBrand));
-
   if (useAngiopharmParser) {
     const parsed = await parseAngiopharmPdf(input.bytes);
     const brand = defaultBrand || "ANGIOPHARM";
@@ -104,6 +164,24 @@ export async function parsePriceListPdf(input: {
     );
   }
 
+  const useMesalteraParser =
+    parserMode === "MESALTERA_PDF" ||
+    (mesalteraHint && (parserMode === "AUTO" || !defaultBrand));
+  if (useMesalteraParser) {
+    const parsed = await parseMesalteraPdf(input.bytes);
+    const brand = defaultBrand || "MESALTERA";
+
+    return withFileNameDate(
+      {
+        ...parsed,
+        rows: sanitizeMesalteraRows(
+          parsed.rows.map((row) => ({ ...row, brand })),
+        ),
+      },
+      input.fileName,
+    );
+  }
+
   const parsed = await parseGenericPdf({
     bytes: input.bytes,
     defaultBrand,
@@ -112,4 +190,8 @@ export async function parsePriceListPdf(input: {
   return withFileNameDate(parsed, input.fileName);
 }
 
-export { isAngiopharmHint, normalizeParserMode };
+export {
+  isAngiopharmHint,
+  isMesalteraHint,
+  normalizeParserMode,
+};

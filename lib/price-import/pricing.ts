@@ -23,15 +23,19 @@ export function normalizeRoundingStep(value: unknown) {
 
 export function calculateSalePrice(input: {
   sourcePrice: number;
+  recommendedPrice?: number | null;
   priceMode: PriceMode;
   markupPercent: number;
   roundingStep: number;
 }) {
   const sourcePrice = Math.max(0, Math.trunc(input.sourcePrice));
+  const recommendedPrice = Math.max(0, Math.trunc(input.recommendedPrice || 0));
   const rawPrice =
     input.priceMode === "MARKUP_PERCENT"
       ? sourcePrice * (1 + input.markupPercent / 100)
-      : sourcePrice;
+      : input.priceMode === "PRICE_AS_IS" && recommendedPrice > 0
+        ? recommendedPrice
+        : sourcePrice;
 
   const step = normalizeRoundingStep(input.roundingStep);
   return Math.max(0, Math.ceil(rawPrice / step) * step);

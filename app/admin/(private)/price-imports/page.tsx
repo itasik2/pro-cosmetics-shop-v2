@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import PriceImportMaintenance from "./PriceImportMaintenance";
 import PriceImportsClient from "./PriceImportsClient";
 
 export const dynamic = "force-dynamic";
@@ -18,5 +19,10 @@ export default async function Page() {
     }),
   ]);
 
-  return <PriceImportsClient initialSuppliers={suppliers} initialBrands={brands} />;
+  return (
+    <div className="space-y-6">
+      <PriceImportsClient initialSuppliers={suppliers} initialBrands={brands} />
+      <PriceImportMaintenance />
+    </div>
+  );
 }
