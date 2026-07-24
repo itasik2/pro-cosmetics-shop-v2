@@ -11,6 +11,13 @@ function normalizeDomain(value: string) {
     .replace(/\.$/, "");
 }
 
+function normalizeHint(value: string | null | undefined) {
+  return String(value || "")
+    .toLocaleLowerCase("ru-RU")
+    .replace(/ё/g, "е")
+    .replace(/[^a-zа-я0-9]+/g, "");
+}
+
 export function selectorsFromJson(value: unknown): SourceSelectors | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const object = value as Record<string, unknown>;
@@ -34,23 +41,51 @@ export function selectorsFromJson(value: unknown): SourceSelectors | null {
 export async function ensureDefaultSupplierSources(input: {
   supplierId: string;
   supplierSlug: string;
+  supplierName?: string | null;
+  brandName?: string | null;
 }) {
-  if (input.supplierSlug !== "angiopharm") return;
+  const supplierHint = normalizeHint(`${input.supplierSlug} ${input.supplierName || ""}`);
+  const brandHint = normalizeHint(input.brandName);
+  const defaults: Array<{
+    name: string;
+    domain: string;
+    baseUrl: string;
+    priority: number;
+  }> = [];
 
-  const defaults = [
-    {
-      name: "ANGIOPHARM Казахстан",
-      domain: "angiopharm.kz",
-      baseUrl: "https://angiopharm.kz",
+  if (
+    supplierHint.includes("angiopharm") ||
+    supplierHint.includes("ангиофарм") ||
+    brandHint.includes("angiopharm") ||
+    brandHint.includes("ангиофарм")
+  ) {
+    defaults.push(
+      {
+        name: "ANGIOPHARM Казахстан",
+        domain: "angiopharm.kz",
+        baseUrl: "https://angiopharm.kz",
+        priority: 20,
+      },
+      {
+        name: "ANGIOPHARM производитель",
+        domain: "angiopharm.com",
+        baseUrl: "https://angiopharm.com",
+        priority: 10,
+      },
+    );
+  }
+
+  if (
+    brandHint.includes("mesaltera") ||
+    brandHint.includes("мезальтера")
+  ) {
+    defaults.push({
+      name: "Laboratory THOSCANE, производитель MESALTERA",
+      domain: "thoscane.ru",
+      baseUrl: "https://thoscane.ru/products/",
       priority: 20,
-    },
-    {
-      name: "ANGIOPHARM производитель",
-      domain: "angiopharm.com",
-      baseUrl: "https://angiopharm.com",
-      priority: 10,
-    },
-  ];
+    });
+  }
 
   for (const source of defaults) {
     await prisma.supplierSource.upsert({
@@ -60,7 +95,12 @@ export async function ensureDefaultSupplierSources(input: {
           domain: source.domain,
         },
       },
-      update: {},
+      update: {
+        name: source.name,
+        baseUrl: source.baseUrl,
+        isEnabled: true,
+        priority: source.priority,
+      },
       create: {
         supplierId: input.supplierId,
         name: source.name,
