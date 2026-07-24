@@ -7,10 +7,12 @@ export type ParsedPriceRow = {
   supplierSku: string | null;
   originalName: string;
   normalizedName: string;
+  description?: string | null;
   volumeValue: number | null;
   volumeUnit: PriceVolumeUnit;
   volumeLabel: string;
   sourcePrice: number;
+  recommendedPrice?: number | null;
   productLineCode: string | null;
   productLineName: string | null;
   category: string;
@@ -20,11 +22,15 @@ export type ParsedPriceRow = {
 };
 
 export type PriceParseResult = {
-  parserId: "ANGIOPHARM_PDF" | "GENERIC_PDF";
+  parserId: "ANGIOPHARM_PDF" | "MESALTERA_PDF" | "GENERIC_PDF";
   sourceDate: string | null;
   pageCount: number;
   rows: ParsedPriceRow[];
   warnings: string[];
 };
 
-export type PriceParserMode = "AUTO" | "ANGIOPHARM_PDF" | "GENERIC_PDF";
+export type PriceParserMode =
+  | "AUTO"
+  | "ANGIOPHARM_PDF"
+  | "MESALTERA_PDF"
+  | "GENERIC_PDF";
