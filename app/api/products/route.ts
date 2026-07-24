@@ -16,14 +16,15 @@ const ProductSchema = z.object({
   category: z.string().min(1),
   price: z.number().int().min(0),
   stock: z.number().int().min(0),
-
   isPopular: z.boolean().optional().default(false),
   isNew: z.boolean().optional().default(false),
-
+  isPublished: z.boolean().optional().default(true),
   variants: z.any().nullable().optional(),
 });
 
 export async function GET() {
+  const forbidden = await requireAdmin();
+  if (forbidden) return forbidden;
 
   const rows = await prisma.product.findMany({
     orderBy: { createdAt: "desc" },
@@ -36,12 +37,20 @@ export async function GET() {
       image: true,
       category: true,
       price: true,
+      sourcePrice: true,
       stock: true,
       isPopular: true,
       isNew: true,
+      isPublished: true,
+      enrichmentStatus: true,
+      supplierSku: true,
+      volumeValue: true,
+      volumeUnit: true,
+      productLineName: true,
       createdAt: true,
       variants: true,
       brand: { select: { id: true, name: true } },
+      supplier: { select: { id: true, name: true } },
     },
   });
 
@@ -49,70 +58,61 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-
   const forbidden = await requireAdmin();
   if (forbidden) return forbidden;
 
   try {
-
     const parsed = ProductSchema.parse(await req.json());
 
     if (parsed.brandId) {
-      const b = await prisma.brand.findUnique({
+      const brand = await prisma.brand.findUnique({
         where: { id: parsed.brandId },
         select: { id: true },
       });
 
-      if (!b) {
+      if (!brand) {
         return NextResponse.json(
           { error: "brand_not_found" },
-          { status: 400 }
+          { status: 400 },
         );
       }
     }
 
-    // создаём slug
     const baseSlug = slugify(parsed.name);
-
-    const slug = await uniqueSlug({
-      model: "product",
-      value: baseSlug,
-    });
+    const slug = await uniqueSlug({ model: "product", value: baseSlug });
 
     const created = await prisma.product.create({
       data: {
         name: parsed.name,
-        slug: slug,
-
+        slug,
         brandId: parsed.brandId ?? null,
         description: parsed.description,
         image: parsed.image,
         category: parsed.category,
         price: parsed.price,
         stock: parsed.stock,
-
-        isPopular: parsed.isPopular ?? false,
-        isNew: parsed.isNew ?? false,
-
+        isPopular: parsed.isPopular,
+        isNew: parsed.isNew,
+        isPublished: parsed.isPublished,
+        enrichmentStatus: parsed.isPublished ? "READY" : "PENDING",
         variants: parsed.variants ?? null,
       },
-      include: { brand: true },
+      include: { brand: true, supplier: true },
     });
 
     return NextResponse.json(created);
-
-  } catch (e: any) {
-
-    if (e?.name === "ZodError") {
+  } catch (error: any) {
+    if (error?.name === "ZodError") {
       return NextResponse.json(
-        { error: "validation", issues: e.issues },
-        { status: 400 }
+        { error: "validation", issues: error.issues },
+        { status: 400 },
       );
     }
 
+    console.error("POST /api/products", error);
     return NextResponse.json(
       { error: "failed_to_create" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
