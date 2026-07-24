@@ -93,7 +93,23 @@ if (hostname.includes("-pooler")) {
   process.exit(1);
 }
 
-const maxAttempts = 3;
+const disableAdvisoryLock =
+  process.env.VERCEL_ENV === "production" ||
+  isTruthy(process.env.PRISMA_SCHEMA_DISABLE_ADVISORY_LOCK);
+
+const migrationEnv = {
+  ...process.env,
+  DATABASE_URL: directUrl,
+};
+
+if (disableAdvisoryLock) {
+  migrationEnv.PRISMA_SCHEMA_DISABLE_ADVISORY_LOCK = "1";
+  console.warn(
+    "[migrate] Prisma advisory locking is disabled for this production migration run. Preview migrations remain disabled.",
+  );
+}
+
+const maxAttempts = disableAdvisoryLock ? 1 : 3;
 
 for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
   console.log(
@@ -105,10 +121,7 @@ for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     ["prisma", "migrate", "deploy"],
     {
       encoding: "utf8",
-      env: {
-        ...process.env,
-        DATABASE_URL: directUrl,
-      },
+      env: migrationEnv,
     },
   );
 
