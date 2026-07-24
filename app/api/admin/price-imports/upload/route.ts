@@ -202,7 +202,8 @@ export async function POST(req: Request) {
       : null;
     const validRows = rowData.filter(
       (row) =>
-        row.confidence >= 80 && row.action !== ImportRowAction.MANUAL_REVIEW,
+        (row.confidence ?? 0) >= 80 &&
+        row.action !== ImportRowAction.MANUAL_REVIEW,
     ).length;
     const manualRows = rowData.filter(
       (row) => row.action === ImportRowAction.MANUAL_REVIEW,
