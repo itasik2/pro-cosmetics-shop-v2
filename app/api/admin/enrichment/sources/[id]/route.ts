@@ -1,6 +1,7 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/adminGuard";
@@ -106,7 +107,12 @@ export async function PATCH(req: Request, { params }: Params) {
           ? { priority: parsed.data.priority }
           : {}),
         ...(parsed.data.selectors !== undefined
-          ? { selectors: parsed.data.selectors }
+          ? {
+              selectors:
+                parsed.data.selectors === null
+                  ? Prisma.JsonNull
+                  : parsed.data.selectors,
+            }
           : {}),
       },
       include: {
