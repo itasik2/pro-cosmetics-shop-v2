@@ -10,16 +10,12 @@ type Props = {
   params: { slug: string };
 };
 
-async function getPublicBrand(slug: string) {
-  return prisma.brand.findFirst({
-    where: { slug, isActive: true },
-  });
-}
-
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const brand = await getPublicBrand(params.slug);
+  const brand = await prisma.brand.findUnique({
+    where: { slug: params.slug },
+  });
 
-  if (!brand) {
+  if (!brand || !brand.isActive) {
     return { title: `Бренд не найден – ${SITE_BRAND}` };
   }
 
@@ -46,11 +42,17 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 }
 
 export default async function BrandPage({ params }: Props) {
-  const brand = await getPublicBrand(params.slug);
-  if (!brand) notFound();
+  const brand = await prisma.brand.findUnique({
+    where: { slug: params.slug },
+  });
+
+  if (!brand || !brand.isActive) notFound();
 
   const products = await prisma.product.findMany({
-    where: { brandId: brand.id, isPublished: true },
+    where: {
+      brandId: brand.id,
+      isPublished: true,
+    },
     include: { brand: true },
     orderBy: { createdAt: "desc" },
   });
