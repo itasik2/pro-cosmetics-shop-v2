@@ -25,6 +25,15 @@ function normalizeBrandName(value: string) {
   return value.replace(/\s+/g, " ").trim();
 }
 
+function importedDescription(value: string | null | undefined) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function descriptionIsPlaceholder(value: string) {
+  const normalized = value.replace(/\s+/g, " ").trim().toLocaleLowerCase("ru-RU");
+  return !normalized || normalized === "описание готовится";
+}
+
 async function ensureBrand(name: string) {
   const normalizedName = normalizeBrandName(name);
   if (!normalizedName) throw new Error("brand_required");
@@ -76,6 +85,7 @@ async function updateExistingProduct(input: {
     select: {
       id: true,
       price: true,
+      description: true,
       volumeValue: true,
       volumeUnit: true,
       productLineCode: true,
@@ -86,6 +96,7 @@ async function updateExistingProduct(input: {
   if (!product) throw new Error("product_not_found");
 
   const nextPrice = input.sourceOnly ? product.price : input.parsed.salePrice;
+  const nextDescription = importedDescription(input.parsed.description);
   await input.tx.product.update({
     where: { id: product.id },
     data: {
@@ -100,6 +111,9 @@ async function updateExistingProduct(input: {
       volumeUnit: product.volumeUnit ?? input.parsed.volumeUnit,
       productLineCode: product.productLineCode ?? input.parsed.productLineCode,
       productLineName: product.productLineName ?? input.parsed.productLineName,
+      ...(nextDescription && descriptionIsPlaceholder(product.description)
+        ? { description: nextDescription }
+        : {}),
     },
   });
 
@@ -228,6 +242,7 @@ export async function POST(_req: Request, { params }: Params) {
       );
       const slug = await uniqueSlug({ model: "product", value: baseSlug });
       const initialPrice = sourceOnly ? parsed.sourcePrice : parsed.salePrice;
+      const description = importedDescription(parsed.description) || "Описание готовится";
 
       const productId = await prisma.$transaction(async (tx) => {
         const product = await tx.product.create({
@@ -237,7 +252,7 @@ export async function POST(_req: Request, { params }: Params) {
             brandId: brand.id,
             supplierId: priceImport.supplierId,
             supplierSku: parsed.supplierSku,
-            description: "Описание готовится",
+            description,
             price: initialPrice,
             sourcePrice: parsed.sourcePrice,
             image: "/seed/cleanser.jpg",
