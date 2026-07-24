@@ -30,6 +30,7 @@ model Supplier {
 
   products Product[]
   imports  PriceImport[]
+  sources  SupplierSource[]
 }
 
 model Product {
@@ -63,9 +64,9 @@ model Product {
   isNew       Boolean  @default(false)
   isPublished Boolean  @default(true)
 
-  enrichmentStatus    String @default("READY")
-  sourceUrl            String?
-  descriptionSourceUrl String?
+  enrichmentStatus     String @default("READY")
+  sourceUrl             String?
+  descriptionSourceUrl  String?
   imageSourceUrl        String?
 
   variants    Json?
@@ -73,10 +74,152 @@ model Product {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  importRows   PriceImportRow[]
-  priceHistory ProductPriceHistory[]
+  importRows          PriceImportRow[]
+  priceHistory       ProductPriceHistory[]
+  sources            ProductSource[]
+  images             ProductImage[]
+  enrichmentJobs     EnrichmentJob[]
+  enrichmentProposals ProductEnrichmentProposal[]
 
   @@unique([supplierId, supplierSku])
+}
+
+enum ProductSourceStatus {
+  ACTIVE
+  UNAVAILABLE
+  BLOCKED
+  ERROR
+}
+
+enum EnrichmentJobStatus {
+  PENDING
+  RUNNING
+  REVIEW
+  APPLIED
+  FAILED
+  CANCELED
+}
+
+enum EnrichmentProposalStatus {
+  PENDING
+  APPLIED
+  REJECTED
+}
+
+model SupplierSource {
+  id              String   @id @default(cuid())
+  supplierId      String
+  supplier        Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  name            String
+  domain          String
+  baseUrl         String
+  sourceType      String   @default("OFFICIAL_SITE")
+  isEnabled       Boolean  @default(true)
+  allowSubdomains Boolean  @default(true)
+  priority        Int      @default(0)
+  selectors       Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  productSources ProductSource[]
+
+  @@unique([supplierId, domain])
+  @@index([supplierId, isEnabled, priority])
+}
+
+model ProductSource {
+  id               String              @id @default(cuid())
+  productId        String
+  product          Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  supplierSourceId String?
+  supplierSource   SupplierSource?     @relation(fields: [supplierSourceId], references: [id], onDelete: SetNull)
+  url              String
+  canonicalUrl     String?
+  sourceType       String              @default("OFFICIAL_SITE")
+  title            String?
+  contentHash      String?
+  lastCheckedAt    DateTime?
+  lastChangedAt    DateTime?
+  status           ProductSourceStatus @default(ACTIVE)
+  httpStatus       Int?
+  rawData          Json?
+  extractedData    Json?
+  error            String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  proposals ProductEnrichmentProposal[]
+
+  @@unique([productId, url])
+  @@index([supplierSourceId, status])
+  @@index([productId, lastCheckedAt])
+}
+
+model ProductImage {
+  id           String   @id @default(cuid())
+  productId    String
+  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url          String
+  sourceUrl    String?
+  sourceDomain String?
+  checksum     String?
+  width        Int?
+  height       Int?
+  isPrimary    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  @@unique([productId, url])
+  @@index([productId, isPrimary])
+  @@index([checksum])
+}
+
+model EnrichmentJob {
+  id           String              @id @default(cuid())
+  productId    String
+  product      Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  status       EnrichmentJobStatus @default(PENDING)
+  attempt      Int                 @default(0)
+  maxAttempts  Int                 @default(3)
+  scheduledAt  DateTime            @default(now())
+  startedAt    DateTime?
+  finishedAt   DateTime?
+  sourceUrl    String?
+  error        String?
+  result       Json?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  proposal ProductEnrichmentProposal?
+
+  @@index([status, scheduledAt])
+  @@index([productId, createdAt])
+}
+
+model ProductEnrichmentProposal {
+  id               String                       @id @default(cuid())
+  productId        String
+  product          Product                      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sourceId         String?
+  source           ProductSource?               @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  jobId            String?                      @unique
+  job              EnrichmentJob?               @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  status           EnrichmentProposalStatus     @default(PENDING)
+  sourceUrl        String
+  confidence       Int                          @default(0)
+  title            String?
+  shortDescription String?
+  description      String?
+  application      String?
+  ingredients      String?
+  images           Json?
+  facts            Json?
+  warnings         Json?
+  createdAt        DateTime                     @default(now())
+  updatedAt        DateTime                     @updatedAt
+  appliedAt        DateTime?
+
+  @@index([productId, status, createdAt])
+  @@index([sourceId])
 }
 
 enum PriceImportStatus {
@@ -177,25 +320,18 @@ enum OrderStatus {
 
 model Order {
   id           String      @id @default(cuid())
-
-  // Публичный номер (для клиента/админки)
   orderNumber  String      @unique
-
   customerName String
   phone        String
   email        String?
-  deliveryType String      // "pickup" | "delivery" (MVP строкой, чтобы не ломать миграции)
+  deliveryType String
   address      String?
   comment      String?
-
   currency     String      @default("KZT")
   totalAmount  Int
-
   status       OrderStatus @default(NEW)
-
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
-
   items        OrderItem[]
 }
 
@@ -203,18 +339,14 @@ model OrderItem {
   id           String   @id @default(cuid())
   orderId      String
   order        Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-
   productId    String
-  variantId    String?  // если base — null
-
-  title        String   // snapshot названия (и варианта)
-  unitPrice    Int      // snapshot цены (тенге)
+  variantId    String?
+  title        String
+  unitPrice    Int
   qty          Int
   lineTotal    Int
-
   image        String?
   sku          String?
-
   createdAt    DateTime @default(now())
 }
 
@@ -261,19 +393,12 @@ model Review {
 
 model ThemeSettings {
   id              String   @id @default("default")
-
-  // Включение по расписанию (UTC)
   scheduleEnabled Boolean  @default(false)
   scheduleStart   DateTime?
   scheduleEnd     DateTime?
-
-  // Фон сайта
   backgroundUrl   String   @default("")
-
-  // Баннер
   bannerEnabled   Boolean  @default(false)
   bannerText      String   @default("")
   bannerHref      String?
-
   updatedAt       DateTime @updatedAt
 }
