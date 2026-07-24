@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "npm run check:env:build && prisma migrate deploy && next build",
+    "build": "npm run check:env:build && node scripts/run-migrations.mjs && next build",
     "start": "next start",
     "postinstall": "prisma generate",
     "db:push": "prisma db push",
