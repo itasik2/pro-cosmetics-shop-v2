@@ -83,11 +83,12 @@ export async function parsePriceListPdf(input: {
 }): Promise<PriceParseResult> {
   const parserMode = normalizeParserMode(input.parserMode);
   const defaultBrand = String(input.defaultBrand || "").replace(/\s+/g, " ").trim();
-
-  if (
+  const angiopharmHint = isAngiopharmHint(input.fileName, defaultBrand);
+  const useAngiopharmParser =
     parserMode === "ANGIOPHARM_PDF" ||
-    (parserMode === "AUTO" && isAngiopharmHint(input.fileName, defaultBrand))
-  ) {
+    (angiopharmHint && (parserMode === "AUTO" || !defaultBrand));
+
+  if (useAngiopharmParser) {
     const parsed = await parseAngiopharmPdf(input.bytes);
     const brand = defaultBrand || "ANGIOPHARM";
 
@@ -111,4 +112,4 @@ export async function parsePriceListPdf(input: {
   return withFileNameDate(parsed, input.fileName);
 }
 
-export { normalizeParserMode };
+export { isAngiopharmHint, normalizeParserMode };
