@@ -1,7 +1,7 @@
 import { parseAngiopharmPdf } from "./angiopharmPdf";
 import { parseGenericPdf } from "./genericPdf";
 import { parseMesalteraPdf } from "./mesalteraPdf";
-import type { PriceParseResult, PriceParserMode } from "./types";
+import type { ParsedPriceRow, PriceParseResult, PriceParserMode } from "./types";
 
 function normalizeParserMode(value: unknown): PriceParserMode {
   const mode = String(value || "AUTO").toUpperCase();
@@ -16,6 +16,14 @@ function normalizeHint(value: string) {
     .toLocaleLowerCase("ru-RU")
     .replace(/ё/g, "е")
     .replace(/[^a-zа-я0-9]+/g, "");
+}
+
+function normalizeText(value: string) {
+  return value
+    .toLocaleLowerCase("ru-RU")
+    .replace(/ё/g, "е")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function isAngiopharmHint(fileName: string, defaultBrand: string) {
@@ -40,6 +48,43 @@ function isMesalteraHint(fileName: string, defaultBrand: string) {
     brandHint === "mesaltera" ||
     brandHint === "мезальтера"
   );
+}
+
+const MESALTERA_CATEGORIES = new Map(
+  [
+    "Профессиональный уход для всех типов кожи",
+    "Солнцезащитные средства",
+    "Эксперт-гели для аппаратной косметологии и самостоятельного применения",
+    "Уход за проблемной и жирной кожей",
+    "Омолаживающий уход",
+    "Уход за чувствительной и раздраженной кожей",
+    "Уход за сухой обезвоженной кожей",
+    "Мультикислотные пилинги",
+    "Аксессуары",
+  ].map((label) => [normalizeText(label), label]),
+);
+
+function sanitizeMesalteraRows(rows: ParsedPriceRow[]) {
+  const seen = new Set<string>();
+  let currentCategory = "Mesaltera";
+  const result: ParsedPriceRow[] = [];
+
+  for (const row of rows) {
+    const category = MESALTERA_CATEGORIES.get(normalizeText(row.category));
+    if (category) currentCategory = category;
+
+    const key = row.supplierSku || `${normalizeText(row.normalizedName)}::${row.volumeLabel}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    result.push({
+      ...row,
+      category: currentCategory,
+      productLineName: currentCategory,
+    });
+  }
+
+  return result.map((row, index) => ({ ...row, rowNumber: index + 1 }));
 }
 
 function toIsoDate(day: string, month: string, year: string) {
@@ -129,7 +174,9 @@ export async function parsePriceListPdf(input: {
     return withFileNameDate(
       {
         ...parsed,
-        rows: parsed.rows.map((row) => ({ ...row, brand })),
+        rows: sanitizeMesalteraRows(
+          parsed.rows.map((row) => ({ ...row, brand })),
+        ),
       },
       input.fileName,
     );
