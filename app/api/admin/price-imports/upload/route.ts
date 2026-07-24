@@ -2,22 +2,26 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-import { createHash } from "node:crypto";
 import {
   ImportRowAction,
   PriceImportStatus,
   type Prisma,
 } from "@prisma/client";
+import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/adminGuard";
 import { prisma } from "@/lib/prisma";
-import { parseAngiopharmPdf } from "@/lib/price-import/angiopharmPdf";
+import {
+  normalizeParserMode,
+  parsePriceListPdf,
+} from "@/lib/price-import/parsePriceList";
 import {
   calculateSalePrice,
   normalizeMarkupPercent,
   normalizePriceMode,
   normalizeRoundingStep,
 } from "@/lib/price-import/pricing";
+import { slugify } from "@/lib/slug";
 
 const MAX_FILE_SIZE = 12 * 1024 * 1024;
 
@@ -33,11 +37,72 @@ async function readImport(id: string) {
   });
 }
 
+function cleanText(value: FormDataEntryValue | null, maxLength: number) {
+  return typeof value === "string"
+    ? value.replace(/\s+/g, " ").trim().slice(0, maxLength)
+    : "";
+}
+
+function normalizeLookup(value: string) {
+  return value.toLocaleLowerCase("ru-RU").replace(/ё/g, "е").trim();
+}
+
+function productKey(brand: string, sku: string) {
+  return `${normalizeLookup(brand)}::${sku.toUpperCase()}`;
+}
+
+function normalizeSiteUrl(value: string) {
+  if (!value) return null;
+  const url = new URL(value);
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new Error("supplier_site_url_invalid");
+  }
+  url.hash = "";
+  return url.toString();
+}
+
 function isPdf(file: File, bytes: Uint8Array) {
   const extensionIsPdf = file.name.toLowerCase().endsWith(".pdf");
   const mimeIsPdf = file.type === "application/pdf" || file.type === "";
   const signature = new TextDecoder("latin1").decode(bytes.slice(0, 5));
   return extensionIsPdf && mimeIsPdf && signature === "%PDF-";
+}
+
+async function ensureSupplier(input: {
+  name: string;
+  siteUrl: string | null;
+}) {
+  const slug = slugify(input.name);
+  if (!slug) throw new Error("supplier_slug_empty");
+
+  const existing = await prisma.supplier.findFirst({
+    where: {
+      OR: [
+        { slug },
+        { name: { equals: input.name, mode: "insensitive" } },
+      ],
+    },
+  });
+
+  if (existing) {
+    return prisma.supplier.update({
+      where: { id: existing.id },
+      data: {
+        name: input.name,
+        siteUrl: input.siteUrl || existing.siteUrl,
+        isActive: true,
+      },
+    });
+  }
+
+  return prisma.supplier.create({
+    data: {
+      name: input.name,
+      slug,
+      siteUrl: input.siteUrl,
+      isActive: true,
+    },
+  });
 }
 
 export async function POST(req: Request) {
@@ -49,7 +114,16 @@ export async function POST(req: Request) {
   try {
     const form = await req.formData();
     const file = form.get("file");
+    const supplierName = cleanText(form.get("supplierName"), 160);
+    const supplierSiteUrl = normalizeSiteUrl(
+      cleanText(form.get("supplierSiteUrl"), 2_000),
+    );
+    const defaultBrand = cleanText(form.get("defaultBrand"), 160);
+    const parserMode = normalizeParserMode(form.get("parserMode"));
 
+    if (!supplierName) {
+      return NextResponse.json({ error: "supplier_name_required" }, { status: 400 });
+    }
     if (!(file instanceof File)) {
       return NextResponse.json({ error: "file_required" }, { status: 400 });
     }
@@ -72,19 +146,9 @@ export async function POST(req: Request) {
     const priceMode = normalizePriceMode(form.get("priceMode"));
     const markupPercent = normalizeMarkupPercent(form.get("markupPercent"));
     const roundingStep = normalizeRoundingStep(form.get("roundingStep"));
-
-    const supplier = await prisma.supplier.upsert({
-      where: { slug: "angiopharm" },
-      update: {
-        name: "ANGIOPHARM",
-        siteUrl: "https://angiopharm.ru",
-        isActive: true,
-      },
-      create: {
-        name: "ANGIOPHARM",
-        slug: "angiopharm",
-        siteUrl: "https://angiopharm.ru",
-      },
+    const supplier = await ensureSupplier({
+      name: supplierName,
+      siteUrl: supplierSiteUrl,
     });
 
     const duplicate = await prisma.priceImport.findUnique({
@@ -123,7 +187,12 @@ export async function POST(req: Request) {
     });
     importId = priceImport.id;
 
-    const parsed = await parseAngiopharmPdf(bytes);
+    const parsed = await parsePriceListPdf({
+      bytes,
+      fileName: file.name,
+      parserMode,
+      defaultBrand,
+    });
     const skuList = Array.from(
       new Set(parsed.rows.map((row) => row.supplierSku).filter(Boolean)),
     ) as string[];
@@ -134,23 +203,35 @@ export async function POST(req: Request) {
             supplierId: supplier.id,
             supplierSku: { in: skuList },
           },
-          select: { id: true, supplierSku: true, name: true, price: true },
+          select: {
+            id: true,
+            supplierSku: true,
+            name: true,
+            price: true,
+            brand: { select: { name: true } },
+          },
         })
       : [];
 
-    const existingBySku = new Map(
+    const existingByBrandSku = new Map(
       existingProducts
-        .filter((product) => product.supplierSku)
-        .map((product) => [product.supplierSku as string, product]),
+        .filter((product) => product.supplierSku && product.brand?.name)
+        .map((product) => [
+          productKey(product.brand!.name, product.supplierSku as string),
+          product,
+        ]),
     );
 
     const rowData: Prisma.PriceImportRowCreateManyInput[] = parsed.rows.map(
       (row) => {
         const existing = row.supplierSku
-          ? existingBySku.get(row.supplierSku)
+          ? existingByBrandSku.get(productKey(row.brand, row.supplierSku))
           : undefined;
         const requiresManualReview =
-          !row.supplierSku || row.warnings.includes("duplicate_sku_in_file");
+          !row.brand ||
+          !row.supplierSku ||
+          row.warnings.includes("brand_not_found") ||
+          row.warnings.includes("duplicate_sku_in_file");
         const action = requiresManualReview
           ? ImportRowAction.MANUAL_REVIEW
           : existing
@@ -173,6 +254,8 @@ export async function POST(req: Request) {
           confidence: row.confidence,
           selected: !requiresManualReview,
           rawData: {
+            parserId: parsed.parserId,
+            brand: row.brand,
             originalName: row.originalName,
             volumeLabel: row.volumeLabel,
             sourcePrice: row.sourcePrice,
@@ -202,7 +285,7 @@ export async function POST(req: Request) {
       : null;
     const validRows = rowData.filter(
       (row) =>
-        (row.confidence ?? 0) >= 80 &&
+        (row.confidence ?? 0) >= 75 &&
         row.action !== ImportRowAction.MANUAL_REVIEW,
     ).length;
     const manualRows = rowData.filter(
@@ -225,6 +308,7 @@ export async function POST(req: Request) {
       {
         import: result,
         parser: {
+          id: parsed.parserId,
           pageCount: parsed.pageCount,
           warnings: parsed.warnings,
           manualReviewRows: manualRows,

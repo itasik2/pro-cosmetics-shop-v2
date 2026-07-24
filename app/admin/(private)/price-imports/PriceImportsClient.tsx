@@ -4,8 +4,23 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 type ImportStatus = "UPLOADED" | "PARSING" | "REVIEW" | "APPLIED" | "FAILED";
 type RowAction = "CREATE" | "UPDATE" | "SKIP" | "ERROR" | "MANUAL_REVIEW";
+type ParserMode = "AUTO" | "ANGIOPHARM_PDF" | "GENERIC_PDF";
+
+type SupplierOption = {
+  id: string;
+  name: string;
+  slug: string;
+  siteUrl: string | null;
+};
+
+type BrandOption = {
+  id: string;
+  name: string;
+  slug: string;
+};
 
 type ParsedData = {
+  brand?: string;
   normalizedName?: string;
   originalName?: string;
   volumeLabel?: string;
@@ -53,6 +68,11 @@ type ImportListItem = Omit<PriceImport, "rows"> & {
   _count: { rows: number };
 };
 
+type Props = {
+  initialSuppliers: SupplierOption[];
+  initialBrands: BrandOption[];
+};
+
 const ACTION_LABEL: Record<RowAction, string> = {
   CREATE: "Создать",
   UPDATE: "Обновить",
@@ -72,14 +92,25 @@ function formatDate(value: string | null | undefined) {
   return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString("ru-RU");
 }
 
+function normalizeLookup(value: string) {
+  return value.toLocaleLowerCase("ru-RU").replace(/ё/g, "е").trim();
+}
+
 async function readJson(res: Response) {
   return res.json().catch(() => ({} as any));
 }
 
-export default function PriceImportsClient() {
+export default function PriceImportsClient({
+  initialSuppliers,
+  initialBrands,
+}: Props) {
   const [imports, setImports] = useState<ImportListItem[]>([]);
   const [current, setCurrent] = useState<PriceImport | null>(null);
   const [file, setFile] = useState<File | null>(null);
+  const [supplierName, setSupplierName] = useState("");
+  const [supplierSiteUrl, setSupplierSiteUrl] = useState("");
+  const [defaultBrand, setDefaultBrand] = useState("");
+  const [parserMode, setParserMode] = useState<ParserMode>("AUTO");
   const [priceMode, setPriceMode] = useState("PRICE_AS_IS");
   const [markupPercent, setMarkupPercent] = useState("20");
   const [roundingStep, setRoundingStep] = useState("100");
@@ -112,8 +143,27 @@ export default function PriceImportsClient() {
     loadImports();
   }, []);
 
+  function changeSupplier(value: string) {
+    setSupplierName(value);
+    const existing = initialSuppliers.find(
+      (supplier) => normalizeLookup(supplier.name) === normalizeLookup(value),
+    );
+    if (existing?.siteUrl) setSupplierSiteUrl(existing.siteUrl);
+  }
+
+  function changeParser(value: ParserMode) {
+    setParserMode(value);
+    if (value === "ANGIOPHARM_PDF" && !defaultBrand.trim()) {
+      setDefaultBrand("ANGIOPHARM");
+    }
+  }
+
   async function upload(e: FormEvent) {
     e.preventDefault();
+    if (!supplierName.trim()) {
+      setMessage("Укажите поставщика");
+      return;
+    }
     if (!file) {
       setMessage("Выберите PDF-файл прайса");
       return;
@@ -124,6 +174,10 @@ export default function PriceImportsClient() {
     try {
       const form = new FormData();
       form.append("file", file);
+      form.append("supplierName", supplierName.trim());
+      form.append("supplierSiteUrl", supplierSiteUrl.trim());
+      form.append("defaultBrand", defaultBrand.trim());
+      form.append("parserMode", parserMode);
       form.append("priceMode", priceMode);
       form.append("markupPercent", markupPercent);
       form.append("roundingStep", roundingStep);
@@ -135,7 +189,7 @@ export default function PriceImportsClient() {
       const data = await readJson(res);
 
       if (res.status === 409 && data?.importId) {
-        setMessage("Этот файл уже загружался. Открыт существующий импорт.");
+        setMessage("Этот файл уже загружался для выбранного поставщика. Открыт существующий импорт.");
         await openImport(String(data.importId));
         await loadImports();
         return;
@@ -145,7 +199,9 @@ export default function PriceImportsClient() {
       }
 
       setCurrent(data.import);
-      setMessage(`Распознано строк: ${data.import?.totalRows ?? 0}`);
+      setMessage(
+        `Распознано строк: ${data.import?.totalRows ?? 0}. Шаблон: ${data.parser?.id || "неизвестен"}.`,
+      );
       await loadImports();
     } catch (error: any) {
       setMessage(`Ошибка импорта: ${error?.message || "unknown"}`);
@@ -244,19 +300,79 @@ export default function PriceImportsClient() {
   return (
     <div className="space-y-6 min-w-0">
       <div>
-        <h1 className="text-2xl font-bold">Импорт прайса</h1>
+        <h1 className="text-2xl font-bold">Импорт прайсов</h1>
         <p className="mt-1 text-sm text-gray-500">
-          PDF ANGIOPHARM разбирается по координатам таблицы. Товары сначала попадают в
-          предварительный просмотр и создаются неопубликованными.
+          Поставщик и бренд указываются раздельно. Один PDF может содержать несколько
+          брендов, когда в таблице есть колонка «Бренд». Все новые товары создаются
+          неопубликованными.
         </p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
         <form onSubmit={upload} className="rounded-2xl border p-4 space-y-4 min-w-0">
-          <h2 className="font-semibold">Загрузить прайс ANGIOPHARM</h2>
+          <h2 className="font-semibold">Загрузить прайс поставщика</h2>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="space-y-1">
+              <span className="text-sm text-gray-600">Поставщик *</span>
+              <input
+                list="price-import-suppliers"
+                className="w-full rounded-xl border px-3 py-2"
+                placeholder="Например, ТЭКОМ"
+                value={supplierName}
+                onChange={(event) => changeSupplier(event.target.value)}
+                required
+              />
+              <datalist id="price-import-suppliers">
+                {initialSuppliers.map((supplier) => (
+                  <option key={supplier.id} value={supplier.name} />
+                ))}
+              </datalist>
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-sm text-gray-600">Сайт поставщика</span>
+              <input
+                type="url"
+                className="w-full rounded-xl border px-3 py-2"
+                placeholder="https://supplier.example"
+                value={supplierSiteUrl}
+                onChange={(event) => setSupplierSiteUrl(event.target.value)}
+              />
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-sm text-gray-600">Шаблон файла</span>
+              <select
+                className="w-full rounded-xl border px-3 py-2 bg-white"
+                value={parserMode}
+                onChange={(event) => changeParser(event.target.value as ParserMode)}
+              >
+                <option value="AUTO">Определить автоматически</option>
+                <option value="ANGIOPHARM_PDF">ANGIOPHARM PDF</option>
+                <option value="GENERIC_PDF">Обычная PDF-таблица</option>
+              </select>
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-sm text-gray-600">Бренд по умолчанию</span>
+              <input
+                list="price-import-brands"
+                className="w-full rounded-xl border px-3 py-2"
+                placeholder="Не нужен, если в PDF есть колонка Бренд"
+                value={defaultBrand}
+                onChange={(event) => setDefaultBrand(event.target.value)}
+              />
+              <datalist id="price-import-brands">
+                {initialBrands.map((brand) => (
+                  <option key={brand.id} value={brand.name} />
+                ))}
+              </datalist>
+            </label>
+          </div>
 
           <label className="block space-y-1">
-            <span className="text-sm text-gray-600">PDF-файл</span>
+            <span className="text-sm text-gray-600">PDF-файл *</span>
             <input
               type="file"
               accept="application/pdf,.pdf"
@@ -309,7 +425,7 @@ export default function PriceImportsClient() {
 
           <button
             type="submit"
-            disabled={busy || !file}
+            disabled={busy || !file || !supplierName.trim()}
             className="rounded-xl bg-black px-4 py-2 text-white disabled:opacity-50"
           >
             {busy ? "Разбор файла…" : "Загрузить и проанализировать"}
@@ -331,7 +447,7 @@ export default function PriceImportsClient() {
                   <StatusBadge status={item.status} />
                 </div>
                 <div className="mt-1 text-xs text-gray-500">
-                  {formatDate(item.createdAt)} • строк: {item._count.rows}
+                  {item.supplier.name} • {formatDate(item.createdAt)} • строк: {item._count.rows}
                 </div>
               </button>
             ))}
@@ -401,12 +517,13 @@ export default function PriceImportsClient() {
           </div>
 
           <div className="overflow-x-auto rounded-2xl border min-w-0">
-            <table className="min-w-[1180px] w-full text-sm">
+            <table className="min-w-[1320px] w-full text-sm">
               <thead className="bg-gray-50 text-left text-xs text-gray-600">
                 <tr>
                   <th className="p-3">Выбор</th>
                   <th className="p-3">Строка</th>
                   <th className="p-3">Действие</th>
+                  <th className="p-3">Бренд</th>
                   <th className="p-3">Артикул</th>
                   <th className="p-3">Название</th>
                   <th className="p-3">Объём</th>
@@ -458,6 +575,7 @@ export default function PriceImportsClient() {
                           {row.action === "ERROR" && <option value="ERROR">Ошибка</option>}
                         </select>
                       </td>
+                      <td className="p-3 align-top font-medium">{parsed.brand || "—"}</td>
                       <td className="p-3 align-top font-mono">{row.supplierSku || "—"}</td>
                       <td className="p-3 align-top max-w-sm">
                         <div className="font-medium">{parsed.normalizedName || parsed.originalName || "—"}</div>
