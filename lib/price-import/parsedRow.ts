@@ -3,8 +3,8 @@ import { z } from "zod";
 export const ParsedImportRowSchema = z.object({
   pageNumber: z.number().int().positive(),
   rowNumber: z.number().int().positive(),
-  brand: z.literal("ANGIOPHARM"),
-  supplierSku: z.string().min(2).nullable(),
+  brand: z.string().trim().min(1).max(160),
+  supplierSku: z.string().min(2).max(80).nullable(),
   originalName: z.string().min(2),
   normalizedName: z.string().min(2),
   volumeValue: z.number().int().nonnegative().nullable(),
