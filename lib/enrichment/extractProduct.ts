@@ -226,7 +226,7 @@ function localizedPriceFromText(text: string) {
 }
 
 function likelyIngredientList($: cheerio.CheerioAPI) {
-  let best: { text: string; score: number } | null = null;
+  const candidates: Array<{ text: string; score: number }> = [];
 
   $("p, div, td, li").each((_, element) => {
     const directText = $(element)
@@ -244,11 +244,13 @@ function likelyIngredientList($: cheerio.CheerioAPI) {
     const latinRatio = letterCount ? latinCount / letterCount : 0;
 
     if (commaCount < 4 || latinRatio < 0.55) return;
-    const score = commaCount * 10 + latinRatio * 100 + Math.min(text.length, 500) / 10;
-    if (!best || score > best.score) best = { text, score };
+    const score =
+      commaCount * 10 + latinRatio * 100 + Math.min(text.length, 500) / 10;
+    candidates.push({ text, score });
   });
 
-  return best?.text || null;
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0]?.text ?? null;
 }
 
 function isLikelyProductImage(url: string) {
