@@ -74,6 +74,21 @@ const LINE_CATEGORY: Record<string, string> = {
   MERCH: "Аксессуары",
 };
 
+const CYRILLIC_LOOKALIKE_TO_LATIN: Record<string, string> = {
+  А: "A",
+  В: "B",
+  С: "C",
+  Е: "E",
+  Н: "H",
+  К: "K",
+  М: "M",
+  О: "O",
+  Р: "P",
+  Т: "T",
+  Х: "X",
+  У: "Y",
+};
+
 function cleanText(value: unknown) {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
 }
@@ -81,6 +96,16 @@ function cleanText(value: unknown) {
 function toNumber(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) ? number : 0;
+}
+
+function normalizeLineCode(value: string) {
+  return value
+    .toUpperCase()
+    .split("")
+    .map((character) => CYRILLIC_LOOKALIKE_TO_LATIN[character] ?? character)
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function isPdfTextItem(item: PdfTextItem): item is PdfTextItem & {
@@ -176,13 +201,20 @@ function detectProductLine(text: string): ProductLine | null {
   const upper = normalized.toUpperCase();
 
   if (upper.includes("АКСЕССУАРЫ") && upper.includes("ANGIOPHARM")) {
-    return { code: "MERCH", name: "Аксессуары ANGIOPHARM", category: "Аксессуары" };
+    return {
+      code: "MERCH",
+      name: "Аксессуары ANGIOPHARM",
+      category: "Аксессуары",
+    };
   }
 
-  const parts = normalized.split(/\s+-\s+/).map((part) => part.trim()).filter(Boolean);
+  const parts = normalized
+    .split(/\s+-\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
   if (parts.length < 2) return null;
 
-  const rawCode = parts[0].toUpperCase();
+  const rawCode = normalizeLineCode(parts[0]);
   if (!Object.prototype.hasOwnProperty.call(LINE_CATEGORY, rawCode)) return null;
 
   const russianName = parts.at(-1) || LINE_CATEGORY[rawCode];
@@ -219,6 +251,38 @@ function calculateConfidence(input: {
   if (input.sku) confidence += 15;
   if (input.line) confidence += 5;
   return confidence;
+}
+
+function markDuplicateSkus(rows: ParsedAngiopharmRow[]) {
+  const counts = new Map<string, number>();
+
+  for (const row of rows) {
+    if (!row.supplierSku) continue;
+    counts.set(row.supplierSku, (counts.get(row.supplierSku) ?? 0) + 1);
+  }
+
+  const duplicateSkus = new Set(
+    [...counts.entries()]
+      .filter(([, count]) => count > 1)
+      .map(([sku]) => sku),
+  );
+
+  if (!duplicateSkus.size) {
+    return { rows, duplicateSkus: [] as string[] };
+  }
+
+  return {
+    rows: rows.map((row) =>
+      row.supplierSku && duplicateSkus.has(row.supplierSku)
+        ? {
+            ...row,
+            confidence: Math.min(row.confidence, 60),
+            warnings: [...new Set([...row.warnings, "duplicate_sku_in_file"])],
+          }
+        : row,
+    ),
+    duplicateSkus: [...duplicateSkus].sort(),
+  };
 }
 
 export async function parseAngiopharmPdf(
@@ -280,9 +344,13 @@ export async function parseAngiopharmPdf(
         continue;
       }
 
-      const nameText = joinItems(row.items.filter((item) => item.x < nameBoundary));
+      const nameText = joinItems(
+        row.items.filter((item) => item.x < nameBoundary),
+      );
       const volumeText = joinItems(
-        row.items.filter((item) => item.x >= nameBoundary && item.x < priceBoundary),
+        row.items.filter(
+          (item) => item.x >= nameBoundary && item.x < priceBoundary,
+        ),
       );
       const priceText = joinItems(
         row.items.filter((item) => item.x >= priceBoundary),
@@ -338,10 +406,17 @@ export async function parseAngiopharmPdf(
 
   if (!sourceDate) parserWarnings.push("source_date_not_found");
 
+  const duplicateResult = markDuplicateSkus(parsedRows);
+  if (duplicateResult.duplicateSkus.length) {
+    parserWarnings.push(
+      `duplicate_skus_found:${duplicateResult.duplicateSkus.join(",")}`,
+    );
+  }
+
   return {
     sourceDate,
     pageCount: document.numPages,
-    rows: parsedRows,
+    rows: duplicateResult.rows,
     warnings: parserWarnings,
   };
 }
