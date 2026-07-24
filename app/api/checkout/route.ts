@@ -140,17 +140,19 @@ export async function POST(req: Request) {
         const nextStock = Math.trunc(Number(current.stock) || 0) - item.qty;
         const nextVariants = [...variants];
         nextVariants[index] = { ...current, stock: nextStock };
+        const nextVariantsJson =
+          nextVariants as unknown as Prisma.InputJsonValue;
 
         await tx.product.update({
           where: { id: item.productId },
           data: {
-            variants: nextVariants as Prisma.InputJsonValue,
+            variants: nextVariantsJson,
           },
         });
 
         productMap.set(item.productId, {
           ...product,
-          variants: nextVariants,
+          variants: nextVariantsJson,
         });
       }
 
