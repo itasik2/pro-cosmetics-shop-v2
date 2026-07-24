@@ -161,7 +161,7 @@ export async function POST(req: Request) {
       select: { id: true, status: true, createdAt: true },
     });
 
-    if (duplicate) {
+    if (duplicate && duplicate.status !== PriceImportStatus.FAILED) {
       return NextResponse.json(
         {
           error: "duplicate_file",
@@ -171,6 +171,10 @@ export async function POST(req: Request) {
         },
         { status: 409 },
       );
+    }
+
+    if (duplicate?.status === PriceImportStatus.FAILED) {
+      await prisma.priceImport.delete({ where: { id: duplicate.id } });
     }
 
     const priceImport = await prisma.priceImport.create({
@@ -330,7 +334,7 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json(
-      { error: "price_import_failed", message },
+      { error: "price_import_failed", message, retryable: true },
       { status: 422 },
     );
   }
