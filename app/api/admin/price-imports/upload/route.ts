@@ -231,9 +231,13 @@ export async function POST(req: Request) {
         const existing = row.supplierSku
           ? existingByBrandSku.get(productKey(row.brand, row.supplierSku))
           : undefined;
+        const retailRestricted =
+          priceMode === "PRICE_AS_IS" &&
+          row.warnings.includes("retail_sale_restricted");
         const requiresManualReview =
           !row.brand ||
           !row.supplierSku ||
+          retailRestricted ||
           row.warnings.includes("brand_not_found") ||
           row.warnings.includes("duplicate_sku_in_file");
         const action = requiresManualReview
@@ -243,6 +247,7 @@ export async function POST(req: Request) {
             : ImportRowAction.CREATE;
         const salePrice = calculateSalePrice({
           sourcePrice: row.sourcePrice,
+          recommendedPrice: row.recommendedPrice,
           priceMode,
           markupPercent,
           roundingStep,
@@ -261,8 +266,10 @@ export async function POST(req: Request) {
             parserId: parsed.parserId,
             brand: row.brand,
             originalName: row.originalName,
+            description: row.description,
             volumeLabel: row.volumeLabel,
             sourcePrice: row.sourcePrice,
+            recommendedPrice: row.recommendedPrice,
             warnings: row.warnings,
           },
           parsedData: {
