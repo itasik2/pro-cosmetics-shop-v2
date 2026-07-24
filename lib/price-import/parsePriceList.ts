@@ -1,10 +1,12 @@
 import { parseAngiopharmPdf } from "./angiopharmPdf";
 import { parseGenericPdf } from "./genericPdf";
+import { parseMesalteraPdf } from "./mesalteraPdf";
 import type { PriceParseResult, PriceParserMode } from "./types";
 
 function normalizeParserMode(value: unknown): PriceParserMode {
   const mode = String(value || "AUTO").toUpperCase();
   if (mode === "ANGIOPHARM_PDF") return "ANGIOPHARM_PDF";
+  if (mode === "MESALTERA_PDF") return "MESALTERA_PDF";
   if (mode === "GENERIC_PDF") return "GENERIC_PDF";
   return "AUTO";
 }
@@ -25,6 +27,18 @@ function isAngiopharmHint(fileName: string, defaultBrand: string) {
     fileHint.includes("ангиофарм") ||
     brandHint === "angiopharm" ||
     brandHint === "ангиофарм"
+  );
+}
+
+function isMesalteraHint(fileName: string, defaultBrand: string) {
+  const fileHint = normalizeHint(fileName);
+  const brandHint = normalizeHint(defaultBrand);
+
+  return (
+    fileHint.includes("mesaltera") ||
+    fileHint.includes("мезальтера") ||
+    brandHint === "mesaltera" ||
+    brandHint === "мезальтера"
   );
 }
 
@@ -84,10 +98,11 @@ export async function parsePriceListPdf(input: {
   const parserMode = normalizeParserMode(input.parserMode);
   const defaultBrand = String(input.defaultBrand || "").replace(/\s+/g, " ").trim();
   const angiopharmHint = isAngiopharmHint(input.fileName, defaultBrand);
+  const mesalteraHint = isMesalteraHint(input.fileName, defaultBrand);
+
   const useAngiopharmParser =
     parserMode === "ANGIOPHARM_PDF" ||
     (angiopharmHint && (parserMode === "AUTO" || !defaultBrand));
-
   if (useAngiopharmParser) {
     const parsed = await parseAngiopharmPdf(input.bytes);
     const brand = defaultBrand || "ANGIOPHARM";
@@ -104,6 +119,22 @@ export async function parsePriceListPdf(input: {
     );
   }
 
+  const useMesalteraParser =
+    parserMode === "MESALTERA_PDF" ||
+    (mesalteraHint && (parserMode === "AUTO" || !defaultBrand));
+  if (useMesalteraParser) {
+    const parsed = await parseMesalteraPdf(input.bytes);
+    const brand = defaultBrand || "MESALTERA";
+
+    return withFileNameDate(
+      {
+        ...parsed,
+        rows: parsed.rows.map((row) => ({ ...row, brand })),
+      },
+      input.fileName,
+    );
+  }
+
   const parsed = await parseGenericPdf({
     bytes: input.bytes,
     defaultBrand,
@@ -112,4 +143,8 @@ export async function parsePriceListPdf(input: {
   return withFileNameDate(parsed, input.fileName);
 }
 
-export { isAngiopharmHint, normalizeParserMode };
+export {
+  isAngiopharmHint,
+  isMesalteraHint,
+  normalizeParserMode,
+};
