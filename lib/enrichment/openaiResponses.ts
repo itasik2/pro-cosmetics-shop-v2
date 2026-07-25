@@ -132,11 +132,45 @@ function productLabel(product: MatchableProduct) {
   ].join("\n");
 }
 
+function normalizeDomain(value: string) {
+  return value
+    .trim()
+    .toLocaleLowerCase("en-US")
+    .replace(/^https?:\/\//, "")
+    .replace(/\/.*$/, "")
+    .replace(/\.$/, "");
+}
+
+function validatedAllowedUrl(rawUrl: string, allowedDomains: string[]) {
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    if (url.username || url.password) return null;
+
+    const hostname = normalizeDomain(url.hostname);
+    const allowed = allowedDomains.some((value) => {
+      const domain = normalizeDomain(value);
+      return Boolean(
+        domain && (hostname === domain || hostname.endsWith(`.${domain}`)),
+      );
+    });
+    if (!allowed) return null;
+
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 export async function findOfficialProductUrl(input: {
   product: MatchableProduct;
   allowedDomains: string[];
 }): Promise<SearchResult> {
-  if (!input.allowedDomains.length) throw new Error("allowed_domains_required");
+  const allowedDomains = [...new Set(input.allowedDomains.map(normalizeDomain))].filter(
+    Boolean,
+  );
+  if (!allowedDomains.length) throw new Error("allowed_domains_required");
 
   const raw = await requestStructured({
     schemaName: "official_product_page",
@@ -152,18 +186,32 @@ export async function findOfficialProductUrl(input: {
       },
     },
     system:
-      "Найди страницу конкретного товара только на разрешённых официальных доменах. Не подставляй страницу категории, поиска, корзины или другого объёма. Если точного совпадения нет, верни found=false. URL должен быть прямой страницей товара.",
-    user: `${productLabel(input.product)}\n\nРазрешённые домены: ${input.allowedDomains.join(", ")}`,
+      "Найди страницу конкретного товара только на разрешённых официальных доменах. Используй поисковые запросы с ограничением site:домен. Не подставляй страницу категории, поиска, корзины или другого объёма. Если точного совпадения нет, верни found=false. URL должен быть прямой страницей товара.",
+    user: `${productLabel(input.product)}\n\nРазрешённые домены: ${allowedDomains.join(", ")}`,
     tools: [
       {
         type: "web_search",
-        filters: { allowed_domains: input.allowedDomains },
         search_context_size: "low",
       },
     ],
   });
 
-  return SearchResultSchema.parse(raw);
+  const result = SearchResultSchema.parse(raw);
+  if (!result.found || !result.url) {
+    return { ...result, found: false, url: null };
+  }
+
+  const url = validatedAllowedUrl(result.url, allowedDomains);
+  if (!url) {
+    return {
+      found: false,
+      url: null,
+      confidence: 0,
+      reason: "Найденный адрес не относится к разрешённым официальным доменам.",
+    };
+  }
+
+  return { ...result, url };
 }
 
 export async function generateProductDescription(input: {
