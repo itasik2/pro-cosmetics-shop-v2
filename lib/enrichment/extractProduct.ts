@@ -158,8 +158,19 @@ function selectorImages(
         $(element).attr("data-src") ||
         $(element).attr("data-large-img-url") ||
         $(element).attr("href");
+      const elementHint = [
+        raw,
+        $(element).attr("alt"),
+        $(element).attr("title"),
+        $(element).attr("class"),
+        $(element).attr("id"),
+        $(element).attr("aria-label"),
+      ]
+        .filter(Boolean)
+        .join(" ");
+      if (!isLikelyProductImage(elementHint)) return;
       const url = asUrl(raw, baseUrl);
-      if (url) images.push(url);
+      if (url && isLikelyProductImage(url)) images.push(url);
     });
   } catch {
     return [];
@@ -253,9 +264,13 @@ function likelyIngredientList($: cheerio.CheerioAPI) {
   return candidates[0]?.text ?? null;
 }
 
-function isLikelyProductImage(url: string) {
-  return !/(?:logo|icon|sprite|payment|instagram|whatsapp|facebook|telegram|favicon)/i.test(
-    url,
+function isLikelyProductImage(value: string) {
+  const normalized = value.toLocaleLowerCase("ru-RU");
+  if (!normalized) return false;
+  if (/\.svg(?:$|[?#])/i.test(normalized)) return false;
+
+  return !/(?:logo|icon|sprite|payment|favicon|avatar|badge|banner|button|widget|social|share|instagram|whatsapp|facebook|telegram|yandex|passport|login|signin|sign-in|auth|oauth|captcha)/i.test(
+    normalized,
   );
 }
 
