@@ -22,11 +22,22 @@ const ProductSchema = z.object({
   variants: z.any().nullable().optional(),
 });
 
-export async function GET() {
+export async function GET(req: Request) {
   const forbidden = await requireAdmin();
   if (forbidden) return forbidden;
 
+  const publicationQueue =
+    new URL(req.url).searchParams.get("publicationQueue") === "1";
+
   const rows = await prisma.product.findMany({
+    where: publicationQueue
+      ? {
+          isPublished: false,
+          enrichmentProposals: {
+            some: { status: "APPLIED" },
+          },
+        }
+      : undefined,
     orderBy: { createdAt: "desc" },
     select: {
       id: true,
@@ -51,6 +62,16 @@ export async function GET() {
       variants: true,
       brand: { select: { id: true, name: true } },
       supplier: { select: { id: true, name: true } },
+      enrichmentProposals: {
+        where: { status: "APPLIED" },
+        orderBy: { appliedAt: "desc" },
+        take: 1,
+        select: {
+          id: true,
+          status: true,
+          appliedAt: true,
+        },
+      },
     },
   });
 
