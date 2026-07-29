@@ -20,10 +20,15 @@ const ProductSchema = z.object({
   variants: z.any().nullable().optional(),
 });
 
-const PublishSchema = z.object({
-  isPublished: z.boolean(),
-  stock: z.number().int().min(0).optional(),
-});
+const ProductPatchSchema = z
+  .object({
+    isPublished: z.boolean().optional(),
+    stock: z.number().int().min(0).optional(),
+  })
+  .refine(
+    (value) => value.isPublished !== undefined || value.stock !== undefined,
+    { message: "Укажите статус публикации или количество." },
+  );
 
 type Params = { params: { id: string } };
 
@@ -169,7 +174,9 @@ export async function PATCH(req: Request, { params }: Params) {
   const forbidden = await requireAdmin();
   if (forbidden) return forbidden;
 
-  const parsed = PublishSchema.safeParse(await req.json().catch(() => null));
+  const parsed = ProductPatchSchema.safeParse(
+    await req.json().catch(() => null),
+  );
   if (!parsed.success) {
     return NextResponse.json(
       { error: "validation", issues: parsed.error.issues },
@@ -197,7 +204,7 @@ export async function PATCH(req: Request, { params }: Params) {
     return NextResponse.json({ error: "product_not_found" }, { status: 404 });
   }
 
-  if (parsed.data.isPublished) {
+  if (parsed.data.isPublished === true) {
     const imported = Boolean(product.supplierId || product.lastImportedAt);
     const approved = imported
       ? await hasAppliedEnrichment(product.id)
@@ -219,9 +226,15 @@ export async function PATCH(req: Request, { params }: Params) {
   const updated = await prisma.product.update({
     where: { id: product.id },
     data: {
-      isPublished: parsed.data.isPublished,
-      stock: parsed.data.stock ?? product.stock,
-      enrichmentStatus: parsed.data.isPublished ? "READY" : "PENDING",
+      ...(parsed.data.isPublished !== undefined
+        ? {
+            isPublished: parsed.data.isPublished,
+            enrichmentStatus: parsed.data.isPublished ? "READY" : "PENDING",
+          }
+        : {}),
+      ...(parsed.data.stock !== undefined
+        ? { stock: parsed.data.stock }
+        : {}),
     },
     include: { brand: true, supplier: true },
   });
