@@ -22,9 +22,50 @@ const ProductSchema = z.object({
 
 const PublishSchema = z.object({
   isPublished: z.boolean(),
+  stock: z.number().int().min(0).optional(),
 });
 
 type Params = { params: { id: string } };
+
+type PublicationFields = {
+  brandId: string | null;
+  description: string;
+  image: string;
+  category: string;
+  price: number;
+};
+
+function publicationMissingFields(
+  product: PublicationFields,
+  requireAppliedEnrichment: boolean,
+  hasAppliedEnrichment: boolean,
+) {
+  const missing: string[] = [];
+  const description = product.description.trim().toLocaleLowerCase("ru-RU");
+
+  if (requireAppliedEnrichment && !hasAppliedEnrichment) {
+    missing.push("одобрение во вкладке автозаполнения");
+  }
+  if (!product.brandId) missing.push("бренд");
+  if (!description || description === "описание готовится") missing.push("описание");
+  if (!product.image || product.image.startsWith("/seed/")) missing.push("фотография");
+  if (!product.category.trim()) missing.push("категория");
+  if (product.price <= 0) missing.push("цена");
+
+  return missing;
+}
+
+async function hasAppliedEnrichment(productId: string) {
+  const proposal = await prisma.productEnrichmentProposal.findFirst({
+    where: {
+      productId,
+      status: "APPLIED",
+    },
+    select: { id: true },
+  });
+
+  return Boolean(proposal);
+}
 
 export async function PUT(req: Request, { params }: Params) {
   const forbidden = await requireAdmin();
@@ -32,6 +73,19 @@ export async function PUT(req: Request, { params }: Params) {
 
   try {
     const parsed = ProductSchema.parse(await req.json());
+    const current = await prisma.product.findUnique({
+      where: { id: params.id },
+      select: {
+        id: true,
+        isPublished: true,
+        supplierId: true,
+        lastImportedAt: true,
+      },
+    });
+
+    if (!current) {
+      return NextResponse.json({ error: "product_not_found" }, { status: 404 });
+    }
 
     if (parsed.brandId) {
       const brand = await prisma.brand.findUnique({
@@ -42,6 +96,35 @@ export async function PUT(req: Request, { params }: Params) {
         return NextResponse.json(
           { error: "brand_not_found" },
           { status: 400 },
+        );
+      }
+    }
+
+    if (parsed.isPublished && !current.isPublished) {
+      const imported = Boolean(current.supplierId || current.lastImportedAt);
+      const approved = imported
+        ? await hasAppliedEnrichment(current.id)
+        : true;
+      const missing = publicationMissingFields(
+        {
+          brandId: parsed.brandId ?? null,
+          description: parsed.description,
+          image: parsed.image,
+          category: parsed.category,
+          price: parsed.price,
+        },
+        imported,
+        approved,
+      );
+
+      if (missing.length) {
+        return NextResponse.json(
+          {
+            error: "product_not_ready_for_publication",
+            message: `Перед публикацией заполните: ${missing.join(", ")}.`,
+            missing,
+          },
+          { status: 409 },
         );
       }
     }
@@ -103,7 +186,10 @@ export async function PATCH(req: Request, { params }: Params) {
       image: true,
       category: true,
       price: true,
+      stock: true,
       brandId: true,
+      supplierId: true,
+      lastImportedAt: true,
       isPublished: true,
     },
   });
@@ -112,13 +198,11 @@ export async function PATCH(req: Request, { params }: Params) {
   }
 
   if (parsed.data.isPublished) {
-    const missing: string[] = [];
-    const description = product.description.trim().toLocaleLowerCase("ru-RU");
-    if (!product.brandId) missing.push("бренд");
-    if (!description || description === "описание готовится") missing.push("описание");
-    if (!product.image || product.image === "/seed/cleanser.jpg") missing.push("фотография");
-    if (!product.category.trim()) missing.push("категория");
-    if (product.price <= 0) missing.push("цена");
+    const imported = Boolean(product.supplierId || product.lastImportedAt);
+    const approved = imported
+      ? await hasAppliedEnrichment(product.id)
+      : true;
+    const missing = publicationMissingFields(product, imported, approved);
 
     if (missing.length) {
       return NextResponse.json(
@@ -136,6 +220,7 @@ export async function PATCH(req: Request, { params }: Params) {
     where: { id: product.id },
     data: {
       isPublished: parsed.data.isPublished,
+      stock: parsed.data.stock ?? product.stock,
       enrichmentStatus: parsed.data.isPublished ? "READY" : "PENDING",
     },
     include: { brand: true, supplier: true },
