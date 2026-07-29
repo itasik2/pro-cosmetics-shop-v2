@@ -122,7 +122,7 @@ function readOffers(value: unknown) {
     );
     const currency = cleanText(object.priceCurrency, 10);
 
-    if (Number.isFinite(price) && price >= 0) {
+    if (Number.isFinite(price) && price > 0) {
       return { price, currency };
     }
   }
@@ -233,7 +233,7 @@ function localizedPriceFromText(text: string) {
 
   const normalized = match[1].replace(/\s+/g, "").replace(",", ".");
   const price = Number(normalized);
-  return Number.isFinite(price) && price >= 0 ? price : null;
+  return Number.isFinite(price) && price > 0 ? price : null;
 }
 
 function likelyIngredientList($: cheerio.CheerioAPI) {
@@ -264,12 +264,44 @@ function likelyIngredientList($: cheerio.CheerioAPI) {
   return candidates[0]?.text ?? null;
 }
 
+function isLikelyProductTitle(value: string | null) {
+  if (!value || value.length < 4) return false;
+  const normalized = normalizeSearchText(value);
+
+  return !/(?:войдите|создайте учетную запись|создать учетную запись|личный кабинет|авторизац|регистрац|забыли пароль|forgot password|sign in|log in|login|account)/i.test(
+    normalized,
+  );
+}
+
+function productHeading($: cheerio.CheerioAPI) {
+  const candidates = new Map<string, { text: string; score: number }>();
+
+  $("h1, .product-title, .product-info h1, #content h1, main h1").each((_, element) => {
+    const text = cleanText($(element).text(), 500);
+    if (!isLikelyProductTitle(text)) return;
+
+    let score = Math.min(text.length, 120) / 120;
+    if ($(element).closest("#content, main, .product-info, .product-page").length) score += 20;
+    if (/\d+\s*(?:мл|ml|г|гр|g|шт)\b/iu.test(text)) score += 10;
+    if (/[А-ЯA-Z]{3,}/u.test(text)) score += 2;
+
+    const previous = candidates.get(text);
+    if (!previous || previous.score < score) candidates.set(text, { text, score });
+  });
+
+  return [...candidates.values()].sort((a, b) => b.score - a.score)[0]?.text ?? null;
+}
+
+function firstLikelyTitle(values: Array<string | null>) {
+  return values.find(isLikelyProductTitle) ?? null;
+}
+
 function isLikelyProductImage(value: string) {
   const normalized = value.toLocaleLowerCase("ru-RU");
   if (!normalized) return false;
-  if (/\.svg(?:$|[?#])/i.test(normalized)) return false;
+  if (/\.(?:svg|gif)(?:$|[?#])/i.test(normalized)) return false;
 
-  return !/(?:logo|icon|sprite|payment|favicon|avatar|badge|banner|button|widget|social|share|instagram|whatsapp|facebook|telegram|yandex|passport|login|signin|sign-in|auth|oauth|captcha)/i.test(
+  return !/(?:ajax[._-]?loader|loader|loading|spinner|progress|preload|logo|icon|sprite|payment|favicon|avatar|badge|banner|button|widget|social|share|instagram|whatsapp|facebook|telegram|yandex|passport|login|signin|sign-in|auth|oauth|captcha)/i.test(
     normalized,
   );
 }
@@ -322,13 +354,14 @@ export function extractProductFromHtml(input: {
     maxLength: 12_000,
   });
 
-  const title =
-    selectorTitle ||
-    cleanText(productNode?.name, 500) ||
-    cleanText($("h1").first().text(), 500) ||
-    metaContent($, "meta[property='og:title']") ||
-    metaContent($, "meta[name='twitter:title']") ||
-    cleanText($("title").first().text(), 500);
+  const title = firstLikelyTitle([
+    selectorTitle,
+    cleanText(productNode?.name, 500),
+    productHeading($),
+    metaContent($, "meta[property='og:title']"),
+    metaContent($, "meta[name='twitter:title']"),
+    cleanText($("title").first().text(), 500),
+  ]);
 
   const description =
     selectorDescription ||
