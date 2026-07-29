@@ -264,7 +264,7 @@ function likelyIngredientList($: cheerio.CheerioAPI) {
   return candidates[0]?.text ?? null;
 }
 
-function isLikelyProductTitle(value: string | null) {
+function isLikelyProductTitle(value: string | null): value is string {
   if (!value || value.length < 4) return false;
   const normalized = normalizeSearchText(value);
 
