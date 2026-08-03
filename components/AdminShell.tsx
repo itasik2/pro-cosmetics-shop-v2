@@ -29,9 +29,8 @@ export function AdminShell({ children }: { children: ReactNode }) {
       {/* Внутреннее меню админки */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b pb-3 mb-2 min-w-0">
         <div className="flex flex-wrap gap-2 min-w-0">
+          {link("/admin/price-workflow", "Работа с прайсом")}
           {link("/admin/products", "Товары")}
-          {link("/admin/price-imports", "Импорт прайса")}
-          {link("/admin/enrichment", "Автозаполнение")}
           {link("/admin/blog", "Блог")}
           {link("/admin/orders", "Заказы")}
           {link("/admin/reviews", "Отзывы")}
