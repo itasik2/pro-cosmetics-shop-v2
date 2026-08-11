@@ -30,6 +30,7 @@ export async function GET(req: Request) {
           supplierSku: true,
           image: true,
           description: true,
+          stock: true,
           isPublished: true,
           enrichmentStatus: true,
           brand: { select: { name: true } },
