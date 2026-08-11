@@ -59,6 +59,7 @@ type Proposal = {
     supplierSku: string | null;
     image: string;
     description: string;
+    stock: number;
     isPublished: boolean;
     enrichmentStatus: string;
     brand: { name: string } | null;
@@ -267,6 +268,7 @@ export default function AdminEnrichmentClient() {
   const [status, setStatus] = useState("ALL");
   const [sourceUrls, setSourceUrls] = useState<Record<string, string>>({});
   const [selectedImages, setSelectedImages] = useState<Record<string, string>>({});
+  const [stockValues, setStockValues] = useState<Record<string, string>>({});
   const [sourceForm, setSourceForm] = useState<SourceForm>(emptySourceForm);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -294,6 +296,13 @@ export default function AdminEnrichmentClient() {
     });
     const rows = (await readResponse(response)) as Proposal[];
     setProposals(rows);
+    setStockValues((current) => {
+      const next: Record<string, string> = {};
+      for (const proposal of rows) {
+        next[proposal.id] = current[proposal.id] ?? String(proposal.product.stock);
+      }
+      return next;
+    });
     setSelectedImages((current) => {
       const activeProposalIds = new Set(rows.map((proposal) => proposal.id));
       return Object.fromEntries(
@@ -354,6 +363,12 @@ export default function AdminEnrichmentClient() {
   }
 
   async function applyProposal(proposalId: string, mode: ApplyMode) {
+    const stock = Number(stockValues[proposalId] ?? "0");
+    if (!Number.isInteger(stock) || stock < 0) {
+      setMessage("Количество должно быть целым числом от 0 и выше.");
+      return;
+    }
+
     setBusyKey(`apply:${proposalId}:${mode}`);
     setMessage(null);
     try {
@@ -363,15 +378,16 @@ export default function AdminEnrichmentClient() {
         body: JSON.stringify({
           mode,
           imageUrl: selectedImages[proposalId] || "",
+          stock,
         }),
       });
       await readResponse(response);
       setMessage(
         mode === "ALL"
-          ? "Описание и изображение применены. Товар не опубликован автоматически."
+          ? "Описание, фото и количество применены. Товар добавлен в черновики для публикации."
           : mode === "DESCRIPTION"
-            ? "Описание применено."
-            : "Изображение перенесено в Cloudinary и применено.",
+            ? "Описание и количество сохранены. Предложение остаётся на проверке."
+            : "Фото и количество сохранены. Предложение остаётся на проверке.",
       );
       await Promise.all([loadProducts(), loadProposals()]);
     } catch (error) {
@@ -676,6 +692,27 @@ export default function AdminEnrichmentClient() {
                         </div>
                       )}
                     </div>
+
+                    <label className="block rounded-xl border p-3 text-sm">
+                      <span className="mb-1 block font-medium">Количество на складе</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step={1}
+                        inputMode="numeric"
+                        className="w-full rounded-xl border px-3 py-2"
+                        value={stockValues[proposal.id] ?? String(proposal.product.stock)}
+                        onChange={(event) =>
+                          setStockValues((current) => ({
+                            ...current,
+                            [proposal.id]: event.target.value,
+                          }))
+                        }
+                      />
+                      <span className="mt-1 block text-xs text-gray-500">
+                        Значение сохранится вместе с одобрением предложения. Ноль означает «нет в наличии».
+                      </span>
+                    </label>
 
                     <JsonBlock label="Извлечённые факты" value={proposal.facts} />
                     <JsonBlock label="Предупреждения" value={proposal.warnings} />
