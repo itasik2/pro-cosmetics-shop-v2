@@ -6,5 +6,34 @@
 
 body { @apply bg-white text-gray-900; }
 .container { @apply max-w-6xl mx-auto px-4; }
-.btn { @apply inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold transition shadow-sm bg-gray-900 text-white hover:bg-black; }
+.btn { @apply inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold transition shadow-sm bg-gray-700 text-white hover:bg-gray-600; }
 .card { @apply border rounded-2xl p-4 shadow-sm bg-white; }
+
+button:not(:disabled) {
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease,
+    box-shadow 180ms ease,
+    filter 180ms ease,
+    transform 120ms ease;
+}
+
+button:not(:disabled):hover {
+  filter: brightness(1.06);
+  box-shadow: 0 2px 8px rgb(15 23 42 / 0.08);
+}
+
+button:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+button.bg-black,
+a.bg-black {
+  background-color: rgb(55 65 81);
+}
+
+button.bg-black:hover,
+a.bg-black:hover {
+  background-color: rgb(75 85 99);
+}
