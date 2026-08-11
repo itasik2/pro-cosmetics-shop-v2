@@ -14,6 +14,7 @@ type ProductCardProps = {
     price: number;
     stock: number;
     isPopular: boolean;
+    isNew?: boolean;
     createdAt: Date | string;
     category: string;
     brand?: { name: string } | null;
@@ -30,10 +31,12 @@ type Variant = {
   image?: string;
 };
 
-function isNew(createdAt: Date | string, days = 14) {
+function isRecentlyCreated(createdAt: Date | string, days = 14) {
   const d = typeof createdAt === "string" ? new Date(createdAt) : createdAt;
-  const diff = Date.now() - d.getTime();
-  return diff <= days * 24 * 60 * 60 * 1000;
+  const time = d.getTime();
+  if (!Number.isFinite(time)) return false;
+  const diff = Date.now() - time;
+  return diff >= 0 && diff <= days * 24 * 60 * 60 * 1000;
 }
 
 function normalizeVariants(v: any): Variant[] {
@@ -51,7 +54,7 @@ function normalizeVariants(v: any): Variant[] {
 }
 
 export default function ProductCard({ product }: ProductCardProps) {
-  const newBadge = isNew(product.createdAt, 14);
+  const newBadge = product.isNew === true || isRecentlyCreated(product.createdAt, 14);
 
   const variants = normalizeVariants(product.variants);
   const hasVariants = variants.length > 0;
@@ -70,7 +73,6 @@ export default function ProductCard({ product }: ProductCardProps) {
   const stockToUse = Math.trunc(Number(selectedVariant?.stock ?? product.stock) || 0);
   const inStock = stockToUse > 0;
 
-  // если у варианта есть фото — используем, иначе основное
   const imageToShow =
     selectedVariant?.image && String(selectedVariant.image).trim().length > 0
       ? String(selectedVariant.image).trim()
@@ -83,15 +85,14 @@ export default function ProductCard({ product }: ProductCardProps) {
         "transition-colors shadow-sm hover:shadow-md transition-all duration-200 border border-brand-soft/50"
       }
     >
-      {/* Бейджи */}
       <div className="absolute left-3 top-3 z-10 flex flex-col gap-2">
         {product.isPopular && (
-          <span className="inline-flex items-center rounded-full bg-black px-2 py-1 text-xs text-white">
+          <span className="inline-flex items-center rounded-full bg-gray-700 px-2 py-1 text-xs text-white shadow-sm">
             Хит
           </span>
         )}
         {newBadge && (
-          <span className="inline-flex items-center rounded-full bg-emerald-600 px-2 py-1 text-xs text-white">
+          <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 shadow-sm">
             Новинка
           </span>
         )}
@@ -102,12 +103,10 @@ export default function ProductCard({ product }: ProductCardProps) {
         )}
       </div>
 
-      {/* Избранное */}
       <div className="absolute right-3 top-3 z-10">
         <FavoriteButton productId={product.id} />
       </div>
 
-      {/* Кликабельная зона фото -> подробнее */}
       <Link
         href={`/api/products/by-id-redirect/${encodeURIComponent(product.id)}`}
         className="block aspect-square w-full bg-gray-100 rounded-xl mb-3 overflow-hidden"
@@ -122,26 +121,23 @@ export default function ProductCard({ product }: ProductCardProps) {
         />
       </Link>
 
-      {/* Бренд/категория */}
       <div className="text-sm text-gray-500">
         {product.brand ? (
-  <Link
-    href={`/brand/${product.brand.name.toLowerCase()}`}
-    className="hover:underline"
-  >
-    {product.brand.name}
-  </Link>
-) : (
-  product.category
-)}
+          <Link
+            href={`/brand/${product.brand.name.toLowerCase()}`}
+            className="hover:underline"
+          >
+            {product.brand.name}
+          </Link>
+        ) : (
+          product.category
+        )}
       </div>
 
-      {/* Название: фиксируем высоту, чтобы сетка не “прыгала” */}
       <h3 className="font-semibold line-clamp-2 min-h-[40px]">
         {product.name}
       </h3>
 
-      {/* Варианты: фиксируем высоту блока, даже если их нет */}
       <div className="mt-2 min-h-[36px]">
         {hasVariants ? (
           <div className="flex flex-wrap gap-2">
@@ -155,9 +151,13 @@ export default function ProductCard({ product }: ProductCardProps) {
                   disabled={disabled}
                   onClick={() => setVariantId(v.id)}
                   className={
-                    "px-3 py-1 rounded-full text-xs border transition " +
-                    (active ? "bg-black text-white" : "bg-white") +
-                    (disabled ? " opacity-40 cursor-not-allowed" : " hover:bg-gray-50")
+                    "px-3 py-1 rounded-full text-xs border transition-colors shadow-sm " +
+                    (active
+                      ? "border-gray-400 bg-gray-200 text-gray-900"
+                      : "border-gray-200 bg-gray-50 text-gray-700") +
+                    (disabled
+                      ? " opacity-40 cursor-not-allowed"
+                      : " hover:border-gray-400 hover:bg-gray-100")
                   }
                   title={disabled ? "Нет в наличии" : ""}
                 >
@@ -169,7 +169,6 @@ export default function ProductCard({ product }: ProductCardProps) {
         ) : null}
       </div>
 
-      {/* Нижний блок всегда прижат вниз */}
       <div className="mt-auto">
         <div className="flex items-center justify-between mt-2 gap-2">
           <div className="font-semibold">
@@ -189,7 +188,10 @@ export default function ProductCard({ product }: ProductCardProps) {
         </div>
 
         <div className="mt-2">
-          <Link href={`/api/products/by-id-redirect/${encodeURIComponent(product.id)}`} className="text-xs text-gray-600 hover:underline">
+          <Link
+            href={`/api/products/by-id-redirect/${encodeURIComponent(product.id)}`}
+            className="text-xs text-gray-600 hover:underline"
+          >
             Подробнее
           </Link>
         </div>
