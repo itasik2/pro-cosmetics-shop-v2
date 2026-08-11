@@ -51,6 +51,7 @@ export async function applyProductEnrichmentProposal(input: {
   proposalId: string;
   mode: ProposalApplyMode;
   imageUrl?: string | null;
+  stock: number;
 }) {
   const proposal = await prisma.productEnrichmentProposal.findUnique({
     where: { id: input.proposalId },
@@ -107,6 +108,11 @@ export async function applyProductEnrichmentProposal(input: {
   }
 
   const result = await prisma.$transaction(async (tx) => {
+    await tx.product.update({
+      where: { id: proposal.productId },
+      data: { stock: input.stock },
+    });
+
     const updatedProposal = await tx.productEnrichmentProposal.update({
       where: { id: proposal.id },
       data: {
@@ -120,6 +126,7 @@ export async function applyProductEnrichmentProposal(input: {
             name: true,
             image: true,
             description: true,
+            stock: true,
             isPublished: true,
             enrichmentStatus: true,
           },
@@ -155,6 +162,7 @@ export async function applyProductEnrichmentProposal(input: {
             name: true,
             image: true,
             description: true,
+            stock: true,
             isPublished: true,
             enrichmentStatus: true,
           },
