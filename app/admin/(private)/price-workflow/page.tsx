@@ -14,7 +14,7 @@ type PageProps = {
 
 function normalizeStep(value: string | string[] | undefined): PriceWorkflowStep {
   const step = Array.isArray(value) ? value[0] : value;
-  if (step === "enrichment" || step === "publication") return step;
+  if (step === "enrichment" || step === "publication") return "enrichment";
   return "import";
 }
 
