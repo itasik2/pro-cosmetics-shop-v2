@@ -15,6 +15,7 @@ type Params = { params: { id: string } };
 const BodySchema = z.object({
   mode: z.enum(["ALL", "DESCRIPTION", "IMAGE"]).default("ALL"),
   imageUrl: z.string().url().max(3000).optional().or(z.literal("")),
+  stock: z.number().int().min(0).max(1_000_000).optional(),
 });
 
 function errorResponse(error: unknown) {
@@ -30,7 +31,8 @@ function errorResponse(error: unknown) {
         : message === "proposal_description_empty" ||
             message === "proposal_image_missing" ||
             message === "proposal_image_not_allowed" ||
-            message === "product_supplier_required"
+            message === "product_supplier_required" ||
+            message === "product_stock_required"
           ? 422
           : 500;
 
@@ -57,6 +59,7 @@ export async function POST(req: Request, { params }: Params) {
       proposalId: params.id,
       mode: parsed.data.mode as ProposalApplyMode,
       imageUrl: parsed.data.imageUrl?.trim() || null,
+      stock: parsed.data.stock,
     });
 
     return NextResponse.json(result);
