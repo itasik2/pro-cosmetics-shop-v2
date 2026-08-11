@@ -128,6 +128,7 @@ export async function runProductEnrichment(input: RunInput) {
       const found = await findOfficialProductUrl({
         product,
         allowedDomains: allowedSources.map((source) => source.domain),
+        excludedUrls: [staleUrl],
       });
       searchResult = {
         ...found,
