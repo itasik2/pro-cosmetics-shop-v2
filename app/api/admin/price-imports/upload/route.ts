@@ -206,7 +206,10 @@ export async function POST(req: Request) {
 
     const variantGroupKeys = autoVariantGroupKeys(parsed.rows);
     const existingProducts = await prisma.product.findMany({
-      where: { supplierId: supplier.id },
+      where: {
+        supplierId: supplier.id,
+        enrichmentStatus: { not: "MERGED" },
+      },
       orderBy: { createdAt: "asc" },
       select: {
         id: true,

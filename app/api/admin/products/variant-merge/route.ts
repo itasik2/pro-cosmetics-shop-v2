@@ -298,6 +298,7 @@ export async function POST(req: Request) {
           stock: 0,
           supplierSku: null,
           enrichmentStatus: "MERGED",
+          variants: null,
         },
       });
     }
