@@ -166,11 +166,16 @@ function validatedAllowedUrl(rawUrl: string, allowedDomains: string[]) {
 export async function findOfficialProductUrl(input: {
   product: MatchableProduct;
   allowedDomains: string[];
+  excludedUrls?: string[];
 }): Promise<SearchResult> {
   const allowedDomains = [...new Set(input.allowedDomains.map(normalizeDomain))].filter(
     Boolean,
   );
   if (!allowedDomains.length) throw new Error("allowed_domains_required");
+
+  const excludedUrls = [...new Set((input.excludedUrls || []).map((value) => value.trim()))]
+    .filter(Boolean)
+    .slice(0, 10);
 
   const raw = await requestStructured({
     schemaName: "official_product_page",
@@ -186,8 +191,8 @@ export async function findOfficialProductUrl(input: {
       },
     },
     system:
-      "Найди страницу конкретного товара только на разрешённых официальных доменах. Используй поисковые запросы с ограничением site:домен. Не подставляй страницу категории, поиска, корзины или другого объёма. Если точного совпадения нет, верни found=false. URL должен быть прямой страницей товара.",
-    user: `${productLabel(input.product)}\n\nРазрешённые домены: ${allowedDomains.join(", ")}`,
+      "Найди страницу конкретного товара только на разрешённых официальных доменах. Используй поисковые запросы с ограничением site:домен. Не подставляй страницу категории, поиска, корзины или другого объёма. Не возвращай URL из списка исключений. Если точного совпадения нет, верни found=false. URL должен быть прямой страницей товара.",
+    user: `${productLabel(input.product)}\n\nРазрешённые домены: ${allowedDomains.join(", ")}\nИсключённые URL: ${excludedUrls.join(", ") || "нет"}`,
     tools: [
       {
         type: "web_search",
@@ -208,6 +213,15 @@ export async function findOfficialProductUrl(input: {
       url: null,
       confidence: 0,
       reason: "Найденный адрес не относится к разрешённым официальным доменам.",
+    };
+  }
+
+  if (excludedUrls.includes(url)) {
+    return {
+      found: false,
+      url: null,
+      confidence: 0,
+      reason: "Поиск повторно вернул уже исключённый нерабочий адрес.",
     };
   }
 
