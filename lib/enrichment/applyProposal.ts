@@ -51,6 +51,7 @@ export async function applyProductEnrichmentProposal(input: {
   proposalId: string;
   mode: ProposalApplyMode;
   imageUrl?: string | null;
+  stock?: number;
 }) {
   const proposal = await prisma.productEnrichmentProposal.findUnique({
     where: { id: input.proposalId },
@@ -69,8 +70,15 @@ export async function applyProductEnrichmentProposal(input: {
     throw new Error("proposal_not_pending");
   }
 
-  const applyDescription = input.mode === "ALL" || input.mode === "DESCRIPTION";
-  const applyImage = input.mode === "ALL" || input.mode === "IMAGE";
+  const finalApproval = input.mode === "ALL";
+  const applyDescription = finalApproval || input.mode === "DESCRIPTION";
+  const applyImage = finalApproval || input.mode === "IMAGE";
+
+  if (finalApproval) {
+    if (!Number.isInteger(input.stock) || Number(input.stock) < 0) {
+      throw new Error("proposal_stock_required");
+    }
+  }
 
   if (applyDescription) {
     const description = composeDescription(proposal);
@@ -106,48 +114,39 @@ export async function applyProductEnrichmentProposal(input: {
     });
   }
 
-  const result = await prisma.$transaction(async (tx) => {
-    const updatedProposal = await tx.productEnrichmentProposal.update({
-      where: { id: proposal.id },
-      data: {
-        status: EnrichmentProposalStatus.APPLIED,
-        appliedAt: new Date(),
-      },
-      include: {
-        product: {
-          select: {
-            id: true,
-            name: true,
-            image: true,
-            description: true,
-            isPublished: true,
-            enrichmentStatus: true,
-          },
-        },
-        source: true,
-        job: true,
-      },
-    });
+  if (finalApproval) {
+    await prisma.$transaction(async (tx) => {
+      await tx.product.update({
+        where: { id: proposal.productId },
+        data: { stock: Number(input.stock) },
+      });
 
-    if (proposal.jobId) {
-      await tx.enrichmentJob.update({
-        where: { id: proposal.jobId },
+      await tx.productEnrichmentProposal.update({
+        where: { id: proposal.id },
         data: {
-          status: EnrichmentJobStatus.APPLIED,
-          finishedAt: new Date(),
-          error: null,
+          status: EnrichmentProposalStatus.APPLIED,
+          appliedAt: new Date(),
         },
       });
-    }
 
-    return updatedProposal;
-  });
+      if (proposal.jobId) {
+        await tx.enrichmentJob.update({
+          where: { id: proposal.jobId },
+          data: {
+            status: EnrichmentJobStatus.APPLIED,
+            finishedAt: new Date(),
+            error: null,
+          },
+        });
+      }
+    });
+  }
 
   await refreshProductEnrichmentStatus(proposal.productId);
 
   return {
     proposal: await prisma.productEnrichmentProposal.findUnique({
-      where: { id: result.id },
+      where: { id: proposal.id },
       include: {
         product: {
           select: {
@@ -155,6 +154,7 @@ export async function applyProductEnrichmentProposal(input: {
             name: true,
             image: true,
             description: true,
+            stock: true,
             isPublished: true,
             enrichmentStatus: true,
           },
@@ -164,6 +164,7 @@ export async function applyProductEnrichmentProposal(input: {
       },
     }),
     importedImage,
+    finalized: finalApproval,
   };
 }
 
