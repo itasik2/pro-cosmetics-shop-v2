@@ -60,6 +60,7 @@ type Proposal = {
     image: string;
     description: string;
     stock: number;
+    variants: unknown;
     isPublished: boolean;
     enrichmentStatus: string;
     brand: { name: string } | null;
@@ -126,6 +127,30 @@ function stringArray(value: unknown) {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
     : [];
+}
+
+type ProposalVariant = {
+  id: string;
+  label: string;
+  price: number;
+  stock: number;
+  sku?: string;
+};
+
+function proposalVariants(value: unknown): ProposalVariant[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((raw) => {
+      const row = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+      return {
+        id: String(row.id || ""),
+        label: String(row.label || ""),
+        price: Math.max(0, Math.trunc(Number(row.price) || 0)),
+        stock: Math.max(0, Math.trunc(Number(row.stock) || 0)),
+        sku: row.sku ? String(row.sku) : undefined,
+      };
+    })
+    .filter((variant) => variant.id && variant.label);
 }
 
 function formatDate(value: string | null | undefined) {
@@ -269,6 +294,7 @@ export default function AdminEnrichmentClient() {
   const [sourceUrls, setSourceUrls] = useState<Record<string, string>>({});
   const [selectedImages, setSelectedImages] = useState<Record<string, string>>({});
   const [stockValues, setStockValues] = useState<Record<string, string>>({});
+  const [variantStockValues, setVariantStockValues] = useState<Record<string, Record<string, string>>>({});
   const [sourceForm, setSourceForm] = useState<SourceForm>(emptySourceForm);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -300,6 +326,18 @@ export default function AdminEnrichmentClient() {
       const next: Record<string, string> = {};
       for (const proposal of rows) {
         next[proposal.id] = current[proposal.id] ?? String(proposal.product.stock);
+      }
+      return next;
+    });
+    setVariantStockValues((current) => {
+      const next: Record<string, Record<string, string>> = {};
+      for (const proposal of rows) {
+        const variants = proposalVariants(proposal.product.variants);
+        if (!variants.length) continue;
+        const previous = current[proposal.id] || {};
+        next[proposal.id] = Object.fromEntries(
+          variants.map((variant) => [variant.id, previous[variant.id] ?? String(variant.stock)]),
+        );
       }
       return next;
     });
@@ -363,10 +401,27 @@ export default function AdminEnrichmentClient() {
   }
 
   async function applyProposal(proposalId: string, mode: ApplyMode) {
-    const stock = Number(stockValues[proposalId] ?? "0");
-    if (!Number.isInteger(stock) || stock < 0) {
-      setMessage("Количество должно быть целым числом от 0 и выше.");
-      return;
+    const proposal = proposals.find((item) => item.id === proposalId);
+    const variants = proposalVariants(proposal?.product.variants);
+    let stock: number | undefined;
+    let variantStocks: Record<string, number> | undefined;
+
+    if (variants.length) {
+      variantStocks = {};
+      for (const variant of variants) {
+        const value = Number(variantStockValues[proposalId]?.[variant.id] ?? variant.stock);
+        if (!Number.isInteger(value) || value < 0) {
+          setMessage(`Количество для варианта «${variant.label}» должно быть целым числом от 0 и выше.`);
+          return;
+        }
+        variantStocks[variant.id] = value;
+      }
+    } else {
+      stock = Number(stockValues[proposalId] ?? "0");
+      if (!Number.isInteger(stock) || stock < 0) {
+        setMessage("Количество должно быть целым числом от 0 и выше.");
+        return;
+      }
     }
 
     setBusyKey(`apply:${proposalId}:${mode}`);
@@ -379,6 +434,7 @@ export default function AdminEnrichmentClient() {
           mode,
           imageUrl: selectedImages[proposalId] || "",
           stock,
+          variantStocks,
         }),
       });
       await readResponse(response);
@@ -623,6 +679,7 @@ export default function AdminEnrichmentClient() {
             const images = stringArray(proposal.images);
             const selectedImage = selectedImages[proposal.id] || "";
             const isBusy = Boolean(busyKey?.includes(proposal.id));
+            const variants = proposalVariants(proposal.product.variants);
 
             return (
               <article key={proposal.id} className="space-y-4 rounded-2xl border bg-white p-4">
@@ -693,26 +750,65 @@ export default function AdminEnrichmentClient() {
                       )}
                     </div>
 
-                    <label className="block rounded-xl border p-3 text-sm">
-                      <span className="mb-1 block font-medium">Количество на складе</span>
-                      <input
-                        type="number"
-                        min={0}
-                        step={1}
-                        inputMode="numeric"
-                        className="w-full rounded-xl border px-3 py-2"
-                        value={stockValues[proposal.id] ?? String(proposal.product.stock)}
-                        onChange={(event) =>
-                          setStockValues((current) => ({
-                            ...current,
-                            [proposal.id]: event.target.value,
-                          }))
-                        }
-                      />
-                      <span className="mt-1 block text-xs text-gray-500">
-                        Значение сохранится вместе с одобрением предложения. Ноль означает «нет в наличии».
-                      </span>
-                    </label>
+                    {variants.length ? (
+                      <div className="rounded-xl border p-3 text-sm">
+                        <div className="mb-2 font-medium">Количество по вариантам</div>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          {variants.map((variant) => (
+                            <label key={variant.id} className="rounded-lg bg-gray-50 p-2">
+                              <span className="mb-1 block text-xs font-medium">
+                                {variant.label}
+                                {variant.sku ? ` · SKU ${variant.sku}` : ""}
+                              </span>
+                              <input
+                                type="number"
+                                min={0}
+                                step={1}
+                                inputMode="numeric"
+                                className="w-full rounded-lg border bg-white px-3 py-2"
+                                value={variantStockValues[proposal.id]?.[variant.id] ?? String(variant.stock)}
+                                onChange={(event) =>
+                                  setVariantStockValues((current) => ({
+                                    ...current,
+                                    [proposal.id]: {
+                                      ...(current[proposal.id] || {}),
+                                      [variant.id]: event.target.value,
+                                    },
+                                  }))
+                                }
+                              />
+                              <span className="mt-1 block text-[11px] text-gray-500">
+                                {variant.price.toLocaleString("ru-RU")} ₸
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                        <span className="mt-2 block text-xs text-gray-500">
+                          Остаток хранится отдельно для каждой фасовки.
+                        </span>
+                      </div>
+                    ) : (
+                      <label className="block rounded-xl border p-3 text-sm">
+                        <span className="mb-1 block font-medium">Количество на складе</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step={1}
+                          inputMode="numeric"
+                          className="w-full rounded-xl border px-3 py-2"
+                          value={stockValues[proposal.id] ?? String(proposal.product.stock)}
+                          onChange={(event) =>
+                            setStockValues((current) => ({
+                              ...current,
+                              [proposal.id]: event.target.value,
+                            }))
+                          }
+                        />
+                        <span className="mt-1 block text-xs text-gray-500">
+                          Значение сохранится вместе с одобрением предложения. Ноль означает «нет в наличии».
+                        </span>
+                      </label>
+                    )}
 
                     <JsonBlock label="Извлечённые факты" value={proposal.facts} />
                     <JsonBlock label="Предупреждения" value={proposal.warnings} />
