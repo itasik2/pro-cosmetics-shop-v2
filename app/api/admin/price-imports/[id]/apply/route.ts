@@ -12,6 +12,16 @@ import { requireAdmin } from "@/lib/adminGuard";
 import { prisma } from "@/lib/prisma";
 import { ParsedImportRowSchema, type ParsedImportRow } from "@/lib/price-import/parsedRow";
 import { normalizePriceMode } from "@/lib/price-import/pricing";
+import {
+  autoVariantGroupKeys,
+  baseProductName,
+  findVariantBySku,
+  makeImportedVariant,
+  mergeImportedVariant,
+  normalizeStoredVariants,
+  parsedProductGroupKey,
+  variantLabel,
+} from "@/lib/price-import/productVariants";
 import { slugify } from "@/lib/slug";
 import { uniqueSlug } from "@/lib/uniqueSlug";
 
@@ -79,12 +89,19 @@ async function updateExistingProduct(input: {
   supplierId: string;
   brandId: string;
   sourceOnly: boolean;
+  variantMode: boolean;
 }) {
   const product = await input.tx.product.findUnique({
     where: { id: input.productId },
     select: {
       id: true,
+      name: true,
+      supplierSku: true,
       price: true,
+      sourcePrice: true,
+      stock: true,
+      image: true,
+      variants: true,
       description: true,
       volumeValue: true,
       volumeUnit: true,
@@ -95,8 +112,87 @@ async function updateExistingProduct(input: {
 
   if (!product) throw new Error("product_not_found");
 
-  const nextPrice = input.sourceOnly ? product.price : input.parsed.salePrice;
+  const storedVariants = normalizeStoredVariants(product.variants);
+  const useVariants = input.variantMode || storedVariants.length > 0;
   const nextDescription = importedDescription(input.parsed.description);
+
+  if (useVariants) {
+    const label = variantLabel(input.parsed);
+    if (!label) throw new Error("variant_label_required");
+
+    let variants = [...storedVariants];
+    const existingVariant = findVariantBySku(variants, input.parsed.supplierSku);
+
+    if (!variants.length && product.supplierSku && product.supplierSku !== input.parsed.supplierSku) {
+      const oldLabel = variantLabel({
+        volumeValue: product.volumeValue,
+        volumeUnit: product.volumeUnit,
+      }) || "Основной";
+      variants.push(
+        makeImportedVariant({
+          sku: product.supplierSku,
+          label: oldLabel,
+          price: product.price,
+          stock: product.stock,
+          image: product.image,
+        }),
+      );
+    }
+
+    const variantPrice = input.sourceOnly
+      ? existingVariant?.price ?? input.parsed.sourcePrice
+      : input.parsed.salePrice;
+    const incoming = makeImportedVariant({
+      sku: input.parsed.supplierSku,
+      label,
+      price: variantPrice,
+      stock:
+        existingVariant?.stock ??
+        (product.supplierSku === input.parsed.supplierSku ? product.stock : 0),
+      image: existingVariant?.image,
+    });
+    variants = mergeImportedVariant(variants, incoming);
+
+    const positivePrices = variants.map((variant) => variant.price).filter((price) => price > 0);
+    const nextPrice = positivePrices.length ? Math.min(...positivePrices) : product.price;
+    const nextStock = variants.reduce((sum, variant) => sum + Math.max(0, variant.stock), 0);
+
+    await input.tx.product.update({
+      where: { id: product.id },
+      data: {
+        brandId: input.brandId,
+        supplierId: input.supplierId,
+        supplierSku: product.supplierSku || input.parsed.supplierSku,
+        sourcePrice: input.parsed.sourcePrice,
+        price: nextPrice,
+        stock: nextStock,
+        variants,
+        priceListDate: parseSourceDate(input.parsed.sourceDate),
+        lastImportedAt: new Date(),
+        productLineCode: product.productLineCode ?? input.parsed.productLineCode,
+        productLineName: product.productLineName ?? input.parsed.productLineName,
+        ...(nextDescription && descriptionIsPlaceholder(product.description)
+          ? { description: nextDescription }
+          : {}),
+      },
+    });
+
+    if (product.price !== nextPrice) {
+      await input.tx.productPriceHistory.create({
+        data: {
+          productId: product.id,
+          importId: input.importId,
+          oldPrice: product.price,
+          newPrice: nextPrice,
+          sourcePrice: input.parsed.sourcePrice,
+        },
+      });
+    }
+
+    return product.id;
+  }
+
+  const nextPrice = input.sourceOnly ? product.price : input.parsed.salePrice;
   await input.tx.product.update({
     where: { id: product.id },
     data: {
@@ -159,6 +255,12 @@ export async function POST(_req: Request, { params }: Params) {
 
   const sourceOnly = normalizePriceMode(priceImport.priceMode) === "SOURCE_ONLY";
   const brandCache = new Map<string, { id: string; name: string }>();
+  const parsedRowsForGrouping = priceImport.rows
+    .map((row) => ParsedImportRowSchema.safeParse(row.parsedData))
+    .filter((result) => result.success)
+    .map((result) => result.data);
+  const variantGroupKeys = autoVariantGroupKeys(parsedRowsForGrouping);
+  const groupProductCache = new Map<string, string>();
 
   let createdRows = 0;
   let updatedRows = 0;
@@ -182,6 +284,9 @@ export async function POST(_req: Request, { params }: Params) {
         throw new Error("sku_required_for_apply");
       }
 
+      const groupKey = parsedProductGroupKey(parsed);
+      const variantMode = Boolean(groupKey && variantGroupKeys.has(groupKey));
+
       const brandKey = normalizeBrandName(parsed.brand).toLocaleLowerCase("ru-RU");
       let brand = brandCache.get(brandKey);
       if (!brand) {
@@ -189,6 +294,7 @@ export async function POST(_req: Request, { params }: Params) {
         brandCache.set(brandKey, brand);
       }
 
+      const cachedProductId = groupKey ? groupProductCache.get(groupKey) : undefined;
       const skuOwner = await prisma.product.findFirst({
         where: {
           supplierId: priceImport.supplierId,
@@ -201,12 +307,14 @@ export async function POST(_req: Request, { params }: Params) {
         throw new Error("supplier_sku_used_by_another_brand");
       }
 
-      const matchedProduct = row.productId
-        ? await prisma.product.findFirst({
-            where: { id: row.productId, brandId: brand.id },
-            select: { id: true },
-          })
-        : skuOwner;
+      const matchedProduct = cachedProductId
+        ? { id: cachedProductId }
+        : row.productId
+          ? await prisma.product.findFirst({
+              where: { id: row.productId, brandId: brand.id },
+              select: { id: true },
+            })
+          : skuOwner;
 
       if (matchedProduct) {
         const productId = await prisma.$transaction((tx) =>
@@ -218,9 +326,11 @@ export async function POST(_req: Request, { params }: Params) {
             supplierId: priceImport.supplierId,
             brandId: brand.id,
             sourceOnly,
+            variantMode,
           }),
         );
 
+        if (groupKey && variantMode) groupProductCache.set(groupKey, productId);
         await prisma.priceImportRow.update({
           where: { id: row.id },
           data: {
@@ -237,17 +347,21 @@ export async function POST(_req: Request, { params }: Params) {
         throw new Error("product_match_required");
       }
 
+      const groupedName = variantMode
+        ? baseProductName(parsed.normalizedName, parsed.volumeLabel)
+        : parsed.normalizedName;
       const baseSlug = slugify(
-        `${brand.name}-${parsed.normalizedName}-${parsed.volumeLabel || parsed.supplierSku}`,
+        `${brand.name}-${groupedName}-${variantMode ? parsed.supplierSku : parsed.volumeLabel || parsed.supplierSku}`,
       );
       const slug = await uniqueSlug({ model: "product", value: baseSlug });
       const initialPrice = sourceOnly ? parsed.sourcePrice : parsed.salePrice;
       const description = importedDescription(parsed.description) || "Описание готовится";
+      const label = variantMode ? variantLabel(parsed) : "";
 
       const productId = await prisma.$transaction(async (tx) => {
         const product = await tx.product.create({
           data: {
-            name: parsed.normalizedName,
+            name: groupedName,
             slug,
             brandId: brand.id,
             supplierId: priceImport.supplierId,
@@ -268,6 +382,17 @@ export async function POST(_req: Request, { params }: Params) {
             enrichmentStatus: "PENDING",
             isPopular: false,
             isNew: true,
+            variants:
+              variantMode && label
+                ? [
+                    makeImportedVariant({
+                      sku: parsed.supplierSku,
+                      label,
+                      price: initialPrice,
+                      stock: 0,
+                    }),
+                  ]
+                : undefined,
           },
           select: { id: true },
         });
@@ -285,6 +410,7 @@ export async function POST(_req: Request, { params }: Params) {
         return product.id;
       });
 
+      if (groupKey && variantMode) groupProductCache.set(groupKey, productId);
       await prisma.priceImportRow.update({
         where: { id: row.id },
         data: {
@@ -325,5 +451,5 @@ export async function POST(_req: Request, { params }: Params) {
     },
   });
 
-  return NextResponse.json({ import: updatedImport });
+  return NextResponse.json({ import: updatedImport, autoVariantGroups: variantGroupKeys.size });
 }
