@@ -1,13 +1,13 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import PriceImportsClient from "../price-imports/PriceImportsClient";
 import PriceImportMaintenance from "../price-imports/PriceImportMaintenance";
 import AdminEnrichmentClient from "../enrichment/AdminEnrichmentClient";
 import DraftProductsPublisher from "../products/DraftProductsPublisher";
 
-export type PriceWorkflowStep = "import" | "enrichment" | "publication";
+export type PriceWorkflowStep = "import" | "enrichment";
 
 type SupplierOption = {
   id: string;
@@ -43,14 +43,8 @@ const STEPS: Array<{
   {
     id: "enrichment",
     number: 2,
-    title: "Фото и описание",
-    description: "Найти официальный источник и одобрить данные карточки.",
-  },
-  {
-    id: "publication",
-    number: 3,
-    title: "Остаток и публикация",
-    description: "Указать количество и опубликовать готовые товары.",
+    title: "Подготовка товаров",
+    description: "Выбрать фото и описание, указать количество и отправить готовые карточки в черновики.",
   },
 ];
 
@@ -71,6 +65,12 @@ export default function PriceWorkflowClient({
     [pathname, router],
   );
 
+  useEffect(() => {
+    const handleImportApplied = () => selectStep("enrichment");
+    window.addEventListener("price-import-applied", handleImportApplied);
+    return () => window.removeEventListener("price-import-applied", handleImportApplied);
+  }, [selectStep]);
+
   const currentIndex = STEPS.findIndex((item) => item.id === step);
   const previous = currentIndex > 0 ? STEPS[currentIndex - 1] : null;
   const next = currentIndex < STEPS.length - 1 ? STEPS[currentIndex + 1] : null;
@@ -80,11 +80,12 @@ export default function PriceWorkflowClient({
       <header className="rounded-2xl border bg-white/80 p-4 sm:p-6">
         <h1 className="text-2xl font-bold">Работа с прайсом</h1>
         <p className="mt-2 max-w-3xl text-sm text-gray-600">
-          Весь путь товара находится на одной странице: от загрузки прайса до
-          публикации в каталоге. Переходите между этапами, не открывая новые вкладки.
+          Весь путь товара находится на одной странице: сначала импорт прайса, затем
+          подготовка карточки. После одобрения товар сразу появляется ниже в очереди
+          черновиков для публикации.
         </p>
 
-        <div className="mt-5 grid gap-3 lg:grid-cols-3">
+        <div className="mt-5 grid gap-3 lg:grid-cols-2">
           {STEPS.map((item) => {
             const active = item.id === step;
             const completed = item.number < STEPS[currentIndex].number;
@@ -135,18 +136,20 @@ export default function PriceWorkflowClient({
           </div>
         )}
 
-        {step === "enrichment" && <AdminEnrichmentClient />}
+        {step === "enrichment" && (
+          <div className="space-y-8">
+            <AdminEnrichmentClient />
 
-        {step === "publication" && (
-          <div className="space-y-4">
-            <div className="rounded-2xl border bg-white/80 p-4">
-              <h2 className="font-semibold">Готовые к публикации товары</h2>
-              <p className="mt-1 text-sm text-gray-600">
-                Здесь отображаются только товары с применённым предложением
-                автозаполнения. Укажите остаток и опубликуйте карточку.
-              </p>
+            <div id="publication-queue" className="space-y-4 border-t pt-6">
+              <div className="rounded-2xl border bg-white/80 p-4">
+                <h2 className="font-semibold">Черновики к публикации</h2>
+                <p className="mt-1 text-sm text-gray-600">
+                  Сюда попадают только полностью одобренные карточки. Можно публиковать
+                  товары по одному или выбрать несколько карточек и опубликовать их одной кнопкой.
+                </p>
+              </div>
+              <DraftProductsPublisher />
             </div>
-            <DraftProductsPublisher />
           </div>
         )}
       </section>
