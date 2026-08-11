@@ -51,6 +51,7 @@ export async function applyProductEnrichmentProposal(input: {
   proposalId: string;
   mode: ProposalApplyMode;
   imageUrl?: string | null;
+  stock?: number;
 }) {
   const proposal = await prisma.productEnrichmentProposal.findUnique({
     where: { id: input.proposalId },
@@ -69,6 +70,7 @@ export async function applyProductEnrichmentProposal(input: {
     throw new Error("proposal_not_pending");
   }
 
+  const finalize = input.mode === "ALL";
   const applyDescription = input.mode === "ALL" || input.mode === "DESCRIPTION";
   const applyImage = input.mode === "ALL" || input.mode === "IMAGE";
 
@@ -107,12 +109,24 @@ export async function applyProductEnrichmentProposal(input: {
   }
 
   const result = await prisma.$transaction(async (tx) => {
+    if (input.stock !== undefined) {
+      await tx.product.update({
+        where: { id: proposal.productId },
+        data: { stock: input.stock },
+      });
+    }
+
     const updatedProposal = await tx.productEnrichmentProposal.update({
       where: { id: proposal.id },
-      data: {
-        status: EnrichmentProposalStatus.APPLIED,
-        appliedAt: new Date(),
-      },
+      data: finalize
+        ? {
+            status: EnrichmentProposalStatus.APPLIED,
+            appliedAt: new Date(),
+          }
+        : {
+            status: EnrichmentProposalStatus.PENDING,
+            appliedAt: null,
+          },
       include: {
         product: {
           select: {
@@ -120,6 +134,7 @@ export async function applyProductEnrichmentProposal(input: {
             name: true,
             image: true,
             description: true,
+            stock: true,
             isPublished: true,
             enrichmentStatus: true,
           },
@@ -132,11 +147,17 @@ export async function applyProductEnrichmentProposal(input: {
     if (proposal.jobId) {
       await tx.enrichmentJob.update({
         where: { id: proposal.jobId },
-        data: {
-          status: EnrichmentJobStatus.APPLIED,
-          finishedAt: new Date(),
-          error: null,
-        },
+        data: finalize
+          ? {
+              status: EnrichmentJobStatus.APPLIED,
+              finishedAt: new Date(),
+              error: null,
+            }
+          : {
+              status: EnrichmentJobStatus.REVIEW,
+              finishedAt: null,
+              error: null,
+            },
       });
     }
 
@@ -155,6 +176,7 @@ export async function applyProductEnrichmentProposal(input: {
             name: true,
             image: true,
             description: true,
+            stock: true,
             isPublished: true,
             enrichmentStatus: true,
           },
@@ -210,6 +232,7 @@ export async function rejectProductEnrichmentProposal(proposalId: string) {
           id: true,
           name: true,
           image: true,
+          stock: true,
           isPublished: true,
           enrichmentStatus: true,
         },

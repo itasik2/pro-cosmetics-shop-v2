@@ -5,9 +5,8 @@ import { usePathname, useRouter } from "next/navigation";
 import PriceImportsClient from "../price-imports/PriceImportsClient";
 import PriceImportMaintenance from "../price-imports/PriceImportMaintenance";
 import AdminEnrichmentClient from "../enrichment/AdminEnrichmentClient";
-import DraftProductsPublisher from "../products/DraftProductsPublisher";
 
-export type PriceWorkflowStep = "import" | "enrichment" | "publication";
+export type PriceWorkflowStep = "import" | "enrichment";
 
 type SupplierOption = {
   id: string;
@@ -43,14 +42,8 @@ const STEPS: Array<{
   {
     id: "enrichment",
     number: 2,
-    title: "Фото и описание",
-    description: "Найти официальный источник и одобрить данные карточки.",
-  },
-  {
-    id: "publication",
-    number: 3,
-    title: "Остаток и публикация",
-    description: "Указать количество и опубликовать готовые товары.",
+    title: "Фото, описание и количество",
+    description: "Найти официальный источник, выбрать фото, проверить описание и указать остаток.",
   },
 ];
 
@@ -80,11 +73,12 @@ export default function PriceWorkflowClient({
       <header className="rounded-2xl border bg-white/80 p-4 sm:p-6">
         <h1 className="text-2xl font-bold">Работа с прайсом</h1>
         <p className="mt-2 max-w-3xl text-sm text-gray-600">
-          Весь путь товара находится на одной странице: от загрузки прайса до
-          публикации в каталоге. Переходите между этапами, не открывая новые вкладки.
+          Весь путь подготовки товара находится на одной странице: импорт прайса,
+          затем проверка фото и описания с указанием количества. После одобрения
+          товар автоматически попадает в очередь черновиков для публикации.
         </p>
 
-        <div className="mt-5 grid gap-3 lg:grid-cols-3">
+        <div className="mt-5 grid gap-3 md:grid-cols-2">
           {STEPS.map((item) => {
             const active = item.id === step;
             const completed = item.number < STEPS[currentIndex].number;
@@ -136,19 +130,6 @@ export default function PriceWorkflowClient({
         )}
 
         {step === "enrichment" && <AdminEnrichmentClient />}
-
-        {step === "publication" && (
-          <div className="space-y-4">
-            <div className="rounded-2xl border bg-white/80 p-4">
-              <h2 className="font-semibold">Готовые к публикации товары</h2>
-              <p className="mt-1 text-sm text-gray-600">
-                Здесь отображаются только товары с применённым предложением
-                автозаполнения. Укажите остаток и опубликуйте карточку.
-              </p>
-            </div>
-            <DraftProductsPublisher />
-          </div>
-        )}
       </section>
 
       <nav className="flex flex-col gap-3 rounded-2xl border bg-white/80 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -169,13 +150,21 @@ export default function PriceWorkflowClient({
         </div>
 
         <div>
-          {next && (
+          {next ? (
             <button
               type="button"
               onClick={() => selectStep(next.id)}
               className="w-full rounded-xl bg-black px-4 py-2 text-sm text-white hover:bg-gray-800 sm:w-auto"
             >
               {next.title} →
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => router.push("/admin/products")}
+              className="w-full rounded-xl bg-black px-4 py-2 text-sm text-white hover:bg-gray-800 sm:w-auto"
+            >
+              Перейти к черновикам →
             </button>
           )}
         </div>
