@@ -37,7 +37,7 @@ export async function GET(req: Request) {
             some: { status: "APPLIED" },
           },
         }
-      : undefined,
+      : { enrichmentStatus: { not: "MERGED" } },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,

@@ -3,6 +3,7 @@ import {
   EnrichmentProposalStatus,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { normalizeStoredVariants } from "@/lib/price-import/productVariants";
 import { importProductImage } from "./productImages";
 
 export type ProposalApplyMode = "ALL" | "DESCRIPTION" | "IMAGE";
@@ -52,6 +53,7 @@ export async function applyProductEnrichmentProposal(input: {
   mode: ProposalApplyMode;
   imageUrl?: string | null;
   stock?: number;
+  variantStocks?: Record<string, number>;
 }) {
   const proposal = await prisma.productEnrichmentProposal.findUnique({
     where: { id: input.proposalId },
@@ -109,7 +111,27 @@ export async function applyProductEnrichmentProposal(input: {
   }
 
   const result = await prisma.$transaction(async (tx) => {
-    if (input.stock !== undefined) {
+    const variants = normalizeStoredVariants(proposal.product.variants);
+
+    if (variants.length) {
+      const stocks = input.variantStocks || {};
+      const updatedVariants = variants.map((variant) => {
+        const nextStock = stocks[variant.id];
+        if (nextStock === undefined) return variant;
+        if (!Number.isInteger(nextStock) || nextStock < 0) {
+          throw new Error("variant_stock_invalid");
+        }
+        return { ...variant, stock: nextStock };
+      });
+      const totalStock = updatedVariants.reduce((sum, variant) => sum + variant.stock, 0);
+      await tx.product.update({
+        where: { id: proposal.productId },
+        data: {
+          variants: updatedVariants,
+          stock: totalStock,
+        },
+      });
+    } else if (input.stock !== undefined) {
       await tx.product.update({
         where: { id: proposal.productId },
         data: { stock: input.stock },
@@ -135,6 +157,7 @@ export async function applyProductEnrichmentProposal(input: {
             image: true,
             description: true,
             stock: true,
+            variants: true,
             isPublished: true,
             enrichmentStatus: true,
           },
@@ -177,6 +200,7 @@ export async function applyProductEnrichmentProposal(input: {
             image: true,
             description: true,
             stock: true,
+            variants: true,
             isPublished: true,
             enrichmentStatus: true,
           },
@@ -233,6 +257,7 @@ export async function rejectProductEnrichmentProposal(proposalId: string) {
           name: true,
           image: true,
           stock: true,
+          variants: true,
           isPublished: true,
           enrichmentStatus: true,
         },
