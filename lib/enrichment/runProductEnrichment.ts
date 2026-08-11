@@ -84,8 +84,9 @@ export async function runProductEnrichment(input: RunInput) {
     if (!allowedSources.length) throw new Error("enabled_sources_required");
 
     const policies = toAllowedPolicies(allowedSources);
+    const explicitSourceUrl = input.sourceUrl?.trim() || "";
     let sourceUrl =
-      input.sourceUrl?.trim() ||
+      explicitSourceUrl ||
       product.sourceUrl?.trim() ||
       product.sources[0]?.url ||
       "";
@@ -103,10 +104,48 @@ export async function runProductEnrichment(input: RunInput) {
 
     if (!sourceUrl) throw new Error("source_url_required");
 
-    const requestedSource = findSourceForUrl(allowedSources, sourceUrl);
+    let requestedSource = findSourceForUrl(allowedSources, sourceUrl);
     if (!requestedSource) throw new Error("source_domain_not_allowed");
 
-    const fetched = await safeFetchHtml(sourceUrl, policies);
+    let fetched;
+    try {
+      fetched = await safeFetchHtml(sourceUrl, policies);
+    } catch (error) {
+      const message = errorMessage(error);
+      const staleAutomaticSource =
+        !explicitSourceUrl &&
+        input.discoverIfMissing !== false &&
+        (message === "source_http_404" || message === "source_http_410");
+
+      if (!staleAutomaticSource) throw error;
+
+      const staleUrl = sourceUrl;
+      await prisma.product.update({
+        where: { id: product.id },
+        data: { sourceUrl: null },
+      });
+
+      const found = await findOfficialProductUrl({
+        product,
+        allowedDomains: allowedSources.map((source) => source.domain),
+        excludedUrls: [staleUrl],
+      });
+      searchResult = {
+        ...found,
+        retryReason: message,
+        staleUrl,
+      };
+
+      if (!found.found || !found.url || found.url === staleUrl) {
+        throw new Error("official_page_not_found_after_stale_source");
+      }
+
+      sourceUrl = found.url;
+      requestedSource = findSourceForUrl(allowedSources, sourceUrl);
+      if (!requestedSource) throw new Error("source_domain_not_allowed");
+      fetched = await safeFetchHtml(sourceUrl, policies);
+    }
+
     const finalSource =
       findSourceForUrl(allowedSources, fetched.finalUrl) || requestedSource;
     const extracted = extractProductFromHtml({
