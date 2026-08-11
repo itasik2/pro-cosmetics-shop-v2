@@ -70,6 +70,7 @@ export async function applyProductEnrichmentProposal(input: {
     throw new Error("proposal_not_pending");
   }
 
+  const finalize = input.mode === "ALL";
   const applyDescription = input.mode === "ALL" || input.mode === "DESCRIPTION";
   const applyImage = input.mode === "ALL" || input.mode === "IMAGE";
 
@@ -117,10 +118,15 @@ export async function applyProductEnrichmentProposal(input: {
 
     const updatedProposal = await tx.productEnrichmentProposal.update({
       where: { id: proposal.id },
-      data: {
-        status: EnrichmentProposalStatus.APPLIED,
-        appliedAt: new Date(),
-      },
+      data: finalize
+        ? {
+            status: EnrichmentProposalStatus.APPLIED,
+            appliedAt: new Date(),
+          }
+        : {
+            status: EnrichmentProposalStatus.PENDING,
+            appliedAt: null,
+          },
       include: {
         product: {
           select: {
@@ -141,11 +147,17 @@ export async function applyProductEnrichmentProposal(input: {
     if (proposal.jobId) {
       await tx.enrichmentJob.update({
         where: { id: proposal.jobId },
-        data: {
-          status: EnrichmentJobStatus.APPLIED,
-          finishedAt: new Date(),
-          error: null,
-        },
+        data: finalize
+          ? {
+              status: EnrichmentJobStatus.APPLIED,
+              finishedAt: new Date(),
+              error: null,
+            }
+          : {
+              status: EnrichmentJobStatus.REVIEW,
+              finishedAt: null,
+              error: null,
+            },
       });
     }
 
