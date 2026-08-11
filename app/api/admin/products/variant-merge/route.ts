@@ -118,7 +118,9 @@ export async function GET() {
         items
           .flatMap((item) => {
             const variants = normalizeStoredVariants(item.variants);
-            if (variants.length) return variants.map((variant) => variant.label.toLocaleLowerCase("ru-RU"));
+            if (variants.length) {
+              return variants.map((variant) => variant.label.toLocaleLowerCase("ru-RU"));
+            }
             const label = productVariantLabel(item);
             return label ? [label.toLocaleLowerCase("ru-RU")] : [];
           })
@@ -159,7 +161,10 @@ export async function POST(req: Request) {
 
   const parsed = MergeSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
-    return NextResponse.json({ error: "validation", issues: parsed.error.issues }, { status: 400 });
+    return NextResponse.json(
+      { error: "validation", issues: parsed.error.issues },
+      { status: 400 },
+    );
   }
 
   const productIds = [...new Set(parsed.data.productIds)];
@@ -207,19 +212,24 @@ export async function POST(req: Request) {
       product.brandId !== canonical.brandId ||
       product.enrichmentStatus === "MERGED"
     ) {
-      return NextResponse.json({ error: "products_not_same_variant_group" }, { status: 409 });
+      return NextResponse.json(
+        { error: "products_not_same_variant_group" },
+        { status: 409 },
+      );
     }
   }
 
   let variants = normalizeStoredVariants(canonical.variants);
-  const productVariantIds = new Map<string, string>();
+  // Для простой старой карточки заказ не содержит variantId, поэтому запоминаем
+  // созданный вариант. У карточки, где варианты уже были, существующий variantId
+  // заказа сохраняем без изменений.
+  const simpleProductVariantIds = new Map<string, string>();
 
   for (const product of products) {
     const stored = normalizeStoredVariants(product.variants);
     if (stored.length) {
       for (const variant of stored) {
         variants = mergeImportedVariant(variants, variant);
-        productVariantIds.set(product.id, variant.id);
       }
       continue;
     }
@@ -227,7 +237,11 @@ export async function POST(req: Request) {
     const label = productVariantLabel(product);
     if (!label) {
       return NextResponse.json(
-        { error: "variant_label_missing", productId: product.id, productName: product.name },
+        {
+          error: "variant_label_missing",
+          productId: product.id,
+          productName: product.name,
+        },
         { status: 409 },
       );
     }
@@ -239,25 +253,55 @@ export async function POST(req: Request) {
       image: product.image.startsWith("/seed/") ? null : product.image,
     });
     variants = mergeImportedVariant(variants, variant);
-    productVariantIds.set(product.id, variant.id);
+    simpleProductVariantIds.set(product.id, variant.id);
   }
 
-  const labels = new Set(variants.map((variant) => variant.label.toLocaleLowerCase("ru-RU")));
+  const labels = new Set(
+    variants.map((variant) => variant.label.toLocaleLowerCase("ru-RU")),
+  );
   if (labels.size < 2) {
-    return NextResponse.json({ error: "not_enough_distinct_variants" }, { status: 409 });
+    return NextResponse.json(
+      { error: "not_enough_distinct_variants" },
+      { status: 409 },
+    );
   }
 
-  const realImageProduct = products.find((product) => !product.image.startsWith("/seed/"));
-  const describedProduct = products.find((product) => !placeholderDescription(product.description));
-  const positivePrices = variants.map((variant) => variant.price).filter((price) => price > 0);
-  const nextPrice = positivePrices.length ? Math.min(...positivePrices) : canonical.price;
+  const realImageProduct = products.find(
+    (product) => !product.image.startsWith("/seed/"),
+  );
+  const describedProduct = products.find(
+    (product) => !placeholderDescription(product.description),
+  );
+  const positivePrices = variants
+    .map((variant) => variant.price)
+    .filter((price) => price > 0);
+  const nextPrice = positivePrices.length
+    ? Math.min(...positivePrices)
+    : canonical.price;
   const nextStock = variants.reduce((sum, variant) => sum + variant.stock, 0);
   const canonicalLabel = productVariantLabel(canonical);
   const nextName = baseProductName(canonical.name, canonicalLabel);
-  const duplicateIds = products.filter((product) => product.id !== canonical.id).map((product) => product.id);
-  const primarySku = canonical.supplierSku || variants.find((variant) => variant.sku)?.sku || null;
+  const duplicateIds = products
+    .filter((product) => product.id !== canonical.id)
+    .map((product) => product.id);
+  const primarySku =
+    canonical.supplierSku || variants.find((variant) => variant.sku)?.sku || null;
 
   await prisma.$transaction(async (tx) => {
+    // Сначала освобождаем supplierSku архивируемых дублей. Иначе, если основной
+    // товар получает SKU одного из них, PostgreSQL справедливо возмутится unique-index.
+    for (const id of duplicateIds) {
+      await tx.product.update({
+        where: { id },
+        data: {
+          isPublished: false,
+          stock: 0,
+          supplierSku: null,
+          enrichmentStatus: "MERGED",
+        },
+      });
+    }
+
     await tx.product.update({
       where: { id: canonical.id },
       data: {
@@ -274,7 +318,7 @@ export async function POST(req: Request) {
     });
 
     for (const product of products) {
-      const variantId = productVariantIds.get(product.id) || null;
+      const variantId = simpleProductVariantIds.get(product.id) || null;
       await tx.orderItem.updateMany({
         where: { productId: product.id },
         data: {
@@ -289,17 +333,6 @@ export async function POST(req: Request) {
         where: { productId: { in: duplicateIds } },
         data: { productId: canonical.id },
       });
-      for (const id of duplicateIds) {
-        await tx.product.update({
-          where: { id },
-          data: {
-            isPublished: false,
-            stock: 0,
-            supplierSku: null,
-            enrichmentStatus: "MERGED",
-          },
-        });
-      }
     }
   });
 
@@ -315,5 +348,8 @@ export async function POST(req: Request) {
     },
   });
 
-  return NextResponse.json({ product: result, mergedProductIds: duplicateIds });
+  return NextResponse.json({
+    product: result,
+    mergedProductIds: duplicateIds,
+  });
 }
