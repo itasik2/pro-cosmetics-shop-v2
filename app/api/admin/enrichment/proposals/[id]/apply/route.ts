@@ -15,6 +15,7 @@ type Params = { params: { id: string } };
 const BodySchema = z.object({
   mode: z.enum(["ALL", "DESCRIPTION", "IMAGE"]).default("ALL"),
   imageUrl: z.string().url().max(3000).optional().or(z.literal("")),
+  stock: z.number().int().min(0).max(1_000_000),
 });
 
 function errorResponse(error: unknown) {
@@ -57,6 +58,7 @@ export async function POST(req: Request, { params }: Params) {
       proposalId: params.id,
       mode: parsed.data.mode as ProposalApplyMode,
       imageUrl: parsed.data.imageUrl?.trim() || null,
+      stock: parsed.data.stock,
     });
 
     return NextResponse.json(result);
