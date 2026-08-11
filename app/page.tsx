@@ -66,6 +66,7 @@ const PRODUCT_CARD_SELECT = {
   price: true,
   stock: true,
   isPopular: true,
+  isNew: true,
   createdAt: true,
   category: true,
   variants: true,

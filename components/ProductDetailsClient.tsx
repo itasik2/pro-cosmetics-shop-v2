@@ -47,12 +47,9 @@ export default function ProductDetailsClient({ product }: Props) {
   const variants = useMemo(() => normalizeVariants(product.variants), [product]);
   const hasVariants = variants.length > 0;
 
-  const defaultVariant =
-    variants.find((v) => v.stock > 0) ?? variants[0] ?? null;
+  const defaultVariant = variants.find((v) => v.stock > 0) ?? variants[0] ?? null;
 
-  const [variantId, setVariantId] = useState<string | null>(
-    defaultVariant?.id ?? null
-  );
+  const [variantId, setVariantId] = useState<string | null>(defaultVariant?.id ?? null);
 
   const selectedVariant = hasVariants
     ? variants.find((v) => v.id === variantId) ?? defaultVariant
@@ -89,11 +86,13 @@ export default function ProductDetailsClient({ product }: Props) {
                   disabled={disabled}
                   onClick={() => setVariantId(v.id)}
                   className={
-                    "px-3 py-1 rounded-full text-xs border transition " +
-                    (active ? "bg-black text-white" : "bg-white") +
+                    "px-3 py-1 rounded-full text-xs border transition-colors shadow-sm " +
+                    (active
+                      ? "border-gray-400 bg-gray-200 text-gray-900"
+                      : "border-gray-200 bg-gray-50 text-gray-700") +
                     (disabled
                       ? " opacity-40 cursor-not-allowed"
-                      : " hover:bg-gray-50")
+                      : " hover:border-gray-400 hover:bg-gray-100")
                   }
                 >
                   {v.label}

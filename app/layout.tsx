@@ -3,6 +3,7 @@ import "./globals.css";
 import type { Metadata } from "next";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import ScrollToTopButton from "@/components/ScrollToTopButton";
 import Providers from "./providers";
 import { prisma } from "@/lib/prisma";
 import { SITE_DESCRIPTION, SITE_KEY, SITE_TITLE } from "@/lib/siteConfig";
@@ -41,7 +42,6 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // читаем настройки; если модели еще нет/миграция не применена — сайт не падает
   let settings: any = null;
   try {
     settings =
@@ -89,7 +89,6 @@ export default async function RootLayout({
       </head>
 
       <body className="min-h-screen bg-transparent">
-        {/* ФОН */}
         {backgroundUrl ? (
           <div
             className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat pointer-events-none"
@@ -98,7 +97,6 @@ export default async function RootLayout({
           />
         ) : null}
 
-        {/* Контент */}
         <div className="relative z-10 min-h-screen flex flex-col bg-white/85">
           <Providers>
             <Navbar />
@@ -121,6 +119,7 @@ export default async function RootLayout({
 
             <main className="container py-8 flex-1">{children}</main>
             <Footer />
+            <ScrollToTopButton />
           </Providers>
         </div>
       </body>
