@@ -1,0 +1,33 @@
+name: Apply two-step enrichment patch
+
+on:
+  push:
+    branches:
+      - feat/two-step-price-workflow
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/two-step-price-workflow
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Apply patch
+        run: node scripts/patch-two-step-enrichment.mjs
+      - name: Commit patch
+        run: |
+          if git diff --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/admin/'(private)'/enrichment/AdminEnrichmentClient.tsx
+          git commit -m "Добавить количество на шаг автозаполнения"
+          git push
