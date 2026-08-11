@@ -21,6 +21,12 @@ import {
   normalizePriceMode,
   normalizeRoundingStep,
 } from "@/lib/price-import/pricing";
+import {
+  autoVariantGroupKeys,
+  existingProductGroupKey,
+  normalizeStoredVariants,
+  parsedProductGroupKey,
+} from "@/lib/price-import/productVariants";
 import { slugify } from "@/lib/slug";
 
 const MAX_FILE_SIZE = 12 * 1024 * 1024;
@@ -197,95 +203,153 @@ export async function POST(req: Request) {
       parserMode,
       defaultBrand,
     });
-    const skuList = Array.from(
-      new Set(parsed.rows.map((row) => row.supplierSku).filter(Boolean)),
-    ) as string[];
 
-    const existingProducts = skuList.length
-      ? await prisma.product.findMany({
-          where: {
-            supplierId: supplier.id,
-            supplierSku: { in: skuList },
-          },
-          select: {
-            id: true,
-            supplierSku: true,
-            name: true,
-            price: true,
-            brand: { select: { name: true } },
-          },
-        })
-      : [];
+    const variantGroupKeys = autoVariantGroupKeys(parsed.rows);
+    const existingProducts = await prisma.product.findMany({
+      where: { supplierId: supplier.id },
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true,
+        supplierSku: true,
+        name: true,
+        price: true,
+        category: true,
+        productLineCode: true,
+        productLineName: true,
+        volumeValue: true,
+        volumeUnit: true,
+        variants: true,
+        isPublished: true,
+        image: true,
+        brand: { select: { name: true } },
+      },
+    });
 
-    const existingByBrandSku = new Map(
-      existingProducts
-        .filter((product) => product.supplierSku && product.brand?.name)
-        .map((product) => [
-          productKey(product.brand!.name, product.supplierSku as string),
-          product,
-        ]),
-    );
+    const existingByBrandSku = new Map<string, (typeof existingProducts)[number]>();
+    const existingByGroup = new Map<string, Array<(typeof existingProducts)[number]>>();
 
-    const rowData: Prisma.PriceImportRowCreateManyInput[] = parsed.rows.map(
-      (row) => {
-        const existing = row.supplierSku
-          ? existingByBrandSku.get(productKey(row.brand, row.supplierSku))
-          : undefined;
-        const retailRestricted =
-          priceMode === "PRICE_AS_IS" &&
-          row.warnings.includes("retail_sale_restricted");
-        const requiresManualReview =
-          !row.brand ||
-          !row.supplierSku ||
-          retailRestricted ||
-          row.warnings.includes("brand_not_found") ||
-          row.warnings.includes("duplicate_sku_in_file");
-        const action = requiresManualReview
-          ? ImportRowAction.MANUAL_REVIEW
-          : existing
-            ? ImportRowAction.UPDATE
-            : ImportRowAction.CREATE;
-        const salePrice = calculateSalePrice({
+    for (const product of existingProducts) {
+      const brandName = product.brand?.name;
+      if (!brandName) continue;
+
+      if (product.supplierSku) {
+        existingByBrandSku.set(productKey(brandName, product.supplierSku), product);
+      }
+      for (const variant of normalizeStoredVariants(product.variants)) {
+        if (variant.sku) {
+          existingByBrandSku.set(productKey(brandName, variant.sku), product);
+        }
+      }
+
+      const groupKey = existingProductGroupKey({
+        brandName,
+        name: product.name,
+        category: product.category,
+        productLineCode: product.productLineCode,
+        productLineName: product.productLineName,
+        volumeValue: product.volumeValue,
+        volumeUnit: product.volumeUnit,
+      });
+      if (groupKey) {
+        const list = existingByGroup.get(groupKey) ?? [];
+        list.push(product);
+        existingByGroup.set(groupKey, list);
+      }
+    }
+
+    const groupedRows = new Map<string, typeof parsed.rows>();
+    for (const row of parsed.rows) {
+      const key = parsedProductGroupKey(row);
+      if (!key || !variantGroupKeys.has(key)) continue;
+      const list = groupedRows.get(key) ?? [];
+      list.push(row);
+      groupedRows.set(key, list);
+    }
+
+    const groupCanonical = new Map<string, (typeof existingProducts)[number]>();
+    for (const [key, rows] of groupedRows) {
+      const skuMatches = rows
+        .map((row) =>
+          row.supplierSku
+            ? existingByBrandSku.get(productKey(row.brand, row.supplierSku))
+            : undefined,
+        )
+        .filter((row): row is (typeof existingProducts)[number] => Boolean(row));
+      const candidates = skuMatches.length ? skuMatches : existingByGroup.get(key) ?? [];
+      const unique = [...new Map(candidates.map((product) => [product.id, product])).values()];
+      const canonical = [...unique].sort((a, b) => {
+        const aScore = normalizeStoredVariants(a.variants).length * 100 + (a.isPublished ? 20 : 0) + (!a.image.startsWith("/seed/") ? 10 : 0);
+        const bScore = normalizeStoredVariants(b.variants).length * 100 + (b.isPublished ? 20 : 0) + (!b.image.startsWith("/seed/") ? 10 : 0);
+        return bScore - aScore;
+      })[0];
+      if (canonical) groupCanonical.set(key, canonical);
+    }
+
+    const rowData: Prisma.PriceImportRowCreateManyInput[] = parsed.rows.map((row) => {
+      const groupKey = parsedProductGroupKey(row);
+      const autoVariant = Boolean(groupKey && variantGroupKeys.has(groupKey));
+      const skuExisting = row.supplierSku
+        ? existingByBrandSku.get(productKey(row.brand, row.supplierSku))
+        : undefined;
+      const existing = autoVariant && groupKey
+        ? groupCanonical.get(groupKey) ?? skuExisting
+        : skuExisting;
+      const retailRestricted =
+        priceMode === "PRICE_AS_IS" &&
+        row.warnings.includes("retail_sale_restricted");
+      const requiresManualReview =
+        !row.brand ||
+        !row.supplierSku ||
+        retailRestricted ||
+        row.warnings.includes("brand_not_found") ||
+        row.warnings.includes("duplicate_sku_in_file");
+      const action = requiresManualReview
+        ? ImportRowAction.MANUAL_REVIEW
+        : existing
+          ? ImportRowAction.UPDATE
+          : ImportRowAction.CREATE;
+      const salePrice = calculateSalePrice({
+        sourcePrice: row.sourcePrice,
+        recommendedPrice: row.recommendedPrice,
+        priceMode,
+        markupPercent,
+        roundingStep,
+      });
+
+      return {
+        importId: priceImport.id,
+        rowNumber: row.rowNumber,
+        pageNumber: row.pageNumber,
+        supplierSku: row.supplierSku,
+        productId: existing?.id ?? null,
+        action,
+        confidence: row.confidence,
+        selected: !requiresManualReview,
+        rawData: {
+          parserId: parsed.parserId,
+          brand: row.brand,
+          originalName: row.originalName,
+          description: row.description,
+          volumeLabel: row.volumeLabel,
           sourcePrice: row.sourcePrice,
           recommendedPrice: row.recommendedPrice,
-          priceMode,
-          markupPercent,
-          roundingStep,
-        });
-
-        return {
-          importId: priceImport.id,
-          rowNumber: row.rowNumber,
-          pageNumber: row.pageNumber,
-          supplierSku: row.supplierSku,
-          productId: existing?.id ?? null,
-          action,
-          confidence: row.confidence,
-          selected: !requiresManualReview,
-          rawData: {
-            parserId: parsed.parserId,
-            brand: row.brand,
-            originalName: row.originalName,
-            description: row.description,
-            volumeLabel: row.volumeLabel,
-            sourcePrice: row.sourcePrice,
-            recommendedPrice: row.recommendedPrice,
-            warnings: row.warnings,
-          },
-          parsedData: {
-            ...row,
-            salePrice,
-            existingProduct: existing
-              ? {
-                  id: existing.id,
-                  name: existing.name,
-                  price: existing.price,
-                }
-              : null,
-          },
-        };
-      },
-    );
+          warnings: row.warnings,
+          autoVariant,
+          variantGroupKey: autoVariant ? groupKey : null,
+        },
+        parsedData: {
+          ...row,
+          salePrice,
+          existingProduct: existing
+            ? {
+                id: existing.id,
+                name: existing.name,
+                price: existing.price,
+              }
+            : null,
+        },
+      };
+    });
 
     if (rowData.length) {
       await prisma.priceImportRow.createMany({ data: rowData });
@@ -323,6 +387,7 @@ export async function POST(req: Request) {
           pageCount: parsed.pageCount,
           warnings: parsed.warnings,
           manualReviewRows: manualRows,
+          autoVariantGroups: variantGroupKeys.size,
         },
       },
       { status: 201 },
