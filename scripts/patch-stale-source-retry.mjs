@@ -2,13 +2,11 @@ import fs from "node:fs";
 
 function patchFile(path, patches) {
   let text = fs.readFileSync(path, "utf8");
-
   for (const { from, to, label } of patches) {
     if (text.includes(to)) continue;
     if (!text.includes(from)) throw new Error(`${path}: не найден участок: ${label}`);
     text = text.replace(from, to);
   }
-
   fs.writeFileSync(path, text);
 }
 
@@ -30,17 +28,10 @@ patchFile("lib/enrichment/runProductEnrichment.ts", [
   },
 ]);
 
-const promptFrom = [
-  "    system:",
-  "      \"Найди страницу конкретного товара только на разрешённых официальных доменах. Используй поисковые запросы с ограничением site:домен. Не подставляй страницу категории, поиска, корзины или другого объёма. Если точного совпадения нет, верни found=false. URL должен быть прямой страницей товара.\",",
-  "    user: `${productLabel(input.product)}\\n\\nРазрешённые домены: ${allowedDomains.join(\", \")}` ,",
-].join("\n").replace("}` ,", "}`,");
-
-const promptTo = [
-  "    system:",
-  "      \"Найди страницу конкретного товара только на разрешённых официальных доменах. Используй поисковые запросы с ограничением site:домен. Не подставляй страницу категории, поиска, корзины или другого объёма. Не возвращай URL из списка исключений. Если точного совпадения нет, верни found=false. URL должен быть прямой страницей товара.\",",
-  "    user: `${productLabel(input.product)}\\n\\nРазрешённые домены: ${allowedDomains.join(\", \")}\\nИсключённые URL: ${(input.excludedUrls || []).join(\", \") || \"нет\"}` ,",
-].join("\n").replace("}` ,", "}`,");
+const oldSystem = '      "Найди страницу конкретного товара только на разрешённых официальных доменах. Используй поисковые запросы с ограничением site:домен. Не подставляй страницу категории, поиска, корзины или другого объёма. Если точного совпадения нет, верни found=false. URL должен быть прямой страницей товара.",';
+const newSystem = '      "Найди страницу конкретного товара только на разрешённых официальных доменах. Используй поисковые запросы с ограничением site:домен. Не подставляй страницу категории, поиска, корзины или другого объёма. Не возвращай URL из списка исключений. Если точного совпадения нет, верни found=false. URL должен быть прямой страницей товара.",';
+const oldUser = '    user: `${productLabel(input.product)}\\n\\nРазрешённые домены: ${allowedDomains.join(", ")}`,';
+const newUser = '    user: `${productLabel(input.product)}\\n\\nРазрешённые домены: ${allowedDomains.join(", ")}\\nИсключённые URL: ${(input.excludedUrls || []).join(", ") || "нет"}`,';
 
 patchFile("lib/enrichment/openaiResponses.ts", [
   {
@@ -48,11 +39,8 @@ patchFile("lib/enrichment/openaiResponses.ts", [
     from: `export async function findOfficialProductUrl(input: {\n  product: MatchableProduct;\n  allowedDomains: string[];\n}): Promise<SearchResult> {`,
     to: `export async function findOfficialProductUrl(input: {\n  product: MatchableProduct;\n  allowedDomains: string[];\n  excludedUrls?: string[];\n}): Promise<SearchResult> {`,
   },
-  {
-    label: "excluded URL prompt",
-    from: promptFrom,
-    to: promptTo,
-  },
+  { label: "excluded URL system prompt", from: oldSystem, to: newSystem },
+  { label: "excluded URL user prompt", from: oldUser, to: newUser },
 ]);
 
 console.log("Добавлен повторный поиск при 404/410 с исключением нерабочего URL");
