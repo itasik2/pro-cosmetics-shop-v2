@@ -39,6 +39,7 @@ async function refreshProductEnrichmentStatus(productId: string) {
     where: {
       productId,
       status: EnrichmentProposalStatus.PENDING,
+      confidence: { gt: 0 },
     },
   });
 
@@ -70,6 +71,9 @@ export async function applyProductEnrichmentProposal(input: {
   if (!proposal) throw new Error("proposal_not_found");
   if (proposal.status !== EnrichmentProposalStatus.PENDING) {
     throw new Error("proposal_not_pending");
+  }
+  if (proposal.confidence === 0) {
+    throw new Error("proposal_match_confidence_zero");
   }
 
   const finalize = input.mode === "ALL";

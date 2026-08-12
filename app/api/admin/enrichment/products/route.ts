@@ -29,6 +29,7 @@ export async function GET(req: Request) {
                       "official_page_not_found_after_stale_source",
                       "product_page_not_found",
                       "product_page_not_found_after_stale_source",
+                      "product_match_zero_confidence",
                     ],
                   },
                 },
@@ -86,7 +87,10 @@ export async function GET(req: Request) {
         },
       },
       enrichmentProposals: {
-        where: { status: EnrichmentProposalStatus.PENDING },
+        where: {
+          status: EnrichmentProposalStatus.PENDING,
+          confidence: { gt: 0 },
+        },
         orderBy: { createdAt: "desc" },
         take: 1,
         select: {

@@ -21,6 +21,50 @@ const DescriptionResultSchema = z.object({
 export type SearchResult = z.infer<typeof SearchResultSchema>;
 export type GeneratedDescription = z.infer<typeof DescriptionResultSchema>;
 
+const PROMOTIONAL_DESCRIPTION_PATTERN =
+  /(?:^|[^\p{L}\p{N}])(?:купить|покупайте|заказ(?:ать|ы|ом|а|у|е|ывайте)?|цен(?:а|ы|е|у|ой|ам|ами)?|доставк[а-я]*|интернет[-\s]?магазин[а-я]*|магазин[а-я]*|продаж[а-я]*|скидк[а-я]*|оптом|розниц[а-я]*|в\s+наличии|казахстан(?:е|а|у)?|алмат(?:ы|е|а|у)?|астан(?:а|е|ы|у)?|нур[-\s]?султан(?:е|а|у)?)(?=$|[^\p{L}\p{N}])|от\s+производителя/iu;
+
+function normalizeDescriptionText(value: unknown) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function removePromotionalDescriptionSentences(value: unknown) {
+  const source = String(value || "").trim();
+  if (!source) return "";
+
+  return source
+    .split(/(?<=[.!?])\s+|[\r\n]+/u)
+    .map(normalizeDescriptionText)
+    .filter(
+      (sentence) =>
+        sentence.length > 0 && !PROMOTIONAL_DESCRIPTION_PATTERN.test(sentence),
+    )
+    .join(" ")
+    .trim();
+}
+
+function truncateAtWord(value: string, maxLength: number) {
+  if (value.length <= maxLength) return value;
+
+  const contentLimit = Math.max(1, maxLength - 1);
+  const shortened = value.slice(0, contentLimit + 1);
+  const wordBoundary = shortened.lastIndexOf(" ");
+  const result = (wordBoundary > contentLimit * 0.6
+    ? shortened.slice(0, wordBoundary)
+    : shortened.slice(0, contentLimit)
+  )
+    .replace(/[,:;\s-]+$/u, "")
+    .trim();
+
+  return result ? `${result}…` : "";
+}
+
+export function sanitizeShortDescription(value: unknown) {
+  return truncateAtWord(removePromotionalDescriptionSentences(value), 280);
+}
+
 function getOutputText(data: unknown) {
   if (!data || typeof data !== "object") return "";
   const root = data as Record<string, unknown>;
@@ -395,26 +439,50 @@ export async function generateProductDescription(input: {
       },
     },
     system:
-      "Создай черновик карточки профессиональной косметики только из переданных фактов. Не придумывай состав, сертификаты, медицинские свойства, объём, способ применения или обещания результата. Не копируй исходный текст дословно большими фрагментами. Пиши по-русски, нейтрально и понятно. Если данных для поля нет, верни пустую строку и добавь предупреждение.",
+      "Создай черновик карточки профессиональной косметики только из переданных фактов. Не придумывай состав, сертификаты, медицинские свойства, объём, способ применения или обещания результата. Не копируй исходный текст дословно большими фрагментами. Пиши по-русски, нейтрально и понятно. Краткое описание — одно-два содержательных предложения до 280 символов о назначении и свойствах товара, а не SEO-заголовок. Не используй в описаниях призывы купить или заказать, цену, наличие, доставку, названия стран и городов, сведения о магазине или фразу «от производителя». Не повторяй название товара и объём вместо описания. Если подтверждённых данных для поля нет, верни пустую строку и добавь предупреждение.",
     user: JSON.stringify(facts),
     timeoutMs: 10_000,
   });
 
-  return DescriptionResultSchema.parse(raw);
+  const generated = DescriptionResultSchema.parse(raw);
+  const shortDescription = sanitizeShortDescription(
+    generated.shortDescription,
+  );
+  const description = removePromotionalDescriptionSentences(
+    generated.description,
+  );
+  const filtered =
+    shortDescription !== normalizeDescriptionText(generated.shortDescription) ||
+    description !== normalizeDescriptionText(generated.description);
+
+  return {
+    ...generated,
+    shortDescription,
+    description,
+    warnings: [
+      ...generated.warnings,
+      ...(filtered ? ["promotional_description_removed"] : []),
+    ],
+  };
 }
 
 export function fallbackDescription(
   extracted: ExtractedProductData,
 ): GeneratedDescription {
-  const description = extracted.description || "";
+  const sourceDescription = normalizeDescriptionText(extracted.description);
+  const description = removePromotionalDescriptionSentences(sourceDescription);
+  const shortDescription = sanitizeShortDescription(description);
   return {
-    shortDescription: description.slice(0, 280),
+    shortDescription,
     description,
     application: extracted.application || "",
     ingredients: extracted.ingredients || "",
     warnings: [
       "openai_not_configured",
       ...(!description ? ["description_missing"] : []),
+      ...(sourceDescription && sourceDescription !== description
+        ? ["promotional_description_removed"]
+        : []),
       ...(!extracted.application ? ["application_missing"] : []),
       ...(!extracted.ingredients ? ["ingredients_missing"] : []),
     ],

@@ -49,6 +49,7 @@ export async function POST(req: Request, { params }: Params) {
     where: {
       productId: product.id,
       status: EnrichmentProposalStatus.PENDING,
+      confidence: { gt: 0 },
     },
     orderBy: { createdAt: "desc" },
     select: { id: true, createdAt: true },

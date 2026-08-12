@@ -77,6 +77,7 @@ export async function monitorProductSource(
       where: {
         productId: source.productId,
         status: EnrichmentProposalStatus.PENDING,
+        confidence: { gt: 0 },
       },
       select: { id: true },
     }),

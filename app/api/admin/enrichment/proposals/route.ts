@@ -19,7 +19,7 @@ export async function GET(req: Request) {
     : EnrichmentProposalStatus.PENDING;
 
   const proposals = await prisma.productEnrichmentProposal.findMany({
-    where: { status },
+    where: { status, confidence: { gt: 0 } },
     orderBy: { createdAt: "desc" },
     take: 100,
     include: {
