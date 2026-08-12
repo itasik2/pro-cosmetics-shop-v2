@@ -10,10 +10,12 @@ import { scoreProductMatch } from "./matchProduct";
 import { safeFetchHtml } from "./network";
 import {
   fallbackDescription,
+  findExternalProductUrl,
   findOfficialProductUrl,
   generateProductDescription,
 } from "./openaiResponses";
 import {
+  ensureDiscoveredSupplierSource,
   ensureDefaultSupplierSources,
   findSourceForUrl,
   getEnabledSupplierSources,
@@ -33,6 +35,20 @@ function errorMessage(error: unknown) {
       ? (error as { message?: unknown }).message
       : error || "enrichment_failed",
   ).slice(0, 1000);
+}
+
+function recoverableAutomaticSourceError(message: string) {
+  return (
+    [
+      "source_timeout",
+      "source_dns_not_found",
+      "source_redirect_without_location",
+      "source_too_many_redirects",
+    ].includes(message) ||
+    message.startsWith("source_fetch_failed:") ||
+    message.startsWith("source_content_type_not_allowed:") ||
+    /^source_http_(?:403|404|410|429|5\d\d)$/.test(message)
+  );
 }
 
 export async function runProductEnrichment(input: RunInput) {
@@ -74,16 +90,21 @@ export async function runProductEnrichment(input: RunInput) {
 
     if (!product) throw new Error("product_not_found");
     if (!product.supplier) throw new Error("product_supplier_required");
+    const searchableProduct = product;
+    const supplier = product.supplier;
 
     await ensureDefaultSupplierSources({
-      supplierId: product.supplier.id,
-      supplierSlug: product.supplier.slug,
+      supplierId: supplier.id,
+      supplierSlug: supplier.slug,
+      supplierName: supplier.name,
+      brandName: product.brand?.name,
     });
 
-    const allowedSources = await getEnabledSupplierSources(product.supplier.id);
-    if (!allowedSources.length) throw new Error("enabled_sources_required");
-
-    const policies = toAllowedPolicies(allowedSources);
+    const allowedSources = await getEnabledSupplierSources(supplier.id);
+    const officialSources = allowedSources.filter(
+      (source) => source.sourceType.toUpperCase() === "OFFICIAL_SITE",
+    );
+    const officialDomains = officialSources.map((source) => source.domain);
     const explicitSourceUrl = input.sourceUrl?.trim() || "";
     let sourceUrl =
       explicitSourceUrl ||
@@ -92,14 +113,56 @@ export async function runProductEnrichment(input: RunInput) {
       "";
     let searchResult: Record<string, unknown> | null = null;
 
-    if (!sourceUrl && input.discoverIfMissing !== false) {
-      const found = await findOfficialProductUrl({
-        product,
-        allowedDomains: allowedSources.map((source) => source.domain),
+    async function discoverSource(excludedUrls: string[] = []) {
+      const officialResult = officialDomains.length
+        ? await findOfficialProductUrl({
+            product: searchableProduct,
+            allowedDomains: officialDomains,
+            excludedUrls,
+          })
+        : null;
+
+      if (officialResult?.found && officialResult.url) {
+        return {
+          url: officialResult.url,
+          result: {
+            ...officialResult,
+            searchStage: "official",
+          } as Record<string, unknown>,
+        };
+      }
+
+      const externalResult = await findExternalProductUrl({
+        product: searchableProduct,
+        officialDomainsTried: officialDomains,
+        excludedUrls,
       });
-      searchResult = found;
-      if (!found.found || !found.url) throw new Error("official_page_not_found");
-      sourceUrl = found.url;
+      const result = {
+        ...externalResult,
+        searchStage: "external",
+        officialResult,
+      } as Record<string, unknown>;
+
+      if (!externalResult.found || !externalResult.url) {
+        return { url: null, result };
+      }
+
+      const discoveredSource = await ensureDiscoveredSupplierSource({
+        supplierId: supplier.id,
+        url: externalResult.url,
+      });
+      if (!allowedSources.some((source) => source.id === discoveredSource.id)) {
+        allowedSources.push(discoveredSource);
+      }
+
+      return { url: externalResult.url, result };
+    }
+
+    if (!sourceUrl && input.discoverIfMissing !== false) {
+      const discovered = await discoverSource();
+      searchResult = discovered.result;
+      if (!discovered.url) throw new Error("product_page_not_found");
+      sourceUrl = discovered.url;
     }
 
     if (!sourceUrl) throw new Error("source_url_required");
@@ -109,13 +172,13 @@ export async function runProductEnrichment(input: RunInput) {
 
     let fetched;
     try {
-      fetched = await safeFetchHtml(sourceUrl, policies);
+      fetched = await safeFetchHtml(sourceUrl, toAllowedPolicies(allowedSources));
     } catch (error) {
       const message = errorMessage(error);
       const staleAutomaticSource =
         !explicitSourceUrl &&
         input.discoverIfMissing !== false &&
-        (message === "source_http_404" || message === "source_http_410");
+        recoverableAutomaticSourceError(message);
 
       if (!staleAutomaticSource) throw error;
 
@@ -125,25 +188,24 @@ export async function runProductEnrichment(input: RunInput) {
         data: { sourceUrl: null },
       });
 
-      const found = await findOfficialProductUrl({
-        product,
-        allowedDomains: allowedSources.map((source) => source.domain),
-        excludedUrls: [staleUrl],
-      });
+      const discovered = await discoverSource([staleUrl]);
       searchResult = {
-        ...found,
+        ...discovered.result,
         retryReason: message,
         staleUrl,
       };
 
-      if (!found.found || !found.url || found.url === staleUrl) {
-        throw new Error("official_page_not_found_after_stale_source");
+      if (!discovered.url || discovered.url === staleUrl) {
+        throw new Error("product_page_not_found_after_stale_source");
       }
 
-      sourceUrl = found.url;
+      sourceUrl = discovered.url;
       requestedSource = findSourceForUrl(allowedSources, sourceUrl);
       if (!requestedSource) throw new Error("source_domain_not_allowed");
-      fetched = await safeFetchHtml(sourceUrl, policies);
+      fetched = await safeFetchHtml(
+        sourceUrl,
+        toAllowedPolicies(allowedSources),
+      );
     }
 
     const finalSource =
@@ -219,7 +281,10 @@ export async function runProductEnrichment(input: RunInput) {
     let generated = fallbackDescription(extracted);
     const generationWarnings: string[] = [];
 
-    if (process.env.OPENAI_API_KEY) {
+    if (
+      process.env.OPENAI_API_KEY &&
+      finalSource.sourceType.toUpperCase() === "OFFICIAL_SITE"
+    ) {
       try {
         generated = await generateProductDescription({
           product,
@@ -236,6 +301,9 @@ export async function runProductEnrichment(input: RunInput) {
       ...generated.warnings,
       ...generationWarnings,
       ...(changed && existingSource ? ["source_content_changed"] : []),
+      ...(finalSource.sourceType.toUpperCase() !== "OFFICIAL_SITE"
+        ? ["external_source_manual_review_required"]
+        : []),
       ...(match.confidence < 70 ? ["manual_match_review_required"] : []),
     ];
 
@@ -309,6 +377,8 @@ export async function runProductEnrichment(input: RunInput) {
     const sourceRequired = [
       "official_page_not_found",
       "official_page_not_found_after_stale_source",
+      "product_page_not_found",
+      "product_page_not_found_after_stale_source",
     ].includes(message);
 
     await prisma.$transaction([
