@@ -17,6 +17,7 @@ type Props = {
     sort?: string;
     fav?: string;
     instock?: string;
+    q?: string;
   };
 };
 
@@ -48,10 +49,54 @@ function findCategory(slug: string) {
   return CATEGORY_OPTIONS.find((item) => item.slug === slug) ?? null;
 }
 
+function normalizeSearch(value: unknown) {
+  return String(value || "")
+    .toLocaleLowerCase("ru-RU")
+    .replace(/ё/g, "е")
+    .replace(/[^a-zа-я0-9]+/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function productMatchesSearch(
+  product: {
+    name: string;
+    category: string;
+    supplierSku: string | null;
+    brand: { name: string } | null;
+    variants: unknown;
+  },
+  query: string,
+) {
+  const normalizedQuery = normalizeSearch(query);
+  if (!normalizedQuery) return true;
+
+  const variantParts: string[] = [];
+  if (Array.isArray(product.variants)) {
+    for (const raw of product.variants) {
+      if (!raw || typeof raw !== "object") continue;
+      const variant = raw as Record<string, unknown>;
+      if (typeof variant.label === "string") variantParts.push(variant.label);
+      if (typeof variant.sku === "string") variantParts.push(variant.sku);
+    }
+  }
+
+  const haystack = normalizeSearch([
+    product.name,
+    product.brand?.name,
+    product.category,
+    product.supplierSku,
+    ...variantParts,
+  ].filter(Boolean).join(" "));
+
+  return normalizedQuery.split(" ").every((token) => haystack.includes(token));
+}
+
 export async function generateMetadata({ searchParams }: Props) {
   const brandSlug = (searchParams?.brand || "").trim();
   const categorySlug = (searchParams?.category || "").trim();
   const sort = (searchParams?.sort || "").trim();
+  const searchQuery = (searchParams?.q || "").trim();
 
   const brands = await prisma.brand.findMany({
     where: { isActive: true },
@@ -112,7 +157,7 @@ export async function generateMetadata({ searchParams }: Props) {
     alternates: {
       canonical: `${baseUrl}/shop`,
     },
-    robots: sort ? { index: false, follow: true } : undefined,
+    robots: sort || searchQuery ? { index: false, follow: true } : undefined,
   };
 }
 
@@ -162,6 +207,7 @@ export default async function ShopPage({ searchParams }: Props) {
   const sort = (searchParams?.sort || "").trim();
   const fav = (searchParams?.fav || "").trim();
   const instock = (searchParams?.instock || "").trim();
+  const searchQuery = (searchParams?.q || "").trim().slice(0, 120);
 
   const brands = await prisma.brand.findMany({
     where: {
@@ -225,15 +271,18 @@ export default async function ShopPage({ searchParams }: Props) {
       isNew: true,
       createdAt: true,
       category: true,
+      supplierSku: true,
       brand: { select: { name: true } },
       variants: true,
     },
   });
 
-  const productsForClient = products.map((product) => ({
-    ...product,
-    variants: toVariants(product.variants),
-  }));
+  const productsForClient = products
+    .filter((product) => productMatchesSearch(product, searchQuery))
+    .map((product) => ({
+      ...product,
+      variants: toVariants(product.variants),
+    }));
 
   return (
     <div className="space-y-6 py-6">
@@ -253,6 +302,7 @@ export default async function ShopPage({ searchParams }: Props) {
             currentSort={sort}
             currentFav={fav}
             currentInStock={instock}
+            currentQuery={searchQuery}
             value="new"
           >
             Новинки
@@ -263,6 +313,7 @@ export default async function ShopPage({ searchParams }: Props) {
             currentSort={sort}
             currentFav={fav}
             currentInStock={instock}
+            currentQuery={searchQuery}
             value="price_asc"
           >
             Цена ↑
@@ -273,6 +324,7 @@ export default async function ShopPage({ searchParams }: Props) {
             currentSort={sort}
             currentFav={fav}
             currentInStock={instock}
+            currentQuery={searchQuery}
             value="price_desc"
           >
             Цена ↓
@@ -282,10 +334,43 @@ export default async function ShopPage({ searchParams }: Props) {
         </div>
       </div>
 
+      <form action="/shop" method="get" className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="relative flex-1">
+          <input
+            type="search"
+            name="q"
+            defaultValue={searchQuery}
+            placeholder="Поиск по названию, бренду, SKU или объёму"
+            className="w-full rounded-2xl border bg-white px-4 py-3 pr-10 text-sm outline-none transition focus:border-gray-500"
+          />
+          <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">⌕</span>
+        </div>
+        {brandSlug && <input type="hidden" name="brand" value={brandSlug} />}
+        {categorySlug && <input type="hidden" name="category" value={categorySlug} />}
+        {sort && <input type="hidden" name="sort" value={sort} />}
+        {fav === "1" && <input type="hidden" name="fav" value="1" />}
+        {instock === "1" && <input type="hidden" name="instock" value="1" />}
+        <button type="submit" className="btn px-5 py-3">Найти</button>
+        {searchQuery && (
+          <Link
+            href={buildHref(brandSlug, categorySlug, sort, fav, instock, "")}
+            className="rounded-xl border px-4 py-3 text-center text-sm hover:bg-gray-50"
+          >
+            Очистить
+          </Link>
+        )}
+      </form>
+
+      {searchQuery && (
+        <div className="text-sm text-gray-500">
+          По запросу «{searchQuery}» найдено: {productsForClient.length}
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-2">
         <FilterLink
           isActive={!brandSlug}
-          href={buildHref("", categorySlug, sort, fav, instock)}
+          href={buildHref("", categorySlug, sort, fav, instock, searchQuery)}
         >
           Все бренды
         </FilterLink>
@@ -294,7 +379,7 @@ export default async function ShopPage({ searchParams }: Props) {
           <FilterLink
             key={brand.id}
             isActive={brand.slug === brandSlug}
-            href={buildHref(brand.slug, categorySlug, sort, fav, instock)}
+            href={buildHref(brand.slug, categorySlug, sort, fav, instock, searchQuery)}
           >
             {brand.name}
           </FilterLink>
@@ -304,7 +389,7 @@ export default async function ShopPage({ searchParams }: Props) {
       <div className="flex flex-wrap gap-2">
         <FilterLink
           isActive={!categorySlug}
-          href={buildHref(brandSlug, "", sort, fav, instock)}
+          href={buildHref(brandSlug, "", sort, fav, instock, searchQuery)}
         >
           Все категории
         </FilterLink>
@@ -313,7 +398,7 @@ export default async function ShopPage({ searchParams }: Props) {
           <FilterLink
             key={category.slug}
             isActive={categorySlug === category.slug}
-            href={buildHref(brandSlug, category.slug, sort, fav, instock)}
+            href={buildHref(brandSlug, category.slug, sort, fav, instock, searchQuery)}
           >
             {category.label}
           </FilterLink>
@@ -331,6 +416,7 @@ function buildHref(
   sort: string,
   fav: string,
   instock: string,
+  searchQuery = "",
 ) {
   const params = new URLSearchParams();
 
@@ -339,6 +425,7 @@ function buildHref(
   if (sort) params.set("sort", sort);
   if (fav === "1") params.set("fav", "1");
   if (instock === "1") params.set("instock", "1");
+  if (searchQuery) params.set("q", searchQuery);
 
   const query = params.toString();
   return query ? `/shop?${query}` : "/shop";
@@ -374,6 +461,7 @@ function SortLink({
   currentSort,
   currentFav,
   currentInStock,
+  currentQuery,
   value,
   children,
 }: {
@@ -382,6 +470,7 @@ function SortLink({
   currentSort: string;
   currentFav: string;
   currentInStock: string;
+  currentQuery: string;
   value: string;
   children: React.ReactNode;
 }) {
@@ -396,6 +485,7 @@ function SortLink({
         nextSort,
         currentFav,
         currentInStock,
+        currentQuery,
       )}
       className={
         "rounded-full border px-3 py-1 text-sm " +
