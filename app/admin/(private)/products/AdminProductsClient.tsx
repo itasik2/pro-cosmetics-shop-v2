@@ -143,7 +143,25 @@ export default function AdminProductsClient() {
   }
 
   useEffect(() => {
-    load();
+    void load();
+
+    const onProductsChanged = () => void load();
+    const onSearch = (event: Event) => {
+      const value = (event as CustomEvent<string>).detail || "";
+      setSearchQuery(value);
+    };
+
+    const savedSearch = window.sessionStorage.getItem("admin-product-search") || "";
+    setSearchQuery(savedSearch);
+
+    window.addEventListener("products-changed", onProductsChanged);
+    window.addEventListener("admin-product-search", onSearch);
+    return () => {
+      window.removeEventListener("products-changed", onProductsChanged);
+      window.removeEventListener("admin-product-search", onSearch);
+    };
+    // load intentionally remains a local request helper.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function setField<K extends keyof typeof emptyForm>(
