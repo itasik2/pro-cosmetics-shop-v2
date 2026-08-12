@@ -46,8 +46,8 @@ patch("app/admin/(private)/enrichment/AdminEnrichmentClient.tsx", [
   },
   {
     label: "card source required variables",
-    from: `              const hasProposal = product.enrichmentProposals.length > 0;\n              const busy = busyKey === \`discover:${product.id}\`;`,
-    to: `              const hasProposal = product.enrichmentProposals.length > 0;\n              const busy = busyKey === \`discover:${product.id}\`;\n              const sourceRequired =\n                product.enrichmentStatus === "SOURCE_REQUIRED" ||\n                isSourceRequiredError(lastJob?.error);\n              const displayStatus = sourceRequired ? "SOURCE_REQUIRED" : product.enrichmentStatus;`,
+    from: `              const hasProposal = product.enrichmentProposals.length > 0;\n              const busy = busyKey === \`discover:\${product.id}\`;`,
+    to: `              const hasProposal = product.enrichmentProposals.length > 0;\n              const busy = busyKey === \`discover:\${product.id}\`;\n              const sourceRequired =\n                product.enrichmentStatus === "SOURCE_REQUIRED" ||\n                isSourceRequiredError(lastJob?.error);\n              const displayStatus = sourceRequired ? "SOURCE_REQUIRED" : product.enrichmentStatus;`,
   },
   {
     label: "card display status",
