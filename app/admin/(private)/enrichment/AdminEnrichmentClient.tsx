@@ -163,6 +163,8 @@ function isSourceRequiredError(value: string | null | undefined) {
   return [
     "official_page_not_found",
     "official_page_not_found_after_stale_source",
+    "product_page_not_found",
+    "product_page_not_found_after_stale_source",
   ].includes(String(value || "").trim());
 }
 
@@ -172,6 +174,12 @@ function enrichmentErrorText(value: string) {
   }
   if (value === "official_page_not_found_after_stale_source") {
     return "Старый официальный адрес больше не работает, а новая карточка товара не найдена.";
+  }
+  if (value === "product_page_not_found") {
+    return "Карточка товара не найдена ни на официальном сайте, ни у проверяемых продавцов.";
+  }
+  if (value === "product_page_not_found_after_stale_source") {
+    return "Старый адрес больше не работает, а новая карточка не найдена ни на официальном сайте, ни у проверяемых продавцов.";
   }
   return value;
 }
