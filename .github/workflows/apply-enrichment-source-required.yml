@@ -1,0 +1,36 @@
+name: Apply enrichment source required patch
+
+on:
+  push:
+    branches:
+      - fix/enrichment-source-required
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/enrichment-source-required
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Apply patch
+        run: node scripts/patch-enrichment-source-required.mjs
+      - name: Commit patch
+        run: |
+          if git diff --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            lib/enrichment/runProductEnrichment.ts \
+            "app/admin/(private)/enrichment/AdminEnrichmentClient.tsx" \
+            app/api/admin/enrichment/products/route.ts
+          git commit -m "Отделить отсутствие источника от технической ошибки"
+          git push
