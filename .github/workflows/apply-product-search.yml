@@ -18,6 +18,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Fix patch generator
+        run: node scripts/fix-product-search-patch.mjs
       - name: Apply patch
         run: node scripts/patch-product-search.mjs
       - name: Commit patch
