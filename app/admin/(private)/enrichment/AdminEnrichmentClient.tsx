@@ -159,12 +159,33 @@ function formatDate(value: string | null | undefined) {
   return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString("ru-RU");
 }
 
+function isSourceRequiredError(value: string | null | undefined) {
+  return [
+    "official_page_not_found",
+    "official_page_not_found_after_stale_source",
+  ].includes(String(value || "").trim());
+}
+
+function enrichmentErrorText(value: string) {
+  if (value === "official_page_not_found") {
+    return "Официальная карточка товара не найдена. Возможно, позиция снята с текущего каталога.";
+  }
+  if (value === "official_page_not_found_after_stale_source") {
+    return "Старый официальный адрес больше не работает, а новая карточка товара не найдена.";
+  }
+  return value;
+}
+
+function statusLabel(value: string) {
+  return value.toUpperCase() === "SOURCE_REQUIRED" ? "Нужен источник" : value;
+}
+
 function statusClass(status: string) {
   const normalized = status.toUpperCase();
   if (["READY", "APPLIED", "ACTIVE"].includes(normalized)) {
     return "border-emerald-200 bg-emerald-50 text-emerald-800";
   }
-  if (["REVIEW", "PENDING", "RUNNING"].includes(normalized)) {
+  if (["REVIEW", "PENDING", "RUNNING", "SOURCE_REQUIRED"].includes(normalized)) {
     return "border-amber-200 bg-amber-50 text-amber-800";
   }
   if (["FAILED", "ERROR", "BLOCKED", "UNAVAILABLE"].includes(normalized)) {
@@ -176,7 +197,7 @@ function statusClass(status: string) {
 function StatusBadge({ value }: { value: string }) {
   return (
     <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] ${statusClass(value)}`}>
-      {value}
+      {statusLabel(value)}
     </span>
   );
 }
@@ -577,6 +598,7 @@ export default function AdminEnrichmentClient() {
               <option value="READY">Готово</option>
               <option value="REVIEW">На проверке</option>
               <option value="SEARCHING">В поиске</option>
+              <option value="SOURCE_REQUIRED">Нужен источник</option>
               <option value="FAILED">Ошибка</option>
             </select>
             <button className="rounded-xl bg-black px-4 py-2 text-white" type="submit">
@@ -590,6 +612,10 @@ export default function AdminEnrichmentClient() {
               const lastSource = product.sources[0];
               const hasProposal = product.enrichmentProposals.length > 0;
               const busy = busyKey === `discover:${product.id}`;
+              const sourceRequired =
+                product.enrichmentStatus === "SOURCE_REQUIRED" ||
+                isSourceRequiredError(lastJob?.error);
+              const displayStatus = sourceRequired ? "SOURCE_REQUIRED" : product.enrichmentStatus;
 
               return (
                 <article key={product.id} className="rounded-2xl border bg-white p-4">
@@ -604,7 +630,7 @@ export default function AdminEnrichmentClient() {
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <h2 className="font-semibold">{product.name}</h2>
-                          <StatusBadge value={product.enrichmentStatus} />
+                          <StatusBadge value={displayStatus} />
                           {!product.isPublished && <StatusBadge value="Черновик" />}
                         </div>
                         <div className="mt-1 text-sm text-gray-500">
@@ -621,7 +647,12 @@ export default function AdminEnrichmentClient() {
                           <div>
                             Задание: {lastJob ? `${lastJob.status} · ${formatDate(lastJob.createdAt)}` : "не запускалось"}
                           </div>
-                          {lastJob?.error && <div className="text-red-700">Ошибка: {lastJob.error}</div>}
+                          {lastJob?.error && (
+                            <div className={sourceRequired ? "text-amber-700" : "text-red-700"}>
+                              {sourceRequired ? "Источник: " : "Ошибка: "}
+                              {enrichmentErrorText(lastJob.error)}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -629,7 +660,7 @@ export default function AdminEnrichmentClient() {
                     <div className="w-full space-y-2 xl:max-w-xl">
                       <input
                         className="w-full rounded-xl border px-3 py-2 text-sm"
-                        placeholder="Точный официальный URL, необязательно"
+                        placeholder="Точный URL из разрешённого источника, необязательно"
                         value={sourceUrls[product.id] || ""}
                         onChange={(event) =>
                           setSourceUrls((current) => ({
@@ -638,6 +669,11 @@ export default function AdminEnrichmentClient() {
                           }))
                         }
                       />
+                      {sourceRequired && (
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                          Автопоиск по официальным страницам исчерпан. Укажите точный URL из разрешённого источника или добавьте источник во вкладке «Источники».
+                        </div>
+                      )}
                       <div className="flex flex-wrap gap-2">
                         <button
                           type="button"
@@ -647,6 +683,15 @@ export default function AdminEnrichmentClient() {
                         >
                           {busy ? "Поиск…" : hasProposal ? "Есть предложение" : "Найти данные"}
                         </button>
+                        {sourceRequired && (
+                          <button
+                            type="button"
+                            className="rounded-xl border px-4 py-2 text-sm hover:bg-gray-50"
+                            onClick={() => setTab("sources")}
+                          >
+                            Источники
+                          </button>
+                        )}
                         {lastSource?.url && (
                           <a
                             className="rounded-xl border px-4 py-2 text-sm hover:bg-gray-50"

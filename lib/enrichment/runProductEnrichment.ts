@@ -306,6 +306,10 @@ export async function runProductEnrichment(input: RunInput) {
     });
   } catch (error) {
     const message = errorMessage(error);
+    const sourceRequired = [
+      "official_page_not_found",
+      "official_page_not_found_after_stale_source",
+    ].includes(message);
 
     await prisma.$transaction([
       prisma.enrichmentJob.update({
@@ -318,7 +322,7 @@ export async function runProductEnrichment(input: RunInput) {
       }),
       prisma.product.update({
         where: { id: input.productId },
-        data: { enrichmentStatus: "FAILED" },
+        data: { enrichmentStatus: sourceRequired ? "SOURCE_REQUIRED" : "FAILED" },
       }),
     ]).catch(() => undefined);
 
