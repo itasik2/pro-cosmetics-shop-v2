@@ -20,6 +20,7 @@ type CandidateProduct = {
   stock: number;
   image: string;
   isPublished: boolean;
+  enrichmentProposalStatus: "PENDING" | "APPLIED" | null;
   appliedEnrichment: boolean;
   variants: Variant[];
 };
@@ -39,6 +40,27 @@ async function readResponse(response: Response) {
     throw new Error(String(data?.message || data?.error || response.status));
   }
   return data;
+}
+
+function discoveryErrorText(value: string) {
+  const messages: Record<string, string> = {
+    product_page_not_found:
+      "Товар не найден ни на официальном сайте, ни у проверяемых продавцов.",
+    product_page_not_found_after_stale_source:
+      "Старый адрес больше не работает, новая карточка не найдена ни на официальном сайте, ни у проверяемых продавцов.",
+    official_page_not_found:
+      "Официальная карточка не найдена, резервный поиск не был выполнен.",
+    enrichment_proposal_exists:
+      "Данные уже найдены и ожидают проверки во вкладке автозаполнения.",
+    enrichment_already_running: "Поиск этого товара уже выполняется.",
+    openai_not_configured: "Поиск не настроен: отсутствует ключ сервиса.",
+    openai_timeout:
+      "Поиск занял слишком много времени. Повторите попытку через минуту.",
+    discovered_source_disabled:
+      "Найденный источник отключён в настройках и не может быть использован.",
+  };
+
+  return messages[value] || value;
 }
 
 export default function VariantMergeMaintenance() {
@@ -87,9 +109,11 @@ export default function VariantMergeMaintenance() {
       await readResponse(response);
       setMessage(`Для «${product.name}» создано предложение автозаполнения.`);
       setProposalCreated(true);
+      await load();
       window.dispatchEvent(new Event("products-changed"));
     } catch (error) {
-      setMessage(`Поиск данных не выполнен: ${error instanceof Error ? error.message : String(error)}`);
+      const value = error instanceof Error ? error.message : String(error);
+      setMessage(`Поиск данных не выполнен: ${discoveryErrorText(value)}`);
     } finally {
       setBusyKey(null);
     }
@@ -234,6 +258,10 @@ export default function VariantMergeMaintenance() {
                               <span className="rounded-full bg-blue-50 px-2 py-0.5 text-blue-700">
                                 Автозаполнение одобрено
                               </span>
+                            ) : product.enrichmentProposalStatus === "PENDING" ? (
+                              <span className="rounded-full bg-blue-50 px-2 py-0.5 text-blue-700">
+                                Данные найдены — ожидают проверки
+                              </span>
                             ) : (
                               <span className="rounded-full bg-amber-50 px-2 py-0.5 text-amber-700">
                                 Данные не одобрены
@@ -246,7 +274,7 @@ export default function VariantMergeMaintenance() {
                             )}
                           </div>
 
-                          {!product.appliedEnrichment && (
+                          {!product.enrichmentProposalStatus && (
                             <button
                               type="button"
                               disabled={Boolean(busyKey)}

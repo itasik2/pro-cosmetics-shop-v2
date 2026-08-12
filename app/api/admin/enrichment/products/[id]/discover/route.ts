@@ -2,7 +2,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-import { EnrichmentJobStatus } from "@prisma/client";
+import {
+  EnrichmentJobStatus,
+  EnrichmentProposalStatus,
+} from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/adminGuard";
@@ -38,6 +41,21 @@ export async function POST(req: Request, { params }: Params) {
   if (!product.supplierId) {
     return NextResponse.json(
       { error: "product_supplier_required" },
+      { status: 409 },
+    );
+  }
+
+  const pendingProposal = await prisma.productEnrichmentProposal.findFirst({
+    where: {
+      productId: product.id,
+      status: EnrichmentProposalStatus.PENDING,
+    },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, createdAt: true },
+  });
+  if (pendingProposal) {
+    return NextResponse.json(
+      { error: "enrichment_proposal_exists", proposal: pendingProposal },
       { status: 409 },
     );
   }

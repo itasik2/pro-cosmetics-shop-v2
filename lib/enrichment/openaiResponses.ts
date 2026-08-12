@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import { z } from "zod";
 import type { ExtractedProductData } from "./extractProduct";
 import type { MatchableProduct } from "./matchProduct";
@@ -52,12 +53,16 @@ async function requestStructured(input: {
   system: string;
   user: string;
   tools?: Record<string, unknown>[];
+  timeoutMs?: number;
 }) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("openai_not_configured");
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 45_000);
+  const timeout = setTimeout(
+    () => controller.abort(),
+    Math.max(1_000, input.timeoutMs ?? 30_000),
+  );
 
   try {
     const response = await fetch("https://api.openai.com/v1/responses", {
@@ -163,6 +168,60 @@ function validatedAllowedUrl(rawUrl: string, allowedDomains: string[]) {
   }
 }
 
+const BLOCKED_EXTERNAL_DOMAINS = [
+  "google.com",
+  "yandex.ru",
+  "bing.com",
+  "instagram.com",
+  "facebook.com",
+  "tiktok.com",
+  "youtube.com",
+  "vk.com",
+  "ozon.ru",
+  "wildberries.ru",
+  "wildberries.kz",
+  "kaspi.kz",
+  "market.yandex.ru",
+  "irecommend.ru",
+  "otzovik.com",
+];
+
+function blockedExternalDomain(hostname: string) {
+  return (
+    BLOCKED_EXTERNAL_DOMAINS.some(
+      (domain) => hostname === domain || hostname.endsWith(`.${domain}`),
+    ) ||
+    /(^|\.)wildberries\.[a-z.]+$/i.test(hostname) ||
+    /(^|\.)ozon\.[a-z.]+$/i.test(hostname)
+  );
+}
+
+export function validatedExternalProductUrl(rawUrl: string) {
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    if (url.username || url.password || url.port) return null;
+
+    const hostname = normalizeDomain(url.hostname).replace(/^www\./, "");
+    if (
+      !hostname ||
+      hostname === "localhost" ||
+      hostname.endsWith(".local") ||
+      isIP(hostname) ||
+      blockedExternalDomain(hostname)
+    ) {
+      return null;
+    }
+
+    if (!url.pathname || url.pathname === "/") return null;
+
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 export async function findOfficialProductUrl(input: {
   product: MatchableProduct;
   allowedDomains: string[];
@@ -199,6 +258,7 @@ export async function findOfficialProductUrl(input: {
         search_context_size: "low",
       },
     ],
+    timeoutMs: 14_000,
   });
 
   const result = SearchResultSchema.parse(raw);
@@ -222,6 +282,76 @@ export async function findOfficialProductUrl(input: {
       url: null,
       confidence: 0,
       reason: "Поиск повторно вернул уже исключённый нерабочий адрес.",
+    };
+  }
+
+  return { ...result, url };
+}
+
+export async function findExternalProductUrl(input: {
+  product: MatchableProduct;
+  officialDomainsTried?: string[];
+  excludedUrls?: string[];
+}): Promise<SearchResult> {
+  const officialDomainsTried = [
+    ...new Set((input.officialDomainsTried || []).map(normalizeDomain)),
+  ].filter(Boolean);
+  const excludedUrls = [
+    ...new Set((input.excludedUrls || []).map((value) => value.trim())),
+  ]
+    .filter(Boolean)
+    .slice(0, 10);
+
+  const raw = await requestStructured({
+    schemaName: "trusted_product_page",
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["found", "url", "confidence", "reason"],
+      properties: {
+        found: { type: "boolean" },
+        url: { type: ["string", "null"] },
+        confidence: { type: "integer", minimum: 0, maximum: 100 },
+        reason: { type: "string" },
+      },
+    },
+    system:
+      "Официальный поиск уже не нашёл точную карточку. Найди прямую страницу этого товара у надёжного дистрибьютора, профессионального магазина косметики или профильной клиники. Сначала предпочитай источники Казахстана, затем другие страны. Проверяй бренд и название; SKU или штрихкод считай сильнейшим подтверждением. Разрешено использовать страницу другой фасовки только если базовый товар и его назначение полностью совпадают: объём будет отдельным вариантом и всё равно пройдёт ручную проверку. Не используй маркетплейсы, социальные сети, отзывы, блоги, агрегаторы, страницы поиска, категории, корзину и скопированные объявления. Не возвращай официальный домен, который уже проверялся, или URL из списка исключений. Если надёжного точного совпадения нет, верни found=false. Возвращай только прямую страницу товара.",
+    user: `${productLabel(input.product)}\n\nУже проверенные официальные домены: ${officialDomainsTried.join(", ") || "нет"}\nИсключённые URL: ${excludedUrls.join(", ") || "нет"}`,
+    tools: [
+      {
+        type: "web_search",
+        search_context_size: "medium",
+      },
+    ],
+    timeoutMs: 20_000,
+  });
+
+  const result = SearchResultSchema.parse(raw);
+  if (!result.found || !result.url) {
+    return { ...result, found: false, url: null };
+  }
+
+  const url = validatedExternalProductUrl(result.url);
+  if (!url) {
+    return {
+      found: false,
+      url: null,
+      confidence: 0,
+      reason: "Найденный адрес не является разрешённой прямой страницей проверяемого продавца.",
+    };
+  }
+
+  const hostname = normalizeDomain(new URL(url).hostname);
+  const repeatsOfficialDomain = officialDomainsTried.some(
+    (domain) => hostname === domain || hostname.endsWith(`.${domain}`),
+  );
+  if (repeatsOfficialDomain || excludedUrls.includes(url)) {
+    return {
+      found: false,
+      url: null,
+      confidence: 0,
+      reason: "Поиск повторно вернул уже проверенный или исключённый адрес.",
     };
   }
 
@@ -267,6 +397,7 @@ export async function generateProductDescription(input: {
     system:
       "Создай черновик карточки профессиональной косметики только из переданных фактов. Не придумывай состав, сертификаты, медицинские свойства, объём, способ применения или обещания результата. Не копируй исходный текст дословно большими фрагментами. Пиши по-русски, нейтрально и понятно. Если данных для поля нет, верни пустую строку и добавь предупреждение.",
     user: JSON.stringify(facts),
+    timeoutMs: 10_000,
   });
 
   return DescriptionResultSchema.parse(raw);

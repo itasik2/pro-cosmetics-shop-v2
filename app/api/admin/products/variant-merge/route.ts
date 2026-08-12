@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
+import { EnrichmentProposalStatus } from "@prisma/client";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/adminGuard";
 import { prisma } from "@/lib/prisma";
@@ -73,9 +74,17 @@ const productSelect = {
   brand: { select: { name: true } },
   supplier: { select: { name: true } },
   enrichmentProposals: {
-    where: { status: "APPLIED" as const },
+    where: {
+      status: {
+        in: [
+          EnrichmentProposalStatus.PENDING,
+          EnrichmentProposalStatus.APPLIED,
+        ] as EnrichmentProposalStatus[],
+      },
+    },
+    orderBy: { createdAt: "desc" as const },
     take: 1,
-    select: { id: true },
+    select: { id: true, status: true },
   },
 } as const;
 
@@ -145,7 +154,11 @@ export async function GET() {
           stock: item.stock,
           image: item.image,
           isPublished: item.isPublished,
-          appliedEnrichment: item.enrichmentProposals.length > 0,
+          enrichmentProposalStatus:
+            item.enrichmentProposals[0]?.status || null,
+          appliedEnrichment:
+            item.enrichmentProposals[0]?.status ===
+            EnrichmentProposalStatus.APPLIED,
           variants: normalizeStoredVariants(item.variants),
         })),
       };

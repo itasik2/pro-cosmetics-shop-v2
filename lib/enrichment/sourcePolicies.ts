@@ -127,6 +127,45 @@ export async function ensureDefaultSupplierSources(input: {
   }
 }
 
+export function discoveredSourceDomain(rawUrl: string) {
+  try {
+    return normalizeDomain(new URL(rawUrl).hostname).replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+export async function ensureDiscoveredSupplierSource(input: {
+  supplierId: string;
+  url: string;
+}) {
+  const domain = discoveredSourceDomain(input.url);
+  if (!domain) throw new Error("invalid_discovered_source_url");
+
+  const source = await prisma.supplierSource.upsert({
+    where: {
+      supplierId_domain: {
+        supplierId: input.supplierId,
+        domain,
+      },
+    },
+    update: {},
+    create: {
+      supplierId: input.supplierId,
+      name: `Найденный проверяемый источник: ${domain}`,
+      domain,
+      baseUrl: new URL(input.url).origin,
+      sourceType: "DISCOVERED_WEB",
+      allowSubdomains: true,
+      isEnabled: true,
+      priority: -20,
+    },
+  });
+
+  if (!source.isEnabled) throw new Error("discovered_source_disabled");
+  return source;
+}
+
 export async function getEnabledSupplierSources(supplierId: string) {
   return prisma.supplierSource.findMany({
     where: { supplierId, isEnabled: true },
