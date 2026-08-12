@@ -13,11 +13,34 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const query = (url.searchParams.get("q") || "").trim();
   const status = (url.searchParams.get("status") || "").trim().toUpperCase();
+  const statusFilter =
+    status === "SOURCE_REQUIRED"
+      ? {
+          OR: [
+            { enrichmentStatus: "SOURCE_REQUIRED" },
+            {
+              enrichmentStatus: "FAILED",
+              enrichmentJobs: {
+                some: {
+                  error: {
+                    in: [
+                      "official_page_not_found",
+                      "official_page_not_found_after_stale_source",
+                    ],
+                  },
+                },
+              },
+            },
+          ],
+        }
+      : status && status !== "ALL"
+        ? { enrichmentStatus: status }
+        : {};
 
   const products = await prisma.product.findMany({
     where: {
       supplierId: { not: null },
-      ...(status && status !== "ALL" ? { enrichmentStatus: status } : {}),
+      ...statusFilter,
       ...(query
         ? {
             OR: [
