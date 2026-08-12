@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 type Brand = {
   id: string;
@@ -86,6 +86,41 @@ async function readJson(response: Response) {
   return response.json().catch(() => ({} as Record<string, unknown>));
 }
 
+function normalizeSearch(value: unknown) {
+  return String(value || "")
+    .toLocaleLowerCase("ru-RU")
+    .replace(/ё/g, "е")
+    .replace(/[^a-zа-я0-9]+/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function productMatchesSearch(product: Product, query: string) {
+  const normalizedQuery = normalizeSearch(query);
+  if (!normalizedQuery) return true;
+
+  const variantParts: string[] = [];
+  if (Array.isArray(product.variants)) {
+    for (const raw of product.variants) {
+      if (!raw || typeof raw !== "object") continue;
+      const variant = raw as VariantData;
+      if (variant.label != null) variantParts.push(String(variant.label));
+      if (variant.sku != null) variantParts.push(String(variant.sku));
+    }
+  }
+
+  const haystack = normalizeSearch([
+    product.name,
+    product.brand?.name,
+    product.supplier?.name,
+    product.supplierSku,
+    product.category,
+    ...variantParts,
+  ].filter(Boolean).join(" "));
+
+  return normalizedQuery.split(" ").every((token) => haystack.includes(token));
+}
+
 export default function AdminProductsClient() {
   const [items, setItems] = useState<Product[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
@@ -95,6 +130,7 @@ export default function AdminProductsClient() {
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [variantUploadingId, setVariantUploadingId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   async function load() {
     const [productResponse, brandResponse] = await Promise.all([
@@ -297,6 +333,11 @@ export default function AdminProductsClient() {
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
+
+  const filteredItems = useMemo(
+    () => items.filter((product) => productMatchesSearch(product, searchQuery)),
+    [items, searchQuery],
+  );
 
   return (
     <div className="grid md:grid-cols-2 gap-8">
@@ -603,11 +644,32 @@ export default function AdminProductsClient() {
       <div className="space-y-3 min-w-0">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-xl font-semibold">Товары</h2>
-          <span className="text-sm text-gray-500">{items.length} поз.</span>
+          <span className="text-sm text-gray-500">
+            {searchQuery.trim() ? filteredItems.length + " из " + items.length : items.length + " поз."}
+          </span>
+        </div>
+
+        <div className="flex gap-2">
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Поиск: название, бренд, SKU, объём…"
+            className="min-w-0 flex-1 rounded-xl border px-3 py-2 text-sm outline-none focus:border-gray-500"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              className="rounded-xl border px-3 py-2 text-sm hover:bg-gray-50"
+              onClick={() => setSearchQuery("")}
+            >
+              Очистить
+            </button>
+          )}
         </div>
 
         <div className="grid grid-cols-1 gap-3">
-          {items.map((product) => {
+          {filteredItems.map((product) => {
             const variantsCount = Array.isArray(product.variants)
               ? product.variants.length
               : 0;
@@ -679,8 +741,10 @@ export default function AdminProductsClient() {
             );
           })}
 
-          {items.length === 0 && (
-            <div className="text-sm text-gray-500">Пока пусто</div>
+          {filteredItems.length === 0 && (
+            <div className="rounded-xl border border-dashed p-4 text-sm text-gray-500">
+              {items.length === 0 ? "Пока пусто" : "По запросу «" + searchQuery.trim() + "» ничего не найдено"}
+            </div>
           )}
         </div>
       </div>
