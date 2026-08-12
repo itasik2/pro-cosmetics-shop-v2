@@ -27,6 +27,8 @@ export async function GET(req: Request) {
                     in: [
                       "official_page_not_found",
                       "official_page_not_found_after_stale_source",
+                      "product_page_not_found",
+                      "product_page_not_found_after_stale_source",
                     ],
                   },
                 },
