@@ -179,8 +179,9 @@ export default function VariantMergeMaintenance() {
         <div className="space-y-4 border-t p-4">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <p className="max-w-3xl text-xs text-gray-500">
-              Показываются товары одного поставщика и бренда с одинаковым базовым названием,
-              но разными фасовками. Отмеченная карточка останется основной.
+              Показываются товары одного бренда с одинаковым базовым названием и разными
+              фасовками, включая старые карточки без поставщика. Отмеченная карточка останется
+              основной.
             </p>
             <button
               type="button"
@@ -204,7 +205,8 @@ export default function VariantMergeMaintenance() {
                 <div>
                   <div className="font-medium">{group.title}</div>
                   <div className="text-xs text-gray-500">
-                    {group.brand} · {group.supplier} · карточек: {group.products.length}
+                    {group.brand} · {group.supplier || "без поставщика"} · карточек:{" "}
+                    {group.products.length}
                   </div>
                 </div>
 

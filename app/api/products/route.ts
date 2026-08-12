@@ -7,6 +7,7 @@ import { z } from "zod";
 import { requireAdmin } from "@/lib/adminGuard";
 import { slugify } from "@/lib/slug";
 import { uniqueSlug } from "@/lib/uniqueSlug";
+import { formatProductName } from "@/lib/productNames";
 
 const ProductSchema = z.object({
   name: z.string().min(2),
@@ -85,6 +86,7 @@ export async function POST(req: Request) {
 
   try {
     const parsed = ProductSchema.parse(await req.json());
+    const name = formatProductName(parsed.name);
 
     if (parsed.brandId) {
       const brand = await prisma.brand.findUnique({
@@ -100,12 +102,12 @@ export async function POST(req: Request) {
       }
     }
 
-    const baseSlug = slugify(parsed.name);
+    const baseSlug = slugify(name);
     const slug = await uniqueSlug({ model: "product", value: baseSlug });
 
     const created = await prisma.product.create({
       data: {
-        name: parsed.name,
+        name,
         slug,
         brandId: parsed.brandId ?? null,
         description: parsed.description,

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import ProductCard from "@/components/ProductCard";
 import { SITE_BRAND, getPublicBaseUrl } from "@/lib/siteConfig";
+import { collapseRepresentedProductCards } from "@/lib/publicProductCards";
 
 export const dynamic = "force-dynamic";
 
@@ -48,14 +49,16 @@ export default async function BrandPage({ params }: Props) {
 
   if (!brand || !brand.isActive) notFound();
 
-  const products = await prisma.product.findMany({
+  const productRows = await prisma.product.findMany({
     where: {
       brandId: brand.id,
       isPublished: true,
+      enrichmentStatus: { not: "MERGED" },
     },
     include: { brand: true },
     orderBy: { createdAt: "desc" },
   });
+  const products = collapseRepresentedProductCards(productRows);
 
   const baseUrl = getPublicBaseUrl();
   const schema = {

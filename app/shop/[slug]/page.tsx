@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import ProductDetailsClient from "@/components/ProductDetailsClient";
 import { SITE_BRAND, getPublicBaseUrl } from "@/lib/siteConfig";
+import { formatProductName } from "@/lib/productNames";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,11 @@ type Props = {
 
 async function getPublicProduct(slug: string) {
   return prisma.product.findFirst({
-    where: { slug, isPublished: true },
+    where: {
+      slug,
+      isPublished: true,
+      enrichmentStatus: { not: "MERGED" },
+    },
     include: { brand: true },
   });
 }
@@ -28,12 +33,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   }
 
   const baseUrl = getPublicBaseUrl();
+  const displayName = formatProductName(product.name);
 
   return {
-    title: `${product.name} купить – ${SITE_BRAND}`,
+    title: `${displayName} купить – ${SITE_BRAND}`,
     description: `${product.brand?.name ?? ""} ${product.category}. Цена ${product.price} ₸.`,
     keywords: [
-      `купить ${product.name}`,
+      `купить ${displayName}`,
       product.brand?.name ? `купить крем ${product.brand.name}` : "",
       product.brand?.name ? `косметика ${product.brand.name}` : "",
       `${product.category} купить`,
@@ -42,7 +48,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       canonical: `${baseUrl}/shop/${product.slug}`,
     },
     openGraph: {
-      title: product.name,
+      title: displayName,
       description: product.description.slice(0, 150),
       images: product.image ? [product.image] : [],
       url: `${baseUrl}/shop/${product.slug}`,
@@ -56,10 +62,11 @@ export default async function ProductPage({ params }: Props) {
   if (!product) notFound();
 
   const baseUrl = getPublicBaseUrl();
+  const displayName = formatProductName(product.name);
   const schema = {
     "@context": "https://schema.org",
     "@type": "Product",
-    name: product.name,
+    name: displayName,
     image: product.image ? [product.image] : [],
     description: product.description,
     sku: product.supplierSku || undefined,

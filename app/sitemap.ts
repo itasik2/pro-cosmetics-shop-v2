@@ -2,6 +2,7 @@
 import type { MetadataRoute } from "next";
 import { prisma } from "@/lib/prisma";
 import { getPublicBaseUrl } from "@/lib/siteConfig";
+import { collapseRepresentedProductCards } from "@/lib/publicProductCards";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const baseUrl = getPublicBaseUrl();
@@ -20,10 +21,24 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: path === "" ? 1 : 0.7,
   }));
 
-  const products = await prisma.product.findMany({
-    where: { isPublished: true },
-    select: { slug: true, updatedAt: true },
+  const productRows = await prisma.product.findMany({
+    where: {
+      isPublished: true,
+      enrichmentStatus: { not: "MERGED" },
+    },
+    select: {
+      id: true,
+      slug: true,
+      name: true,
+      updatedAt: true,
+      supplierId: true,
+      volumeValue: true,
+      volumeUnit: true,
+      variants: true,
+      brand: { select: { name: true } },
+    },
   });
+  const products = collapseRepresentedProductCards(productRows);
 
   const productRoutes: MetadataRoute.Sitemap = products.map((product) => ({
     url: `${baseUrl}/shop/${product.slug}`,
@@ -46,7 +61,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const brands = await prisma.brand.findMany({
     where: {
       isActive: true,
-      products: { some: { isPublished: true } },
+      products: {
+        some: {
+          isPublished: true,
+          enrichmentStatus: { not: "MERGED" },
+        },
+      },
     },
     select: { slug: true, updatedAt: true },
   });

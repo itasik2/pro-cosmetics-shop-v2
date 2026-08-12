@@ -8,12 +8,16 @@ import { requireAdmin } from "@/lib/adminGuard";
 import { prisma } from "@/lib/prisma";
 import {
   baseProductName,
-  existingProductGroupKey,
   makeImportedVariant,
   mergeImportedVariant,
   normalizeStoredVariants,
+  productIdentityKey,
   variantLabel,
 } from "@/lib/price-import/productVariants";
+import {
+  formatProductName,
+  isAllCapsProductName,
+} from "@/lib/productNames";
 
 const MergeSchema = z.object({
   canonicalId: z.string().min(1),
@@ -35,19 +39,36 @@ function productVariantLabel(product: {
   });
 }
 
+function productLineIdentity(product: {
+  productLineCode: string | null;
+  productLineName: string | null;
+}) {
+  return String(product.productLineCode || product.productLineName || "")
+    .toLocaleLowerCase("ru-RU")
+    .replace(/ё/g, "е")
+    .replace(/[^a-zа-я0-9]+/giu, "")
+    .trim();
+}
+
 function productScore(product: {
   isPublished: boolean;
   image: string;
   description: string;
   variants: unknown;
+  name: string;
+  supplierId: string | null;
+  isPopular: boolean;
   enrichmentProposals: Array<{ id: string }>;
 }) {
   return (
     (product.enrichmentProposals.length ? 1000 : 0) +
+    (product.supplierId ? 300 : 0) +
     (product.isPublished ? 200 : 0) +
+    (product.isPopular ? 80 : 0) +
     normalizeStoredVariants(product.variants).length * 50 +
     (!product.image.startsWith("/seed/") ? 30 : 0) +
-    (!placeholderDescription(product.description) ? 20 : 0)
+    (!placeholderDescription(product.description) ? 20 : 0) +
+    (isAllCapsProductName(product.name) ? 0 : 10)
   );
 }
 
@@ -67,6 +88,7 @@ const productSelect = {
   productLineCode: true,
   productLineName: true,
   variants: true,
+  isPopular: true,
   isPublished: true,
   isNew: true,
   enrichmentStatus: true,
@@ -94,7 +116,6 @@ export async function GET() {
 
   const products = await prisma.product.findMany({
     where: {
-      supplierId: { not: null },
       brandId: { not: null },
       enrichmentStatus: { not: "MERGED" },
     },
@@ -104,17 +125,13 @@ export async function GET() {
 
   const groups = new Map<string, typeof products>();
   for (const product of products) {
-    const productKey = existingProductGroupKey({
+    const key = productIdentityKey({
       brandName: product.brand?.name,
       name: product.name,
-      category: product.category,
-      productLineCode: product.productLineCode,
-      productLineName: product.productLineName,
       volumeValue: product.volumeValue,
       volumeUnit: product.volumeUnit,
     });
-    if (!productKey || !product.supplierId) continue;
-    const key = `${product.supplierId}|${productKey}`;
+    if (!key) continue;
     const list = groups.get(key) ?? [];
     list.push(product);
     groups.set(key, list);
@@ -123,6 +140,15 @@ export async function GET() {
   const candidates = [...groups.entries()]
     .filter(([, items]) => items.length >= 2)
     .map(([key, items]) => {
+      const supplierIds = new Set(
+        items.map((item) => item.supplierId).filter(Boolean),
+      );
+      if (supplierIds.size > 1) return null;
+      const productLines = new Set(
+        items.map(productLineIdentity).filter(Boolean),
+      );
+      if (productLines.size > 1) return null;
+
       const labels = new Set(
         items
           .flatMap((item) => {
@@ -141,8 +167,11 @@ export async function GET() {
       const canonical = sorted[0];
       return {
         key,
-        title: baseProductName(canonical.name, productVariantLabel(canonical)),
-        supplier: canonical.supplier?.name || "",
+        title: formatProductName(
+          baseProductName(canonical.name, productVariantLabel(canonical)),
+        ),
+        supplier:
+          items.find((item) => item.supplier?.name)?.supplier?.name || "",
         brand: canonical.brand?.name || "",
         suggestedCanonicalId: canonical.id,
         products: items.map((item) => ({
@@ -194,34 +223,52 @@ export async function POST(req: Request) {
   }
 
   const canonical = products.find((product) => product.id === parsed.data.canonicalId)!;
-  if (!canonical.supplierId || !canonical.brandId || !canonical.brand?.name) {
+  if (!canonical.brandId || !canonical.brand?.name) {
     return NextResponse.json({ error: "merge_group_invalid" }, { status: 409 });
   }
 
-  const expectedGroup = existingProductGroupKey({
+  const supplierIds = [
+    ...new Set(
+      products
+        .map((product) => product.supplierId)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ];
+  if (supplierIds.length > 1) {
+    return NextResponse.json(
+      { error: "products_have_different_suppliers" },
+      { status: 409 },
+    );
+  }
+  const mergeSupplierId = supplierIds[0] || null;
+  const productLines = new Set(
+    products.map(productLineIdentity).filter(Boolean),
+  );
+  if (productLines.size > 1) {
+    return NextResponse.json(
+      { error: "products_have_different_product_lines" },
+      { status: 409 },
+    );
+  }
+
+  const expectedGroup = productIdentityKey({
     brandName: canonical.brand.name,
     name: canonical.name,
-    category: canonical.category,
-    productLineCode: canonical.productLineCode,
-    productLineName: canonical.productLineName,
     volumeValue: canonical.volumeValue,
     volumeUnit: canonical.volumeUnit,
   });
 
   for (const product of products) {
-    const group = existingProductGroupKey({
+    const group = productIdentityKey({
       brandName: product.brand?.name,
       name: product.name,
-      category: product.category,
-      productLineCode: product.productLineCode,
-      productLineName: product.productLineName,
       volumeValue: product.volumeValue,
       volumeUnit: product.volumeUnit,
     });
     if (
       !group ||
       group !== expectedGroup ||
-      product.supplierId !== canonical.supplierId ||
+      (product.supplierId !== null && product.supplierId !== mergeSupplierId) ||
       product.brandId !== canonical.brandId ||
       product.enrichmentStatus === "MERGED"
     ) {
@@ -293,7 +340,9 @@ export async function POST(req: Request) {
     : canonical.price;
   const nextStock = variants.reduce((sum, variant) => sum + variant.stock, 0);
   const canonicalLabel = productVariantLabel(canonical);
-  const nextName = baseProductName(canonical.name, canonicalLabel);
+  const nextName = formatProductName(
+    baseProductName(canonical.name, canonicalLabel),
+  );
   const duplicateIds = products
     .filter((product) => product.id !== canonical.id)
     .map((product) => product.id);
@@ -320,6 +369,7 @@ export async function POST(req: Request) {
       where: { id: canonical.id },
       data: {
         name: nextName,
+        supplierId: mergeSupplierId,
         supplierSku: primarySku,
         price: nextPrice,
         stock: nextStock,
@@ -327,6 +377,7 @@ export async function POST(req: Request) {
         image: realImageProduct?.image || canonical.image,
         description: describedProduct?.description || canonical.description,
         isPublished: products.some((product) => product.isPublished),
+        isPopular: products.some((product) => product.isPopular),
         isNew: products.some((product) => product.isNew),
       },
     });

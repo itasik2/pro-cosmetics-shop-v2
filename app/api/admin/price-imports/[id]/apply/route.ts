@@ -22,6 +22,7 @@ import {
   parsedProductGroupKey,
   variantLabel,
 } from "@/lib/price-import/productVariants";
+import { formatProductName } from "@/lib/productNames";
 import { slugify } from "@/lib/slug";
 import { uniqueSlug } from "@/lib/uniqueSlug";
 
@@ -160,6 +161,7 @@ async function updateExistingProduct(input: {
     await input.tx.product.update({
       where: { id: product.id },
       data: {
+        name: formatProductName(product.name),
         brandId: input.brandId,
         supplierId: input.supplierId,
         supplierSku: product.supplierSku || input.parsed.supplierSku,
@@ -196,6 +198,7 @@ async function updateExistingProduct(input: {
   await input.tx.product.update({
     where: { id: product.id },
     data: {
+      name: formatProductName(product.name),
       brandId: input.brandId,
       supplierId: input.supplierId,
       supplierSku: input.parsed.supplierSku,
@@ -361,7 +364,7 @@ export async function POST(_req: Request, { params }: Params) {
       const productId = await prisma.$transaction(async (tx) => {
         const product = await tx.product.create({
           data: {
-            name: groupedName,
+            name: formatProductName(groupedName),
             slug,
             brandId: brand.id,
             supplierId: priceImport.supplierId,

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import FavoriteButton from "./FavoriteCompareButtons";
 import AddToCartButton from "./AddToCartButton";
+import { formatProductName } from "@/lib/productNames";
 
 type ProductCardProps = {
   product: {
@@ -54,6 +55,7 @@ function normalizeVariants(v: any): Variant[] {
 }
 
 export default function ProductCard({ product }: ProductCardProps) {
+  const displayName = formatProductName(product.name);
   const newBadge = product.isNew === true || isRecentlyCreated(product.createdAt, 14);
 
   const variants = normalizeVariants(product.variants);
@@ -110,12 +112,12 @@ export default function ProductCard({ product }: ProductCardProps) {
       <Link
         href={`/api/products/by-id-redirect/${encodeURIComponent(product.id)}`}
         className="block aspect-square w-full bg-gray-100 rounded-xl mb-3 overflow-hidden"
-        aria-label={`Открыть товар: ${product.name}`}
+        aria-label={`Открыть товар: ${displayName}`}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={imageToShow}
-          alt={product.name}
+          alt={displayName}
           className="w-full h-full object-cover"
           loading="lazy"
         />
@@ -135,7 +137,7 @@ export default function ProductCard({ product }: ProductCardProps) {
       </div>
 
       <h3 className="font-semibold line-clamp-2 min-h-[40px]">
-        {product.name}
+        {displayName}
       </h3>
 
       <div className="mt-2 min-h-[36px]">
