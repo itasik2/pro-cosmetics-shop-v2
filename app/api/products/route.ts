@@ -33,6 +33,7 @@ export async function GET(req: Request) {
     where: publicationQueue
       ? {
           isPublished: false,
+          enrichmentStatus: { not: "MERGED" },
           enrichmentProposals: {
             some: { status: "APPLIED" },
           },

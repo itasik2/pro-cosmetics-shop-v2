@@ -214,15 +214,28 @@ export default function DraftProductsPublisher() {
   }
 
   return (
-    <section className="rounded-2xl border p-4 space-y-4">
-      <div>
-        <h2 className="font-semibold">Черновики для публикации</h2>
-        <p className="mt-1 text-xs text-gray-500">
-          Здесь показываются только товары, у которых фото и описание полностью
-          одобрены. Можно опубликовать один товар отдельно либо выбрать несколько
-          и опубликовать их одной кнопкой.
-        </p>
-      </div>
+    <section className="rounded-2xl border bg-white">
+      <details className="group">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-4 [&::-webkit-details-marker]:hidden">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="font-semibold">Черновики для публикации</h2>
+              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-700">
+                {loading ? "…" : items.length}
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-gray-500">
+              Готовые после одобрения товары. Разверните блок только когда нужна публикация.
+            </p>
+          </div>
+          <span className="shrink-0 text-sm text-gray-500 group-open:hidden">Развернуть ↓</span>
+          <span className="hidden shrink-0 text-sm text-gray-500 group-open:inline">Свернуть ↑</span>
+        </summary>
+
+        <div className="space-y-4 border-t p-4">
+          <p className="text-xs text-gray-500">
+            Можно опубликовать один товар отдельно либо выбрать несколько и опубликовать их одной кнопкой.
+          </p>
 
       {!loading && items.length > 0 && (
         <div className="flex flex-col gap-3 rounded-xl border bg-gray-50 p-3 sm:flex-row sm:items-center sm:justify-between">
@@ -377,6 +390,8 @@ export default function DraftProductsPublisher() {
           {success}
         </div>
       )}
+        </div>
+      </details>
     </section>
   );
 }

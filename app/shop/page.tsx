@@ -245,6 +245,7 @@ export default async function ShopPage({ searchParams }: Props) {
 
   const where: Prisma.ProductWhereInput = {
     isPublished: true,
+    enrichmentStatus: { not: "MERGED" },
     ...(selectedBrand ? { brandId: selectedBrand.id } : {}),
     ...(instock === "1" ? { stock: { gt: 0 } } : {}),
     ...(andConditions.length ? { AND: andConditions } : {}),
