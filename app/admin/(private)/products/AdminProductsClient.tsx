@@ -667,24 +667,6 @@ export default function AdminProductsClient() {
           </span>
         </div>
 
-        <div className="flex gap-2">
-          <input
-            type="search"
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="Поиск: название, бренд, SKU, объём…"
-            className="min-w-0 flex-1 rounded-xl border px-3 py-2 text-sm outline-none focus:border-gray-500"
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              className="rounded-xl border px-3 py-2 text-sm hover:bg-gray-50"
-              onClick={() => setSearchQuery("")}
-            >
-              Очистить
-            </button>
-          )}
-        </div>
 
         <div className="grid grid-cols-1 gap-3">
           {filteredItems.map((product) => {
