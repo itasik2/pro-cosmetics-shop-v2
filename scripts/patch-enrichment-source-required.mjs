@@ -60,14 +60,27 @@ patch("app/admin/(private)/enrichment/AdminEnrichmentClient.tsx", [
     to: `                          {lastJob?.error && (\n                            <div className={sourceRequired ? "text-amber-700" : "text-red-700"}>\n                              {sourceRequired ? "Источник: " : "Ошибка: "}\n                              {enrichmentErrorText(lastJob.error)}\n                            </div>\n                          )}`,
   },
   {
-    label: "source required hint and sources button",
-    from: `                      <div className="flex flex-wrap gap-2">\n                        <button`,
-    to: `                      {sourceRequired && (\n                        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">\n                          Автопоиск по официальным страницам исчерпан. Укажите точный URL из разрешённого источника или добавьте источник во вкладке «Источники».\n                        </div>\n                      )}\n                      <div className="flex flex-wrap gap-2">\n                        <button`,
+    label: "source url placeholder",
+    from: `                        placeholder="Точный официальный URL, необязательно"`,
+    to: `                        placeholder="Точный URL из разрешённого источника, необязательно"`,
+  },
+  {
+    label: "source required hint",
+    from: `                      <div className="flex flex-wrap gap-2">\n                        <button\n                          type="button"\n                          className="rounded-xl bg-black px-4 py-2 text-sm text-white disabled:opacity-50"\n                          disabled={busy || hasProposal || Boolean(busyKey && !busy)}\n                          onClick={() => void runDiscovery(product.id)}`,
+    to: `                      {sourceRequired && (\n                        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">\n                          Автопоиск по официальным страницам исчерпан. Укажите точный URL из разрешённого источника или добавьте источник во вкладке «Источники».\n                        </div>\n                      )}\n                      <div className="flex flex-wrap gap-2">\n                        <button\n                          type="button"\n                          className="rounded-xl bg-black px-4 py-2 text-sm text-white disabled:opacity-50"\n                          disabled={busy || hasProposal || Boolean(busyKey && !busy)}\n                          onClick={() => void runDiscovery(product.id)}`,
   },
   {
     label: "sources shortcut",
     from: `                        {lastSource?.url && (\n                          <a`,
     to: `                        {sourceRequired && (\n                          <button\n                            type="button"\n                            className="rounded-xl border px-4 py-2 text-sm hover:bg-gray-50"\n                            onClick={() => setTab("sources")}\n                          >\n                            Источники\n                          </button>\n                        )}\n                        {lastSource?.url && (\n                          <a`,
+  },
+]);
+
+patch("app/api/admin/enrichment/products/route.ts", [
+  {
+    label: "legacy source required filter",
+    from: `  const status = (url.searchParams.get("status") || "").trim().toUpperCase();\n\n  const products = await prisma.product.findMany({\n    where: {\n      supplierId: { not: null },\n      ...(status && status !== "ALL" ? { enrichmentStatus: status } : {}),`,
+    to: `  const status = (url.searchParams.get("status") || "").trim().toUpperCase();\n  const statusFilter =\n    status === "SOURCE_REQUIRED"\n      ? {\n          OR: [\n            { enrichmentStatus: "SOURCE_REQUIRED" },\n            {\n              enrichmentStatus: "FAILED",\n              enrichmentJobs: {\n                some: {\n                  error: {\n                    in: [\n                      "official_page_not_found",\n                      "official_page_not_found_after_stale_source",\n                    ],\n                  },\n                },\n              },\n            },\n          ],\n        }\n      : status && status !== "ALL"\n        ? { enrichmentStatus: status }\n        : {};\n\n  const products = await prisma.product.findMany({\n    where: {\n      supplierId: { not: null },\n      ...statusFilter,`,
   },
 ]);
 
