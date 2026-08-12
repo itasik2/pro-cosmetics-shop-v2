@@ -7,6 +7,7 @@ import FavoritesButton from "@/components/FavoritesButton";
 import InStockButton from "@/components/InStockButton";
 import { SITE_BRAND, getPublicBaseUrl } from "@/lib/siteConfig";
 import { buildBrandIntentKeywords } from "@/lib/seo";
+import { collapseRepresentedProductCards } from "@/lib/publicProductCards";
 
 export const dynamic = "force-dynamic";
 
@@ -212,7 +213,12 @@ export default async function ShopPage({ searchParams }: Props) {
   const brands = await prisma.brand.findMany({
     where: {
       isActive: true,
-      products: { some: { isPublished: true } },
+      products: {
+        some: {
+          isPublished: true,
+          enrichmentStatus: { not: "MERGED" },
+        },
+      },
     },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
     select: { id: true, name: true, slug: true },
@@ -273,12 +279,15 @@ export default async function ShopPage({ searchParams }: Props) {
       createdAt: true,
       category: true,
       supplierSku: true,
+      supplierId: true,
+      volumeValue: true,
+      volumeUnit: true,
       brand: { select: { name: true } },
       variants: true,
     },
   });
 
-  const productsForClient = products
+  const productsForClient = collapseRepresentedProductCards(products)
     .filter((product) => productMatchesSearch(product, searchQuery))
     .map((product) => ({
       ...product,

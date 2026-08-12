@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
 import ProductCard from "@/components/ProductCard";
 import { getPublicBaseUrl, SITE_BRAND } from "@/lib/siteConfig";
+import { collapseRepresentedProductCards } from "@/lib/publicProductCards";
 
 export const dynamic = "force-dynamic";
 
@@ -28,9 +29,10 @@ export async function generateMetadata({ params }: Props) {
 export default async function CategoryPage({ params }: Props) {
   const categoryName = decodeCategory(params.slug);
 
-  const products = await prisma.product.findMany({
+  const productRows = await prisma.product.findMany({
     where: {
       isPublished: true,
+      enrichmentStatus: { not: "MERGED" },
       category: {
         contains: categoryName,
         mode: "insensitive",
@@ -39,6 +41,7 @@ export default async function CategoryPage({ params }: Props) {
     include: { brand: true },
     orderBy: { createdAt: "desc" },
   });
+  const products = collapseRepresentedProductCards(productRows);
 
   if (!products.length) notFound();
 

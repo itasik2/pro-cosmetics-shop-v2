@@ -115,6 +115,22 @@ export function existingProductGroupKey(input: {
   return [normalize(input.brandName), normalize(line), normalizedName].join("|");
 }
 
+export function productIdentityKey(input: {
+  brandName?: string | null;
+  name: string;
+  volumeValue?: number | null;
+  volumeUnit?: string | null;
+}) {
+  if (!input.brandName) return null;
+  const label = variantLabel({
+    volumeValue: input.volumeValue,
+    volumeUnit: input.volumeUnit,
+  });
+  const normalizedName = normalize(baseProductName(input.name, label));
+  if (!normalizedName) return null;
+  return [normalize(input.brandName), normalizedName].join("|");
+}
+
 export function autoVariantGroupKeys(rows: GroupableRow[]) {
   const groups = new Map<string, Set<string>>();
 

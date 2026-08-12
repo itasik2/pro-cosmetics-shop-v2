@@ -7,7 +7,11 @@ type Props = {
 
 export async function GET(req: Request, { params }: Props) {
   const product = await prisma.product.findFirst({
-    where: { id: params.id, isPublished: true },
+    where: {
+      id: params.id,
+      isPublished: true,
+      enrichmentStatus: { not: "MERGED" },
+    },
     select: { slug: true },
   });
 

@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import AddToCartButton from "@/components/AddToCartButton";
 import TrackProductView from "@/components/TrackProductView";
+import { formatProductName } from "@/lib/productNames";
 
 type Variant = {
   id: string;
@@ -44,6 +45,7 @@ function normalizeVariants(v: any): Variant[] {
 }
 
 export default function ProductDetailsClient({ product }: Props) {
+  const displayName = formatProductName(product.name);
   const variants = useMemo(() => normalizeVariants(product.variants), [product]);
   const hasVariants = variants.length > 0;
 
@@ -69,7 +71,7 @@ export default function ProductDetailsClient({ product }: Props) {
       <div>
         <img
           src={imageToShow}
-          alt={product.name}
+          alt={displayName}
           className="w-full rounded-3xl border object-cover max-h-[480px]"
         />
 
@@ -139,7 +141,7 @@ export default function ProductDetailsClient({ product }: Props) {
       </div>
 
       <div className="space-y-4">
-        <h1 className="text-3xl font-bold">{product.name}</h1>
+        <h1 className="text-3xl font-bold">{displayName}</h1>
 
         <div className="text-gray-600 whitespace-pre-line">
           {product.description}

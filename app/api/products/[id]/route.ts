@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/adminGuard";
+import { formatProductName } from "@/lib/productNames";
 
 const ProductSchema = z.object({
   name: z.string().min(2),
@@ -137,7 +138,7 @@ export async function PUT(req: Request, { params }: Params) {
     const updated = await prisma.product.update({
       where: { id: params.id },
       data: {
-        name: parsed.name,
+        name: formatProductName(parsed.name),
         brandId: parsed.brandId ?? null,
         description: parsed.description,
         image: parsed.image,

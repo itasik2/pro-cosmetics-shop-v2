@@ -9,6 +9,8 @@ import {
   getPublicBaseUrl,
 } from "@/lib/siteConfig";
 import { buildBrandIntentKeywords } from "@/lib/seo";
+import { collapseRepresentedProductCards } from "@/lib/publicProductCards";
+import { productIdentityKey } from "@/lib/price-import/productVariants";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +18,12 @@ export async function generateMetadata() {
   const brands = await prisma.brand.findMany({
     where: {
       isActive: true,
-      products: { some: { isPublished: true } },
+      products: {
+        some: {
+          isPublished: true,
+          enrichmentStatus: { not: "MERGED" },
+        },
+      },
     },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
     select: { name: true },
@@ -69,6 +76,9 @@ const PRODUCT_CARD_SELECT = {
   isNew: true,
   createdAt: true,
   category: true,
+  supplierId: true,
+  volumeValue: true,
+  volumeUnit: true,
   variants: true,
   brand: {
     select: { name: true },
@@ -76,17 +86,24 @@ const PRODUCT_CARD_SELECT = {
 } as const;
 
 export default async function Home() {
-  const [popular, newArrivals, reviews] = await Promise.all([
+  const [popularRows, newArrivalRows, reviews] = await Promise.all([
     prisma.product.findMany({
-      where: { isPopular: true, isPublished: true },
+      where: {
+        isPopular: true,
+        isPublished: true,
+        enrichmentStatus: { not: "MERGED" },
+      },
       orderBy: { createdAt: "desc" },
-      take: 8,
+      take: 24,
       select: PRODUCT_CARD_SELECT,
     }),
     prisma.product.findMany({
-      where: { isPublished: true },
+      where: {
+        isPublished: true,
+        enrichmentStatus: { not: "MERGED" },
+      },
       orderBy: { createdAt: "desc" },
-      take: 8,
+      take: 32,
       select: PRODUCT_CARD_SELECT,
     }),
     prisma.review.findMany({
@@ -95,6 +112,31 @@ export default async function Home() {
       take: 6,
     }),
   ]);
+
+  const popular = collapseRepresentedProductCards(popularRows).slice(0, 8);
+  const popularKeys = new Set(
+    popular
+      .map((product) =>
+        productIdentityKey({
+          brandName: product.brand?.name,
+          name: product.name,
+          volumeValue: product.volumeValue,
+          volumeUnit: product.volumeUnit,
+        }),
+      )
+      .filter((value): value is string => Boolean(value)),
+  );
+  const newArrivals = collapseRepresentedProductCards(newArrivalRows)
+    .filter((product) => {
+      const key = productIdentityKey({
+        brandName: product.brand?.name,
+        name: product.name,
+        volumeValue: product.volumeValue,
+        volumeUnit: product.volumeUnit,
+      });
+      return !key || !popularKeys.has(key);
+    })
+    .slice(0, 8);
 
   return (
     <main className="space-y-10">
@@ -155,7 +197,7 @@ type ProductSectionProps = {
 
 async function getProductCardRows() {
   return prisma.product.findMany({
-    where: { isPublished: true },
+    where: { isPublished: true, enrichmentStatus: { not: "MERGED" } },
     take: 0,
     select: PRODUCT_CARD_SELECT,
   });
