@@ -30,6 +30,7 @@ function errorResponse(error: unknown) {
       : message === "proposal_not_pending"
         ? 409
         : message === "proposal_description_empty" ||
+            message === "proposal_match_confidence_zero" ||
             message === "proposal_image_missing" ||
             message === "proposal_image_not_allowed" ||
             message === "product_supplier_required" ||

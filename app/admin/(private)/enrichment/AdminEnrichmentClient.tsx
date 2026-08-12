@@ -165,6 +165,7 @@ function isSourceRequiredError(value: string | null | undefined) {
     "official_page_not_found_after_stale_source",
     "product_page_not_found",
     "product_page_not_found_after_stale_source",
+    "product_match_zero_confidence",
   ].includes(String(value || "").trim());
 }
 
@@ -180,6 +181,9 @@ function enrichmentErrorText(value: string) {
   }
   if (value === "product_page_not_found_after_stale_source") {
     return "Старый адрес больше не работает, а новая карточка не найдена ни на официальном сайте, ни у проверяемых продавцов.";
+  }
+  if (value === "product_match_zero_confidence") {
+    return "Найденная карточка не совпадает с товаром. Предложение с совпадением 0% не создано; укажите точный URL или повторите поиск.";
   }
   return value;
 }

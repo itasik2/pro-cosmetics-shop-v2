@@ -216,6 +216,9 @@ export async function runProductEnrichment(input: RunInput) {
       selectors: selectorsFromJson(finalSource.selectors),
     });
     const match = scoreProductMatch(product, extracted);
+    if (match.confidence === 0) {
+      throw new Error("product_match_zero_confidence");
+    }
     const contentHash = createHash("sha256")
       .update(fetched.buffer)
       .digest("hex");
@@ -281,10 +284,7 @@ export async function runProductEnrichment(input: RunInput) {
     let generated = fallbackDescription(extracted);
     const generationWarnings: string[] = [];
 
-    if (
-      process.env.OPENAI_API_KEY &&
-      finalSource.sourceType.toUpperCase() === "OFFICIAL_SITE"
-    ) {
+    if (process.env.OPENAI_API_KEY) {
       try {
         generated = await generateProductDescription({
           product,
@@ -379,6 +379,7 @@ export async function runProductEnrichment(input: RunInput) {
       "official_page_not_found_after_stale_source",
       "product_page_not_found",
       "product_page_not_found_after_stale_source",
+      "product_match_zero_confidence",
     ].includes(message);
 
     await prisma.$transaction([

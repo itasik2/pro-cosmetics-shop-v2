@@ -103,6 +103,7 @@ const productSelect = {
           EnrichmentProposalStatus.APPLIED,
         ] as EnrichmentProposalStatus[],
       },
+      confidence: { gt: 0 },
     },
     orderBy: { createdAt: "desc" as const },
     take: 1,
