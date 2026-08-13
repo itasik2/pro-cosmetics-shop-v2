@@ -12,6 +12,7 @@ import { formatProductName } from "@/lib/productNames";
 const ProductSchema = z.object({
   name: z.string().min(2),
   brandId: z.string().nullable().optional(),
+  shortDescription: z.string().max(280).nullable().optional(),
   description: z.string().min(1),
   image: z.string().min(1),
   category: z.string().min(1),
@@ -46,6 +47,7 @@ export async function GET(req: Request) {
       name: true,
       slug: true,
       brandId: true,
+      shortDescription: true,
       description: true,
       image: true,
       category: true,
@@ -110,6 +112,7 @@ export async function POST(req: Request) {
         name,
         slug,
         brandId: parsed.brandId ?? null,
+        shortDescription: parsed.shortDescription?.trim() || null,
         description: parsed.description,
         image: parsed.image,
         category: parsed.category,

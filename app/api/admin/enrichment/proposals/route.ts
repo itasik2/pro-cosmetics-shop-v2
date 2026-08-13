@@ -29,6 +29,7 @@ export async function GET(req: Request) {
           name: true,
           supplierSku: true,
           image: true,
+          shortDescription: true,
           description: true,
           stock: true,
           variants: true,
@@ -44,9 +45,17 @@ export async function GET(req: Request) {
           url: true,
           canonicalUrl: true,
           title: true,
+          sourceType: true,
           lastCheckedAt: true,
           lastChangedAt: true,
           status: true,
+          supplierSource: {
+            select: {
+              domain: true,
+              sourceType: true,
+              isEnabled: true,
+            },
+          },
         },
       },
       job: {

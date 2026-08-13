@@ -3,12 +3,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 import { NextResponse } from "next/server";
-import { monitorStaleProductSources } from "@/lib/enrichment/monitorSources";
-
-function positiveInteger(value: string | undefined, fallback: number) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : fallback;
-}
+import { runCatalogAutopilot } from "@/lib/enrichment/catalogAutopilot";
 
 function authorize(req: Request) {
   const secret = process.env.CRON_SECRET?.trim();
@@ -32,20 +27,14 @@ async function run(req: Request) {
   if (forbidden) return forbidden;
 
   try {
-    const result = await monitorStaleProductSources({
-      limit: positiveInteger(process.env.ENRICHMENT_MONITOR_BATCH, 4),
-      staleHours: positiveInteger(
-        process.env.ENRICHMENT_MONITOR_STALE_HOURS,
-        24 * 7,
-      ),
-    });
+    const result = await runCatalogAutopilot();
 
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
-    console.error("ENRICHMENT MONITOR CRON ERROR", error);
+    console.error("CATALOG AUTOPILOT CRON ERROR", error);
     return NextResponse.json(
       {
-        error: "enrichment_monitor_failed",
+        error: "catalog_autopilot_failed",
         message: String(
           error && typeof error === "object" && "message" in error
             ? (error as { message?: unknown }).message

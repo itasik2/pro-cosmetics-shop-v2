@@ -27,6 +27,9 @@ type RunInput = {
   productId: string;
   sourceUrl?: string | null;
   discoverIfMissing?: boolean;
+  excludedSourceUrls?: string[];
+  autopilotRetryOf?: string | null;
+  autopilotRetryCount?: number;
 };
 
 function errorMessage(error: unknown) {
@@ -52,18 +55,58 @@ function recoverableAutomaticSourceError(message: string) {
 }
 
 export async function runProductEnrichment(input: RunInput) {
-  const job = await prisma.enrichmentJob.create({
-    data: {
+  const staleBefore = new Date(Date.now() - 30 * 60 * 1000);
+  await prisma.enrichmentJob.updateMany({
+    where: {
       productId: input.productId,
-      status: EnrichmentJobStatus.PENDING,
-      sourceUrl: input.sourceUrl?.trim() || null,
+      status: { in: [EnrichmentJobStatus.PENDING, EnrichmentJobStatus.RUNNING] },
+      updatedAt: { lt: staleBefore },
+    },
+    data: {
+      status: EnrichmentJobStatus.FAILED,
+      finishedAt: new Date(),
+      error: "stale_enrichment_job_recovered",
     },
   });
 
-  await prisma.product.update({
-    where: { id: input.productId },
+  const activeJob = await prisma.enrichmentJob.findFirst({
+    where: {
+      productId: input.productId,
+      status: { in: [EnrichmentJobStatus.PENDING, EnrichmentJobStatus.RUNNING] },
+    },
+    select: { id: true },
+  });
+  if (activeJob) throw new Error("job_already_running");
+
+  const claimed = await prisma.product.updateMany({
+    where: {
+      id: input.productId,
+      OR: [
+        { enrichmentStatus: { not: "RUNNING" } },
+        { updatedAt: { lt: staleBefore } },
+      ],
+    },
     data: { enrichmentStatus: "RUNNING" },
   });
+  if (claimed.count !== 1) throw new Error("job_already_running");
+
+  const job = await prisma.enrichmentJob
+    .create({
+      data: {
+        productId: input.productId,
+        status: EnrichmentJobStatus.PENDING,
+        sourceUrl: input.sourceUrl?.trim() || null,
+      },
+    })
+    .catch(async (error) => {
+      await prisma.product
+        .updateMany({
+          where: { id: input.productId, enrichmentStatus: "RUNNING" },
+          data: { enrichmentStatus: "FAILED" },
+        })
+        .catch(() => undefined);
+      throw error;
+    });
 
   try {
     await prisma.enrichmentJob.update({
@@ -83,7 +126,7 @@ export async function runProductEnrichment(input: RunInput) {
         sources: {
           where: { status: ProductSourceStatus.ACTIVE },
           orderBy: { lastCheckedAt: "desc" },
-          take: 1,
+          take: 10,
         },
       },
     });
@@ -105,11 +148,21 @@ export async function runProductEnrichment(input: RunInput) {
       (source) => source.sourceType.toUpperCase() === "OFFICIAL_SITE",
     );
     const officialDomains = officialSources.map((source) => source.domain);
+    const excludedSourceUrls = [
+      ...new Set(
+        (input.excludedSourceUrls || [])
+          .map((value) => String(value || "").trim())
+          .filter(Boolean),
+      ),
+    ].slice(0, 10);
+    const excludedSourceUrlSet = new Set(excludedSourceUrls);
     const explicitSourceUrl = input.sourceUrl?.trim() || "";
     let sourceUrl =
       explicitSourceUrl ||
-      product.sourceUrl?.trim() ||
-      product.sources[0]?.url ||
+      (product.sourceUrl && !excludedSourceUrlSet.has(product.sourceUrl.trim())
+        ? product.sourceUrl.trim()
+        : "") ||
+      product.sources.find((source) => !excludedSourceUrlSet.has(source.url))?.url ||
       "";
     let searchResult: Record<string, unknown> | null = null;
 
@@ -159,7 +212,7 @@ export async function runProductEnrichment(input: RunInput) {
     }
 
     if (!sourceUrl && input.discoverIfMissing !== false) {
-      const discovered = await discoverSource();
+      const discovered = await discoverSource(excludedSourceUrls);
       searchResult = discovered.result;
       if (!discovered.url) throw new Error("product_page_not_found");
       sourceUrl = discovered.url;
@@ -188,7 +241,10 @@ export async function runProductEnrichment(input: RunInput) {
         data: { sourceUrl: null },
       });
 
-      const discovered = await discoverSource([staleUrl]);
+      const discovered = await discoverSource([
+        ...excludedSourceUrls,
+        staleUrl,
+      ]);
       searchResult = {
         ...discovered.result,
         retryReason: message,
@@ -327,6 +383,13 @@ export async function runProductEnrichment(input: RunInput) {
           sourceCurrency: extracted.currency,
           contentChanged: changed,
           searchResult,
+          autopilotRetry: input.autopilotRetryOf
+            ? {
+                proposalId: input.autopilotRetryOf,
+                count: Math.max(1, Math.trunc(input.autopilotRetryCount || 1)),
+                excludedSourceUrls,
+              }
+            : null,
         } as unknown as Prisma.InputJsonValue,
         warnings: [...new Set(warnings)] as Prisma.InputJsonValue,
       },

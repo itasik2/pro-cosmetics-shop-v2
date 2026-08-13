@@ -10,6 +10,7 @@ import { formatProductName } from "@/lib/productNames";
 const ProductSchema = z.object({
   name: z.string().min(2),
   brandId: z.string().nullable().optional(),
+  shortDescription: z.string().max(280).nullable().optional(),
   description: z.string().min(1),
   image: z.string().min(1),
   category: z.string().min(1),
@@ -35,6 +36,7 @@ type Params = { params: { id: string } };
 
 type PublicationFields = {
   brandId: string | null;
+  shortDescription: string | null;
   description: string;
   image: string;
   category: string;
@@ -53,6 +55,7 @@ function publicationMissingFields(
     missing.push("одобрение во вкладке автозаполнения");
   }
   if (!product.brandId) missing.push("бренд");
+  if (!product.shortDescription?.trim()) missing.push("краткое описание");
   if (!description || description === "описание готовится") missing.push("описание");
   if (!product.image || product.image.startsWith("/seed/")) missing.push("фотография");
   if (!product.category.trim()) missing.push("категория");
@@ -114,6 +117,7 @@ export async function PUT(req: Request, { params }: Params) {
       const missing = publicationMissingFields(
         {
           brandId: parsed.brandId ?? null,
+          shortDescription: parsed.shortDescription?.trim() || null,
           description: parsed.description,
           image: parsed.image,
           category: parsed.category,
@@ -140,6 +144,7 @@ export async function PUT(req: Request, { params }: Params) {
       data: {
         name: formatProductName(parsed.name),
         brandId: parsed.brandId ?? null,
+        shortDescription: parsed.shortDescription?.trim() || null,
         description: parsed.description,
         image: parsed.image,
         category: parsed.category,
@@ -190,6 +195,7 @@ export async function PATCH(req: Request, { params }: Params) {
     select: {
       id: true,
       name: true,
+      shortDescription: true,
       description: true,
       image: true,
       category: true,

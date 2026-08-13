@@ -12,6 +12,7 @@ type ProductCardProps = {
     slug: string;
     name: string;
     image: string;
+    shortDescription?: string | null;
     price: number;
     stock: number;
     isPopular: boolean;
@@ -139,6 +140,10 @@ export default function ProductCard({ product }: ProductCardProps) {
       <h3 className="font-semibold line-clamp-2 min-h-[40px]">
         {displayName}
       </h3>
+
+      <p className="mt-1 min-h-[40px] line-clamp-2 text-xs leading-5 text-gray-600">
+        {product.shortDescription?.trim() || "Подробное описание и способ применения — в карточке товара."}
+      </p>
 
       <div className="mt-2 min-h-[36px]">
         {hasVariants ? (

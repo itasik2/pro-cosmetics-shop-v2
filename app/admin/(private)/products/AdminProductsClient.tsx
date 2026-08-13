@@ -34,6 +34,7 @@ type Product = {
   supplier?: { id: string; name: string } | null;
   supplierSku?: string | null;
   sourcePrice?: number | null;
+  shortDescription?: string | null;
   description?: string;
   image: string;
   category: string;
@@ -49,6 +50,7 @@ type Product = {
 const emptyForm = {
   name: "",
   brandId: "",
+  shortDescription: "",
   description: "",
   image: "/seed/cleanser.jpg",
   category: "",
@@ -282,6 +284,7 @@ export default function AdminProductsClient() {
     const body = {
       name: form.name.trim(),
       brandId: form.brandId || null,
+      shortDescription: form.shortDescription.trim() || null,
       description: form.description.trim(),
       image: form.image.trim(),
       category: form.category.trim(),
@@ -339,6 +342,7 @@ export default function AdminProductsClient() {
     setForm({
       name: product.name || "",
       brandId: product.brandId || "",
+      shortDescription: String(product.shortDescription || ""),
       description: String(product.description || ""),
       image: product.image || "/seed/cleanser.jpg",
       category: product.category || "",
@@ -389,10 +393,24 @@ export default function AdminProductsClient() {
             </select>
           </Field>
 
-          <Field label="Описание">
+          <Field label="Краткое описание">
+            <textarea
+              rows={3}
+              maxLength={280}
+              className="w-full border rounded-xl px-3 py-2"
+              placeholder="Что это за средство, для какой кожи или задачи и 2–3 главных преимущества"
+              value={form.shortDescription}
+              onChange={(event) => setField("shortDescription", event.target.value)}
+            />
+            <div className="mt-1 text-xs text-gray-500">
+              До 280 символов. Используется в карточке товара и метаописании.
+            </div>
+          </Field>
+
+          <Field label="Полное описание">
             <textarea
               required
-              rows={5}
+              rows={10}
               className="w-full border rounded-xl px-3 py-2"
               value={form.description}
               onChange={(event) => setField("description", event.target.value)}

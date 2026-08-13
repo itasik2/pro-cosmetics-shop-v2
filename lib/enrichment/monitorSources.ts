@@ -163,6 +163,7 @@ export async function monitorProductSource(
 export async function monitorStaleProductSources(input?: {
   limit?: number;
   staleHours?: number;
+  stopAfterChange?: boolean;
 }) {
   const limit = Math.min(8, Math.max(1, Math.trunc(input?.limit || 4)));
   const staleHours = Math.min(
@@ -187,7 +188,9 @@ export async function monitorStaleProductSources(input?: {
 
   const results: ProductSourceMonitorResult[] = [];
   for (const source of sources) {
-    results.push(await monitorProductSource(source.id));
+    const result = await monitorProductSource(source.id);
+    results.push(result);
+    if (input?.stopAfterChange && result.status === "CHANGED") break;
   }
 
   return {
