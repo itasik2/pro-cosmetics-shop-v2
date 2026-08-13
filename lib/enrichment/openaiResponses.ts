@@ -35,13 +35,21 @@ export function removePromotionalDescriptionSentences(value: unknown) {
   if (!source) return "";
 
   return source
-    .split(/(?<=[.!?])\s+|[\r\n]+/u)
-    .map(normalizeDescriptionText)
-    .filter(
-      (sentence) =>
-        sentence.length > 0 && !PROMOTIONAL_DESCRIPTION_PATTERN.test(sentence),
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) =>
+      line
+        .split(/(?<=[.!?])\s+/u)
+        .map(normalizeDescriptionText)
+        .filter(
+          (sentence) =>
+            sentence.length > 0 &&
+            !PROMOTIONAL_DESCRIPTION_PATTERN.test(sentence),
+        )
+        .join(" "),
     )
-    .join(" ")
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
@@ -62,7 +70,10 @@ function truncateAtWord(value: string, maxLength: number) {
 }
 
 export function sanitizeShortDescription(value: unknown) {
-  return truncateAtWord(removePromotionalDescriptionSentences(value), 280);
+  return truncateAtWord(
+    normalizeDescriptionText(removePromotionalDescriptionSentences(value)),
+    280,
+  );
 }
 
 function getOutputText(data: unknown) {
@@ -175,6 +186,8 @@ function productLabel(product: MatchableProduct) {
   return [
     `Бренд: ${brand}`,
     `Название: ${product.name}`,
+    `Категория каталога: ${product.category || "не указана"}`,
+    `Линия: ${product.productLineName || "не указана"}`,
     `SKU: ${product.supplierSku || "не указан"}`,
     `Штрихкод: ${product.barcode || "не указан"}`,
     `Объём: ${volume}`,
@@ -412,6 +425,8 @@ export async function generateProductDescription(input: {
     sourceUrl: input.sourceUrl,
     sourceTitle: input.extracted.title,
     sourceDescription: input.extracted.description,
+    skinTypeOrCondition: input.extracted.skinType,
+    confirmedBenefits: input.extracted.benefits,
     ingredients: input.extracted.ingredients,
     application: input.extracted.application,
     sourceSku: input.extracted.sku,
@@ -438,10 +453,21 @@ export async function generateProductDescription(input: {
         warnings: { type: "array", items: { type: "string" } },
       },
     },
-    system:
-      "Создай черновик карточки профессиональной косметики только из переданных фактов. Не придумывай состав, сертификаты, медицинские свойства, объём, способ применения или обещания результата. Не копируй исходный текст дословно большими фрагментами. Пиши по-русски, нейтрально и понятно. Краткое описание — одно-два содержательных предложения до 280 символов о назначении и свойствах товара, а не SEO-заголовок. Не используй в описаниях призывы купить или заказать, цену, наличие, доставку, названия стран и городов, сведения о магазине или фразу «от производителя». Не повторяй название товара и объём вместо описания. Если подтверждённых данных для поля нет, верни пустую строку и добавь предупреждение.",
+    system: [
+      "Ты редактор карточек профессиональной косметики. Создай информативный и убедительный текст только из переданных фактов.",
+      "Не придумывай состав, сертификаты, медицинские свойства, тип кожи, объём, способ применения или гарантированный результат. Не копируй исходный текст дословно большими фрагментами.",
+      "Краткое описание: 1–2 живых предложения до 280 символов. Сразу объясни, что это за средство, кому или для каких задач оно подходит и назови 2–3 главных подтверждённых преимущества. Это не SEO-заголовок.",
+      "Полное описание: ориентир 600–1200 символов, если фактов достаточно. Сделай 3–5 коротких абзацев с пустой строкой между ними.",
+      "Первый абзац должен ясно назвать формат средства и его основное назначение. Далее раскрой подтверждённые потребности кожи, ожидаемый уходовый эффект, ключевые преимущества и место средства в уходе.",
+      "Если источник прямо указывает тип или состояние кожи, добавь отдельный абзац с заголовком «Для какой кожи» и перечисли их. Если тип кожи не подтверждён, не пиши «для всех типов»: опиши только подтверждённые задачи кожи в абзаце «Для каких задач» и добавь предупреждение skin_type_not_confirmed.",
+      "Если подтверждены преимущества, можно использовать заголовок «Преимущества» и 3–5 коротких строк с маркером •. Активные компоненты упоминай только вместе с подтверждённой ролью; полный состав не дублируй.",
+      "Заверши естественной фразой о том, кому средство будет особенно полезно или почему его удобно включить в уход, но только на основе фактов.",
+      "Тон — профессиональный, понятный, тёплый и продающий через пользу продукта. Не используй пустые эпитеты, давление, срочность, превосходную степень и неподтверждённые обещания.",
+      "В содержимом не должно быть рекламных SEO-фраз: не призывай купить или заказать, не упоминай цену, наличие, доставку, страны, города, магазин или фразу «от производителя».",
+      "Поля application и ingredients заполняй отдельно по источнику. Если подтверждённых данных для поля нет, верни пустую строку и добавь понятное предупреждение.",
+    ].join("\n"),
     user: JSON.stringify(facts),
-    timeoutMs: 10_000,
+    timeoutMs: 18_000,
   });
 
   const generated = DescriptionResultSchema.parse(raw);
@@ -452,8 +478,10 @@ export async function generateProductDescription(input: {
     generated.description,
   );
   const filtered =
-    shortDescription !== normalizeDescriptionText(generated.shortDescription) ||
-    description !== normalizeDescriptionText(generated.description);
+    normalizeDescriptionText(shortDescription) !==
+      normalizeDescriptionText(generated.shortDescription) ||
+    normalizeDescriptionText(description) !==
+      normalizeDescriptionText(generated.description);
 
   return {
     ...generated,

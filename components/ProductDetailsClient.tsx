@@ -143,7 +143,7 @@ export default function ProductDetailsClient({ product }: Props) {
       <div className="space-y-4">
         <h1 className="text-3xl font-bold">{displayName}</h1>
 
-        <div className="text-gray-600 whitespace-pre-line">
+        <div className="whitespace-pre-line text-gray-600 leading-7">
           {product.description}
         </div>
 
