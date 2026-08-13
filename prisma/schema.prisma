@@ -46,7 +46,8 @@ model Product {
   supplierSku String?
   barcode     String?
 
-  description String
+  shortDescription String?
+  description      String
   price       Int
   sourcePrice Int?
   image       String

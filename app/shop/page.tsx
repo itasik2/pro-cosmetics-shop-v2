@@ -272,6 +272,7 @@ export default async function ShopPage({ searchParams }: Props) {
       slug: true,
       name: true,
       image: true,
+      shortDescription: true,
       price: true,
       stock: true,
       isPopular: true,

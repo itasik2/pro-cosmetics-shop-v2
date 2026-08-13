@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 type Tab = "products" | "proposals" | "sources";
-type ApplyMode = "ALL" | "DESCRIPTION" | "IMAGE";
+type ApplyMode = "ALL" | "DESCRIPTION" | "DESCRIPTION_FINAL" | "IMAGE";
 
 type Product = {
   id: string;
@@ -58,6 +58,7 @@ type Proposal = {
     name: string;
     supplierSku: string | null;
     image: string;
+    shortDescription: string | null;
     description: string;
     stock: number;
     variants: unknown;
@@ -71,9 +72,15 @@ type Proposal = {
     url: string;
     canonicalUrl: string | null;
     title: string | null;
+    sourceType: string;
     lastCheckedAt: string | null;
     lastChangedAt: string | null;
     status: string;
+    supplierSource: {
+      domain: string;
+      sourceType: string;
+      isEnabled: boolean;
+    } | null;
   } | null;
   job: {
     id: string;
@@ -105,6 +112,29 @@ type SupplierGroup = {
   sources: SupplierSource[];
 };
 
+type AutopilotOverview = {
+  config: {
+    enabled: boolean;
+    minConfidence: number;
+    proposalBatch: number;
+    discoveryBatch: number;
+    monitorBatch: number;
+  };
+  counts: {
+    pendingProposals: number;
+    pendingDiscovery: number;
+    sourceRequired: number;
+    recentAutomaticChanges: number;
+  };
+  recentChanges: Array<{
+    id: string;
+    appliedAt: string | null;
+    sourceUrl: string;
+    confidence: number;
+    product: { id: string; name: string; image: string };
+  }>;
+};
+
 type SourceForm = {
   supplierId: string;
   name: string;
@@ -127,6 +157,42 @@ function stringArray(value: unknown) {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
     : [];
+}
+
+function jsonObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function autopilotEvaluation(value: unknown) {
+  const evaluation = jsonObject(jsonObject(value).catalogAutopilotEvaluation);
+  const decision = typeof evaluation.decision === "string" ? evaluation.decision : "";
+  const reasons = stringArray(evaluation.reasons);
+  return decision ? { decision, reasons } : null;
+}
+
+function autopilotReasonText(value: string) {
+  const labels: Record<string, string> = {
+    confidence_below_auto_apply_threshold: "совпадение ниже порога автоприменения",
+    official_source_required: "нужен официальный источник",
+    source_disabled: "источник отключён",
+    source_domain_mismatch: "адрес не соответствует разрешённому домену",
+    description_too_short: "полное описание слишком короткое",
+    description_too_long: "полное описание слишком длинное",
+    short_description_too_short: "краткое описание слишком короткое",
+    short_description_too_long: "краткое описание длиннее 280 символов",
+    skin_or_task_section_missing: "не указан тип кожи или задачи ухода",
+    benefits_missing: "меньше трёх подтверждённых преимуществ",
+    application_missing: "нет полноценного способа применения",
+    promotional_text_found: "обнаружены рекламные SEO-фразы",
+    low_match_retry_required: "нужен повторный поиск источника",
+    low_match_manual_review_required: "низкое совпадение после повторного поиска",
+  };
+  if (value.startsWith("blocking_warning:")) {
+    return `критическое предупреждение источника: ${value.slice("blocking_warning:".length)}`;
+  }
+  return labels[value] || value;
 }
 
 type ProposalVariant = {
@@ -322,6 +388,7 @@ export default function AdminEnrichmentClient() {
   const [products, setProducts] = useState<Product[]>([]);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [suppliers, setSuppliers] = useState<SupplierGroup[]>([]);
+  const [autopilot, setAutopilot] = useState<AutopilotOverview | null>(null);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("ALL");
   const [sourceUrls, setSourceUrls] = useState<Record<string, string>>({});
@@ -392,11 +459,23 @@ export default function AdminEnrichmentClient() {
     }));
   }
 
+  async function loadAutopilot() {
+    const response = await fetch("/api/admin/enrichment/autopilot", {
+      cache: "no-store",
+    });
+    setAutopilot((await readResponse(response)) as AutopilotOverview);
+  }
+
   async function loadAll() {
     setLoading(true);
     setMessage(null);
     try {
-      await Promise.all([loadProducts(), loadProposals(), loadSources()]);
+      await Promise.all([
+        loadProducts(),
+        loadProposals(),
+        loadSources(),
+        loadAutopilot(),
+      ]);
     } catch (error) {
       setMessage(`Ошибка загрузки: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
@@ -409,6 +488,69 @@ export default function AdminEnrichmentClient() {
     // Начальная загрузка выполняется один раз; фильтры применяются отдельной кнопкой.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function runAutopilot() {
+    setBusyKey("autopilot:run");
+    setMessage(null);
+    try {
+      const response = await fetch("/api/admin/enrichment/autopilot", {
+        method: "POST",
+      });
+      const data = (await readResponse(response)) as {
+        result?: {
+          summary?: {
+            applied?: number;
+            review?: number;
+            discovered?: number;
+            failed?: number;
+          };
+        };
+        overview?: AutopilotOverview;
+      };
+      if (data.overview) setAutopilot(data.overview);
+      const summary = data.result?.summary;
+      setMessage(
+        summary
+          ? `Автопилот завершён: применено ${summary.applied || 0}, найдено ${summary.discovered || 0}, оставлено на проверку ${summary.review || 0}, ошибок ${summary.failed || 0}.`
+          : "Автопилот завершён.",
+      );
+      await Promise.all([loadProducts(), loadProposals(), loadAutopilot()]);
+    } catch (error) {
+      setMessage(
+        `Автопилот не выполнен: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function rollbackAutopilotChange(proposalId: string) {
+    if (
+      !confirm(
+        "Вернуть прежние краткое и полное описания? Откат не изменит фото, цену и остатки.",
+      )
+    ) {
+      return;
+    }
+
+    setBusyKey(`autopilot:rollback:${proposalId}`);
+    setMessage(null);
+    try {
+      const response = await fetch(
+        `/api/admin/enrichment/autopilot/revisions/${proposalId}/rollback`,
+        { method: "POST" },
+      );
+      await readResponse(response);
+      setMessage("Описание возвращено к версии до автопилота.");
+      await Promise.all([loadProducts(), loadProposals(), loadAutopilot()]);
+    } catch (error) {
+      setMessage(
+        `Не удалось откатить описание: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      setBusyKey(null);
+    }
+  }
 
   async function runDiscovery(productId: string) {
     setBusyKey(`discover:${productId}`);
@@ -439,7 +581,9 @@ export default function AdminEnrichmentClient() {
     let stock: number | undefined;
     let variantStocks: Record<string, number> | undefined;
 
-    if (variants.length) {
+    const appliesInventory = mode === "ALL" || mode === "IMAGE";
+
+    if (appliesInventory && variants.length) {
       variantStocks = {};
       for (const variant of variants) {
         const value = Number(variantStockValues[proposalId]?.[variant.id] ?? variant.stock);
@@ -449,7 +593,7 @@ export default function AdminEnrichmentClient() {
         }
         variantStocks[variant.id] = value;
       }
-    } else {
+    } else if (appliesInventory) {
       stock = Number(stockValues[proposalId] ?? "0");
       if (!Number.isInteger(stock) || stock < 0) {
         setMessage("Количество должно быть целым числом от 0 и выше.");
@@ -474,9 +618,11 @@ export default function AdminEnrichmentClient() {
       setMessage(
         mode === "ALL"
           ? "Описание, фото и количество применены. Товар добавлен в черновики для публикации."
-          : mode === "DESCRIPTION"
-            ? "Описание и количество сохранены. Предложение остаётся на проверке."
-            : "Фото и количество сохранены. Предложение остаётся на проверке.",
+          : mode === "DESCRIPTION_FINAL"
+            ? "Краткое и полное описание одобрены. Фото, цена и количество не изменялись."
+            : mode === "DESCRIPTION"
+              ? "Описание сохранено. Фото, цена и количество не изменялись; предложение остаётся на проверке."
+              : "Фото и количество сохранены. Предложение остаётся на проверке.",
       );
       await Promise.all([loadProducts(), loadProposals()]);
     } catch (error) {
@@ -558,8 +704,8 @@ export default function AdminEnrichmentClient() {
         <div>
           <h1 className="text-2xl font-semibold">Автозаполнение товаров</h1>
           <p className="mt-1 max-w-3xl text-sm text-gray-600">
-            Поиск выполняется только по разрешённым источникам. Найденные данные сначала попадают
-            в предложения и не публикуются без проверки администратора.
+            Безопасный автопилот сам применяет только качественный текст с официального
+            источника и совпадением от 90%. Фото, цена, остатки и публикация не меняются.
           </p>
         </div>
         <button
@@ -571,6 +717,69 @@ export default function AdminEnrichmentClient() {
           {loading ? "Загрузка…" : "Обновить данные"}
         </button>
       </div>
+
+      {autopilot && (
+        <section className="space-y-4 rounded-2xl border border-emerald-200 bg-emerald-50/50 p-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="font-semibold">Безопасный автопилот</h2>
+                <StatusBadge value={autopilot.config.enabled ? "ACTIVE" : "DISABLED"} />
+              </div>
+              <p className="mt-1 max-w-3xl text-sm text-gray-700">
+                Порог — {autopilot.config.minConfidence}%. Низкое совпадение перепроверяется один
+                раз, сомнительные данные остаются в предложениях, совпадение 0% отбрасывается.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="self-start rounded-xl bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
+              disabled={Boolean(busyKey) || !autopilot.config.enabled}
+              onClick={() => void runAutopilot()}
+            >
+              {busyKey === "autopilot:run" ? "Автопилот работает…" : "Запустить сейчас"}
+            </button>
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            <Metric label="Ожидают проверки" value={autopilot.counts.pendingProposals} />
+            <Metric label="Ожидают поиска" value={autopilot.counts.pendingDiscovery} />
+            <Metric label="Нужен источник" value={autopilot.counts.sourceRequired} />
+            <Metric label="Недавние автоправки" value={autopilot.counts.recentAutomaticChanges} />
+          </div>
+
+          {autopilot.recentChanges.length > 0 && (
+            <details className="rounded-xl border border-emerald-200 bg-white p-3">
+              <summary className="cursor-pointer text-sm font-medium">
+                Журнал последних автоприменений и откат
+              </summary>
+              <div className="mt-3 grid gap-2">
+                {autopilot.recentChanges.map((change) => (
+                  <div
+                    key={change.id}
+                    className="flex flex-col gap-2 rounded-xl border p-3 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="min-w-0">
+                      <div className="font-medium">{change.product.name}</div>
+                      <div className="text-xs text-gray-500">
+                        {change.confidence}% · {formatDate(change.appliedAt)}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="self-start rounded-xl border px-3 py-1.5 text-xs hover:bg-gray-50 disabled:opacity-50 sm:self-auto"
+                      disabled={Boolean(busyKey)}
+                      onClick={() => void rollbackAutopilotChange(change.id)}
+                    >
+                      {busyKey === `autopilot:rollback:${change.id}` ? "Откат…" : "Откатить текст"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+        </section>
+      )}
 
       <div className="flex flex-wrap gap-2 border-b pb-3">
         <TabButton active={tab === "products"} onClick={() => setTab("products")}>
@@ -737,6 +946,7 @@ export default function AdminEnrichmentClient() {
             const selectedImage = selectedImages[proposal.id] || "";
             const isBusy = Boolean(busyKey?.includes(proposal.id));
             const variants = proposalVariants(proposal.product.variants);
+            const evaluation = autopilotEvaluation(proposal.facts);
 
             return (
               <article key={proposal.id} className="space-y-4 rounded-2xl border bg-white p-4">
@@ -745,6 +955,13 @@ export default function AdminEnrichmentClient() {
                     <div className="flex flex-wrap items-center gap-2">
                       <h2 className="text-lg font-semibold">{proposal.product.name}</h2>
                       <StatusBadge value={`${proposal.confidence}% совпадения`} />
+                      <StatusBadge
+                        value={
+                          proposal.source?.sourceType === "OFFICIAL_SITE"
+                            ? "Официальный источник"
+                            : "Внешний источник"
+                        }
+                      />
                       {!proposal.product.isPublished && <StatusBadge value="Черновик" />}
                     </div>
                     <div className="mt-1 text-sm text-gray-500">
@@ -764,6 +981,17 @@ export default function AdminEnrichmentClient() {
                     Создано: {formatDate(proposal.createdAt)}
                   </div>
                 </div>
+
+                {evaluation && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    <div className="font-medium">Почему требуется участие человека</div>
+                    <ul className="mt-1 list-disc space-y-1 pl-5 text-xs">
+                      {evaluation.reasons.map((reason) => (
+                        <li key={reason}>{autopilotReasonText(reason)}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
 
                 <div className="grid gap-4 xl:grid-cols-2">
                   <div className="space-y-3">
@@ -803,6 +1031,7 @@ export default function AdminEnrichmentClient() {
                           {selectedImage
                             ? "Выбранное фото будет скопировано в Cloudinary."
                             : "Нажмите «Выбрать фото» под подходящим изображением."}
+                          {" "}Автопилот и кнопка «Одобрить только текст» эти изображения не используют.
                         </div>
                       )}
                     </div>
@@ -862,7 +1091,8 @@ export default function AdminEnrichmentClient() {
                           }
                         />
                         <span className="mt-1 block text-xs text-gray-500">
-                          Значение сохранится вместе с одобрением предложения. Ноль означает «нет в наличии».
+                          Значение сохранится только при ручном применении фото или всего предложения.
+                          Ноль означает «нет в наличии».
                         </span>
                       </label>
                     )}
@@ -876,19 +1106,19 @@ export default function AdminEnrichmentClient() {
                   <button
                     type="button"
                     className="rounded-xl bg-black px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-50"
-                    disabled={isBusy || !selectedImage}
-                    title={!selectedImage ? "Сначала выберите доступное фото" : undefined}
-                    onClick={() => void applyProposal(proposal.id, "ALL")}
+                    disabled={isBusy}
+                    onClick={() => void applyProposal(proposal.id, "DESCRIPTION_FINAL")}
                   >
-                    Применить всё
+                    Одобрить только текст
                   </button>
                   <button
                     type="button"
                     className="rounded-xl border px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
-                    disabled={isBusy}
-                    onClick={() => void applyProposal(proposal.id, "DESCRIPTION")}
+                    disabled={isBusy || !selectedImage}
+                    title={!selectedImage ? "Сначала выберите доступное фото" : undefined}
+                    onClick={() => void applyProposal(proposal.id, "ALL")}
                   >
-                    Только описание
+                    Применить всё вручную
                   </button>
                   <button
                     type="button"
@@ -1083,6 +1313,15 @@ function TabButton({
     >
       {children}
     </button>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-xl border border-emerald-100 bg-white px-3 py-2">
+      <div className="text-xl font-semibold">{value}</div>
+      <div className="text-xs text-gray-600">{label}</div>
+    </div>
   );
 }
 

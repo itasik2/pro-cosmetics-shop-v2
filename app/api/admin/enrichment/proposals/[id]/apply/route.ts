@@ -7,13 +7,16 @@ import { z } from "zod";
 import { requireAdmin } from "@/lib/adminGuard";
 import {
   applyProductEnrichmentProposal,
+  finalizeProductEnrichmentText,
   type ProposalApplyMode,
 } from "@/lib/enrichment/applyProposal";
 
 type Params = { params: { id: string } };
 
 const BodySchema = z.object({
-  mode: z.enum(["ALL", "DESCRIPTION", "IMAGE"]).default("ALL"),
+  mode: z
+    .enum(["ALL", "DESCRIPTION", "DESCRIPTION_FINAL", "IMAGE"])
+    .default("ALL"),
   imageUrl: z.string().url().max(3000).optional().or(z.literal("")),
   stock: z.number().int().min(0).max(1_000_000).optional(),
   variantStocks: z.record(z.string(), z.number().int().min(0).max(1_000_000)).optional(),
@@ -30,6 +33,7 @@ function errorResponse(error: unknown) {
       : message === "proposal_not_pending"
         ? 409
         : message === "proposal_description_empty" ||
+            message === "proposal_short_description_empty" ||
             message === "proposal_match_confidence_zero" ||
             message === "proposal_image_missing" ||
             message === "proposal_image_not_allowed" ||
@@ -57,6 +61,14 @@ export async function POST(req: Request, { params }: Params) {
   }
 
   try {
+    if (parsed.data.mode === "DESCRIPTION_FINAL") {
+      const proposal = await finalizeProductEnrichmentText({
+        proposalId: params.id,
+        appliedBy: "ADMIN",
+      });
+      return NextResponse.json({ proposal, importedImage: null });
+    }
+
     const result = await applyProductEnrichmentProposal({
       proposalId: params.id,
       mode: parsed.data.mode as ProposalApplyMode,

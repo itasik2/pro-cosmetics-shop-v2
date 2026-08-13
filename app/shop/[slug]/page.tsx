@@ -34,10 +34,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   const baseUrl = getPublicBaseUrl();
   const displayName = formatProductName(product.name);
+  const metaDescription =
+    product.shortDescription?.trim() ||
+    product.description.replace(/\s+/g, " ").trim().slice(0, 280);
 
   return {
-    title: `${displayName} купить – ${SITE_BRAND}`,
-    description: `${product.brand?.name ?? ""} ${product.category}. Цена ${product.price} ₸.`,
+    title: `${displayName} – ${SITE_BRAND}`,
+    description: metaDescription,
     keywords: [
       `купить ${displayName}`,
       product.brand?.name ? `купить крем ${product.brand.name}` : "",
@@ -49,7 +52,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     },
     openGraph: {
       title: displayName,
-      description: product.description.slice(0, 150),
+      description: metaDescription,
       images: product.image ? [product.image] : [],
       url: `${baseUrl}/shop/${product.slug}`,
       type: "website",
@@ -68,7 +71,7 @@ export default async function ProductPage({ params }: Props) {
     "@type": "Product",
     name: displayName,
     image: product.image ? [product.image] : [],
-    description: product.description,
+    description: product.shortDescription || product.description,
     sku: product.supplierSku || undefined,
     brand: product.brand?.name
       ? {

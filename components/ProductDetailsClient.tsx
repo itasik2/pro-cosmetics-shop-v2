@@ -22,6 +22,7 @@ type Props = {
     slug?: string;
     name: string;
     image: string;
+    shortDescription?: string | null;
     description: string;
     price: number;
     stock: number;
@@ -64,6 +65,10 @@ export default function ProductDetailsClient({ product }: Props) {
 
   const imageToShow = selectedVariant?.image || product.image;
   const brandName = product.brand?.name ?? "—";
+  const shortDescription = product.shortDescription?.trim() || "";
+  const showShortDescription =
+    shortDescription.length > 0 &&
+    !product.description.trim().startsWith(shortDescription);
 
   return (
     <div className="grid md:grid-cols-2 gap-8">
@@ -143,6 +148,12 @@ export default function ProductDetailsClient({ product }: Props) {
 
       <div className="space-y-4">
         <h1 className="text-3xl font-bold">{displayName}</h1>
+
+        {showShortDescription && (
+          <p className="text-base leading-7 text-gray-700">
+            {shortDescription}
+          </p>
+        )}
 
         <ProductDescription description={product.description} />
 
