@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import AddToCartButton from "@/components/AddToCartButton";
+import ProductDescription from "@/components/ProductDescription";
 import TrackProductView from "@/components/TrackProductView";
 import { formatProductName } from "@/lib/productNames";
 
@@ -143,9 +144,7 @@ export default function ProductDetailsClient({ product }: Props) {
       <div className="space-y-4">
         <h1 className="text-3xl font-bold">{displayName}</h1>
 
-        <div className="whitespace-pre-line text-gray-600 leading-7">
-          {product.description}
-        </div>
+        <ProductDescription description={product.description} />
 
         <Link
           href={`/ask?productId=${encodeURIComponent(product.id)}`}
