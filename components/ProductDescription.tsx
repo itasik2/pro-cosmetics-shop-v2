@@ -40,7 +40,7 @@ function descriptionContent(lines: string[]): ReactNode {
       ))}
 
       {bullets.length > 0 && (
-        <ul className="space-y-1.5 pl-5 marker:text-gray-400">
+        <ul className="list-disc space-y-1.5 pl-5 marker:text-gray-400">
           {bullets.map((line, index) => (
             <li key={`bullet-${index}`}>{line.replace(/^[•-]\s*/, "")}</li>
           ))}
