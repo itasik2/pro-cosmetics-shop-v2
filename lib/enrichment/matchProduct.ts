@@ -2,6 +2,8 @@ import type { ExtractedProductData } from "./extractProduct";
 
 export type MatchableProduct = {
   name: string;
+  category?: string | null;
+  productLineName?: string | null;
   supplierSku: string | null;
   barcode: string | null;
   volumeValue: number | null;

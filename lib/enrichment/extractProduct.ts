@@ -3,6 +3,8 @@ import * as cheerio from "cheerio";
 export type SourceSelectors = {
   title?: string;
   description?: string;
+  skinType?: string;
+  benefits?: string;
   ingredients?: string;
   application?: string;
   images?: string;
@@ -11,6 +13,8 @@ export type SourceSelectors = {
 export type ExtractedProductData = {
   title: string | null;
   description: string | null;
+  skinType: string | null;
+  benefits: string | null;
   sku: string | null;
   brand: string | null;
   canonicalUrl: string | null;
@@ -296,6 +300,12 @@ function firstLikelyTitle(values: Array<string | null>) {
   return values.find(isLikelyProductTitle) ?? null;
 }
 
+function richestText(values: Array<string | null>) {
+  return values
+    .filter((value): value is string => Boolean(value))
+    .sort((left, right) => right.length - left.length)[0] ?? null;
+}
+
 function isLikelyProductImage(value: string) {
   const normalized = value.toLocaleLowerCase("ru-RU");
   if (!normalized) return false;
@@ -333,6 +343,16 @@ export function extractProductFromHtml(input: {
     input.selectors?.application,
     8_000,
   );
+  const selectorSkinType = selectorText(
+    $,
+    input.selectors?.skinType,
+    2_000,
+  );
+  const selectorBenefits = selectorText(
+    $,
+    input.selectors?.benefits,
+    4_000,
+  );
 
   const fallbackApplication = labeledSection({
     text: bodyText,
@@ -350,8 +370,65 @@ export function extractProductFromHtml(input: {
   const fallbackDescription = labeledSection({
     text: bodyText,
     starts: ["ОПИСАНИЕ:", "ОПИСАНИЕ"],
-    ends: ["ХАРАКТЕРИСТИКИ", "СОСТАВ", "КОНТАКТЫ"],
+    ends: [
+      "ТИП КОЖИ",
+      "ДЛЯ КАКОЙ КОЖИ",
+      "ДЕЙСТВИЕ",
+      "ЭФФЕКТ",
+      "ПРЕИМУЩЕСТВА",
+      "СПОСОБ ПРИМЕНЕНИЯ",
+      "АКТИВНЫЕ КОМПОНЕНТЫ",
+      "ХАРАКТЕРИСТИКИ",
+      "СОСТАВ",
+      "КОНТАКТЫ",
+    ],
     maxLength: 12_000,
+  });
+  const fallbackSkinType = labeledSection({
+    text: bodyText,
+    starts: [
+      "ТИП КОЖИ:",
+      "ТИП КОЖИ",
+      "ДЛЯ КАКОЙ КОЖИ:",
+      "ДЛЯ КАКОЙ КОЖИ",
+      "ПОДХОДИТ ДЛЯ:",
+    ],
+    ends: [
+      "ОПИСАНИЕ",
+      "ДЕЙСТВИЕ",
+      "ЭФФЕКТ",
+      "ПРЕИМУЩЕСТВА",
+      "СПОСОБ ПРИМЕНЕНИЯ",
+      "АКТИВНЫЕ КОМПОНЕНТЫ",
+      "ХАРАКТЕРИСТИКИ",
+      "СОСТАВ",
+      "КОНТАКТЫ",
+    ],
+    maxLength: 2_000,
+  });
+  const fallbackBenefits = labeledSection({
+    text: bodyText,
+    starts: [
+      "ДЕЙСТВИЕ:",
+      "ДЕЙСТВИЕ",
+      "ЭФФЕКТ:",
+      "ЭФФЕКТ",
+      "ПРЕИМУЩЕСТВА:",
+      "ПРЕИМУЩЕСТВА",
+      "РЕЗУЛЬТАТ:",
+      "РЕЗУЛЬТАТ",
+    ],
+    ends: [
+      "ОПИСАНИЕ",
+      "ТИП КОЖИ",
+      "ДЛЯ КАКОЙ КОЖИ",
+      "СПОСОБ ПРИМЕНЕНИЯ",
+      "АКТИВНЫЕ КОМПОНЕНТЫ",
+      "ХАРАКТЕРИСТИКИ",
+      "СОСТАВ",
+      "КОНТАКТЫ",
+    ],
+    maxLength: 4_000,
   });
 
   const title = firstLikelyTitle([
@@ -365,11 +442,13 @@ export function extractProductFromHtml(input: {
 
   const description =
     selectorDescription ||
-    cleanText(productNode?.description) ||
-    fallbackDescription ||
-    metaContent($, "meta[property='og:description']") ||
-    metaContent($, "meta[name='description']") ||
-    metaContent($, "meta[name='twitter:description']");
+    richestText([
+      cleanText(productNode?.description),
+      fallbackDescription,
+      metaContent($, "meta[property='og:description']"),
+      metaContent($, "meta[name='description']"),
+      metaContent($, "meta[name='twitter:description']"),
+    ]);
 
   const canonicalRaw =
     $("link[rel='canonical']").first().attr("href") ||
@@ -417,6 +496,8 @@ export function extractProductFromHtml(input: {
   return {
     title,
     description,
+    skinType: selectorSkinType || fallbackSkinType,
+    benefits: selectorBenefits || fallbackBenefits,
     sku:
       cleanText(productNode?.sku, 100) ||
       cleanText(productNode?.mpn, 100) ||

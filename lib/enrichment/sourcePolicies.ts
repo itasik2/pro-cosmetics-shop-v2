@@ -26,6 +26,8 @@ export function selectorsFromJson(value: unknown): SourceSelectors | null {
   for (const key of [
     "title",
     "description",
+    "skinType",
+    "benefits",
     "ingredients",
     "application",
     "images",
