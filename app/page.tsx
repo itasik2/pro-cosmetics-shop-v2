@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import Link from "next/link";
 import { unstable_cache } from "next/cache";
 import ProductCard from "@/components/ProductCard";
+import { getPublicExternalLinks } from "@/lib/externalLinks";
 import { prisma } from "@/lib/prisma";
 import { formatProductName } from "@/lib/productNames";
 import { collapseRepresentedProductCards } from "@/lib/publicProductCards";
@@ -58,6 +59,13 @@ const STORE_ADVANTAGES = [
     text: "Категории, фильтры и содержательные описания помогают сравнить средства и собрать последовательную схему ухода.",
   },
 ] as const;
+
+function marketplaceButtonLabel(label: string) {
+  const normalized = label.trim().toLocaleLowerCase("ru");
+  if (normalized.includes("kaspi")) return "Мы на Kaspi";
+  if (normalized.includes("halyk")) return "Мы на Halyk Market";
+  return `Мы на ${label.trim()}`;
+}
 
 const PRODUCT_CARD_SELECT = {
   id: true,
@@ -206,8 +214,13 @@ export async function generateMetadata() {
 }
 
 export default async function Home() {
-  const { popularRows, salesIds, salesProductRows, newArrivalRows, reviews } =
-    await getHomeRows();
+  const [
+    { popularRows, salesIds, salesProductRows, newArrivalRows, reviews },
+    externalLinks,
+  ] = await Promise.all([getHomeRows(), getPublicExternalLinks()]);
+  const marketplaceLinks = externalLinks.filter(
+    (link) => link.kind === "MARKETPLACE",
+  );
 
   const salesRank = new Map(salesIds.map((id, index) => [id, index]));
   salesProductRows.sort(
@@ -313,6 +326,37 @@ export default async function Home() {
           <HeroCatalogPreview products={popular.length ? popular : newArrivals} />
         </div>
       </section>
+
+      {marketplaceLinks.length > 0 ? (
+        <section className="site-panel overflow-hidden rounded-3xl p-6 md:p-8">
+          <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+            <div className="max-w-2xl">
+              <p className="site-eyebrow">Покупайте там, где удобно</p>
+              <h2 className="mt-2 text-2xl font-semibold md:text-3xl">
+                Мы также представлены на маркетплейсах
+              </h2>
+              <p className="mt-3 leading-7 text-gray-700">
+                Оформляйте заказ привычным способом — переходите прямо в каталог
+                нашего магазина на выбранной площадке.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-3 md:max-w-md md:justify-end">
+              {marketplaceLinks.map((link) => (
+                <a
+                  key={link.id}
+                  href={link.url}
+                  className="btn"
+                  target="_blank"
+                  rel="noopener noreferrer nofollow sponsored"
+                >
+                  {marketplaceButtonLabel(link.label)}
+                  <span aria-hidden="true">↗</span>
+                </a>
+              ))}
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       <ProductSection
         title="Популярные товары"
