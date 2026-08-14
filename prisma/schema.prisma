@@ -402,6 +402,7 @@ model Review {
 
 model ThemeSettings {
   id              String   @id @default("default")
+  themeProfile    String   @default("neutral")
   scheduleEnabled Boolean  @default(false)
   scheduleStart   DateTime?
   scheduleEnd     DateTime?

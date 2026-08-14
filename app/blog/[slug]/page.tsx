@@ -175,7 +175,7 @@ export default async function PostPage({ params }: Props) {
   const { blocks, toc } = parseContentToBlocks(post.content);
 
   return (
-    <main className="container mx-auto py-8">
+    <article className="container mx-auto py-8">
       <article className="max-w-none">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         {post.image && (
@@ -225,6 +225,6 @@ export default async function PostPage({ params }: Props) {
           Материал носит информационный характер и не заменяет консультацию врача.
         </div>
       </article>
-    </main>
+    </article>
   );
 }

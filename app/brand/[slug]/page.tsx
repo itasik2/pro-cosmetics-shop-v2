@@ -24,7 +24,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   return {
     title: `${brand.name} – купить косметику в Казахстане | ${SITE_BRAND}`,
-    description: `Косметика ${brand.name}. Оригинальная продукция. Доставка по Казахстану.`,
+    description: `Профессиональная косметика ${brand.name}: подробные карточки и доставка по Казахстану.`,
     keywords: [
       `косметика ${brand.name}`,
       `${brand.name} купить`,
@@ -75,7 +75,7 @@ export default async function BrandPage({ params }: Props) {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
       />
 
-      <main className="space-y-6">
+      <div className="space-y-6">
         <h1 className="text-3xl font-bold">{brand.name}</h1>
 
         {products.length === 0 ? (
@@ -87,7 +87,7 @@ export default async function BrandPage({ params }: Props) {
             ))}
           </div>
         )}
-      </main>
+      </div>
     </>
   );
 }

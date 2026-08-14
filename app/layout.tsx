@@ -1,40 +1,80 @@
-// app/layout.tsx
 import "./globals.css";
 import type { Metadata } from "next";
-import Navbar from "@/components/Navbar";
+import { unstable_cache } from "next/cache";
 import Footer from "@/components/Footer";
+import Navbar from "@/components/Navbar";
 import ScrollToTopButton from "@/components/ScrollToTopButton";
-import Providers from "./providers";
 import { prisma } from "@/lib/prisma";
-import { SITE_DESCRIPTION, SITE_KEY, SITE_TITLE } from "@/lib/siteConfig";
+import {
+  getPublicBaseUrl,
+  SITE_DESCRIPTION,
+  SITE_KEY,
+  SITE_TITLE,
+} from "@/lib/siteConfig";
+import { normalizeThemeProfile } from "@/lib/themeProfiles";
+import Providers from "./providers";
 
 const LEGACY_SETTINGS_ID = "default";
 
 export const metadata: Metadata = {
+  metadataBase: new URL(getPublicBaseUrl()),
   title: SITE_TITLE,
   description: SITE_DESCRIPTION,
   icons: {
     icon: [
       { url: "/brand/favicon.svg", type: "image/svg+xml" },
-      { url: "/brand/favicon_multi_tight.ico" }
+      { url: "/brand/favicon_multi_tight.ico" },
     ],
   },
 };
 
-function activeNow(s: {
+function activeNow(settings: {
   scheduleEnabled: boolean;
-  scheduleStart: Date | null;
-  scheduleEnd: Date | null;
+  scheduleStart: Date | string | null;
+  scheduleEnd: Date | string | null;
 }) {
-  if (!s.scheduleEnabled) return true;
+  if (!settings.scheduleEnabled) return true;
 
   const now = Date.now();
-  const start = s.scheduleStart ? s.scheduleStart.getTime() : null;
-  const end = s.scheduleEnd ? s.scheduleEnd.getTime() : null;
-
+  const start = settings.scheduleStart
+    ? new Date(settings.scheduleStart).getTime()
+    : null;
+  const end = settings.scheduleEnd
+    ? new Date(settings.scheduleEnd).getTime()
+    : null;
   if (start !== null && now < start) return false;
   if (end !== null && now > end) return false;
   return true;
+}
+
+const getThemeSettings = unstable_cache(
+  async () =>
+    (await prisma.themeSettings.findUnique({ where: { id: SITE_KEY } })) ||
+    (SITE_KEY === LEGACY_SETTINGS_ID
+      ? null
+      : prisma.themeSettings.findUnique({
+          where: { id: LEGACY_SETTINGS_ID },
+        })),
+  ["public-theme-settings", SITE_KEY],
+  { revalidate: 300, tags: [`theme-settings:${SITE_KEY}`] },
+);
+
+function safeHttpUrl(value: unknown) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    const url = new URL(raw);
+    return url.protocol === "http:" || url.protocol === "https:" ? raw : "";
+  } catch {
+    return "";
+  }
+}
+
+function safeBannerHref(value: unknown) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (raw.startsWith("/") && !raw.startsWith("//")) return raw;
+  return safeHttpUrl(raw);
 }
 
 export default async function RootLayout({
@@ -42,42 +82,34 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  let settings: any = null;
+  let settings: Awaited<ReturnType<typeof getThemeSettings>> = null;
   try {
-    settings =
-      (await prisma.themeSettings.findUnique({
-        where: { id: SITE_KEY },
-      })) ||
-      (SITE_KEY === LEGACY_SETTINGS_ID
-        ? null
-        : await prisma.themeSettings.findUnique({ where: { id: LEGACY_SETTINGS_ID } }));
+    settings = await getThemeSettings();
   } catch {
     settings = null;
   }
 
-  const isOn =
+  const isOn = Boolean(
     settings &&
-    activeNow({
-      scheduleEnabled: !!settings.scheduleEnabled,
-      scheduleStart: settings.scheduleStart ?? null,
-      scheduleEnd: settings.scheduleEnd ?? null,
-    });
-
-  const backgroundUrl =
-    isOn && settings?.backgroundUrl ? String(settings.backgroundUrl).trim() : "";
-
-  const bannerEnabled = isOn && !!settings?.bannerEnabled;
-  const bannerText = bannerEnabled
-    ? String(settings?.bannerText || "").trim()
-    : "";
-  const bannerHref = bannerEnabled
-    ? String(settings?.bannerHref || "").trim()
-    : "";
-
+      activeNow({
+        scheduleEnabled: settings.scheduleEnabled,
+        scheduleStart: settings.scheduleStart,
+        scheduleEnd: settings.scheduleEnd,
+      }),
+  );
+  const backgroundUrl = isOn ? safeHttpUrl(settings?.backgroundUrl) : "";
+  const themeProfile = isOn
+    ? normalizeThemeProfile(settings?.themeProfile)
+    : "neutral";
+  const bannerText =
+    isOn && settings?.bannerEnabled
+      ? String(settings.bannerText || "").trim()
+      : "";
+  const bannerHref = safeBannerHref(settings?.bannerHref);
   const umamiId = process.env.UMAMI_WEBSITE_ID;
 
   return (
-    <html lang="ru">
+    <html lang="ru" data-theme={themeProfile}>
       <head>
         {umamiId ? (
           <script
@@ -88,28 +120,25 @@ export default async function RootLayout({
         ) : null}
       </head>
 
-      <body className="min-h-screen bg-transparent">
+      <body className="min-h-screen">
         {backgroundUrl ? (
           <div
-            className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat pointer-events-none"
-            style={{ backgroundImage: `url(\"${backgroundUrl}\")` }}
+            className="pointer-events-none fixed inset-0 z-0 bg-cover bg-center bg-no-repeat"
+            style={{ backgroundImage: `url(${JSON.stringify(backgroundUrl)})` }}
             aria-hidden="true"
           />
         ) : null}
 
-        <div className="relative z-10 min-h-screen flex flex-col bg-white/85">
+        <div className="site-frame relative z-10 flex min-h-screen flex-col">
           <Providers>
             <Navbar />
 
-            {bannerEnabled && bannerText ? (
-              <div className="border-b bg-white/80 backdrop-blur">
-                <div className="container mx-auto py-2 text-sm text-gray-800 flex items-center justify-between gap-3">
-                  <div className="truncate">{bannerText}</div>
+            {bannerText ? (
+              <div className="border-b border-[var(--color-border)] bg-[var(--color-accent-soft)]">
+                <div className="container flex items-center justify-between gap-3 py-2 text-sm text-[var(--color-text)]">
+                  <div className="min-w-0 truncate">{bannerText}</div>
                   {bannerHref ? (
-                    <a
-                      href={bannerHref}
-                      className="text-sm font-semibold hover:underline whitespace-nowrap"
-                    >
+                    <a href={bannerHref} className="text-link whitespace-nowrap">
                       Подробнее
                     </a>
                   ) : null}
@@ -117,7 +146,9 @@ export default async function RootLayout({
               </div>
             ) : null}
 
-            <main className="container py-8 flex-1">{children}</main>
+            <main id="main-content" className="container flex-1 py-8" tabIndex={-1}>
+              {children}
+            </main>
             <Footer />
             <ScrollToTopButton />
           </Providers>

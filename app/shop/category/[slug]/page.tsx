@@ -46,7 +46,7 @@ export default async function CategoryPage({ params }: Props) {
   if (!products.length) notFound();
 
   return (
-    <main className="space-y-6">
+    <div className="space-y-6">
       <h1 className="text-3xl font-bold">{categoryName}</h1>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -54,6 +54,6 @@ export default async function CategoryPage({ params }: Props) {
           <ProductCard key={product.id} product={product} />
         ))}
       </div>
-    </main>
+    </div>
   );
 }
