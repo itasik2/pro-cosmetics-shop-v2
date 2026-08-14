@@ -15,57 +15,91 @@ type StoredLink = {
 
 type EditableLink = StoredLink & {
   clientId: string;
+  platform: string;
 };
 
-const DEFAULT_LINKS: Array<Omit<StoredLink, "id"> & { id: string }> = [
-  {
-    id: "default-instagram",
-    kind: "SOCIAL",
-    label: "Instagram",
+type PlatformOption = {
+  value: string;
+  label: string;
+  custom?: boolean;
+};
+
+const PLATFORM_OPTIONS: Record<LinkKind, PlatformOption[]> = {
+  SOCIAL: [
+    { value: "instagram", label: "Instagram" },
+    { value: "tiktok", label: "TikTok" },
+    { value: "telegram", label: "Telegram" },
+    { value: "youtube", label: "YouTube" },
+    { value: "facebook", label: "Facebook" },
+    { value: "whatsapp", label: "WhatsApp" },
+    { value: "social-other", label: "Другая соцсеть", custom: true },
+  ],
+  MARKETPLACE: [
+    { value: "kaspi", label: "Kaspi" },
+    { value: "halyk-market", label: "Halyk Market" },
+    { value: "wildberries", label: "Wildberries" },
+    { value: "ozon", label: "Ozon" },
+    { value: "fortemarket", label: "ForteMarket" },
+    {
+      value: "marketplace-other",
+      label: "Другой маркетплейс",
+      custom: true,
+    },
+  ],
+};
+
+function normalizePlatformName(value: string) {
+  return value.toLocaleLowerCase("ru").replace(/[^a-zа-яё0-9]+/g, "");
+}
+
+function inferPlatform(kind: LinkKind, label: string) {
+  const normalizedLabel = normalizePlatformName(label);
+  const options = PLATFORM_OPTIONS[kind];
+  if (!normalizedLabel) {
+    return options.find((option) => option.custom)?.value || "";
+  }
+  const knownOption = options.find((option) => {
+    if (option.custom) return false;
+    const normalizedOption = normalizePlatformName(option.label);
+    return (
+      normalizedLabel === normalizedOption ||
+      normalizedLabel.includes(normalizedOption) ||
+      normalizedOption.includes(normalizedLabel)
+    );
+  });
+
+  return knownOption?.value || options.find((option) => option.custom)?.value || "";
+}
+
+function createEditableLink(
+  clientId: string,
+  kind: LinkKind = "SOCIAL",
+  sortOrder = 0,
+): EditableLink {
+  const platform = PLATFORM_OPTIONS[kind][0];
+
+  return {
+    id: "",
+    clientId,
+    kind,
+    platform: platform.value,
+    label: platform.label,
     url: "",
     isEnabled: false,
-    sortOrder: 0,
-  },
-  {
-    id: "default-tiktok",
-    kind: "SOCIAL",
-    label: "TikTok",
-    url: "",
-    isEnabled: false,
-    sortOrder: 10,
-  },
-  {
-    id: "default-telegram",
-    kind: "SOCIAL",
-    label: "Telegram",
-    url: "",
-    isEnabled: false,
-    sortOrder: 20,
-  },
-  {
-    id: "default-kaspi",
-    kind: "MARKETPLACE",
-    label: "Kaspi Магазин",
-    url: "",
-    isEnabled: false,
-    sortOrder: 30,
-  },
-  {
-    id: "default-halyk",
-    kind: "MARKETPLACE",
-    label: "Halyk Market",
-    url: "",
-    isEnabled: false,
-    sortOrder: 40,
-  },
-];
+    sortOrder,
+  };
+}
 
 function toEditable(link: StoredLink): EditableLink {
-  return { ...link, clientId: link.id };
+  return {
+    ...link,
+    clientId: link.id,
+    platform: inferPlatform(link.kind, link.label),
+  };
 }
 
 function defaultEditableLinks() {
-  return DEFAULT_LINKS.map(toEditable);
+  return [createEditableLink("default-instagram")];
 }
 
 function kindLabel(kind: LinkKind) {
@@ -80,7 +114,14 @@ export default function AdminExternalLinksClient() {
   const nextClientId = useRef(0);
 
   function setLoadedLinks(rows: StoredLink[]) {
-    setLinks(rows.length > 0 ? rows.map(toEditable) : defaultEditableLinks());
+    const meaningfulRows = rows.filter(
+      (row) => row.isEnabled || Boolean(row.url.trim()),
+    );
+    setLinks(
+      meaningfulRows.length > 0
+        ? meaningfulRows.map(toEditable)
+        : defaultEditableLinks(),
+    );
   }
 
   async function load() {
@@ -132,35 +173,35 @@ export default function AdminExternalLinksClient() {
     });
   }
 
-  function addLink(kind: LinkKind) {
+  function addLink() {
     nextClientId.current += 1;
     setLinks((current) => [
       ...current,
-      {
-        id: "",
-        clientId: `new-${Date.now()}-${nextClientId.current}`,
-        kind,
-        label: kind === "SOCIAL" ? "Новая соцсеть" : "Новый маркетплейс",
-        url: "",
-        isEnabled: false,
-        sortOrder: current.length * 10,
-      },
+      createEditableLink(
+        `new-${Date.now()}-${nextClientId.current}`,
+        "SOCIAL",
+        current.length * 10,
+      ),
     ]);
   }
 
   async function save() {
-    if (links.length === 0) {
-      setMessage("Добавьте хотя бы одну позицию. Ненужную ссылку можно оставить выключенной.");
-      return;
-    }
+    const meaningfulLinks = links.filter(
+      (link) => link.isEnabled || Boolean(link.url.trim()),
+    );
+    const linksToSave = meaningfulLinks.length
+      ? meaningfulLinks
+      : [createEditableLink("empty")];
 
-    const emptyLabelIndex = links.findIndex((link) => !link.label.trim());
+    const emptyLabelIndex = linksToSave.findIndex((link) => !link.label.trim());
     if (emptyLabelIndex >= 0) {
       setMessage(`Укажите название у ссылки №${emptyLabelIndex + 1}.`);
       return;
     }
 
-    const enabledWithoutUrl = links.find((link) => link.isEnabled && !link.url.trim());
+    const enabledWithoutUrl = linksToSave.find(
+      (link) => link.isEnabled && !link.url.trim(),
+    );
     if (enabledWithoutUrl) {
       setMessage(`Для включённой ссылки «${enabledWithoutUrl.label}» нужен адрес.`);
       return;
@@ -174,7 +215,7 @@ export default function AdminExternalLinksClient() {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          links: links.map((link) => ({
+          links: linksToSave.map((link) => ({
             id: link.id || undefined,
             kind: link.kind,
             label: link.label.trim(),
@@ -214,9 +255,9 @@ export default function AdminExternalLinksClient() {
         <div>
           <h2 className="text-xl font-bold">Социальные сети и маркетплейсы</h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-gray-600">
-            Добавьте полную ссылку, включите её и сохраните. Пустые и выключенные
-            позиции посетителям не показываются. Порядок здесь совпадает с порядком
-            кнопок на сайте.
+            Выберите тип и площадку, вставьте полную ссылку и включите показ.
+            Дополнительная форма появляется только по кнопке «＋ Добавить ещё».
+            Порядок форм совпадает с порядком кнопок на сайте.
           </p>
         </div>
         <button
@@ -242,47 +283,78 @@ export default function AdminExternalLinksClient() {
           {links.map((link, index) => (
             <div
               key={link.clientId}
-              className="grid gap-3 rounded-2xl border bg-white p-3 sm:grid-cols-[140px_minmax(0,1fr)_auto]"
+              className="grid gap-3 rounded-2xl border bg-white p-3 sm:grid-cols-[170px_minmax(0,1fr)_auto]"
             >
               <div className="space-y-2">
                 <label className="block text-xs font-semibold text-gray-600">
-                  Раздел
+                  Тип ссылки
                   <select
                     className="mt-1 w-full rounded-xl border px-3 py-2 text-sm font-normal text-gray-900"
                     value={link.kind}
-                    onChange={(event) =>
-                      updateLink(index, { kind: event.target.value as LinkKind })
-                    }
+                    onChange={(event) => {
+                      const kind = event.target.value as LinkKind;
+                      const platform = PLATFORM_OPTIONS[kind][0];
+                      updateLink(index, {
+                        kind,
+                        platform: platform.value,
+                        label: platform.label,
+                        url: "",
+                        isEnabled: false,
+                      });
+                    }}
                   >
                     <option value="SOCIAL">Соцсеть</option>
                     <option value="MARKETPLACE">Маркетплейс</option>
                   </select>
                 </label>
-                <label className="inline-flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={link.isEnabled}
-                    onChange={(event) =>
-                      updateLink(index, { isEnabled: event.target.checked })
-                    }
-                  />
-                  Показывать
+                <label className="block text-xs font-semibold text-gray-600">
+                  Площадка
+                  <select
+                    className="mt-1 w-full rounded-xl border px-3 py-2 text-sm font-normal text-gray-900"
+                    value={link.platform}
+                    onChange={(event) => {
+                      const platform = PLATFORM_OPTIONS[link.kind].find(
+                        (option) => option.value === event.target.value,
+                      );
+                      if (!platform) return;
+                      updateLink(index, {
+                        platform: platform.value,
+                        label: platform.custom ? "" : platform.label,
+                        url: "",
+                        isEnabled: false,
+                      });
+                    }}
+                  >
+                    {PLATFORM_OPTIONS[link.kind].map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
                 </label>
               </div>
 
               <div className="grid min-w-0 gap-2">
+                {PLATFORM_OPTIONS[link.kind].find(
+                  (option) => option.value === link.platform,
+                )?.custom ? (
+                  <label className="block text-xs font-semibold text-gray-600">
+                    Название кнопки
+                    <input
+                      className="mt-1 w-full rounded-xl border px-3 py-2 text-sm font-normal text-gray-900"
+                      value={link.label}
+                      maxLength={60}
+                      onChange={(event) =>
+                        updateLink(index, { label: event.target.value })
+                      }
+                      placeholder="Например: Магазин партнёра"
+                    />
+                  </label>
+                ) : null}
                 <label className="block text-xs font-semibold text-gray-600">
-                  Название кнопки
-                  <input
-                    className="mt-1 w-full rounded-xl border px-3 py-2 text-sm font-normal text-gray-900"
-                    value={link.label}
-                    maxLength={60}
-                    onChange={(event) => updateLink(index, { label: event.target.value })}
-                    placeholder="Например: Instagram"
-                  />
-                </label>
-                <label className="block text-xs font-semibold text-gray-600">
-                  Полная ссылка
+                  {link.kind === "MARKETPLACE"
+                    ? "Ссылка на каталог магазина"
+                    : "Ссылка на профиль"}
                   <input
                     className="mt-1 w-full rounded-xl border px-3 py-2 text-sm font-normal text-gray-900"
                     type="url"
@@ -298,6 +370,17 @@ export default function AdminExternalLinksClient() {
                     }}
                     placeholder="https://…"
                   />
+                </label>
+                <label className="inline-flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={link.isEnabled}
+                    disabled={!link.url.trim()}
+                    onChange={(event) =>
+                      updateLink(index, { isEnabled: event.target.checked })
+                    }
+                  />
+                  Показывать кнопку на сайте
                 </label>
               </div>
 
@@ -324,10 +407,15 @@ export default function AdminExternalLinksClient() {
                 </button>
                 <button
                   type="button"
-                  className="inline-flex h-8 items-center justify-center rounded-full border border-red-200 px-3 text-xs font-semibold text-red-700 hover:bg-red-50"
+                  className="inline-flex h-8 items-center justify-center rounded-full border border-red-200 px-3 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
                   onClick={() =>
-                    setLinks((current) => current.filter((_, currentIndex) => currentIndex !== index))
+                    setLinks((current) =>
+                      current.length > 1
+                        ? current.filter((_, currentIndex) => currentIndex !== index)
+                        : current,
+                    )
                   }
+                  disabled={links.length === 1}
                   aria-label={`Удалить «${link.label}»`}
                 >
                   Удалить
@@ -335,25 +423,22 @@ export default function AdminExternalLinksClient() {
               </div>
 
               <p className="text-xs text-gray-500 sm:col-span-3">
-                {kindLabel(link.kind)} · {link.isEnabled ? "будет показана после сохранения" : "скрыта"}
+                {kindLabel(link.kind)} ·{" "}
+                {link.isEnabled
+                  ? "кнопка будет показана после сохранения"
+                  : "кнопка скрыта"}
               </p>
             </div>
           ))}
-
-          {links.length === 0 ? (
-            <div className="rounded-xl border border-dashed p-4 text-sm text-gray-500">
-              Ссылок пока нет. Добавьте соцсеть или маркетплейс кнопками ниже.
-            </div>
-          ) : null}
         </div>
       )}
 
       <div className="flex flex-wrap gap-2">
-        <button type="button" className="btn-secondary" onClick={() => addLink("SOCIAL")}>
-          Добавить соцсеть
-        </button>
-        <button type="button" className="btn-secondary" onClick={() => addLink("MARKETPLACE")}>
-          Добавить маркетплейс
+        <button type="button" className="btn-secondary" onClick={addLink}>
+          <span aria-hidden="true" className="text-lg leading-none">
+            ＋
+          </span>{" "}
+          Добавить ещё
         </button>
       </div>
     </section>
