@@ -29,8 +29,7 @@ export default function Navbar() {
   }, [pathname]);
 
   useEffect(() => {
-    const syncCart = () =>
-      setCartCount(getCart().reduce((sum, item) => sum + item.qty, 0));
+    const syncCart = () => setCartCount(getCart().length);
     syncCart();
     window.addEventListener("storage", syncCart);
     window.addEventListener("storage-sync", syncCart);
@@ -48,6 +47,9 @@ export default function Navbar() {
         : "text-gray-700 hover:bg-gray-100 hover:text-gray-950"
     }`;
   };
+
+  const isCheckoutPage =
+    pathname === "/checkout" || pathname.startsWith("/checkout/");
 
   return (
     <>
@@ -85,7 +87,7 @@ export default function Navbar() {
           </div>
         </div>
 
-        <div className="container flex min-h-[76px] items-center justify-between gap-4 py-3">
+        <div className="container flex min-h-16 items-center justify-between gap-2 py-2 sm:min-h-[76px] sm:gap-4 sm:py-3">
           <Link href="/" className="inline-flex shrink-0" aria-label="PRO COSMETICS — на главную">
             <Image
               src="/brand/header-logo.svg"
@@ -93,7 +95,7 @@ export default function Navbar() {
               width={300}
               height={70}
               priority
-              className="h-11 w-auto sm:h-12"
+              className="h-9 w-auto sm:h-12"
             />
           </Link>
 
@@ -105,19 +107,33 @@ export default function Navbar() {
             ))}
           </nav>
 
-          <div className="flex items-center gap-2">
-            <Link
-              href="/checkout"
-              className="relative inline-flex min-h-8 items-center justify-center rounded-full border border-[var(--color-border)] bg-white px-3 py-1 text-sm font-semibold text-gray-800 hover:border-gray-400"
-              aria-label={`Корзина, товаров: ${cartCount}`}
-            >
-              Корзина
-              {cartCount > 0 ? (
-                <span className="accent-badge ml-2 inline-flex min-w-6 items-center justify-center rounded-full px-1.5 py-0.5 text-xs font-bold">
-                  {cartCount > 99 ? "99+" : cartCount}
-                </span>
-              ) : null}
-            </Link>
+          <div className="flex shrink-0 items-center gap-2">
+            {!isCheckoutPage ? (
+              <Link
+                href="/checkout"
+                className="relative inline-flex h-8 min-h-8 w-8 items-center justify-center rounded-full border border-[var(--color-border)] bg-white p-0 text-sm font-semibold text-gray-800 hover:border-gray-400 sm:w-auto sm:px-3 sm:py-1"
+                aria-label={`Корзина, позиций: ${cartCount}`}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-4 w-4 sm:hidden"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  aria-hidden="true"
+                >
+                  <path d="M3 4h2l2.1 10.1a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.6L20 8H6" />
+                  <circle cx="9.5" cy="19" r="1" />
+                  <circle cx="17" cy="19" r="1" />
+                </svg>
+                <span className="hidden sm:inline">Корзина</span>
+                {cartCount > 0 ? (
+                  <span className="accent-badge absolute -right-1 -top-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-bold sm:static sm:ml-2 sm:h-auto sm:min-w-6 sm:px-1.5 sm:py-0.5 sm:text-xs">
+                    {cartCount > 99 ? "99+" : cartCount}
+                  </span>
+                ) : null}
+              </Link>
+            ) : null}
             <button
               type="button"
               className="inline-flex min-h-8 items-center justify-center rounded-full bg-[var(--color-primary)] px-3 py-1 text-sm font-semibold text-white lg:hidden"
