@@ -386,7 +386,7 @@ function HeroCatalogPreview({ products }: { products: ProductCardRow[] }) {
           <Link
             key={item.href}
             href={item.href}
-            className="accent-badge rounded-xl px-2 py-3 text-center text-xs font-semibold hover:brightness-95"
+            className="accent-badge rounded-full px-2 py-3 text-center text-xs font-semibold hover:brightness-95"
           >
             {item.label}
           </Link>
