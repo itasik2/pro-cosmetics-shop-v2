@@ -17,13 +17,13 @@ const defaultsBySite: Record<string, SitePreset> = {
     title: "Pro Cosmetics — магазин профессиональной косметики",
     description: "Профессиональная косметика и уходовые средства с доставкой по Казахстану.",
     nicheLabel: "профессиональная косметика",
-    heroTitle: "Профессиональная косметика с любовью для Вас!",
+    heroTitle: "Профессиональная косметика для ухода, который подходит именно вашей коже",
     heroSubtitle:
-      "Только проверенные позиции. Нормальные составы, честные описания и цены без магии маркетинга.",
+      "Подбирайте средства по типу кожи и задаче. В каждой карточке — назначение, способ применения и понятные рекомендации.",
     aboutSummary:
-      "небольшой магазин профессиональной косметики для домашнего ухода. Мы подбираем рабочие средства с понятными составами и честными описаниями.",
+      "магазин профессиональной косметики для продуманного домашнего ухода. Мы отбираем средства под конкретные задачи кожи и подробно объясняем, как ими пользоваться.",
     aboutGoal:
-      "Наша цель — помочь вам выстроить простой и рабочий уход за кожей: от базового очищения до анти-эйдж и средств для проблемной кожи.",
+      "Наша цель — помочь выстроить понятный уход за кожей: от базового очищения и увлажнения до восстановления, anti-age и средств для проблемной кожи.",
   },
   fitoapteka: {
     brand: "fitoapteka.kz",
@@ -50,6 +50,45 @@ export const SITE_HERO_TITLE = process.env.SITE_HERO_TITLE || preset.heroTitle;
 export const SITE_HERO_SUBTITLE = process.env.SITE_HERO_SUBTITLE || preset.heroSubtitle;
 export const SITE_ABOUT_SUMMARY = process.env.SITE_ABOUT_SUMMARY || preset.aboutSummary;
 export const SITE_ABOUT_GOAL = process.env.SITE_ABOUT_GOAL || preset.aboutGoal;
+
+export const SITE_CONTACT_PHONE =
+  process.env.NEXT_PUBLIC_CONTACT_PHONE || "+7 (707) 191-91-04";
+export const SITE_CONTACT_PHONE_HREF = `tel:${SITE_CONTACT_PHONE.replace(
+  /[^\d+]/g,
+  "",
+)}`;
+export const SITE_CONTACT_EMAIL =
+  process.env.NEXT_PUBLIC_CONTACT_EMAIL?.trim() || "";
+export const SITE_CONTACT_LOCATION =
+  process.env.NEXT_PUBLIC_CONTACT_LOCATION?.trim() || "Павлодар, Казахстан";
+
+const contactPhoneDigits = SITE_CONTACT_PHONE.replace(/\D/g, "");
+
+function normalizePublicHttpUrl(value: string | undefined) {
+  const raw = value?.trim() || "";
+  if (!raw) return "";
+  try {
+    const url = new URL(raw);
+    return url.protocol === "http:" || url.protocol === "https:" ? raw : "";
+  } catch {
+    return "";
+  }
+}
+
+export const SITE_WHATSAPP_URL =
+  normalizePublicHttpUrl(process.env.NEXT_PUBLIC_WHATSAPP_URL) ||
+  normalizePublicHttpUrl(
+    contactPhoneDigits ? `https://wa.me/${contactPhoneDigits}` : "",
+  );
+export const SITE_INSTAGRAM_URL = normalizePublicHttpUrl(
+  process.env.NEXT_PUBLIC_INSTAGRAM_URL,
+);
+export const SITE_TELEGRAM_URL = normalizePublicHttpUrl(
+  process.env.NEXT_PUBLIC_TELEGRAM_URL,
+);
+export const SITE_TIKTOK_URL = normalizePublicHttpUrl(
+  process.env.NEXT_PUBLIC_TIKTOK_URL,
+);
 
 export const SITE_ENV_SUFFIX = SITE_KEY.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
 

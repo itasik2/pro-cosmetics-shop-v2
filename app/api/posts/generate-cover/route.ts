@@ -2,15 +2,9 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
-import { openai } from "@/lib/openai";
+import { getOpenAIClient } from "@/lib/openai";
 import { v2 as cloudinary } from "cloudinary";
 import { requireAdmin } from "@/lib/adminGuard";
-
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME!,
-  api_key: process.env.CLOUDINARY_API_KEY!,
-  api_secret: process.env.CLOUDINARY_API_SECRET!,
-});
 
 type Body = {
   topic?: string;
@@ -38,6 +32,17 @@ export async function POST(req: Request) {
     ) {
       return NextResponse.json({ error: "cloudinary_not_configured" }, { status: 500 });
     }
+
+    if (!process.env.OPENAI_API_KEY) {
+      return NextResponse.json({ error: "no_api_key" }, { status: 500 });
+    }
+
+    cloudinary.config({
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key: process.env.CLOUDINARY_API_KEY,
+      api_secret: process.env.CLOUDINARY_API_SECRET,
+    });
+    const openai = getOpenAIClient();
 
     // вход
     const json = (await req.json().catch(() => ({}))) as Body;

@@ -2,7 +2,7 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
-import { openai } from "@/lib/openai";
+import { getOpenAIClient } from "@/lib/openai";
 import { requireAdmin } from "@/lib/adminGuard";
 
 type Body = {
@@ -72,6 +72,8 @@ export async function POST(req: Request) {
     if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json({ error: "no_api_key" }, { status: 500 });
     }
+
+    const openai = getOpenAIClient();
 
     const json = (await req.json().catch(() => ({}))) as Body;
 

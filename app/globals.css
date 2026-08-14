@@ -2,38 +2,189 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { --bg: #0a0a0a; --fg: #111; }
+:root {
+  --color-page: #faf9f7;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f4f3f1;
+  --color-text: #20252b;
+  --color-text-muted: #626a72;
+  --color-primary: #2f343b;
+  --color-primary-hover: #454b53;
+  --color-border: #e4e1dd;
+  --color-accent: #5e6972;
+  --color-accent-soft: #edf0f1;
+  --color-accent-strong: #46515a;
+  --focus-ring: #64727c;
+}
 
-body { @apply bg-white text-gray-900; }
-.container { @apply max-w-6xl mx-auto px-4; }
-.btn { @apply inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold transition shadow-sm bg-gray-700 text-white hover:bg-gray-600; }
-.card { @apply border rounded-2xl p-4 shadow-sm bg-white; }
+html[data-theme="spring"] {
+  --color-accent: #637c6e;
+  --color-accent-soft: #e4ece7;
+  --color-accent-strong: #4f675a;
+  --focus-ring: #637c6e;
+}
 
-button:not(:disabled) {
+html[data-theme="summer"] {
+  --color-accent: #8b6776;
+  --color-accent-soft: #efe6e9;
+  --color-accent-strong: #755362;
+  --focus-ring: #8b6776;
+}
+
+html[data-theme="autumn"] {
+  --color-accent: #8a654f;
+  --color-accent-soft: #eee6e0;
+  --color-accent-strong: #71513f;
+  --focus-ring: #8a654f;
+}
+
+html[data-theme="winter"] {
+  --color-accent: #62758a;
+  --color-accent-soft: #e5ebf0;
+  --color-accent-strong: #4d6176;
+  --focus-ring: #62758a;
+}
+
+html[data-theme="festive"] {
+  --color-accent: #7c4b5b;
+  --color-accent-soft: #eee3e7;
+  --color-accent-strong: #633846;
+  --focus-ring: #7c4b5b;
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+  }
+
+  body {
+    @apply antialiased;
+    background: var(--color-page);
+    color: var(--color-text);
+  }
+
+  a,
+  button,
+  input,
+  select,
+  textarea {
+    @apply focus:outline-none;
+  }
+
+  a:focus-visible,
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: 3px solid color-mix(in srgb, var(--focus-ring) 38%, transparent);
+    outline-offset: 3px;
+  }
+
+  ::selection {
+    background: var(--color-accent-soft);
+    color: var(--color-text);
+  }
+}
+
+@layer components {
+  .container {
+    @apply mx-auto max-w-6xl px-4 sm:px-6;
+  }
+
+  .site-frame {
+    background: rgb(250 249 247 / 0.9);
+  }
+
+  .site-panel {
+    border: 1px solid var(--color-border);
+    background: rgb(255 255 255 / 0.96);
+    box-shadow: 0 18px 45px rgb(47 52 59 / 0.06);
+  }
+
+  .site-panel-muted {
+    border: 1px solid var(--color-border);
+    background: color-mix(in srgb, var(--color-accent-soft) 56%, white);
+  }
+
+  .site-eyebrow {
+    color: var(--color-accent-strong);
+    @apply text-xs font-bold uppercase tracking-[0.18em] sm:text-sm;
+  }
+
+  .accent-badge {
+    background: var(--color-accent-soft);
+    color: var(--color-accent-strong);
+  }
+
+  .btn {
+    background: var(--color-primary);
+    color: white;
+    @apply inline-flex min-h-11 items-center justify-center rounded-xl px-5 py-2.5 text-sm font-semibold shadow-sm transition;
+  }
+
+  .btn:hover {
+    background: var(--color-primary-hover);
+    box-shadow: 0 8px 20px rgb(47 52 59 / 0.14);
+  }
+
+  .btn:active,
+  .btn-secondary:active {
+    transform: translateY(1px);
+  }
+
+  .btn-secondary {
+    border: 1px solid var(--color-border);
+    background: rgb(255 255 255 / 0.9);
+    color: var(--color-primary);
+    @apply inline-flex min-h-11 items-center justify-center rounded-xl px-5 py-2.5 text-sm font-semibold shadow-sm transition;
+  }
+
+  .btn-secondary:hover {
+    border-color: color-mix(in srgb, var(--color-primary) 46%, white);
+    background: white;
+    box-shadow: 0 8px 20px rgb(47 52 59 / 0.08);
+  }
+
+  .card {
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    @apply rounded-2xl p-4 shadow-sm;
+  }
+
+  .text-link {
+    color: var(--color-accent-strong);
+    @apply font-semibold transition-colors hover:underline;
+  }
+}
+
+button:not(:disabled),
+a {
   transition:
     background-color 180ms ease,
     border-color 180ms ease,
     color 180ms ease,
     box-shadow 180ms ease,
-    filter 180ms ease,
+    opacity 180ms ease,
     transform 120ms ease;
-}
-
-button:not(:disabled):hover {
-  filter: brightness(1.06);
-  box-shadow: 0 2px 8px rgb(15 23 42 / 0.08);
-}
-
-button:not(:disabled):active {
-  transform: translateY(1px);
 }
 
 button.bg-black,
 a.bg-black {
-  background-color: rgb(55 65 81);
+  background-color: var(--color-primary);
 }
 
 button.bg-black:hover,
 a.bg-black:hover {
-  background-color: rgb(75 85 99);
+  background-color: var(--color-primary-hover);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }

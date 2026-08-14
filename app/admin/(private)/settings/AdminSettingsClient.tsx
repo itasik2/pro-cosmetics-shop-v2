@@ -1,11 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import {
+  normalizeThemeProfile,
+  THEME_PROFILE_OPTIONS,
+  type ThemeProfile,
+} from "@/lib/themeProfiles";
 
 const UPLOAD_ENDPOINT = "/api/upload/product-image";
 
 type Settings = {
   id: string;
+  themeProfile: ThemeProfile;
   scheduleEnabled: boolean;
   scheduleStart: string | null;
   scheduleEnd: string | null;
@@ -48,6 +54,7 @@ export default function AdminSettingsClient() {
   const [scheduleEnd, setScheduleEnd] = useState<string>("");
 
   const [backgroundUrl, setBackgroundUrl] = useState<string>("");
+  const [themeProfile, setThemeProfile] = useState<ThemeProfile>("neutral");
 
   const [bannerEnabled, setBannerEnabled] = useState(false);
   const [bannerText, setBannerText] = useState("");
@@ -70,6 +77,7 @@ export default function AdminSettingsClient() {
       setScheduleEnd(s?.scheduleEnd ? String(s.scheduleEnd) : "");
 
       setBackgroundUrl(s?.backgroundUrl ? String(s.backgroundUrl) : "");
+      setThemeProfile(normalizeThemeProfile(s?.themeProfile));
 
       setBannerEnabled(!!s?.bannerEnabled);
       setBannerText(s?.bannerText ? String(s.bannerText) : "");
@@ -94,6 +102,7 @@ export default function AdminSettingsClient() {
       scheduleEnd: toISOorNull(scheduleEnd),
 
       backgroundUrl: (backgroundUrl || "").trim(),
+      themeProfile,
 
       bannerEnabled,
       bannerText: (bannerText || "").trim(),
@@ -104,6 +113,7 @@ export default function AdminSettingsClient() {
     scheduleStart,
     scheduleEnd,
     backgroundUrl,
+    themeProfile,
     bannerEnabled,
     bannerText,
     bannerHref,
@@ -294,6 +304,50 @@ export default function AdminSettingsClient() {
               </div>
             </div>
           </div>
+
+          <fieldset className="rounded-2xl border p-4 space-y-3">
+            <legend className="px-1 font-semibold">Цветовой профиль</legend>
+            <p className="text-sm text-gray-600">
+              Выберите спокойный акцент под сезонный или праздничный фон.
+              Структура сайта и фотографии товаров не меняются.
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {THEME_PROFILE_OPTIONS.map((option) => {
+                const selected = themeProfile === option.value;
+                return (
+                  <label
+                    key={option.value}
+                    className={`cursor-pointer rounded-xl border p-3 transition ${
+                      selected
+                        ? "border-gray-800 bg-gray-50 ring-1 ring-gray-800"
+                        : "border-gray-200 hover:border-gray-400"
+                    }`}
+                  >
+                    <span className="flex items-center gap-3">
+                      <input
+                        type="radio"
+                        name="themeProfile"
+                        value={option.value}
+                        checked={selected}
+                        onChange={() => setThemeProfile(option.value)}
+                      />
+                      <span
+                        className="h-7 w-7 shrink-0 rounded-full border border-black/10"
+                        style={{
+                          background: `linear-gradient(135deg, ${option.soft} 0 50%, ${option.accent} 50% 100%)`,
+                        }}
+                        aria-hidden="true"
+                      />
+                      <span className="font-medium">{option.label}</span>
+                    </span>
+                    <span className="mt-2 block text-xs leading-5 text-gray-500">
+                      {option.description}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
 
           <div className="rounded-2xl border p-4 space-y-3">
             <div className="font-semibold">Баннер</div>

@@ -20,7 +20,7 @@ type ProductCardProps = {
     createdAt: Date | string;
     category: string;
     brand?: { name: string } | null;
-    variants?: any;
+    variants?: unknown;
   };
 };
 
@@ -41,18 +41,30 @@ function isRecentlyCreated(createdAt: Date | string, days = 14) {
   return diff >= 0 && diff <= days * 24 * 60 * 60 * 1000;
 }
 
-function normalizeVariants(v: any): Variant[] {
-  if (!Array.isArray(v)) return [];
-  return v
-    .map((x) => ({
-      id: String(x?.id ?? ""),
-      label: String(x?.label ?? ""),
-      price: Math.trunc(Number(x?.price) || 0),
-      stock: Math.trunc(Number(x?.stock) || 0),
-      sku: x?.sku ? String(x.sku) : undefined,
-      image: x?.image ? String(x.image) : undefined,
-    }))
-    .filter((x) => x.id && x.label);
+function normalizeVariants(value: unknown): Variant[] {
+  if (!Array.isArray(value)) return [];
+
+  const variants: Variant[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const raw = item as Record<string, unknown>;
+    const id = typeof raw.id === "string" ? raw.id.trim() : "";
+    const label = typeof raw.label === "string" ? raw.label.trim() : "";
+    const price = Number(raw.price);
+    const stock = Number(raw.stock);
+    if (!id || !label || !Number.isFinite(price) || !Number.isFinite(stock)) {
+      continue;
+    }
+    variants.push({
+      id,
+      label,
+      price: Math.max(0, Math.trunc(price)),
+      stock: Math.max(0, Math.trunc(stock)),
+      sku: typeof raw.sku === "string" ? raw.sku : undefined,
+      image: typeof raw.image === "string" ? raw.image : undefined,
+    });
+  }
+  return variants;
 }
 
 export default function ProductCard({ product }: ProductCardProps) {
@@ -85,7 +97,7 @@ export default function ProductCard({ product }: ProductCardProps) {
     <div
       className={
         "card relative h-full flex flex-col " +
-        "transition-colors shadow-sm hover:shadow-md transition-all duration-200 border border-brand-soft/50"
+        "transition-shadow duration-200 hover:shadow-md"
       }
     >
       <div className="absolute left-3 top-3 z-10 flex flex-col gap-2">
@@ -119,8 +131,11 @@ export default function ProductCard({ product }: ProductCardProps) {
         <img
           src={imageToShow}
           alt={displayName}
+          width={640}
+          height={640}
           className="w-full h-full object-cover"
           loading="lazy"
+          decoding="async"
         />
       </Link>
 

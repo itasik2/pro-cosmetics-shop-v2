@@ -153,7 +153,7 @@ export async function generateMetadata({ searchParams }: Props) {
 
   return {
     title: `Профессиональная косметика – каталог брендов | ${SITE_BRAND}`,
-    description: `Каталог профессиональной косметики: ${brandNames}. Доставка по Казахстану. Оригинальная продукция и честные составы.`,
+    description: `Каталог профессиональной косметики: ${brandNames}. Подробные описания и доставка по Казахстану.`,
     keywords: ["каталог косметики", "купить косметику", ...brandIntentKeywords],
     alternates: {
       canonical: `${baseUrl}/shop`,
