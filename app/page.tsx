@@ -119,7 +119,7 @@ const PRODUCT_CARD_SELECT = {
 } as const;
 
 export default async function Home() {
-  const [popularRows, newArrivalRows, reviews] = await Promise.all([
+  const [popularRows, salesRows, newArrivalRows, reviews] = await Promise.all([
     prisma.product.findMany({
       where: {
         isPopular: true,
@@ -133,6 +133,16 @@ export default async function Home() {
       ],
       take: 40,
       select: PRODUCT_CARD_SELECT,
+    }),
+    prisma.orderItem.groupBy({
+      by: ["productId"],
+      where: {
+        productId: { not: "" },
+        order: { status: { not: "CANCELED" } },
+      },
+      _sum: { qty: true },
+      orderBy: { _sum: { qty: "desc" } },
+      take: 40,
     }),
     prisma.product.findMany({
       where: {
@@ -152,6 +162,25 @@ export default async function Home() {
       : Promise.resolve([]),
   ]);
 
+  const salesIds = salesRows.map((row) => row.productId);
+  const salesProductRows = salesIds.length
+    ? await prisma.product.findMany({
+        where: {
+          id: { in: salesIds },
+          isPublished: true,
+          stock: { gt: 0 },
+          enrichmentStatus: { not: "MERGED" },
+        },
+        select: PRODUCT_CARD_SELECT,
+      })
+    : [];
+  const salesRank = new Map(salesIds.map((id, index) => [id, index]));
+  salesProductRows.sort(
+    (left, right) =>
+      (salesRank.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+      (salesRank.get(right.id) ?? Number.MAX_SAFE_INTEGER),
+  );
+
   const collapsedPopular = collapseRepresentedProductCards(popularRows);
   const monitoredPopular = collapsedPopular.filter(
     (product) => !product.popularityPinned,
@@ -159,15 +188,38 @@ export default async function Home() {
   const manuallyPinnedPopular = collapsedPopular.filter(
     (product) => product.popularityPinned,
   );
-  const popular = (monitoredPopular.length
+  const markedPopular = monitoredPopular.length
     ? [
         ...monitoredPopular.slice(0, 4),
         ...manuallyPinnedPopular.slice(0, 4),
         ...monitoredPopular.slice(4),
         ...manuallyPinnedPopular.slice(4),
       ]
-    : manuallyPinnedPopular
-  ).slice(0, 8);
+    : manuallyPinnedPopular;
+  const fallbackById = new Map(
+    [
+      ...salesProductRows,
+      ...newArrivalRows.filter((product) => product.stock > 0),
+      ...newArrivalRows,
+    ].map((product) => [product.id, product]),
+  );
+  const popularCandidates = [
+    ...markedPopular,
+    ...collapseRepresentedProductCards([...fallbackById.values()]),
+  ];
+  const popularIdentityKeys = new Set<string>();
+  const popular = popularCandidates.filter((product) => {
+    const key =
+      productIdentityKey({
+        brandName: product.brand?.name,
+        name: product.name,
+        volumeValue: product.volumeValue,
+        volumeUnit: product.volumeUnit,
+      }) || `id:${product.id}`;
+    if (popularIdentityKeys.has(key)) return false;
+    popularIdentityKeys.add(key);
+    return true;
+  }).slice(0, 8);
   const popularKeys = new Set(
     popular
       .map((product) =>
@@ -249,7 +301,7 @@ export default async function Home() {
 
       <ProductSection
         title="Популярные товары"
-        emptyText="Пока нет отмеченных популярных товаров."
+        emptyText="В каталоге пока нет опубликованных товаров."
         products={popular}
       />
 
