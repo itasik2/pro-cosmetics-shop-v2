@@ -21,35 +21,45 @@ export function makeCartKey(productId: string, variantId?: string | null) {
   return `${productId}:${variantId ?? "base"}`;
 }
 
+function normalizeCartItems(value: unknown): CartItem[] {
+  if (!Array.isArray(value)) return [];
+
+  const merged = new Map<string, number>();
+
+  for (const rawItem of value) {
+    if (!rawItem || typeof rawItem !== "object") continue;
+
+    const item = rawItem as Partial<CartItem>;
+    const rawId = typeof item.id === "string" ? item.id.trim() : "";
+    const qty = Math.trunc(Number(item.qty));
+    if (!rawId || !Number.isFinite(qty) || qty <= 0) continue;
+
+    // Миграция старого формата: productId -> productId:base.
+    const id = rawId.includes(":") ? rawId : `${rawId}:base`;
+    const { productId } = parseCartKey(id);
+    if (!productId) continue;
+
+    // Повтор одной и той же позиции считаем повреждённым дублем, а не новой покупкой.
+    // Берём большее количество, чтобы нормализация сама не увеличивала сумму заказа.
+    merged.set(id, Math.max(merged.get(id) || 0, qty));
+  }
+
+  return Array.from(merged, ([id, qty]) => ({ id, qty }));
+}
+
 export function getCart(): CartItem[] {
   if (typeof window === "undefined") return [];
   try {
     const raw = localStorage.getItem(KEY);
-    const arr = raw ? (JSON.parse(raw) as CartItem[]) : [];
-    const base = Array.isArray(arr)
-      ? arr.filter(
-          (x) =>
-            x &&
-            typeof x.id === "string" &&
-            typeof x.qty === "number" &&
-            x.id.length > 0,
-        )
-      : [];
+    const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+    const normalized = normalizeCartItems(parsed);
 
-    // Миграция старого формата: productId -> productId:base
-    const migrated = base.map((x) => ({
-      ...x,
-      id: x.id.includes(":") ? x.id : `${x.id}:base`,
-    }));
-
-    // если были изменения — перезапишем один раз
-    const changed = migrated.some((x, i) => x.id !== base[i].id);
-    if (changed) {
-      localStorage.setItem(KEY, JSON.stringify(migrated));
+    if (JSON.stringify(parsed) !== JSON.stringify(normalized)) {
+      localStorage.setItem(KEY, JSON.stringify(normalized));
       dispatchSync();
     }
 
-    return migrated;
+    return normalized;
   } catch {
     return [];
   }
@@ -57,7 +67,7 @@ export function getCart(): CartItem[] {
 
 export function writeCart(items: CartItem[]) {
   if (typeof window === "undefined") return;
-  localStorage.setItem(KEY, JSON.stringify(items));
+  localStorage.setItem(KEY, JSON.stringify(normalizeCartItems(items)));
   dispatchSync();
 }
 

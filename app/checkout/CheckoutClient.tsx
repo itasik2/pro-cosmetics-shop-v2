@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   clampCartToStock,
@@ -55,6 +55,8 @@ export default function CheckoutClient() {
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showForm, setShowForm] = useState(false);
+  const selectionInitialized = useRef(false);
+  const selectAllCheckbox = useRef<HTMLInputElement>(null);
 
   const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState("");
@@ -70,12 +72,12 @@ export default function CheckoutClient() {
     const c = getCart();
     setCart(c);
 
-    const keys = c.map((x) => x.id);
+    const keys = new Set(c.map((x) => x.id));
     setSelected((prev) => {
-      const kept = new Set([...prev].filter((k) => keys.includes(k)));
-      if (kept.size === 0 && keys.length > 0) keys.forEach((k) => kept.add(k));
-      return kept;
+      return new Set([...prev].filter((key) => keys.has(key)));
     });
+
+    if (c.length === 0) selectionInitialized.current = false;
   };
 
   useEffect(() => {
@@ -117,7 +119,21 @@ export default function CheckoutClient() {
         });
         const data = (await res.json()) as { products: Product[]; error?: string };
         if (!res.ok) throw new Error(data?.error || "Не удалось загрузить товары");
-        setProducts(data.products || []);
+
+        const loadedProducts = data.products || [];
+        const loadedProductIds = new Set(loadedProducts.map((product) => product.id));
+        const requestedProductIds = new Set(uniqueIds);
+        const currentCart = getCart();
+        const validCart = currentCart.filter((item) => {
+          const productId = parseCartKey(item.id).productId;
+          return !requestedProductIds.has(productId) || loadedProductIds.has(productId);
+        });
+
+        if (validCart.length !== currentCart.length) {
+          writeCart(validCart);
+        }
+
+        setProducts(loadedProducts);
       } catch (e: any) {
         setErr(e?.message || "Не удалось загрузить товары");
         setProducts([]);
@@ -189,10 +205,15 @@ export default function CheckoutClient() {
   }, [cart, productMap]);
 
   useEffect(() => {
-    if (rows.length === 0) return;
+    const rowKeys = new Set(rows.map((row) => row.cartKey));
+
     setSelected((prev) => {
-      if (prev.size > 0) return prev;
-      return new Set(rows.map((r) => r.cartKey));
+      if (!selectionInitialized.current && rowKeys.size > 0) {
+        selectionInitialized.current = true;
+        return rowKeys;
+      }
+
+      return new Set([...prev].filter((key) => rowKeys.has(key)));
     });
   }, [rows]);
 
@@ -212,6 +233,14 @@ export default function CheckoutClient() {
   );
 
   const selectedCount = selectedRows.length;
+  const allSelected = rows.length > 0 && selectedCount === rows.length;
+  const partiallySelected = selectedCount > 0 && !allSelected;
+
+  useEffect(() => {
+    if (selectAllCheckbox.current) {
+      selectAllCheckbox.current.indeterminate = partiallySelected;
+    }
+  }, [partiallySelected]);
 
   const toggleOne = (key: string) => {
     setSelected((prev) => {
@@ -222,28 +251,18 @@ export default function CheckoutClient() {
     });
   };
 
-  const selectAll = () => {
-    setSelected(new Set(rows.map((r) => r.cartKey)));
-  };
-
-  const clearSelection = () => {
-    setSelected(new Set());
+  const toggleAll = () => {
+    setSelected(
+      allSelected ? new Set() : new Set(rows.map((row) => row.cartKey)),
+    );
     setShowForm(false);
   };
 
   const deleteSelected = () => {
-    const keys = Array.from(selected);
-    keys.forEach((k) => setQtyStorage(k, 0));
+    const keys = new Set(selectedRows.map((row) => row.cartKey));
+    writeCart(getCart().filter((item) => !keys.has(item.id)));
     setSelected(new Set());
     setShowForm(false);
-    sync();
-  };
-
-  const clearCart = () => {
-    writeCart([]);
-    setSelected(new Set());
-    setShowForm(false);
-    sync();
   };
 
   const canOpenForm = selectedCount > 0 && totalSelected > 0;
@@ -308,30 +327,22 @@ export default function CheckoutClient() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto py-8 space-y-6">
-      <div className="flex items-end justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-bold">Корзина</h2>
-          <div className="text-sm text-gray-500 mt-1">
-            Позиций: {rows.length} • Выбрано: {selectedCount} • К оплате:{" "}
-            {totalSelected.toLocaleString("ru-RU")} ₸
-          </div>
-        </div>
-
-        <div className="flex gap-2">
-          <Link
-            href="/shop"
-            className="px-3 py-1 rounded-full text-sm border bg-white text-gray-700 hover:bg-gray-50"
-          >
-            В каталог
-          </Link>
-          <button
-            onClick={clearCart}
-            className="px-3 py-1 rounded-full text-sm border bg-white text-gray-700 hover:bg-gray-50"
-            type="button"
-          >
-            Очистить всё
-          </button>
+    <div className="mx-auto max-w-3xl space-y-5 py-4 sm:space-y-6 sm:py-8">
+      <div>
+        <h1 className="text-3xl font-bold">Корзина</h1>
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-500">
+          <span>
+            Позиций: <strong className="font-semibold text-gray-700">{rows.length}</strong>
+          </span>
+          <span>
+            Выбрано: <strong className="font-semibold text-gray-700">{selectedCount}</strong>
+          </span>
+          <span>
+            К оплате:{" "}
+            <strong className="font-semibold text-gray-700">
+              {totalSelected.toLocaleString("ru-RU")} ₸
+            </strong>
+          </span>
         </div>
       </div>
 
@@ -339,48 +350,31 @@ export default function CheckoutClient() {
         <div className="text-sm text-gray-500">Загрузка…</div>
       ) : err ? (
         <div className="text-red-600">Ошибка: {err}</div>
-      ) : cart.length === 0 ? (
+      ) : rows.length === 0 ? (
         <div className="text-sm text-gray-500">Корзина пустая. Нажмите “Купить” в каталоге.</div>
       ) : (
         <>
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                className="px-3 py-1 rounded-full text-sm border bg-white hover:bg-gray-50"
-                onClick={selectAll}
-              >
-                Выбрать всё
-              </button>
-              <button
-                type="button"
-                className="px-3 py-1 rounded-full text-sm border bg-white hover:bg-gray-50 disabled:opacity-50"
-                onClick={clearSelection}
-                disabled={selected.size === 0}
-              >
-                Снять выбор
-              </button>
-            </div>
+          <div className="flex min-h-8 items-center justify-between gap-3">
+            <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-medium text-gray-800">
+              <input
+                ref={selectAllCheckbox}
+                type="checkbox"
+                className="h-5 w-5"
+                checked={allSelected}
+                onChange={toggleAll}
+              />
+              Выбрать все
+            </label>
 
-            <div className="flex gap-2">
+            {selectedCount > 0 ? (
               <button
                 type="button"
-                className="px-3 py-1 rounded-full text-sm border bg-white hover:bg-gray-50 disabled:opacity-50"
+                className="text-sm font-semibold text-red-700 hover:underline"
                 onClick={deleteSelected}
-                disabled={selected.size === 0}
               >
                 Удалить выбранное
               </button>
-
-              <button
-                type="button"
-                className="px-3 py-1 rounded-full text-sm bg-black text-white disabled:opacity-50"
-                onClick={openForm}
-                disabled={!canOpenForm}
-              >
-                Оформить выбранное
-              </button>
-            </div>
+            ) : null}
           </div>
 
           <div className="space-y-3">
@@ -391,10 +385,10 @@ export default function CheckoutClient() {
 
               return (
                 <div key={r.cartKey} className="rounded-2xl border p-4 shadow-sm">
-                  <div className="flex items-center gap-3">
+                  <div className="grid grid-cols-[auto_64px_minmax(0,1fr)] items-center gap-3 sm:grid-cols-[auto_64px_minmax(0,1fr)_112px]">
                     <input
                       type="checkbox"
-                      className="h-4 w-4"
+                      className="h-5 w-5"
                       checked={checked}
                       onChange={() => toggleOne(r.cartKey)}
                       aria-label="Выбрать позицию"
@@ -407,12 +401,12 @@ export default function CheckoutClient() {
                     />
 
                     <div className="flex-1 min-w-0">
-                      <div className="font-semibold truncate">
+                      <div className="line-clamp-2 font-semibold leading-5">
                         <Link href={r.link} className="hover:underline">
                           {r.title}
                         </Link>
                       </div>
-                      <div className="text-sm text-gray-500">
+                      <div className="mt-1 text-sm leading-5 text-gray-500">
                         {r.brandOrCategory} •{" "}
                         <span className={inStock ? "text-emerald-700" : "text-gray-500"}>
                           {inStock ? `В наличии: ${r.stock}` : "Нет в наличии"}
@@ -420,7 +414,7 @@ export default function CheckoutClient() {
                       </div>
                     </div>
 
-                    <div className="font-semibold w-28 text-right">
+                    <div className="hidden w-28 text-right font-semibold sm:block">
                       {r.unitPrice.toLocaleString("ru-RU")} ₸
                     </div>
                   </div>
@@ -429,19 +423,21 @@ export default function CheckoutClient() {
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        className="px-3 py-2 rounded-xl border hover:bg-gray-50"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-full border hover:bg-gray-50"
                         onClick={() => setQtyStorage(r.cartKey, r.qty - 1, r.stock)}
+                        aria-label={`Уменьшить количество «${r.title}»`}
                       >
                         −
                       </button>
 
-                      <div className="w-10 text-center">{r.qty}</div>
+                      <div className="w-8 text-center">{r.qty}</div>
 
                       <button
                         type="button"
-                        className="px-3 py-2 rounded-xl border hover:bg-gray-50 disabled:opacity-50"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-full border hover:bg-gray-50 disabled:opacity-50"
                         onClick={() => setQtyStorage(r.cartKey, r.qty + 1, r.stock)}
                         disabled={plusDisabled}
+                        aria-label={`Увеличить количество «${r.title}»`}
                       >
                         +
                       </button>
@@ -458,26 +454,29 @@ export default function CheckoutClient() {
 
           {!showForm ? (
             <div className="rounded-2xl border p-4 shadow-sm">
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-sm text-gray-600">
-                  Всего в корзине:{" "}
-                  <span className="font-semibold">{totalAll.toLocaleString("ru-RU")} ₸</span>
-                  <span className="mx-2">•</span>
-                  К оплате:{" "}
-                  <span className="font-semibold">{totalSelected.toLocaleString("ru-RU")} ₸</span>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="text-xs text-gray-500">
+                    Всего в корзине: {totalAll.toLocaleString("ru-RU")} ₸
+                  </div>
+                  <div className="mt-1 text-lg font-bold">
+                    К оплате: {totalSelected.toLocaleString("ru-RU")} ₸
+                  </div>
                 </div>
                 <button
                   type="button"
-                  className="px-4 py-2 rounded bg-black text-white disabled:opacity-50"
+                  className="btn w-full disabled:opacity-50 sm:w-auto"
                   onClick={openForm}
                   disabled={!canOpenForm}
                 >
-                  Оформить выбранное
+                  Перейти к оформлению
                 </button>
               </div>
-              <div className="text-xs text-gray-500 mt-2">
-                Выберите позиции, затем нажмите “Оформить выбранное”.
-              </div>
+              {!canOpenForm ? (
+                <div className="mt-2 text-xs text-gray-500">
+                  Отметьте хотя бы одну позицию для оформления.
+                </div>
+              ) : null}
             </div>
           ) : (
             <div className="rounded-2xl border p-4 shadow-sm space-y-3">
