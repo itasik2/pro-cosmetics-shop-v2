@@ -18,8 +18,34 @@ const DescriptionResultSchema = z.object({
   warnings: z.array(z.string()),
 });
 
+const CatalogPopularityResponseSchema = z.object({
+  results: z.array(
+    z.object({
+      productId: z.string(),
+      score: z.number().int().min(0).max(100),
+      confidence: z.number().int().min(0).max(100),
+      reason: z.string(),
+      evidenceUrls: z.array(z.string()).max(5),
+    }),
+  ),
+});
+
 export type SearchResult = z.infer<typeof SearchResultSchema>;
 export type GeneratedDescription = z.infer<typeof DescriptionResultSchema>;
+export type CatalogPopularityCandidate = {
+  id: string;
+  name: string;
+  brandName?: string | null;
+  category?: string | null;
+  shortDescription?: string | null;
+};
+export type CatalogPopularityAssessment = {
+  productId: string;
+  score: number;
+  confidence: number;
+  reason: string;
+  evidenceUrls: string[];
+};
 
 const PROMOTIONAL_DESCRIPTION_PATTERN =
   /(?:^|[^\p{L}\p{N}])(?:купить|покупайте|заказ(?:ать|ы|ом|а|у|е|ывайте)?|цен(?:а|ы|е|у|ой|ам|ами)?|доставк[а-я]*|интернет[-\s]?магазин[а-я]*|магазин[а-я]*|продаж[а-я]*|скидк[а-я]*|оптом|розниц[а-я]*|в\s+наличии|казахстан(?:е|а|у)?|алмат(?:ы|е|а|у)?|астан(?:а|е|ы|у)?|нур[-\s]?султан(?:е|а|у)?)(?=$|[^\p{L}\p{N}])|от\s+производителя/iu;
@@ -277,6 +303,114 @@ export function validatedExternalProductUrl(rawUrl: string) {
   } catch {
     return null;
   }
+}
+
+function validatedPopularityEvidenceUrl(rawUrl: string) {
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    if (url.username || url.password) return null;
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+export async function assessCatalogPopularity(input: {
+  candidates: CatalogPopularityCandidate[];
+  market?: string;
+}): Promise<CatalogPopularityAssessment[]> {
+  const candidates = input.candidates.slice(0, 20);
+  if (!candidates.length) return [];
+
+  const raw = await requestStructured({
+    schemaName: "catalog_product_popularity",
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["results"],
+      properties: {
+        results: {
+          type: "array",
+          maxItems: 20,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: [
+              "productId",
+              "score",
+              "confidence",
+              "reason",
+              "evidenceUrls",
+            ],
+            properties: {
+              productId: { type: "string" },
+              score: { type: "integer", minimum: 0, maximum: 100 },
+              confidence: { type: "integer", minimum: 0, maximum: 100 },
+              reason: { type: "string" },
+              evidenceUrls: {
+                type: "array",
+                maxItems: 5,
+                items: { type: "string" },
+              },
+            },
+          },
+        },
+      },
+    },
+    system: [
+      "Оцени текущий публичный интерес в интернете только к переданным товарам профессиональной косметики.",
+      "Для каждого кандидата используй web search и проверяй точное совпадение бренда и названия. В первую очередь учитывай рынок Казахстана, затем устойчивый международный интерес, если локальных данных мало.",
+      "Сигналами могут быть повторяющиеся упоминания на независимых профильных ресурсах, у нескольких профессиональных продавцов, в редакционных подборках и обсуждениях ухода. Одна карточка продавца, официальный листинг или переданное описание сами по себе не доказывают популярность.",
+      "Шкала должна быть абсолютной и сопоставимой между разными запусками: 0–39 — заметного независимого сигнала нет; 40–64 — отдельные или слабые сигналы; 65–79 — устойчивый интерес в нескольких источниках; 80–100 — сильный и широко подтверждённый актуальный интерес.",
+      "Confidence показывает уверенность, что найденные материалы относятся именно к этому товару. При неоднозначном названии, смешении с другим объёмом или отсутствии дат снижай confidence.",
+      "Верни только productId из входного списка. Не предлагай новые товары. Для каждого подтверждения верни прямой URL; не выдумывай ссылки. Причину сформулируй кратко на русском языке.",
+    ].join("\n"),
+    user: JSON.stringify({
+      market: input.market || "Казахстан",
+      candidates: candidates.map((candidate) => ({
+        productId: candidate.id,
+        brand: candidate.brandName || "не указан",
+        name: candidate.name,
+        category: candidate.category || "не указана",
+        context: candidate.shortDescription || "",
+      })),
+    }),
+    tools: [
+      {
+        type: "web_search",
+        search_context_size: "medium",
+      },
+    ],
+    timeoutMs: 45_000,
+  });
+
+  const parsed = CatalogPopularityResponseSchema.parse(raw);
+  const allowedIds = new Set(candidates.map((candidate) => candidate.id));
+  const seenIds = new Set<string>();
+
+  return parsed.results.flatMap((result) => {
+    if (!allowedIds.has(result.productId) || seenIds.has(result.productId)) {
+      return [];
+    }
+    seenIds.add(result.productId);
+
+    const evidenceUrls = [...new Set(result.evidenceUrls)]
+      .map(validatedPopularityEvidenceUrl)
+      .filter((url): url is string => Boolean(url))
+      .slice(0, 5);
+
+    return [
+      {
+        productId: result.productId,
+        score: result.score,
+        confidence: result.confidence,
+        reason: result.reason.replace(/\s+/g, " ").trim().slice(0, 600),
+        evidenceUrls,
+      },
+    ];
+  });
 }
 
 export async function findOfficialProductUrl(input: {

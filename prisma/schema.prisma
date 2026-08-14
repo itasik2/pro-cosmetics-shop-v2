@@ -62,6 +62,13 @@ model Product {
   lastImportedAt  DateTime?
 
   isPopular   Boolean  @default(false)
+  popularityPinned Boolean @default(false)
+  popularityExcluded Boolean @default(false)
+  popularityScore Int @default(0)
+  popularityConfidence Int @default(0)
+  popularityReason String?
+  popularityEvidence Json?
+  popularityCheckedAt DateTime?
   isNew       Boolean  @default(false)
   isPublished Boolean  @default(true)
 
@@ -83,6 +90,7 @@ model Product {
   enrichmentProposals ProductEnrichmentProposal[]
 
   @@unique([supplierId, supplierSku])
+  @@index([isPublished, isPopular, popularityPinned, popularityScore], map: "Product_popularity_rank_idx")
 }
 
 enum ProductSourceStatus {
