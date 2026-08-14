@@ -412,3 +412,17 @@ model ThemeSettings {
   bannerHref      String?
   updatedAt       DateTime @updatedAt
 }
+
+model ExternalLink {
+  id        String   @id @default(cuid())
+  siteKey   String
+  kind      String
+  label     String
+  url       String   @default("")
+  isEnabled Boolean  @default(false)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([siteKey, sortOrder], map: "ExternalLink_site_order_idx")
+}

@@ -4,24 +4,22 @@ import {
   SITE_CONTACT_LOCATION,
   SITE_CONTACT_PHONE,
   SITE_CONTACT_PHONE_HREF,
-  SITE_INSTAGRAM_URL,
-  SITE_TELEGRAM_URL,
-  SITE_TIKTOK_URL,
   SITE_WHATSAPP_URL,
 } from "@/lib/siteConfig";
+import { getPublicExternalLinks } from "@/lib/externalLinks";
 
 export const metadata = {
   title: `Контакты – ${SITE_BRAND}`,
   description: `Связаться с ${SITE_BRAND}: помощь с выбором профессиональной косметики и вопросы по заказу.`,
 };
 
-const SOCIAL_LINKS = [
-  { href: SITE_INSTAGRAM_URL, label: "Instagram" },
-  { href: SITE_TELEGRAM_URL, label: "Telegram" },
-  { href: SITE_TIKTOK_URL, label: "TikTok" },
-].filter((link) => Boolean(link.href));
+export default async function ContactsPage() {
+  const externalLinks = await getPublicExternalLinks();
+  const socialLinks = externalLinks.filter((link) => link.kind === "SOCIAL");
+  const marketplaceLinks = externalLinks.filter(
+    (link) => link.kind === "MARKETPLACE",
+  );
 
-export default function ContactsPage() {
   return (
     <div className="space-y-8 py-4">
       <section className="site-panel overflow-hidden rounded-3xl p-7 md:p-10">
@@ -68,18 +66,42 @@ export default function ContactsPage() {
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             {SITE_WHATSAPP_URL ? (
-              <a href={SITE_WHATSAPP_URL} target="_blank" rel="noreferrer" className="btn">
+              <a href={SITE_WHATSAPP_URL} target="_blank" rel="noopener noreferrer" className="btn">
                 Написать в WhatsApp
               </a>
             ) : null}
-            {SOCIAL_LINKS.map((link) => (
-              <a key={link.label} href={link.href} target="_blank" rel="noreferrer" className="btn-secondary">
+            {socialLinks.map((link) => (
+              <a key={link.id} href={link.url} target="_blank" rel="noopener noreferrer" className="btn-secondary">
                 {link.label}
               </a>
             ))}
           </div>
         </section>
       </div>
+
+      {marketplaceLinks.length > 0 ? (
+        <section className="site-panel rounded-3xl p-6 md:p-8">
+          <p className="site-eyebrow">Другие площадки</p>
+          <h2 className="mt-2 text-2xl font-semibold">Покупайте там, где вам удобно</h2>
+          <p className="mt-3 max-w-2xl leading-6 text-gray-600">
+            Перейдите на страницу нашего магазина на выбранном маркетплейсе,
+            чтобы посмотреть доступные предложения и условия площадки.
+          </p>
+          <div className="mt-5 flex flex-wrap gap-2">
+            {marketplaceLinks.map((link) => (
+              <a
+                key={link.id}
+                href={link.url}
+                target="_blank"
+                rel="noopener noreferrer nofollow sponsored"
+                className="btn-secondary"
+              >
+                {link.label}
+              </a>
+            ))}
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }

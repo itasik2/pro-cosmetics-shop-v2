@@ -6,11 +6,9 @@ import {
   SITE_CONTACT_LOCATION,
   SITE_CONTACT_PHONE,
   SITE_CONTACT_PHONE_HREF,
-  SITE_INSTAGRAM_URL,
-  SITE_TELEGRAM_URL,
-  SITE_TIKTOK_URL,
   SITE_WHATSAPP_URL,
 } from "@/lib/siteConfig";
+import { getPublicExternalLinks } from "@/lib/externalLinks";
 
 const FOOTER_LINKS = [
   { href: "/shop", label: "Каталог" },
@@ -20,13 +18,13 @@ const FOOTER_LINKS = [
   { href: "/ask", label: "Задать вопрос" },
 ] as const;
 
-const SOCIAL_LINKS = [
-  { href: SITE_INSTAGRAM_URL, label: "Instagram" },
-  { href: SITE_TELEGRAM_URL, label: "Telegram" },
-  { href: SITE_TIKTOK_URL, label: "TikTok" },
-].filter((link) => Boolean(link.href));
+export default async function Footer() {
+  const externalLinks = await getPublicExternalLinks();
+  const socialLinks = externalLinks.filter((link) => link.kind === "SOCIAL");
+  const marketplaceLinks = externalLinks.filter(
+    (link) => link.kind === "MARKETPLACE",
+  );
 
-export default function Footer() {
   return (
     <footer className="mt-12 border-t border-[var(--color-border)] bg-white/95 text-sm text-gray-600">
       <div className="container grid gap-8 py-10 md:grid-cols-[1.35fr_0.8fr_1fr]">
@@ -79,28 +77,53 @@ export default function Footer() {
             ) : null}
             <p>{SITE_CONTACT_LOCATION}</p>
           </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            {SITE_WHATSAPP_URL ? (
-              <a
-                href={SITE_WHATSAPP_URL}
-                target="_blank"
-                rel="noreferrer"
-                className="btn-secondary text-xs"
-              >
-                WhatsApp
-              </a>
+          <div className="mt-4 space-y-3">
+            {SITE_WHATSAPP_URL || socialLinks.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {SITE_WHATSAPP_URL ? (
+                  <a
+                    href={SITE_WHATSAPP_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-secondary text-xs"
+                  >
+                    WhatsApp
+                  </a>
+                ) : null}
+                {socialLinks.map((link) => (
+                  <a
+                    key={link.id}
+                    href={link.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-secondary text-xs"
+                  >
+                    {link.label}
+                  </a>
+                ))}
+              </div>
             ) : null}
-            {SOCIAL_LINKS.map((link) => (
-              <a
-                key={link.label}
-                href={link.href}
-                target="_blank"
-                rel="noreferrer"
-                className="btn-secondary text-xs"
-              >
-                {link.label}
-              </a>
-            ))}
+
+            {marketplaceLinks.length > 0 ? (
+              <div>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">
+                  Мы на маркетплейсах
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {marketplaceLinks.map((link) => (
+                    <a
+                      key={link.id}
+                      href={link.url}
+                      target="_blank"
+                      rel="noopener noreferrer nofollow sponsored"
+                      className="btn-secondary text-xs"
+                    >
+                      {link.label}
+                    </a>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       </div>
