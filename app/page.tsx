@@ -294,10 +294,10 @@ export default async function Home() {
               {SITE_HERO_SUBTITLE}
             </p>
             <div className="mt-7 flex flex-wrap gap-3">
-              <Link href="/shop" className="btn px-6 py-3">
+              <Link href="/shop" className="btn">
                 Подобрать средства
               </Link>
-              <Link href="/about" className="btn-secondary px-6 py-3">
+              <Link href="/about" className="btn-secondary">
                 Как мы формируем каталог
               </Link>
             </div>
@@ -386,7 +386,7 @@ function HeroCatalogPreview({ products }: { products: ProductCardRow[] }) {
           <Link
             key={item.href}
             href={item.href}
-            className="accent-badge rounded-full px-2 py-3 text-center text-xs font-semibold hover:brightness-95"
+            className="accent-badge inline-flex min-h-8 items-center justify-center rounded-full px-3 py-1 text-center text-xs font-semibold hover:brightness-95"
           >
             {item.label}
           </Link>

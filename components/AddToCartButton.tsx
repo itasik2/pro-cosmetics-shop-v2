@@ -73,7 +73,7 @@ export default function AddToCartButton({
       <button
         type="button"
         className={
-          "btn rounded-full px-4 py-2 text-xs " +
+          "btn h-8 min-h-8 w-[124px] shrink-0 rounded-full px-3 py-1 text-xs " +
           (canBuy ? "" : "opacity-50 cursor-not-allowed")
         }
         onClick={addOne}
@@ -88,10 +88,10 @@ export default function AddToCartButton({
     !canBuy || (typeof maxStock === "number" && qty >= maxStock);
 
   return (
-    <div className="inline-flex items-stretch overflow-hidden rounded-full border bg-white">
+    <div className="inline-flex h-8 w-[124px] shrink-0 items-stretch overflow-hidden rounded-full border bg-white">
       <button
         type="button"
-        className="px-3 text-sm hover:bg-gray-50"
+        className="flex w-8 shrink-0 items-center justify-center text-sm hover:bg-gray-50"
         onClick={decOne}
         aria-label="Уменьшить количество"
       >
@@ -100,18 +100,17 @@ export default function AddToCartButton({
 
       <button
         type="button"
-        className="px-3 min-w-[56px] text-center hover:bg-gray-50"
+        className="flex min-w-0 flex-1 items-center justify-center text-center text-sm font-semibold hover:bg-gray-50"
         onClick={openCart}
         aria-label="Открыть корзину"
         title="Открыть корзину"
       >
-        <div className="text-sm font-semibold leading-4">{qty}</div>
-        <div className="text-[10px] text-gray-500 leading-3">В корзине</div>
+        {qty}
       </button>
 
       <button
         type="button"
-        className="px-3 text-sm hover:bg-gray-50 disabled:opacity-50"
+        className="flex w-8 shrink-0 items-center justify-center text-sm hover:bg-gray-50 disabled:opacity-50"
         onClick={addOne}
         disabled={plusDisabled}
         aria-label="Увеличить количество"

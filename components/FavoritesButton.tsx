@@ -60,7 +60,7 @@ export default function FavoritesButton() {
       type="button"
       onClick={toggleFav}
       className={
-        "px-3 py-1 rounded-full text-sm border inline-flex items-center gap-2 transition " +
+        "inline-flex min-h-8 items-center justify-center gap-2 rounded-full border px-3 py-1 text-sm transition " +
         (favMode
           ? "bg-black text-white border-black"
           : "bg-white text-gray-700 hover:bg-gray-50")

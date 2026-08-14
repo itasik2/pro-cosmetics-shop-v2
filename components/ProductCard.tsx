@@ -192,8 +192,8 @@ export default function ProductCard({ product }: ProductCardProps) {
       </div>
 
       <div className="mt-auto">
-        <div className="flex items-center justify-between mt-2 gap-2">
-          <div className="font-semibold">
+        <div className="mt-2 flex min-h-8 items-center justify-between gap-2">
+          <div className="min-w-0 font-semibold">
             {priceToShow.toLocaleString("ru-RU")} ₸
           </div>
 

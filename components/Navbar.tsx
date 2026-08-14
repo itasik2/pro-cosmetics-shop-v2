@@ -108,7 +108,7 @@ export default function Navbar() {
           <div className="flex items-center gap-2">
             <Link
               href="/checkout"
-              className="relative inline-flex min-h-11 items-center justify-center rounded-full border border-[var(--color-border)] bg-white px-4 text-sm font-semibold text-gray-800 hover:border-gray-400"
+              className="relative inline-flex min-h-8 items-center justify-center rounded-full border border-[var(--color-border)] bg-white px-3 py-1 text-sm font-semibold text-gray-800 hover:border-gray-400"
               aria-label={`Корзина, товаров: ${cartCount}`}
             >
               Корзина
@@ -120,7 +120,7 @@ export default function Navbar() {
             </Link>
             <button
               type="button"
-              className="inline-flex min-h-11 items-center justify-center rounded-full bg-[var(--color-primary)] px-4 text-sm font-semibold text-white lg:hidden"
+              className="inline-flex min-h-8 items-center justify-center rounded-full bg-[var(--color-primary)] px-3 py-1 text-sm font-semibold text-white lg:hidden"
               onClick={() => setOpen((value) => !value)}
               aria-expanded={open}
               aria-controls="mobile-navigation"
