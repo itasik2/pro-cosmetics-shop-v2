@@ -73,7 +73,7 @@ export default function AddToCartButton({
       <button
         type="button"
         className={
-          "btn text-xs px-3 py-2 rounded-xl " +
+          "btn rounded-full px-4 py-2 text-xs " +
           (canBuy ? "" : "opacity-50 cursor-not-allowed")
         }
         onClick={addOne}
@@ -88,7 +88,7 @@ export default function AddToCartButton({
     !canBuy || (typeof maxStock === "number" && qty >= maxStock);
 
   return (
-    <div className="inline-flex items-stretch rounded-xl border bg-white overflow-hidden">
+    <div className="inline-flex items-stretch overflow-hidden rounded-full border bg-white">
       <button
         type="button"
         className="px-3 text-sm hover:bg-gray-50"

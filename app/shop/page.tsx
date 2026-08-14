@@ -32,17 +32,17 @@ const CATEGORY_OPTIONS: CategoryOption[] = [
   {
     slug: "kremy",
     label: "Кремы",
-    searchTerms: ["крем", "флюид"],
+    searchTerms: ["крем", "cream", "creme", "флюид"],
   },
   {
     slug: "syvorotki",
     label: "Сыворотки",
-    searchTerms: ["сыворотка"],
+    searchTerms: ["сыворот", "serum", "концентрат", "ампул", "ampoule"],
   },
   {
     slug: "toniki",
     label: "Тоники",
-    searchTerms: ["тоник", "тонер", "лосьон"],
+    searchTerms: ["тоник", "тонер", "tonic", "toner", "лосьон"],
   },
 ];
 
@@ -63,6 +63,8 @@ function productMatchesSearch(
   product: {
     name: string;
     category: string;
+    shortDescription: string | null;
+    productLineName: string | null;
     supplierSku: string | null;
     brand: { name: string } | null;
     variants: unknown;
@@ -86,11 +88,51 @@ function productMatchesSearch(
     product.name,
     product.brand?.name,
     product.category,
+    product.productLineName,
+    product.shortDescription,
     product.supplierSku,
     ...variantParts,
   ].filter(Boolean).join(" "));
 
   return normalizedQuery.split(" ").every((token) => haystack.includes(token));
+}
+
+function containsCategoryTerm(value: string, terms: string[]) {
+  return terms.some((term) => value.includes(normalizeSearch(term)));
+}
+
+function productMatchesCategory(
+  product: {
+    name: string;
+    category: string;
+    shortDescription: string | null;
+    productLineName: string | null;
+  },
+  selectedCategory: CategoryOption | null,
+) {
+  if (!selectedCategory) return true;
+
+  const primaryText = normalizeSearch(
+    [product.name, product.category, product.productLineName]
+      .filter(Boolean)
+      .join(" "),
+  );
+
+  if (containsCategoryTerm(primaryText, selectedCategory.searchTerms)) {
+    return true;
+  }
+
+  const hasAnotherExplicitType = CATEGORY_OPTIONS.some(
+    (category) =>
+      category.slug !== selectedCategory.slug &&
+      containsCategoryTerm(primaryText, category.searchTerms),
+  );
+  if (hasAnotherExplicitType) return false;
+
+  return containsCategoryTerm(
+    normalizeSearch(product.shortDescription),
+    selectedCategory.searchTerms,
+  );
 }
 
 export async function generateMetadata({ searchParams }: Props) {
@@ -230,17 +272,6 @@ export default async function ShopPage({ searchParams }: Props) {
   const selectedCategory = findCategory(categorySlug);
 
   const andConditions: Prisma.ProductWhereInput[] = [];
-  if (selectedCategory) {
-    andConditions.push({
-      OR: selectedCategory.searchTerms.map((term) => ({
-        category: {
-          contains: term,
-          mode: "insensitive",
-        },
-      })),
-    });
-  }
-
   if (sort === "new") {
     const days = 14;
     const from = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
@@ -279,6 +310,7 @@ export default async function ShopPage({ searchParams }: Props) {
       isNew: true,
       createdAt: true,
       category: true,
+      productLineName: true,
       supplierSku: true,
       supplierId: true,
       volumeValue: true,
@@ -289,6 +321,7 @@ export default async function ShopPage({ searchParams }: Props) {
   });
 
   const productsForClient = collapseRepresentedProductCards(products)
+    .filter((product) => productMatchesCategory(product, selectedCategory))
     .filter((product) => productMatchesSearch(product, searchQuery))
     .map((product) => ({
       ...product,
@@ -365,7 +398,7 @@ export default async function ShopPage({ searchParams }: Props) {
         {searchQuery && (
           <Link
             href={buildHref(brandSlug, categorySlug, sort, fav, instock, "")}
-            className="rounded-xl border px-4 py-3 text-center text-sm hover:bg-gray-50"
+            className="rounded-full border px-4 py-3 text-center text-sm hover:bg-gray-50"
           >
             Очистить
           </Link>
