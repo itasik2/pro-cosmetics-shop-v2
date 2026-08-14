@@ -89,6 +89,9 @@ export async function PUT(req: Request, { params }: Params) {
         isPublished: true,
         supplierId: true,
         lastImportedAt: true,
+        isPopular: true,
+        popularityPinned: true,
+        popularityExcluded: true,
       },
     });
 
@@ -139,6 +142,7 @@ export async function PUT(req: Request, { params }: Params) {
       }
     }
 
+    const popularityChanged = parsed.isPopular !== current.isPopular;
     const updated = await prisma.product.update({
       where: { id: params.id },
       data: {
@@ -151,6 +155,12 @@ export async function PUT(req: Request, { params }: Params) {
         price: parsed.price,
         stock: parsed.stock,
         isPopular: parsed.isPopular,
+        ...(popularityChanged
+          ? {
+              popularityPinned: parsed.isPopular,
+              popularityExcluded: !parsed.isPopular,
+            }
+          : {}),
         isNew: parsed.isNew,
         isPublished: parsed.isPublished,
         enrichmentStatus: parsed.isPublished ? "READY" : "PENDING",

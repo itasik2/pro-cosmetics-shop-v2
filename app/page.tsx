@@ -14,6 +14,36 @@ import { productIdentityKey } from "@/lib/price-import/productVariants";
 
 export const dynamic = "force-dynamic";
 
+const REVIEWS_ENABLED =
+  process.env.PUBLIC_REVIEWS_ENABLED?.trim().toLowerCase() === "true";
+
+const STORE_ADVANTAGES = [
+  {
+    title: "Профессиональный ассортимент",
+    text: "Подбираем средства не ради количества позиций, а под понятные задачи ухода: очищение, восстановление, увлажнение, anti-age и работу с проблемной кожей.",
+  },
+  {
+    title: "Карточки без догадок",
+    text: "Проверяем назначение, тип кожи, способ применения и преимущества по надёжным источникам, чтобы вы понимали, что выбираете и зачем.",
+  },
+  {
+    title: "Польза вместо рекламного шума",
+    text: "Объясняем действие продукта простым языком, не подменяя факты громкими обещаниями и шаблонными фразами.",
+  },
+  {
+    title: "Актуальный выбор",
+    text: "Следим за обновлениями источников и интересом к профессиональной косметике в сети, чтобы заметные позиции не терялись в каталоге.",
+  },
+  {
+    title: "Только товары из каталога",
+    text: "В подборки и популярные позиции попадает только то, что уже представлено в магазине — без рекламы сторонних товаров и случайных рекомендаций.",
+  },
+  {
+    title: "Удобный путь к своему уходу",
+    text: "Категории, фильтры и содержательные описания помогают быстрее сравнить средства и собрать последовательный домашний уход.",
+  },
+] as const;
+
 export async function generateMetadata() {
   const brands = await prisma.brand.findMany({
     where: {
@@ -74,6 +104,8 @@ const PRODUCT_CARD_SELECT = {
   price: true,
   stock: true,
   isPopular: true,
+  popularityPinned: true,
+  popularityScore: true,
   isNew: true,
   createdAt: true,
   category: true,
@@ -94,8 +126,12 @@ export default async function Home() {
         isPublished: true,
         enrichmentStatus: { not: "MERGED" },
       },
-      orderBy: { createdAt: "desc" },
-      take: 24,
+      orderBy: [
+        { popularityPinned: "desc" },
+        { popularityScore: "desc" },
+        { createdAt: "desc" },
+      ],
+      take: 40,
       select: PRODUCT_CARD_SELECT,
     }),
     prisma.product.findMany({
@@ -107,14 +143,31 @@ export default async function Home() {
       take: 32,
       select: PRODUCT_CARD_SELECT,
     }),
-    prisma.review.findMany({
-      where: { isPublic: true },
-      orderBy: { createdAt: "desc" },
-      take: 6,
-    }),
+    REVIEWS_ENABLED
+      ? prisma.review.findMany({
+          where: { isPublic: true },
+          orderBy: { createdAt: "desc" },
+          take: 6,
+        })
+      : Promise.resolve([]),
   ]);
 
-  const popular = collapseRepresentedProductCards(popularRows).slice(0, 8);
+  const collapsedPopular = collapseRepresentedProductCards(popularRows);
+  const monitoredPopular = collapsedPopular.filter(
+    (product) => !product.popularityPinned,
+  );
+  const manuallyPinnedPopular = collapsedPopular.filter(
+    (product) => product.popularityPinned,
+  );
+  const popular = (monitoredPopular.length
+    ? [
+        ...monitoredPopular.slice(0, 4),
+        ...manuallyPinnedPopular.slice(0, 4),
+        ...monitoredPopular.slice(4),
+        ...manuallyPinnedPopular.slice(4),
+      ]
+    : manuallyPinnedPopular
+  ).slice(0, 8);
   const popularKeys = new Set(
     popular
       .map((product) =>
@@ -153,6 +206,47 @@ export default async function Home() {
         </div>
       </section>
 
+      <section className="overflow-hidden rounded-3xl border border-rose-100 bg-gradient-to-br from-rose-50 via-white to-amber-50 p-6 md:p-10">
+        <div className="max-w-3xl">
+          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-rose-700">
+            Осознанный выбор
+          </div>
+          <h2 className="mt-2 text-2xl font-semibold md:text-3xl">
+            Почему выбирают нас
+          </h2>
+          <p className="mt-3 text-gray-700 md:text-lg">
+            Мы хотим, чтобы профессиональный уход был понятным: без случайных
+            покупок, неподтверждённых обещаний и долгого поиска нужной
+            информации.
+          </p>
+        </div>
+
+        <div className="mt-7 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {STORE_ADVANTAGES.map((advantage, index) => (
+            <article
+              key={advantage.title}
+              className="rounded-2xl border border-white/80 bg-white/85 p-5 shadow-sm"
+            >
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-rose-100 text-sm font-bold text-rose-800">
+                {index + 1}
+              </div>
+              <h3 className="mt-4 font-semibold text-gray-950">
+                {advantage.title}
+              </h3>
+              <p className="mt-2 text-sm leading-6 text-gray-600">
+                {advantage.text}
+              </p>
+            </article>
+          ))}
+        </div>
+
+        <div className="mt-7">
+          <Link href="/about" className="btn">
+            Подробнее о магазине
+          </Link>
+        </div>
+      </section>
+
       <ProductSection
         title="Популярные товары"
         emptyText="Пока нет отмеченных популярных товаров."
@@ -165,27 +259,29 @@ export default async function Home() {
         products={newArrivals}
       />
 
-      <section className="space-y-4">
-        <h2 className="text-2xl font-semibold">Отзывы клиентов</h2>
+      {REVIEWS_ENABLED && (
+        <section className="space-y-4">
+          <h2 className="text-2xl font-semibold">Отзывы клиентов</h2>
 
-        {reviews.length === 0 ? (
-          <div className="text-sm text-gray-500">Пока нет отзывов.</div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {reviews.map((review) => (
-              <div key={review.id} className="rounded-3xl border p-5 bg-white">
-                <div className="text-sm font-medium">{review.name}</div>
-                <div className="text-xs text-gray-500 mt-1">
-                  Оценка: {review.rating}/5
+          {reviews.length === 0 ? (
+            <div className="text-sm text-gray-500">Пока нет отзывов.</div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              {reviews.map((review) => (
+                <div key={review.id} className="rounded-3xl border bg-white p-5">
+                  <div className="text-sm font-medium">{review.name}</div>
+                  <div className="mt-1 text-xs text-gray-500">
+                    Оценка: {review.rating}/5
+                  </div>
+                  <p className="mt-3 whitespace-pre-line text-sm text-gray-700">
+                    {review.text}
+                  </p>
                 </div>
-                <p className="text-sm text-gray-700 mt-3 whitespace-pre-line">
-                  {review.text}
-                </p>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
     </main>
   );
 }

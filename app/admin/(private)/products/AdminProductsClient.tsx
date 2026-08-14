@@ -41,6 +41,12 @@ type Product = {
   price: number;
   stock: number;
   isPopular: boolean;
+  popularityPinned?: boolean;
+  popularityExcluded?: boolean;
+  popularityScore?: number;
+  popularityConfidence?: number;
+  popularityReason?: string | null;
+  popularityCheckedAt?: string | null;
   isNew: boolean;
   isPublished: boolean;
   enrichmentStatus?: string;
@@ -719,8 +725,13 @@ export default function AdminProductsClient() {
                         </Badge>
                       )}
                       {product.isPopular && (
-                        <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200">
-                          Популярный
+                        <Badge
+                          className="bg-yellow-100 text-yellow-800 border-yellow-200"
+                          title={product.popularityReason || undefined}
+                        >
+                          {product.popularityPinned
+                            ? "Популярный · вручную"
+                            : `Популярный · сеть ${Math.trunc(Number(product.popularityScore) || 0)}%`}
                         </Badge>
                       )}
                       {variantsCount > 0 && (
@@ -782,12 +793,15 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 function Badge({
   children,
   className = "",
+  title,
 }: {
   children: ReactNode;
   className?: string;
+  title?: string;
 }) {
   return (
     <span
+      title={title}
       className={`text-[10px] px-2 py-0.5 rounded-full border shrink-0 ${className}`}
     >
       {children}

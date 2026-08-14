@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { EnrichmentProposalStatus } from "@prisma/client";
+import { EnrichmentProposalStatus, Prisma } from "@prisma/client";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/adminGuard";
 import { prisma } from "@/lib/prisma";
@@ -89,6 +89,13 @@ const productSelect = {
   productLineName: true,
   variants: true,
   isPopular: true,
+  popularityPinned: true,
+  popularityExcluded: true,
+  popularityScore: true,
+  popularityConfidence: true,
+  popularityReason: true,
+  popularityEvidence: true,
+  popularityCheckedAt: true,
   isPublished: true,
   isNew: true,
   enrichmentStatus: true,
@@ -349,6 +356,11 @@ export async function POST(req: Request) {
     .map((product) => product.id);
   const primarySku =
     canonical.supplierSku || variants.find((variant) => variant.sku)?.sku || null;
+  const popularitySource = [...products].sort(
+    (left, right) =>
+      right.popularityScore - left.popularityScore ||
+      right.popularityConfidence - left.popularityConfidence,
+  )[0];
 
   await prisma.$transaction(async (tx) => {
     // Сначала освобождаем supplierSku архивируемых дублей. Иначе, если основной
@@ -362,6 +374,9 @@ export async function POST(req: Request) {
           supplierSku: null,
           enrichmentStatus: "MERGED",
           variants: [],
+          isPopular: false,
+          popularityPinned: false,
+          popularityExcluded: false,
         },
       });
     }
@@ -379,6 +394,18 @@ export async function POST(req: Request) {
         description: describedProduct?.description || canonical.description,
         isPublished: products.some((product) => product.isPublished),
         isPopular: products.some((product) => product.isPopular),
+        popularityPinned: products.some((product) => product.popularityPinned),
+        popularityExcluded:
+          !products.some((product) => product.popularityPinned) &&
+          products.every((product) => product.popularityExcluded),
+        popularityScore: popularitySource?.popularityScore || 0,
+        popularityConfidence: popularitySource?.popularityConfidence || 0,
+        popularityReason: popularitySource?.popularityReason || null,
+        popularityEvidence:
+          popularitySource?.popularityEvidence == null
+            ? Prisma.JsonNull
+            : popularitySource.popularityEvidence,
+        popularityCheckedAt: popularitySource?.popularityCheckedAt || null,
         isNew: products.some((product) => product.isNew),
       },
     });

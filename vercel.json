@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/enrichment-monitor",
       "schedule": "17 3 * * *"
+    },
+    {
+      "path": "/api/cron/popularity-monitor",
+      "schedule": "47 3 * * *"
     }
   ]
 }
