@@ -394,11 +394,11 @@ export default async function ShopPage({ searchParams }: Props) {
         {sort && <input type="hidden" name="sort" value={sort} />}
         {fav === "1" && <input type="hidden" name="fav" value="1" />}
         {instock === "1" && <input type="hidden" name="instock" value="1" />}
-        <button type="submit" className="btn px-5 py-3">Найти</button>
+        <button type="submit" className="btn">Найти</button>
         {searchQuery && (
           <Link
             href={buildHref(brandSlug, categorySlug, sort, fav, instock, "")}
-            className="rounded-full border px-4 py-3 text-center text-sm hover:bg-gray-50"
+            className="inline-flex min-h-8 items-center justify-center rounded-full border px-3 py-1 text-center text-sm hover:bg-gray-50"
           >
             Очистить
           </Link>
@@ -488,7 +488,7 @@ function FilterLink({
     <Link
       href={href}
       className={
-        "rounded-full border px-3 py-1 text-sm " +
+        "inline-flex min-h-8 items-center justify-center rounded-full border px-3 py-1 text-sm " +
         (isActive
           ? "border-black bg-black text-white"
           : "bg-white text-gray-700 hover:bg-gray-50")
@@ -532,7 +532,7 @@ function SortLink({
         currentQuery,
       )}
       className={
-        "rounded-full border px-3 py-1 text-sm " +
+        "inline-flex min-h-8 items-center justify-center rounded-full border px-3 py-1 text-sm " +
         (isActive
           ? "border-black bg-black text-white"
           : "bg-white text-gray-700 hover:bg-gray-50")

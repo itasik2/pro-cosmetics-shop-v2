@@ -55,12 +55,12 @@ export default function AboutPage() {
             ухода был осознанным, а не случайным.
           </p>
           <div className="mt-7 flex flex-wrap gap-3">
-            <Link href="/shop" className="btn px-5 py-3">
+            <Link href="/shop" className="btn">
               Подобрать средства
             </Link>
             <Link
               href="/contacts"
-              className="btn-secondary px-5 py-3"
+              className="btn-secondary"
             >
               Связаться с нами
             </Link>
@@ -150,7 +150,7 @@ export default function AboutPage() {
         </div>
         <Link
           href="/shop"
-          className="mt-6 inline-flex min-h-11 shrink-0 items-center justify-center rounded-full bg-white px-5 py-3 text-sm font-semibold text-[var(--color-accent-strong)] shadow-sm transition hover:bg-white/90 md:mt-0"
+          className="mt-6 inline-flex min-h-8 shrink-0 items-center justify-center rounded-full bg-white px-3 py-1 text-sm font-semibold text-[var(--color-accent-strong)] shadow-sm transition hover:bg-white/90 md:mt-0"
         >
           Перейти в каталог
         </Link>
