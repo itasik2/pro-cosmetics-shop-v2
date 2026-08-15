@@ -9,7 +9,7 @@ import {
 import { getPublicExternalLinks } from "@/lib/externalLinks";
 
 export const metadata = {
-  title: `Контакты – ${SITE_BRAND}`,
+  title: `Контакты — ${SITE_BRAND}`,
   description: `Связаться с ${SITE_BRAND}: помощь с выбором профессиональной косметики и вопросы по заказу.`,
 };
 

@@ -162,7 +162,7 @@ export async function generateMetadata({ searchParams }: Props) {
 
   if (selectedBrand && selectedCategory) {
     return {
-      title: `${selectedBrand.name}: ${selectedCategory.label.toLowerCase()} – купить в Казахстане | ${SITE_BRAND}`,
+      title: `${selectedBrand.name}: ${selectedCategory.label.toLowerCase()} — купить в Казахстане | ${SITE_BRAND}`,
       description: `${selectedCategory.label} ${selectedBrand.name}. Профессиональная косметика с доставкой по Казахстану.`,
       alternates: {
         canonical: `${baseUrl}/shop?brand=${selectedBrand.slug}&category=${selectedCategory.slug}`,
@@ -173,7 +173,7 @@ export async function generateMetadata({ searchParams }: Props) {
 
   if (selectedCategory) {
     return {
-      title: `${selectedCategory.label} – купить в Казахстане | ${SITE_BRAND}`,
+      title: `${selectedCategory.label} — купить в Казахстане | ${SITE_BRAND}`,
       description: `${selectedCategory.label} профессиональных косметических брендов с доставкой по Казахстану.`,
       alternates: {
         canonical: `${baseUrl}/shop?category=${selectedCategory.slug}`,
@@ -184,7 +184,7 @@ export async function generateMetadata({ searchParams }: Props) {
 
   if (selectedBrand) {
     return {
-      title: `${selectedBrand.name} – купить в Казахстане | ${SITE_BRAND}`,
+      title: `${selectedBrand.name} — купить в Казахстане | ${SITE_BRAND}`,
       description: `Каталог профессиональной косметики ${selectedBrand.name}.`,
       alternates: {
         canonical: `${baseUrl}/shop?brand=${selectedBrand.slug}`,
@@ -194,7 +194,7 @@ export async function generateMetadata({ searchParams }: Props) {
   }
 
   return {
-    title: `Профессиональная косметика – каталог брендов | ${SITE_BRAND}`,
+    title: `Профессиональная косметика — каталог брендов | ${SITE_BRAND}`,
     description: `Каталог профессиональной косметики: ${brandNames}. Подробные описания и доставка по Казахстану.`,
     keywords: ["каталог косметики", "купить косметику", ...brandIntentKeywords],
     alternates: {

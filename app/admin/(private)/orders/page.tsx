@@ -7,11 +7,11 @@ export const runtime = "nodejs";
 function statusLabel(s: string) {
   const map: Record<string, string> = {
     NEW: "Новый",
-    CONFIRMED: "Подтвержден",
+    CONFIRMED: "Подтверждён",
     PACKING: "Сборка",
     SHIPPED: "Отправлен",
-    DONE: "Завершен",
-    CANCELED: "Отменен",
+    DONE: "Завершён",
+    CANCELED: "Отменён",
   };
   return map[s] || s;
 }

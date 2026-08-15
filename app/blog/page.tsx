@@ -22,7 +22,7 @@ export async function generateMetadata() {
   const baseUrl = getPublicBaseUrl();
 
   return {
-    title: `Блог и новости – ${SITE_BRAND}`,
+    title: `Блог и новости — ${SITE_BRAND}`,
     description:
       `Статьи по уходу за кожей, разборы составов и новости магазина ${SITE_BRAND}.`,
     keywords: [

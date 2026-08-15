@@ -193,7 +193,7 @@ ${brand}${Number(product.price).toLocaleString("ru-RU")} ₸
         <div>
           <h1 className="text-2xl font-bold">Вопрос-ответ</h1>
           <p className="text-sm text-gray-600 mt-1">
-            Спроси про продукт, состав, совместимость. Я отвечу на основе каталога и блога.
+            Спросите о продукте, его составе и совместимости с другими средствами. Я отвечу на основе каталога и блога.
           </p>
         </div>
 
@@ -297,7 +297,7 @@ ${brand}${Number(product.price).toLocaleString("ru-RU")} ₸
             disabled={loading || q.trim().length < 3}
             type="button"
           >
-            {loading ? "Думаю..." : "Отправить"}
+            {loading ? "Думаю…" : "Отправить"}
           </button>
         </div>
       </div>

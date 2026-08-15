@@ -351,7 +351,7 @@ export default function CheckoutClient() {
       ) : err ? (
         <div className="text-red-600">Ошибка: {err}</div>
       ) : rows.length === 0 ? (
-        <div className="text-sm text-gray-500">Корзина пустая. Нажмите “Купить” в каталоге.</div>
+        <div className="text-sm text-gray-500">Корзина пуста. Нажмите «Купить» в каталоге.</div>
       ) : (
         <>
           <div className="flex min-h-8 items-center justify-between gap-3">
@@ -522,7 +522,7 @@ export default function CheckoutClient() {
                 </label>
 
                 <label className="space-y-1 sm:col-span-2">
-                  <div className="text-sm text-gray-600">Email (опционально)</div>
+                  <div className="text-sm text-gray-600">Электронная почта (необязательно)</div>
                   <input
                     className="w-full border rounded-xl px-3 py-2"
                     value={email}
@@ -565,7 +565,7 @@ export default function CheckoutClient() {
               )}
 
               <label className="space-y-1">
-                <div className="text-sm text-gray-600">Комментарий (опционально)</div>
+                <div className="text-sm text-gray-600">Комментарий (необязательно)</div>
                 <textarea
                   className="w-full border rounded-xl px-3 py-2 min-h-[90px]"
                   value={comment}
@@ -592,7 +592,7 @@ export default function CheckoutClient() {
               </div>
 
               <div className="text-xs text-gray-500">
-                Оплата на первом этапе: при получении / перевод (уточняется менеджером).
+                На первом этапе оплата производится при получении или переводом — способ уточнит менеджер.
               </div>
             </div>
           )}

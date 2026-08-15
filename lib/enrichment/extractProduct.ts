@@ -272,7 +272,7 @@ function isLikelyProductTitle(value: string | null): value is string {
   if (!value || value.length < 4) return false;
   const normalized = normalizeSearchText(value);
 
-  return !/(?:войдите|создайте учетную запись|создать учетную запись|личный кабинет|авторизац|регистрац|забыли пароль|forgot password|sign in|log in|login|account)/i.test(
+  return !/(?:войдите|создайте уч[её]тную запись|создать уч[её]тную запись|личный кабинет|авторизац|регистрац|забыли пароль|forgot password|sign in|log in|login|account)/i.test(
     normalized,
   );
 }

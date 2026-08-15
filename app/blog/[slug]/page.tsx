@@ -137,7 +137,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   if (!post) {
     return {
-      title: `Материал не найден – ${SITE_BRAND}`,
+      title: `Материал не найден — ${SITE_BRAND}`,
       description: "Статья не найдена или была удалена.",
       alternates: { canonical: "/blog" },
     };
@@ -149,12 +149,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     (shortBase.length > 150 ? "..." : "");
 
   return {
-    title: `${post.title} – блог ${SITE_BRAND}`,
+    title: `${post.title} — блог ${SITE_BRAND}`,
     description: short,
     alternates: { canonical: `/blog/${slug}` },
     openGraph: {
       type: "article",
-      title: `${post.title} – блог ${SITE_BRAND}`,
+      title: `${post.title} — блог ${SITE_BRAND}`,
       description: short,
       url: `/blog/${slug}`,
       images: post.image ? [{ url: post.image }] : [],

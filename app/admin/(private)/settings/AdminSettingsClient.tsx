@@ -180,7 +180,7 @@ export default function AdminSettingsClient() {
       const optimized = toOptimizedCloudinaryUrl(rawUrl);
       setBackgroundUrl(optimized);
 
-      setMsg('Фон загружен. Не забудь нажать «Сохранить».');
+      setMsg('Фон загружен. Не забудьте нажать «Сохранить».');
     } catch (e: any) {
       setMsg(`Ошибка загрузки: ${e?.message || "upload_failed"}`);
     } finally {
@@ -377,7 +377,7 @@ export default function AdminSettingsClient() {
                 className="w-full border rounded-xl px-3 py-2"
                 value={bannerHref}
                 onChange={(e) => setBannerHref(e.target.value)}
-                placeholder="https://... или /shop"
+                placeholder="https://… или /shop"
               />
             </div>
           </div>

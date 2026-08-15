@@ -106,7 +106,7 @@ export default function AdminBlogClient() {
       }
 
       setField("image", url);
-      setMsg("Обложка загружена. Не забудь нажать «Сохранить».");
+      setMsg("Обложка загружена. Не забудьте нажать «Сохранить».");
     } catch (e: any) {
       setMsg(`Ошибка загрузки обложки: ${e?.message || "upload_failed"}`);
     } finally {
@@ -117,7 +117,7 @@ export default function AdminBlogClient() {
   async function generateCoverFromTopic() {
     const topic = (form.title || "").trim();
     if (!topic) {
-      setMsg("Для генерации обложки сначала укажи заголовок поста (тему).");
+      setMsg("Для генерации обложки сначала укажите заголовок поста (тему).");
       return;
     }
 
@@ -144,7 +144,7 @@ export default function AdminBlogClient() {
       }
 
       setField("image", url);
-      setMsg("Обложка сгенерирована. Не забудь нажать «Сохранить».");
+      setMsg("Обложка сгенерирована. Не забудьте нажать «Сохранить».");
     } catch (e: any) {
       setMsg(`Ошибка генерации обложки: ${e?.message || "generate_failed"}`);
     } finally {
@@ -210,7 +210,7 @@ export default function AdminBlogClient() {
 
   async function generateDraft() {
     if (!form.title.trim()) {
-      setMsg("Сначала укажи тему/заголовок для генерации");
+      setMsg("Сначала укажите тему или заголовок для генерации.");
       return;
     }
 
@@ -257,7 +257,7 @@ export default function AdminBlogClient() {
       };
     });
 
-    setMsg("Черновик сгенерирован. Проверь и отредактируй перед публикацией.");
+    setMsg("Черновик сгенерирован. Проверьте и отредактируйте его перед публикацией.");
   }
 
   return (
@@ -326,7 +326,7 @@ export default function AdminBlogClient() {
                   className="px-4 py-2 rounded border disabled:opacity-50 self-start"
                   onClick={generateCoverFromTopic}
                   disabled={busy || coverUploading || coverGenerating || !form.title.trim()}
-                  title={!form.title.trim() ? "Сначала укажи заголовок" : undefined}
+                  title={!form.title.trim() ? "Сначала укажите заголовок" : undefined}
                 >
                   {coverGenerating ? "Генерация…" : "Сгенерировать обложку по теме"}
                 </button>
@@ -436,7 +436,7 @@ export default function AdminBlogClient() {
                   checked={draft.includeMistakes}
                   onChange={(e) => setDraftField("includeMistakes", e.target.checked)}
                 />
-                <span>Ошибки/мифы</span>
+                <span>Ошибки и мифы</span>
               </label>
             </div>
 
