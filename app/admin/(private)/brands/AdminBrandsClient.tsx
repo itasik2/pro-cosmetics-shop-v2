@@ -133,7 +133,7 @@ export default function AdminBrandsClient() {
             />
           </Field>
 
-          <Field label="Slug (URL ключ, латиница через дефис)">
+          <Field label="Slug (URL-ключ, латиница через дефис)">
             <input
               required
               className="w-full border rounded-xl px-3 py-2"
@@ -157,7 +157,7 @@ export default function AdminBrandsClient() {
             />
           </Field>
 
-          <Field label="Активен (показывать в фильтре/админке товаров)">
+          <Field label="Активен (показывать в фильтре и админке товаров)">
             <label className="inline-flex items-center gap-2 text-sm">
               <input
                 type="checkbox"

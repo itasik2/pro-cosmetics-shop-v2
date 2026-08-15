@@ -129,7 +129,7 @@ export default function ProductDetailsClient({ product }: Props) {
             (inStock ? "text-emerald-700" : "text-gray-500")
           }
         >
-          {inStock ? `В наличии: ${stockToUse}` : "Под заказ / нет"}
+          {inStock ? `В наличии: ${stockToUse}` : "Нет в наличии"}
         </div>
 
         <div className="mt-2 flex items-center justify-between">

@@ -206,7 +206,7 @@ export default function ProductCard({ product }: ProductCardProps) {
         </div>
 
         <div className={"mt-1 text-xs " + (inStock ? "text-emerald-700" : "text-gray-500")}>
-          {inStock ? `В наличии: ${stockToUse}` : "Под заказ/нет"}
+          {inStock ? `В наличии: ${stockToUse}` : "Нет в наличии"}
         </div>
 
         <div className="mt-2">

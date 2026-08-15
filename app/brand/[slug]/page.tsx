@@ -17,13 +17,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   });
 
   if (!brand || !brand.isActive) {
-    return { title: `Бренд не найден – ${SITE_BRAND}` };
+    return { title: `Бренд не найден — ${SITE_BRAND}` };
   }
 
   const baseUrl = getPublicBaseUrl();
 
   return {
-    title: `${brand.name} – купить косметику в Казахстане | ${SITE_BRAND}`,
+    title: `${brand.name} — купить косметику в Казахстане | ${SITE_BRAND}`,
     description: `Профессиональная косметика ${brand.name}: подробные карточки и доставка по Казахстану.`,
     keywords: [
       `косметика ${brand.name}`,

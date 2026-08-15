@@ -18,7 +18,7 @@ export async function generateMetadata({ params }: Props) {
   const categoryName = decodeCategory(params.slug);
 
   return {
-    title: `${categoryName} – купить в Казахстане | ${SITE_BRAND}`,
+    title: `${categoryName} — купить в Казахстане | ${SITE_BRAND}`,
     description: `Категория ${categoryName}. Профессиональная косметика.`,
     alternates: {
       canonical: `${getPublicBaseUrl()}/shop/category/${params.slug}`,

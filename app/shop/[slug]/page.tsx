@@ -27,7 +27,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   if (!product) {
     return {
-      title: `Товар не найден – ${SITE_BRAND}`,
+      title: `Товар не найден — ${SITE_BRAND}`,
       robots: { index: false, follow: false },
     };
   }
@@ -39,7 +39,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     product.description.replace(/\s+/g, " ").trim().slice(0, 280);
 
   return {
-    title: `${displayName} – ${SITE_BRAND}`,
+    title: `${displayName} — ${SITE_BRAND}`,
     description: metaDescription,
     keywords: [
       `купить ${displayName}`,

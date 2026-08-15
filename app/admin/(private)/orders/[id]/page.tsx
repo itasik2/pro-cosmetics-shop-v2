@@ -9,11 +9,11 @@ const statuses = ["NEW", "CONFIRMED", "PACKING", "SHIPPED", "DONE", "CANCELED"] 
 function statusLabel(s: string) {
   const map: Record<string, string> = {
     NEW: "Новый",
-    CONFIRMED: "Подтвержден",
+    CONFIRMED: "Подтверждён",
     PACKING: "Сборка",
     SHIPPED: "Отправлен",
-    DONE: "Завершен",
-    CANCELED: "Отменен",
+    DONE: "Завершён",
+    CANCELED: "Отменён",
   };
   return map[s] || s;
 }
@@ -114,7 +114,7 @@ export default async function AdminOrderDetailPage({ params }: { params: { id: s
             <tr>
               <th className="text-left p-3">Позиция</th>
               <th className="text-right p-3">Цена</th>
-              <th className="text-right p-3">Кол-во</th>
+              <th className="text-right p-3">Количество</th>
               <th className="text-right p-3">Сумма</th>
             </tr>
           </thead>
