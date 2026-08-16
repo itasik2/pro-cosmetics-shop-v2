@@ -167,7 +167,17 @@ export default async function PostPage({ params }: Props) {
 
   const post = await prisma.post.findUnique({
     where: { slug },
-    select: { title: true, content: true, image: true, category: true, createdAt: true },
+    select: {
+      title: true,
+      content: true,
+      image: true,
+      imageCredit: true,
+      imageSourceUrl: true,
+      imageLicense: true,
+      imageLicenseUrl: true,
+      category: true,
+      createdAt: true,
+    },
   });
 
   if (!post) notFound();
@@ -176,14 +186,47 @@ export default async function PostPage({ params }: Props) {
 
   return (
     <article className="container mx-auto py-8">
-      <article className="max-w-none">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
+      <div className="max-w-none">
         {post.image && (
-          <img
-            src={post.image}
-            alt={post.title}
-            className="rounded-3xl border mb-6 w-full max-h-[480px] object-cover"
-          />
+          <figure className="mb-6">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={post.image}
+              alt={post.title}
+              className="rounded-3xl border w-full max-h-[480px] object-cover"
+            />
+            {post.imageSourceUrl ? (
+              <figcaption className="mt-2 text-xs text-gray-500">
+                Изображение: {post.imageCredit || "Wikimedia Commons"}
+                {post.imageLicense ? (
+                  <>
+                    {" · "}
+                    {post.imageLicenseUrl ? (
+                      <a
+                        href={post.imageLicenseUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="underline underline-offset-2"
+                      >
+                        {post.imageLicense}
+                      </a>
+                    ) : (
+                      post.imageLicense
+                    )}
+                  </>
+                ) : null}
+                {" · "}
+                <a
+                  href={post.imageSourceUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline underline-offset-2"
+                >
+                  источник
+                </a>
+              </figcaption>
+            ) : null}
+          </figure>
         )}
 
         <div className="text-xs text-gray-500 uppercase mb-2">
@@ -224,7 +267,7 @@ export default async function PostPage({ params }: Props) {
         <div className="mt-8 text-xs text-gray-500">
           Материал носит информационный характер и не заменяет консультацию врача.
         </div>
-      </article>
+      </div>
     </article>
   );
 }
