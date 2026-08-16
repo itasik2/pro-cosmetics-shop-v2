@@ -6,7 +6,11 @@ const empty = {
   title: "",
   slug: "",
   category: "новости",
-  image: "/seed/post1.jpg",
+  image: "",
+  imageCredit: "",
+  imageSourceUrl: "",
+  imageLicense: "",
+  imageLicenseUrl: "",
   content: "",
 };
 
@@ -53,6 +57,10 @@ export default function AdminPosts() {
       slug: (form.slug ?? "").trim(), // сервер всё равно уникализирует
       category: (form.category ?? "").trim(),
       image: (form.image ?? "").trim(),
+      imageCredit: (form.imageCredit ?? "").trim() || null,
+      imageSourceUrl: (form.imageSourceUrl ?? "").trim() || null,
+      imageLicense: (form.imageLicense ?? "").trim() || null,
+      imageLicenseUrl: (form.imageLicenseUrl ?? "").trim() || null,
       content: form.content ?? "",
     };
 

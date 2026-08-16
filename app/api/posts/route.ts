@@ -10,6 +10,10 @@ const PostSchema = z.object({
   content: z.string().min(1),
   category: z.string().min(1),
   image: z.string().optional().nullable(),
+  imageCredit: z.string().optional().nullable(),
+  imageSourceUrl: z.string().url().optional().nullable(),
+  imageLicense: z.string().optional().nullable(),
+  imageLicenseUrl: z.string().url().optional().nullable(),
 });
 
 export async function GET() {
@@ -34,6 +38,10 @@ export async function POST(req: Request) {
         content: body.content.trim(),
         category: body.category.trim(),
         image: body.image?.trim() || null,
+        imageCredit: body.imageCredit?.trim() || null,
+        imageSourceUrl: body.imageSourceUrl?.trim() || null,
+        imageLicense: body.imageLicense?.trim() || null,
+        imageLicenseUrl: body.imageLicenseUrl?.trim() || null,
       },
     });
 
