@@ -6,6 +6,7 @@ import type { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { buildOrderFromCart, makeOrderNumber } from "@/lib/order";
+import { recordOrderNotificationResult } from "@/lib/orderNotifications";
 import { prisma } from "@/lib/prisma";
 import { notifyAdminNewOrder } from "@/lib/notify";
 import { checkRateLimit, getClientIp } from "@/lib/rateLimit";
@@ -183,14 +184,24 @@ export async function POST(req: Request) {
       });
     });
 
-    await notifyAdminNewOrder({
+    const notification = await notifyAdminNewOrder({
+      orderId: created.id,
       orderNumber: created.orderNumber,
       totalAmount: created.totalAmount,
       customerName: data.customerName,
       phone: data.phone,
+      customerEmail: data.email ? data.email.trim() : null,
       deliveryType: data.deliveryType,
       address: address || null,
+      comment: data.comment ? data.comment.trim() : null,
+      items: built.items.map((item) => ({
+        title: item.title,
+        qty: item.qty,
+        lineTotal: item.lineTotal,
+        sku: item.sku,
+      })),
     });
+    await recordOrderNotificationResult(created.id, notification);
 
     return NextResponse.json(
       {

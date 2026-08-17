@@ -339,9 +339,15 @@ model Order {
   currency     String      @default("KZT")
   totalAmount  Int
   status       OrderStatus @default(NEW)
+  notificationStatus    String   @default("PENDING")
+  notificationAttempts  Int      @default(0)
+  notificationLastError String?
+  notificationSentAt    DateTime?
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
   items        OrderItem[]
+
+  @@index([notificationStatus, createdAt], map: "Order_notification_status_created_idx")
 }
 
 model OrderItem {
@@ -429,4 +435,17 @@ model ExternalLink {
   updatedAt DateTime @updatedAt
 
   @@index([siteKey, sortOrder], map: "ExternalLink_site_order_idx")
+}
+
+model SiteHealthCheck {
+  id             String   @id @default(cuid())
+  siteKey        String
+  isHealthy      Boolean
+  responseTimeMs Int?
+  checks         Json
+  error          String?
+  createdAt      DateTime @default(now())
+
+  @@index([siteKey, createdAt], map: "SiteHealthCheck_site_created_idx")
+  @@index([siteKey, isHealthy, createdAt], map: "SiteHealthCheck_site_health_created_idx")
 }
