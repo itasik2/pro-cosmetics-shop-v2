@@ -23,17 +23,14 @@ export default function InStockButton() {
   }
 
   return (
-    <button
-      type="button"
-      onClick={toggle}
-      className={
-        "inline-flex min-h-8 items-center justify-center gap-2 rounded-full border px-3 py-1 text-sm transition " +
-        (inStockMode
-          ? "bg-black text-white border-black"
-          : "bg-white text-gray-700 hover:bg-gray-50")
-      }
-    >
-      В наличии
-    </button>
+    <label className="inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-xl border bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+      <input
+        type="checkbox"
+        checked={inStockMode}
+        onChange={toggle}
+        className="h-4 w-4 accent-gray-900"
+      />
+      <span>В наличии</span>
+    </label>
   );
 }

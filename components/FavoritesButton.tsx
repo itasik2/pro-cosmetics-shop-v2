@@ -56,30 +56,20 @@ export default function FavoritesButton() {
   }
 
   return (
-    <button
-      type="button"
-      onClick={toggleFav}
-      className={
-        "inline-flex min-h-8 items-center justify-center gap-2 rounded-full border px-3 py-1 text-sm transition " +
-        (favMode
-          ? "bg-black text-white border-black"
-          : "bg-white text-gray-700 hover:bg-gray-50")
-      }
-    >
+    <label className="inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-xl border bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+      <input
+        type="checkbox"
+        checked={favMode}
+        onChange={toggleFav}
+        className="h-4 w-4 accent-gray-900"
+      />
       <span>Избранное</span>
 
       {badge > 0 && (
-        <span
-          className={
-            "min-w-[18px] h-[18px] px-1.5 rounded-full text-[11px] leading-[18px] text-center border " +
-            (favMode
-              ? "bg-white/15 text-white border-white/20"
-              : "bg-gray-100 text-gray-700 border-gray-200")
-          }
-        >
+        <span className="min-w-[18px] h-[18px] px-1.5 rounded-full bg-gray-100 text-[11px] leading-[18px] text-center text-gray-700 border border-gray-200">
           {badge}
         </span>
       )}
-    </button>
+    </label>
   );
 }
