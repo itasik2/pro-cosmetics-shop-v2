@@ -1,0 +1,1 @@
+ALTER TYPE "PaymentStatus" ADD VALUE 'DUE_ON_DELIVERY';
