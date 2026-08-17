@@ -172,7 +172,7 @@ export async function POST(req: Request) {
           totalAmount: built.total,
           status: "NEW",
           paymentMethod: data.paymentMethod,
-          paymentStatus: "UNPAID",
+          paymentStatus: data.paymentMethod === "CASH" ? "DUE_ON_DELIVERY" : "UNPAID",
           customerNotificationStatus: data.email ? "PENDING" : "SKIPPED",
           items: {
             create: built.items.map((item) => ({
