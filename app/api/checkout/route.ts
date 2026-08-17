@@ -13,15 +13,16 @@ import {
 import { prisma } from "@/lib/prisma";
 import { notifyAdminNewOrder, notifyCustomerOrderCreated } from "@/lib/notify";
 import { checkRateLimit, getClientIp } from "@/lib/rateLimit";
+import { createOrderAccessToken, orderAccessUrl } from "@/lib/orderAccess";
 
 const CheckoutSchema = z.object({
   customerName: z.string().min(2).max(80),
   phone: z.string().min(6).max(30),
-  email: z.string().email().optional().or(z.literal("")),
+  email: z.string().email(),
   deliveryType: z.enum(["pickup", "delivery"]),
   address: z.string().max(250).optional().or(z.literal("")),
   comment: z.string().max(500).optional().or(z.literal("")),
-  paymentMethod: z.enum(["CASH", "KASPI_TRANSFER"]).default("CASH"),
+  paymentMethod: z.enum(["CASH", "KASPI_TRANSFER"]).default("KASPI_TRANSFER"),
   cart: z
     .array(
       z.object({
@@ -83,6 +84,7 @@ export async function POST(req: Request) {
     }
 
     const orderNumber = makeOrderNumber();
+    const access = createOrderAccessToken();
     const created = await prisma.$transaction(async (tx) => {
       const productIds = Array.from(
         new Set(built.items.map((item) => item.productId)),
@@ -164,7 +166,7 @@ export async function POST(req: Request) {
           orderNumber,
           customerName: data.customerName.trim(),
           phone: data.phone.trim(),
-          email: data.email ? data.email.trim() : null,
+          email: data.email.trim(),
           deliveryType: data.deliveryType,
           address: address || null,
           comment: data.comment ? data.comment.trim() : null,
@@ -173,7 +175,8 @@ export async function POST(req: Request) {
           status: "NEW",
           paymentMethod: data.paymentMethod,
           paymentStatus: data.paymentMethod === "CASH" ? "DUE_ON_DELIVERY" : "UNPAID",
-          customerNotificationStatus: data.email ? "PENDING" : "SKIPPED",
+          customerAccessTokenHash: access.tokenHash,
+          customerNotificationStatus: "PENDING",
           items: {
             create: built.items.map((item) => ({
               productId: item.productId,
@@ -197,7 +200,8 @@ export async function POST(req: Request) {
       totalAmount: created.totalAmount,
       customerName: data.customerName,
       phone: data.phone,
-      customerEmail: data.email ? data.email.trim() : null,
+      customerEmail: data.email.trim(),
+      orderAccessUrl: orderAccessUrl(access.token),
       deliveryType: data.deliveryType,
       address: address || null,
       comment: data.comment ? data.comment.trim() : null,
@@ -223,6 +227,8 @@ export async function POST(req: Request) {
         ok: true,
         orderId: created.id,
         orderNumber: created.orderNumber,
+        accessToken: access.token,
+        accessUrl: orderAccessUrl(access.token),
       },
       { status: 200 },
     );
