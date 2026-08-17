@@ -49,7 +49,7 @@ export default async function GuestOrderPage({
     isPrepayment &&
     order.status !== "CANCELED" &&
     order.status !== "DONE" &&
-    ["UNPAID", "PENDING"].includes(order.paymentStatus);
+    order.paymentStatus === "UNPAID" || order.paymentStatus === "PENDING";
 
   return (
     <div className="mx-auto max-w-3xl space-y-5 py-8">
