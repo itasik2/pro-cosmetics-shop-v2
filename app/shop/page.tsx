@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import ShopGridClient from "@/components/ShopGridClient";
 import FavoritesButton from "@/components/FavoritesButton";
 import InStockButton from "@/components/InStockButton";
+import NewProductsFilter from "@/components/NewProductsFilter";
+import CatalogFacetFilters from "@/components/CatalogFacetFilters";
 import { SITE_BRAND, getPublicBaseUrl } from "@/lib/siteConfig";
 import { buildBrandIntentKeywords } from "@/lib/seo";
 import { collapseRepresentedProductCards } from "@/lib/publicProductCards";
@@ -13,12 +15,12 @@ export const dynamic = "force-dynamic";
 
 type Props = {
   searchParams?: {
-    brand?: string;
-    category?: string;
-    sort?: string;
-    fav?: string;
-    instock?: string;
-    q?: string;
+    brand?: string | string[];
+    category?: string | string[];
+    sort?: string | string[];
+    fav?: string | string[];
+    instock?: string | string[];
+    q?: string | string[];
   };
 };
 
@@ -48,6 +50,22 @@ const CATEGORY_OPTIONS: CategoryOption[] = [
 
 function findCategory(slug: string) {
   return CATEGORY_OPTIONS.find((item) => item.slug === slug) ?? null;
+}
+
+function firstParam(value: string | string[] | undefined) {
+  return (Array.isArray(value) ? value[0] : value || "").trim();
+}
+
+function parseSlugList(value: string | string[] | undefined) {
+  const raw = Array.isArray(value) ? value.join(",") : value || "";
+  return Array.from(
+    new Set(
+      raw
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  );
 }
 
 function normalizeSearch(value: unknown) {
@@ -136,10 +154,14 @@ function productMatchesCategory(
 }
 
 export async function generateMetadata({ searchParams }: Props) {
-  const brandSlug = (searchParams?.brand || "").trim();
-  const categorySlug = (searchParams?.category || "").trim();
-  const sort = (searchParams?.sort || "").trim();
-  const searchQuery = (searchParams?.q || "").trim();
+  const brandSlugs = parseSlugList(searchParams?.brand);
+  const categorySlugs = parseSlugList(searchParams?.category);
+  const brandSlug = brandSlugs.length === 1 ? brandSlugs[0] : "";
+  const categorySlug = categorySlugs.length === 1 ? categorySlugs[0] : "";
+  const sort = firstParam(searchParams?.sort);
+  const fav = firstParam(searchParams?.fav);
+  const instock = firstParam(searchParams?.instock);
+  const searchQuery = firstParam(searchParams?.q);
 
   const brands = await prisma.brand.findMany({
     where: { isActive: true },
@@ -160,7 +182,12 @@ export async function generateMetadata({ searchParams }: Props) {
     "сыворотка",
   ]);
 
-  if (selectedBrand && selectedCategory) {
+  if (
+    selectedBrand &&
+    selectedCategory &&
+    brandSlugs.length === 1 &&
+    categorySlugs.length === 1
+  ) {
     return {
       title: `${selectedBrand.name}: ${selectedCategory.label.toLowerCase()} — купить в Казахстане | ${SITE_BRAND}`,
       description: `${selectedCategory.label} ${selectedBrand.name}. Профессиональная косметика с доставкой по Казахстану.`,
@@ -171,7 +198,7 @@ export async function generateMetadata({ searchParams }: Props) {
     };
   }
 
-  if (selectedCategory) {
+  if (selectedCategory && brandSlugs.length === 0 && categorySlugs.length === 1) {
     return {
       title: `${selectedCategory.label} — купить в Казахстане | ${SITE_BRAND}`,
       description: `${selectedCategory.label} профессиональных косметических брендов с доставкой по Казахстану.`,
@@ -182,7 +209,7 @@ export async function generateMetadata({ searchParams }: Props) {
     };
   }
 
-  if (selectedBrand) {
+  if (selectedBrand && brandSlugs.length === 1 && categorySlugs.length === 0) {
     return {
       title: `${selectedBrand.name} — купить в Казахстане | ${SITE_BRAND}`,
       description: `Каталог профессиональной косметики ${selectedBrand.name}.`,
@@ -200,7 +227,15 @@ export async function generateMetadata({ searchParams }: Props) {
     alternates: {
       canonical: `${baseUrl}/shop`,
     },
-    robots: sort || searchQuery ? { index: false, follow: true } : undefined,
+    robots:
+      sort ||
+      fav ||
+      instock ||
+      searchQuery ||
+      brandSlugs.length > 0 ||
+      categorySlugs.length > 0
+        ? { index: false, follow: true }
+        : undefined,
   };
 }
 
@@ -245,12 +280,12 @@ function toVariants(value: unknown): Variant[] | null {
 }
 
 export default async function ShopPage({ searchParams }: Props) {
-  const brandSlug = (searchParams?.brand || "").trim();
-  const categorySlug = (searchParams?.category || "").trim();
-  const sort = (searchParams?.sort || "").trim();
-  const fav = (searchParams?.fav || "").trim();
-  const instock = (searchParams?.instock || "").trim();
-  const searchQuery = (searchParams?.q || "").trim().slice(0, 120);
+  const requestedBrandSlugs = parseSlugList(searchParams?.brand);
+  const requestedCategorySlugs = parseSlugList(searchParams?.category);
+  const sort = firstParam(searchParams?.sort) === "new" ? "new" : "";
+  const fav = firstParam(searchParams?.fav);
+  const instock = firstParam(searchParams?.instock);
+  const searchQuery = firstParam(searchParams?.q).slice(0, 120);
 
   const brands = await prisma.brand.findMany({
     where: {
@@ -266,10 +301,12 @@ export default async function ShopPage({ searchParams }: Props) {
     select: { id: true, name: true, slug: true },
   });
 
-  const selectedBrand = brandSlug
-    ? brands.find((brand) => brand.slug === brandSlug) || null
-    : null;
-  const selectedCategory = findCategory(categorySlug);
+  const selectedBrands = brands.filter((brand) => requestedBrandSlugs.includes(brand.slug));
+  const selectedCategories = CATEGORY_OPTIONS.filter((category) =>
+    requestedCategorySlugs.includes(category.slug),
+  );
+  const brandSlug = selectedBrands.map((brand) => brand.slug).join(",");
+  const categorySlug = selectedCategories.map((category) => category.slug).join(",");
 
   const andConditions: Prisma.ProductWhereInput[] = [];
   if (sort === "new") {
@@ -283,17 +320,14 @@ export default async function ShopPage({ searchParams }: Props) {
   const where: Prisma.ProductWhereInput = {
     isPublished: true,
     enrichmentStatus: { not: "MERGED" },
-    ...(selectedBrand ? { brandId: selectedBrand.id } : {}),
+    ...(selectedBrands.length
+      ? { brandId: { in: selectedBrands.map((brand) => brand.id) } }
+      : {}),
     ...(instock === "1" ? { stock: { gt: 0 } } : {}),
     ...(andConditions.length ? { AND: andConditions } : {}),
   };
 
-  const orderBy: Prisma.ProductOrderByWithRelationInput[] =
-    sort === "price_asc"
-      ? [{ price: "asc" }, { createdAt: "desc" }]
-      : sort === "price_desc"
-        ? [{ price: "desc" }, { createdAt: "desc" }]
-        : [{ createdAt: "desc" }];
+  const orderBy: Prisma.ProductOrderByWithRelationInput[] = [{ createdAt: "desc" }];
 
   const products = await prisma.product.findMany({
     where,
@@ -321,60 +355,36 @@ export default async function ShopPage({ searchParams }: Props) {
   });
 
   const productsForClient = collapseRepresentedProductCards(products)
-    .filter((product) => productMatchesCategory(product, selectedCategory))
+    .filter(
+      (product) =>
+        selectedCategories.length === 0 ||
+        selectedCategories.some((category) => productMatchesCategory(product, category)),
+    )
     .filter((product) => productMatchesSearch(product, searchQuery))
     .map((product) => ({
       ...product,
       variants: toVariants(product.variants),
     }));
 
+  const brandSummary =
+    selectedBrands.length === 0
+      ? "Все бренды"
+      : selectedBrands.length === 1
+        ? selectedBrands[0].name
+        : `Брендов: ${selectedBrands.length}`;
+  const categorySummary =
+    selectedCategories.length === 0
+      ? "Все категории"
+      : selectedCategories.length === 1
+        ? selectedCategories[0].label
+        : `Категорий: ${selectedCategories.length}`;
+
   return (
     <div className="space-y-6 py-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Каталог</h1>
-          <div className="mt-1 text-sm text-gray-500">
-            {selectedBrand ? `Бренд: ${selectedBrand.name}` : "Все бренды"} •{" "}
-            {productsForClient.length} поз.
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <SortLink
-            currentBrand={brandSlug}
-            currentCategory={categorySlug}
-            currentSort={sort}
-            currentFav={fav}
-            currentInStock={instock}
-            currentQuery={searchQuery}
-            value="new"
-          >
-            Новинки
-          </SortLink>
-          <SortLink
-            currentBrand={brandSlug}
-            currentCategory={categorySlug}
-            currentSort={sort}
-            currentFav={fav}
-            currentInStock={instock}
-            currentQuery={searchQuery}
-            value="price_asc"
-          >
-            Цена ↑
-          </SortLink>
-          <SortLink
-            currentBrand={brandSlug}
-            currentCategory={categorySlug}
-            currentSort={sort}
-            currentFav={fav}
-            currentInStock={instock}
-            currentQuery={searchQuery}
-            value="price_desc"
-          >
-            Цена ↓
-          </SortLink>
-          <InStockButton />
-          <FavoritesButton />
+      <div>
+        <h1 className="text-2xl font-bold">Каталог</h1>
+        <div className="mt-1 text-sm text-gray-500">
+          {brandSummary} • {categorySummary} • {productsForClient.length} поз.
         </div>
       </div>
 
@@ -405,49 +415,27 @@ export default async function ShopPage({ searchParams }: Props) {
         )}
       </form>
 
+      <div className="flex flex-col gap-3 rounded-2xl border bg-white/70 p-3 sm:p-4 lg:flex-row lg:items-start lg:justify-between">
+        <CatalogFacetFilters
+          brands={brands.map((brand) => ({ slug: brand.slug, label: brand.name }))}
+          categories={CATEGORY_OPTIONS.map((category) => ({
+            slug: category.slug,
+            label: category.label,
+          }))}
+        />
+
+        <div className="flex flex-wrap items-center gap-2">
+          <NewProductsFilter />
+          <InStockButton />
+          <FavoritesButton />
+        </div>
+      </div>
+
       {searchQuery && (
         <div className="text-sm text-gray-500">
           По запросу «{searchQuery}» найдено: {productsForClient.length}
         </div>
       )}
-
-      <div className="flex flex-wrap gap-2">
-        <FilterLink
-          isActive={!brandSlug}
-          href={buildHref("", categorySlug, sort, fav, instock, searchQuery)}
-        >
-          Все бренды
-        </FilterLink>
-
-        {brands.map((brand) => (
-          <FilterLink
-            key={brand.id}
-            isActive={brand.slug === brandSlug}
-            href={buildHref(brand.slug, categorySlug, sort, fav, instock, searchQuery)}
-          >
-            {brand.name}
-          </FilterLink>
-        ))}
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        <FilterLink
-          isActive={!categorySlug}
-          href={buildHref(brandSlug, "", sort, fav, instock, searchQuery)}
-        >
-          Все категории
-        </FilterLink>
-
-        {CATEGORY_OPTIONS.map((category) => (
-          <FilterLink
-            key={category.slug}
-            isActive={categorySlug === category.slug}
-            href={buildHref(brandSlug, category.slug, sort, fav, instock, searchQuery)}
-          >
-            {category.label}
-          </FilterLink>
-        ))}
-      </div>
 
       <ShopGridClient products={productsForClient} />
     </div>
@@ -473,72 +461,4 @@ function buildHref(
 
   const query = params.toString();
   return query ? `/shop?${query}` : "/shop";
-}
-
-function FilterLink({
-  href,
-  isActive,
-  children,
-}: {
-  href: string;
-  isActive: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <Link
-      href={href}
-      className={
-        "inline-flex min-h-8 items-center justify-center rounded-full border px-3 py-1 text-sm " +
-        (isActive
-          ? "border-black bg-black text-white"
-          : "bg-white text-gray-700 hover:bg-gray-50")
-      }
-    >
-      {children}
-    </Link>
-  );
-}
-
-function SortLink({
-  currentBrand,
-  currentCategory,
-  currentSort,
-  currentFav,
-  currentInStock,
-  currentQuery,
-  value,
-  children,
-}: {
-  currentBrand: string;
-  currentCategory: string;
-  currentSort: string;
-  currentFav: string;
-  currentInStock: string;
-  currentQuery: string;
-  value: string;
-  children: React.ReactNode;
-}) {
-  const isActive = currentSort === value;
-  const nextSort = isActive ? "" : value;
-
-  return (
-    <Link
-      href={buildHref(
-        currentBrand,
-        currentCategory,
-        nextSort,
-        currentFav,
-        currentInStock,
-        currentQuery,
-      )}
-      className={
-        "inline-flex min-h-8 items-center justify-center rounded-full border px-3 py-1 text-sm " +
-        (isActive
-          ? "border-black bg-black text-white"
-          : "bg-white text-gray-700 hover:bg-gray-50")
-      }
-    >
-      {children}
-    </Link>
-  );
 }
