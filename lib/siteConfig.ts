@@ -58,7 +58,8 @@ export const SITE_CONTACT_PHONE_HREF = `tel:${SITE_CONTACT_PHONE.replace(
   "",
 )}`;
 export const SITE_CONTACT_EMAIL =
-  process.env.NEXT_PUBLIC_CONTACT_EMAIL?.trim() || "";
+  process.env.NEXT_PUBLIC_CONTACT_EMAIL?.trim() ||
+  (SITE_KEY === "procosmetics" ? "sales@procosmetics.kz" : "");
 export const SITE_CONTACT_LOCATION =
   process.env.NEXT_PUBLIC_CONTACT_LOCATION?.trim() || "Павлодар, Казахстан";
 

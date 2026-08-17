@@ -7,6 +7,14 @@
     {
       "path": "/api/cron/popularity-monitor",
       "schedule": "47 3 * * *"
+    },
+    {
+      "path": "/api/cron/site-monitor",
+      "schedule": "12 2 * * *"
+    },
+    {
+      "path": "/api/cron/weekly-report",
+      "schedule": "30 4 * * 1"
     }
   ]
 }
