@@ -120,8 +120,8 @@ export default async function AdminOrdersPage({
 
       {error === "payment_required" && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-          Нельзя сохранить этот статус{orderNumber ? " для заказа " + orderNumber : ""}: сначала подтвердите оплату.
-          Для оплаты при получении отправка разрешена, а завершение — только после получения денег.
+          Нельзя перевести заказ{orderNumber ? " " + orderNumber : ""} в сборку или отправку: сначала подтвердите оплату.
+          После отметки «Оплачен» доступны следующие этапы обработки.
         </div>
       )}
 
