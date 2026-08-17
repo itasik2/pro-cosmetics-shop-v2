@@ -26,7 +26,6 @@ export default function CheckoutSuccessPage({
               Открыть страницу заказа
             </Link>
           ) : null}
-          </div>
         </div>
       ) : (
         <div className="text-sm text-gray-600">Спасибо за заказ. Мы свяжемся с вами.</div>
