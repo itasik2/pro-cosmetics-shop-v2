@@ -84,7 +84,7 @@ export async function POST(req: Request) {
     }
 
     const orderNumber = makeOrderNumber();
-    const access = createOrderAccessToken();
+    const access = createOrderAccessToken(orderNumber);
     const created = await prisma.$transaction(async (tx) => {
       const productIds = Array.from(
         new Set(built.items.map((item) => item.productId)),
