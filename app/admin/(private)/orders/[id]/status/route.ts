@@ -5,8 +5,14 @@ export const revalidate = 0;
 import type { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { recordCustomerNotificationResult } from "@/lib/orderNotifications";
-import { notifyCustomerPaymentReceipt } from "@/lib/notify";
+import {
+  recordCustomerNotificationResult,
+  recordPaymentNotificationResult,
+} from "@/lib/orderNotifications";
+import {
+  notifyCustomerPaymentReceipt,
+  notifyCustomerPaymentRequired,
+} from "@/lib/notify";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 
@@ -60,11 +66,12 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const paymentSettled =
     targetPaymentStatus === "PAID" || targetPaymentStatus === "REFUNDED";
 
-  // Kaspi is a prepayment method. Cash-on-delivery orders may be shipped
-  // while payment is due, but no order can be marked completed before payment.
+  // Kaspi orders stay in confirmation until payment is manually verified.
   if (
-    targetStatus === "SHIPPED" &&
     order.paymentMethod === "KASPI_TRANSFER" &&
+    (targetStatus === "PACKING" ||
+      targetStatus === "SHIPPED" ||
+      targetStatus === "DONE") &&
     !paymentSettled
   ) {
     return redirectToOrders(req, "payment_required", order.orderNumber);
@@ -74,7 +81,24 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   }
 
   const data: Prisma.OrderUpdateInput = {};
+  const statusWasChangedToConfirmed =
+    parsed.data.status === "CONFIRMED" && order.status !== "CONFIRMED";
+  let paymentDueAt = order.paymentDueAt;
+
   if (parsed.data.status) data.status = parsed.data.status;
+
+  if (statusWasChangedToConfirmed) {
+    const confirmedAt = order.confirmedAt || new Date();
+    data.confirmedAt = confirmedAt;
+    if (
+      order.paymentMethod === "KASPI_TRANSFER" &&
+      !paymentSettled &&
+      !order.paymentDueAt
+    ) {
+      paymentDueAt = new Date(confirmedAt.getTime() + 24 * 60 * 60 * 1000);
+      data.paymentDueAt = paymentDueAt;
+    }
+  }
 
   const paymentWasChangedToPaid =
     parsed.data.paymentStatus === "PAID" && order.paymentStatus !== "PAID";
@@ -105,6 +129,29 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       items: order.items,
     });
     await recordCustomerNotificationResult(order.id, result);
+  }
+
+  if (
+    statusWasChangedToConfirmed &&
+    order.paymentMethod === "KASPI_TRANSFER" &&
+    order.email &&
+    !paymentSettled
+  ) {
+    const result = await notifyCustomerPaymentRequired({
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      totalAmount: order.totalAmount,
+      customerName: order.customerName,
+      phone: order.phone,
+      customerEmail: order.email,
+      deliveryType: order.deliveryType,
+      address: order.address,
+      comment: order.comment,
+      paymentMethod: order.paymentMethod,
+      items: order.items,
+      paymentDueAt,
+    });
+    await recordPaymentNotificationResult(order.id, result);
   }
 
   return redirectToOrders(req);

@@ -1,4 +1,5 @@
 import { getMailConfigurationStatus, sendSiteMail } from "@/lib/mailer";
+import { getPaymentInstructions } from "@/lib/paymentInstructions";
 import { getPublicBaseUrl } from "@/lib/siteConfig";
 
 type OrderMailItem = {
@@ -8,7 +9,7 @@ type OrderMailItem = {
   sku?: string | null;
 };
 
-type NotifyArgs = {
+export type NotifyArgs = {
   orderId: string;
   orderNumber: string;
   totalAmount: number;
@@ -20,6 +21,12 @@ type NotifyArgs = {
   comment?: string | null;
   paymentMethod?: string | null;
   items: OrderMailItem[];
+  orderAccessUrl?: string | null;
+  paymentDueAt?: Date | string | null;
+};
+
+type PaymentReportArgs = NotifyArgs & {
+  paymentNote?: string | null;
 };
 
 function deliveryLabel(value: string) {
@@ -52,6 +59,30 @@ function commonOrderLines(args: NotifyArgs) {
     "",
     "Состав заказа:",
     ...itemLines(args.items),
+  ].filter(Boolean) as string[];
+}
+
+function formatDueDate(value?: Date | string | null) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toLocaleString("ru-RU");
+}
+
+function paymentInstructionLines(args: NotifyArgs) {
+  const instructions = getPaymentInstructions();
+  return [
+    "Реквизиты для оплаты:",
+    instructions.recipientName ? `Получатель: ${instructions.recipientName}` : null,
+    instructions.kaspiPhone ? `Kaspi: ${instructions.kaspiPhone}` : null,
+    instructions.paymentLink ? `Ссылка на оплату: ${instructions.paymentLink}` : null,
+    instructions.note || null,
+    instructions.hasInstructions ? null : "Реквизиты ещё не настроены — менеджер отправит их отдельно.",
+    formatDueDate(args.paymentDueAt) ? `Оплатить до: ${formatDueDate(args.paymentDueAt)}` : null,
+    "",
+    args.orderAccessUrl
+      ? `Открыть страницу заказа: ${args.orderAccessUrl}`
+      : "Откройте персональную ссылку на заказ из письма о его оформлении.",
+    "После перевода нажмите на странице заказа «Я оплатил».",
   ].filter(Boolean) as string[];
 }
 
@@ -92,14 +123,15 @@ export async function notifyCustomerOrderCreated(args: NotifyArgs) {
   const lines = [
     `Здравствуйте, ${args.customerName}!`,
     "",
-    "Мы получили ваш заказ и свяжемся с вами для подтверждения.",
+    "Мы получили ваш заказ. Менеджер свяжется с вами для подтверждения.",
     "",
     ...commonOrderLines(args),
     "",
-    "Статус оплаты: Не оплачен",
+    "Статус оплаты: Ожидает подтверждения заказа",
+    args.orderAccessUrl ? `Персональная страница заказа: ${args.orderAccessUrl}` : null,
     "",
     "Если вы не оформляли этот заказ, ответьте на это письмо.",
-  ];
+  ].filter(Boolean) as string[];
 
   const result = await sendSiteMail({
     to: recipient,
@@ -112,6 +144,71 @@ export async function notifyCustomerOrderCreated(args: NotifyArgs) {
     console.error("[notify] Customer order email was not delivered:", {
       orderNumber: args.orderNumber,
       recipient,
+      status: result.status,
+      reason: result.reason,
+    });
+  }
+
+  return result;
+}
+
+export async function notifyCustomerPaymentRequired(args: NotifyArgs) {
+  const recipient = args.customerEmail?.trim();
+  if (!recipient) {
+    return { status: "skipped", provider: "none", reason: "not_configured" } as const;
+  }
+
+  const subject = `Оплата заказа ${args.orderNumber}`;
+  const lines = [
+    `Здравствуйте, ${args.customerName}!`,
+    "",
+    `Заказ ${args.orderNumber} подтверждён. Для запуска сборки переведите ${args.totalAmount.toLocaleString("ru-RU")} ₸.`,
+    "",
+    ...paymentInstructionLines(args),
+    "",
+    "После ручной проверки менеджер переведёт заказ в сборку.",
+  ];
+
+  const result = await sendSiteMail({
+    to: recipient,
+    replyTo: getMailConfigurationStatus().recipient,
+    subject,
+    text: lines.join("\n"),
+  });
+
+  if (result.status !== "sent") {
+    console.error("[notify] Payment instructions email was not delivered:", {
+      orderNumber: args.orderNumber,
+      recipient,
+      status: result.status,
+      reason: result.reason,
+    });
+  }
+
+  return result;
+}
+
+export async function notifyAdminPaymentReported(args: PaymentReportArgs) {
+  const subject = `Клиент сообщил об оплате заказа ${args.orderNumber}`;
+  const lines = [
+    subject,
+    "",
+    ...commonOrderLines(args),
+    "",
+    args.paymentNote ? `Комментарий клиента: ${args.paymentNote}` : "Комментарий клиента: —",
+    args.orderAccessUrl ? `Страница заказа клиента: ${args.orderAccessUrl}` : null,
+    `Открыть в админке: ${getPublicBaseUrl()}/admin/orders/${args.orderId}`,
+  ].filter(Boolean) as string[];
+
+  const result = await sendSiteMail({
+    subject,
+    text: lines.join("\n"),
+    replyTo: args.customerEmail,
+  });
+
+  if (result.status !== "sent") {
+    console.error("[notify] Payment report email was not delivered:", {
+      orderNumber: args.orderNumber,
       status: result.status,
       reason: result.reason,
     });

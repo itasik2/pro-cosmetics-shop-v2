@@ -64,7 +64,7 @@ export default function CheckoutClient() {
   const [deliveryType, setDeliveryType] = useState<"pickup" | "delivery">("pickup");
   const [address, setAddress] = useState("");
   const [comment, setComment] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<"CASH" | "KASPI_TRANSFER">("CASH");
+  const [paymentMethod, setPaymentMethod] = useState<"CASH" | "KASPI_TRANSFER">("KASPI_TRANSFER");
 
   const [submitting, setSubmitting] = useState(false);
   const [submitErr, setSubmitErr] = useState<string | null>(null);
@@ -285,6 +285,7 @@ export default function CheckoutClient() {
 
     if (name.length < 2) return setSubmitErr("Укажите имя");
     if (ph.length < 6) return setSubmitErr("Укажите телефон");
+    if (!email.trim()) return setSubmitErr("Укажите email для ссылки на заказ и уведомлений");
     if (deliveryType === "delivery" && addr.length < 5) {
       return setSubmitErr("Укажите адрес доставки");
     }
@@ -320,7 +321,8 @@ export default function CheckoutClient() {
       setShowForm(false);
       setSelected(new Set());
 
-      router.push(`/checkout/success?order=${encodeURIComponent(orderNumber)}`);
+      const accessToken = String(data.accessToken || "");
+      router.push(`/checkout/success?order=${encodeURIComponent(orderNumber)}&token=${encodeURIComponent(accessToken)}`);
     } catch (e: any) {
       setSubmitErr(e?.message || "Ошибка оформления заказа");
     } finally {
@@ -524,7 +526,7 @@ export default function CheckoutClient() {
                 </label>
 
                 <label className="space-y-1 sm:col-span-2">
-                  <div className="text-sm text-gray-600">Электронная почта (необязательно)</div>
+                  <div className="text-sm text-gray-600">Email для ссылки на заказ и уведомлений *</div>
                   <input
                     className="w-full border rounded-xl px-3 py-2"
                     value={email}
@@ -566,24 +568,9 @@ export default function CheckoutClient() {
                 </label>
               )}
 
-              <div className="text-sm font-semibold pt-1">Способ оплаты</div>
-              <div className="flex flex-col gap-2 sm:flex-row sm:gap-4">
-                <label className="inline-flex items-center gap-2">
-                  <input
-                    type="radio"
-                    checked={paymentMethod === "CASH"}
-                    onChange={() => setPaymentMethod("CASH")}
-                  />
-                  <span>Оплата при получении</span>
-                </label>
-                <label className="inline-flex items-center gap-2">
-                  <input
-                    type="radio"
-                    checked={paymentMethod === "KASPI_TRANSFER"}
-                    onChange={() => setPaymentMethod("KASPI_TRANSFER")}
-                  />
-                  <span>Перевод на Kaspi</span>
-                </label>
+              <div className="text-sm font-semibold pt-1">Оплата</div>
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                После подтверждения заказа менеджер отправит реквизиты для перевода на Kaspi. Сборка и отправка начнутся после ручной проверки оплаты.
               </div>
 
               <label className="space-y-1">
@@ -614,7 +601,7 @@ export default function CheckoutClient() {
               </div>
 
               <div className="text-xs text-gray-500">
-                Менеджер подтвердит заказ и отдельно отметит оплату после проверки перевода или получения денег.
+                На email придёт защищённая ссылка на страницу заказа. После перевода нажмите там «Я оплатил».
               </div>
             </div>
           )}

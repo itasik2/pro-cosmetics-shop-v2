@@ -363,11 +363,22 @@ model Order {
   customerNotificationAttempts  Int      @default(0)
   customerNotificationLastError String?
   customerNotificationSentAt    DateTime?
+  customerAccessTokenHash       String?   @unique
+  confirmedAt                   DateTime?
+  paymentDueAt                  DateTime?
+  paymentReportedAt             DateTime?
+  paymentReportedNote           String?
+  paymentNotificationStatus     String    @default("SKIPPED")
+  paymentNotificationAttempts   Int       @default(0)
+  paymentNotificationLastError  String?
+  paymentNotificationSentAt     DateTime?
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
   items        OrderItem[]
 
   @@index([notificationStatus, createdAt], map: "Order_notification_status_created_idx")
+  @@index([paymentDueAt, paymentMethod, paymentStatus], map: "Order_payment_due_idx")
+  @@index([paymentNotificationStatus, createdAt], map: "Order_payment_notification_idx")
 }
 
 model OrderItem {

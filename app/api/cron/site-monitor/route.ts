@@ -4,6 +4,7 @@ export const maxDuration = 60;
 
 import { NextResponse } from "next/server";
 import { retryPendingOrderNotifications } from "@/lib/orderNotifications";
+import { cancelExpiredPrepaymentOrders } from "@/lib/orderPayments";
 import { runSiteMonitor } from "@/lib/siteMonitor";
 
 function authorize(req: Request) {
@@ -29,6 +30,7 @@ async function run(req: Request) {
   try {
     const monitor = await runSiteMonitor();
     const orderNotifications = await retryPendingOrderNotifications();
+    const expiredOrders = await cancelExpiredPrepaymentOrders();
     return NextResponse.json({
       ok: true,
       healthy: monitor.result.isHealthy,
@@ -36,6 +38,7 @@ async function run(req: Request) {
       checks: monitor.result.checks,
       notification: monitor.notification?.status || null,
       orderNotifications,
+      expiredOrders,
     });
   } catch (error) {
     console.error("SITE MONITOR CRON ERROR", error);
