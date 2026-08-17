@@ -5,9 +5,7 @@ export const revalidate = 0;
 import type { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import {
-  recordCustomerNotificationResult,
-} from "@/lib/orderNotifications";
+import { recordCustomerNotificationResult } from "@/lib/orderNotifications";
 import { notifyCustomerPaymentReceipt } from "@/lib/notify";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
@@ -18,15 +16,24 @@ const Schema = z
       .enum(["NEW", "CONFIRMED", "PACKING", "SHIPPED", "DONE", "CANCELED"])
       .optional(),
     paymentStatus: z
-      .enum(["UNPAID", "PENDING", "PAID", "REFUNDED"])
+      .enum(["UNPAID", "DUE_ON_DELIVERY", "PENDING", "PAID", "REFUNDED"])
       .optional(),
   })
   .refine((value) => Boolean(value.status || value.paymentStatus));
 
+function redirectToOrders(req: Request, error?: string, orderNumber?: string) {
+  const url = new URL("/admin/orders", req.url);
+  if (error) {
+    url.searchParams.set("error", error);
+    if (orderNumber) url.searchParams.set("order", orderNumber);
+  }
+  return NextResponse.redirect(url, 303);
+}
+
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const session = await auth();
   const isAdmin = (session?.user as any)?.role === "admin";
-  if (!isAdmin) return NextResponse.redirect(new URL("/admin", req.url));
+  if (!isAdmin) return NextResponse.redirect(new URL("/admin", req.url), 303);
 
   const form = await req.formData();
   const rawStatus = String(form.get("status") || "").trim();
@@ -36,9 +43,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     status: rawStatus || undefined,
     paymentStatus: rawPaymentStatus || undefined,
   });
-  if (!parsed.success) {
-    return NextResponse.redirect(new URL("/admin/orders", req.url));
-  }
+  if (!parsed.success) return redirectToOrders(req, "invalid_status");
 
   const order = await prisma.order.findUnique({
     where: { id: params.id },
@@ -48,14 +53,28 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       },
     },
   });
-  if (!order) {
-    return NextResponse.redirect(new URL("/admin/orders", req.url));
+  if (!order) return redirectToOrders(req, "order_not_found");
+
+  const targetStatus = parsed.data.status || order.status;
+  const targetPaymentStatus = parsed.data.paymentStatus || order.paymentStatus;
+  const paymentSettled =
+    targetPaymentStatus === "PAID" || targetPaymentStatus === "REFUNDED";
+
+  // Kaspi is a prepayment method. Cash-on-delivery orders may be shipped
+  // while payment is due, but no order can be marked completed before payment.
+  if (
+    targetStatus === "SHIPPED" &&
+    order.paymentMethod === "KASPI_TRANSFER" &&
+    !paymentSettled
+  ) {
+    return redirectToOrders(req, "payment_required", order.orderNumber);
+  }
+  if (targetStatus === "DONE" && !paymentSettled) {
+    return redirectToOrders(req, "payment_required", order.orderNumber);
   }
 
   const data: Prisma.OrderUpdateInput = {};
-  if (parsed.data.status) {
-    data.status = parsed.data.status;
-  }
+  if (parsed.data.status) data.status = parsed.data.status;
 
   const paymentWasChangedToPaid =
     parsed.data.paymentStatus === "PAID" && order.paymentStatus !== "PAID";
@@ -88,5 +107,5 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     await recordCustomerNotificationResult(order.id, result);
   }
 
-  return NextResponse.redirect(new URL("/admin/orders", req.url));
+  return redirectToOrders(req);
 }
