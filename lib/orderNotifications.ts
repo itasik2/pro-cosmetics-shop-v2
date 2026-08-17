@@ -191,7 +191,7 @@ export async function retryPendingOrderNotifications(limit = 8) {
       order.email &&
       order.paymentMethod === "KASPI_TRANSFER" &&
       order.status === "CONFIRMED" &&
-      ["UNPAID", "PENDING"].includes(order.paymentStatus) &&
+      (order.paymentStatus === "UNPAID" || order.paymentStatus === "PENDING") &&
       order.paymentDueAt &&
       order.paymentDueAt > now &&
       ["PENDING", "FAILED"].includes(order.paymentNotificationStatus) &&
