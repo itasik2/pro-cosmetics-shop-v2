@@ -53,7 +53,7 @@ export default async function AdminOrderDetailPage({ params }: { params: { id: s
         </div>
 
         <form
-          action={`/api/admin/orders/${order.id}/status`}
+          action={`/admin/orders/${order.id}/status`}
           method="post"
           className="flex gap-2 items-center"
         >
