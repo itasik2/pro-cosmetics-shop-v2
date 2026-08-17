@@ -327,6 +327,18 @@ enum OrderStatus {
   CANCELED
 }
 
+enum PaymentMethod {
+  CASH
+  KASPI_TRANSFER
+}
+
+enum PaymentStatus {
+  UNPAID
+  PENDING
+  PAID
+  REFUNDED
+}
+
 model Order {
   id           String      @id @default(cuid())
   orderNumber  String      @unique
@@ -338,11 +350,18 @@ model Order {
   comment      String?
   currency     String      @default("KZT")
   totalAmount  Int
-  status       OrderStatus @default(NEW)
+  status          OrderStatus   @default(NEW)
+  paymentMethod  PaymentMethod @default(CASH)
+  paymentStatus  PaymentStatus @default(UNPAID)
+  paidAt         DateTime?
   notificationStatus    String   @default("PENDING")
   notificationAttempts  Int      @default(0)
   notificationLastError String?
   notificationSentAt    DateTime?
+  customerNotificationStatus    String   @default("SKIPPED")
+  customerNotificationAttempts  Int      @default(0)
+  customerNotificationLastError String?
+  customerNotificationSentAt    DateTime?
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
   items        OrderItem[]
