@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 
 export default function PaymentReportForm({
   token,
@@ -23,7 +23,7 @@ export default function PaymentReportForm({
     );
   }
 
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (state === "sending") return;
     setState("sending");
