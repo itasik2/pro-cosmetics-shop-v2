@@ -19,6 +19,7 @@ function statusLabel(s: string) {
 function paymentStatusLabel(s: string) {
   const map: Record<string, string> = {
     UNPAID: "Не оплачен",
+    DUE_ON_DELIVERY: "Оплата при получении",
     PENDING: "Ожидает проверки",
     PAID: "Оплачен",
     REFUNDED: "Возврат",
@@ -29,11 +30,19 @@ function paymentStatusLabel(s: string) {
 export default async function AdminOrdersPage({
   searchParams,
 }: {
-  searchParams?: { q?: string; status?: string; paymentStatus?: string };
+  searchParams?: {
+    q?: string;
+    status?: string;
+    paymentStatus?: string;
+    error?: string;
+    order?: string;
+  };
 }) {
   const q = (searchParams?.q || "").trim();
   const status = (searchParams?.status || "").trim();
   const paymentStatus = (searchParams?.paymentStatus || "").trim();
+  const error = (searchParams?.error || "").trim();
+  const orderNumber = (searchParams?.order || "").trim();
 
   const where: any = {};
   if (status) where.status = status;
@@ -97,7 +106,7 @@ export default async function AdminOrdersPage({
             defaultValue={paymentStatus}
             className="border rounded-xl px-3 py-2 text-sm bg-white"
           >
-            {["", "UNPAID", "PENDING", "PAID", "REFUNDED"].map((s) => (
+            {["", "UNPAID", "DUE_ON_DELIVERY", "PENDING", "PAID", "REFUNDED"].map((s) => (
               <option key={s} value={s}>
                 {s ? paymentStatusLabel(s) : "Вся оплата"}
               </option>
@@ -108,6 +117,13 @@ export default async function AdminOrdersPage({
           </button>
         </form>
       </div>
+
+      {error === "payment_required" && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          Нельзя сохранить этот статус{orderNumber ? " для заказа " + orderNumber : ""}: сначала подтвердите оплату.
+          Для оплаты при получении отправка разрешена, а завершение — только после получения денег.
+        </div>
+      )}
 
       <div className="rounded-2xl border overflow-x-auto">
         <table className="w-full text-sm">

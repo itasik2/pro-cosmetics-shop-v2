@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 export const runtime = "nodejs";
 
 const statuses = ["NEW", "CONFIRMED", "PACKING", "SHIPPED", "DONE", "CANCELED"] as const;
-const paymentStatuses = ["UNPAID", "PENDING", "PAID", "REFUNDED"] as const;
+const paymentStatuses = ["UNPAID", "DUE_ON_DELIVERY", "PENDING", "PAID", "REFUNDED"] as const;
 
 function statusLabel(s: string) {
   const map: Record<string, string> = {
@@ -22,6 +22,7 @@ function statusLabel(s: string) {
 function paymentStatusLabel(s: string) {
   const map: Record<string, string> = {
     UNPAID: "Не оплачен",
+    DUE_ON_DELIVERY: "Оплата при получении",
     PENDING: "Ожидает проверки",
     PAID: "Оплачен",
     REFUNDED: "Возврат",
@@ -112,6 +113,16 @@ export default async function AdminOrderDetailPage({ params }: { params: { id: s
             </button>
           </form>
         </div>
+      </div>
+
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm">
+        {order.paymentMethod === "KASPI_TRANSFER"
+          ? order.paymentStatus === "PAID" || order.paymentStatus === "REFUNDED"
+            ? "Предоплата подтверждена: заказ можно отправлять."
+            : "Для перевода на Kaspi сначала отметьте оплату как «Оплачен»; до этого отправка заблокирована."
+          : order.paymentStatus === "PAID" || order.paymentStatus === "REFUNDED"
+            ? "Оплата получена."
+            : "Оплата при получении: отправка разрешена, но завершить заказ можно только после получения денег."}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
