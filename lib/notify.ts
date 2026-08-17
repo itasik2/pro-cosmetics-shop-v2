@@ -1,5 +1,4 @@
 import { getMailConfigurationStatus, sendSiteMail } from "@/lib/mailer";
-import { orderAccessUrl } from "@/lib/orderAccess";
 import { getPaymentInstructions } from "@/lib/paymentInstructions";
 import { getPublicBaseUrl } from "@/lib/siteConfig";
 
