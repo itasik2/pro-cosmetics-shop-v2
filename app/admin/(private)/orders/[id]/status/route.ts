@@ -69,7 +69,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   // Kaspi orders stay in confirmation until payment is manually verified.
   if (
     order.paymentMethod === "KASPI_TRANSFER" &&
-    ["PACKING", "SHIPPED", "DONE"].includes(targetStatus) &&
+    (targetStatus === "PACKING" ||
+      targetStatus === "SHIPPED" ||
+      targetStatus === "DONE") &&
     !paymentSettled
   ) {
     return redirectToOrders(req, "payment_required", order.orderNumber);
