@@ -165,6 +165,24 @@ export default async function AdminOrderDetailPage({ params }: { params: { id: s
                 {new Date(order.paidAt).toLocaleString("ru-RU")}
               </div>
             )}
+            {order.paymentDueAt && order.paymentStatus !== "PAID" && (
+              <div>
+                <span className="text-gray-600">Оплатить до:</span>{" "}
+                {new Date(order.paymentDueAt).toLocaleString("ru-RU")}
+              </div>
+            )}
+            {order.paymentReportedAt && (
+              <div>
+                <span className="text-gray-600">Клиент сообщил об оплате:</span>{" "}
+                {new Date(order.paymentReportedAt).toLocaleString("ru-RU")}
+              </div>
+            )}
+            {order.paymentReportedNote && (
+              <div>
+                <span className="text-gray-600">Комментарий об оплате:</span>{" "}
+                {order.paymentReportedNote}
+              </div>
+            )}
             <div>
               <span className="text-gray-600">Комментарий:</span> {order.comment || "—"}
             </div>
@@ -221,6 +239,18 @@ export default async function AdminOrderDetailPage({ params }: { params: { id: s
               {order.customerNotificationStatus === "SENT"
                 ? "отправлено"
                 : order.customerNotificationStatus === "FAILED"
+                  ? "ошибка отправки"
+                  : "ожидает отправки"}
+            </span>
+          </div>
+        )}
+        {order.email && order.paymentMethod === "KASPI_TRANSFER" && order.status === "CONFIRMED" && (
+          <div>
+            Письмо с реквизитами:{" "}
+            <span className="font-semibold">
+              {order.paymentNotificationStatus === "SENT"
+                ? "отправлено"
+                : order.paymentNotificationStatus === "FAILED"
                   ? "ошибка отправки"
                   : "ожидает отправки"}
             </span>
