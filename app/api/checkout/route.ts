@@ -6,7 +6,10 @@ import type { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { buildOrderFromCart, makeOrderNumber } from "@/lib/order";
-import {\n  recordCustomerNotificationResult,\n  recordOrderNotificationResult,\n} from "@/lib/orderNotifications";
+import {
+  recordCustomerNotificationResult,
+  recordOrderNotificationResult,
+} from "@/lib/orderNotifications";
 import { prisma } from "@/lib/prisma";
 import { notifyAdminNewOrder, notifyCustomerOrderCreated } from "@/lib/notify";
 import { checkRateLimit, getClientIp } from "@/lib/rateLimit";
