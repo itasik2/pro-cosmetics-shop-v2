@@ -17,7 +17,7 @@ export default function CheckoutSuccessPage({
           <div className="text-sm text-gray-500">Номер заказа</div>
           <div className="text-xl font-bold">{order}</div>
           <div className="text-sm text-gray-600 mt-2">
-            Мы свяжемся с вами для подтверждения.
+            Мы свяжемся с вами для подтверждения. Если вы указали email, на него отправлено письмо с составом заказа.
           </div>
         </div>
       ) : (

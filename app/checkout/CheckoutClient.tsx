@@ -64,6 +64,7 @@ export default function CheckoutClient() {
   const [deliveryType, setDeliveryType] = useState<"pickup" | "delivery">("pickup");
   const [address, setAddress] = useState("");
   const [comment, setComment] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<"CASH" | "KASPI_TRANSFER">("CASH");
 
   const [submitting, setSubmitting] = useState(false);
   const [submitErr, setSubmitErr] = useState<string | null>(null);
@@ -302,6 +303,7 @@ export default function CheckoutClient() {
           deliveryType,
           address: addr,
           comment: comment.trim(),
+          paymentMethod,
           cart: cartSelected,
         }),
       });
@@ -564,6 +566,26 @@ export default function CheckoutClient() {
                 </label>
               )}
 
+              <div className="text-sm font-semibold pt-1">Способ оплаты</div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:gap-4">
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="radio"
+                    checked={paymentMethod === "CASH"}
+                    onChange={() => setPaymentMethod("CASH")}
+                  />
+                  <span>Оплата при получении</span>
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="radio"
+                    checked={paymentMethod === "KASPI_TRANSFER"}
+                    onChange={() => setPaymentMethod("KASPI_TRANSFER")}
+                  />
+                  <span>Перевод на Kaspi</span>
+                </label>
+              </div>
+
               <label className="space-y-1">
                 <div className="text-sm text-gray-600">Комментарий (необязательно)</div>
                 <textarea
@@ -592,7 +614,7 @@ export default function CheckoutClient() {
               </div>
 
               <div className="text-xs text-gray-500">
-                На первом этапе оплата производится при получении или переводом — способ уточнит менеджер.
+                Менеджер подтвердит заказ и отдельно отметит оплату после проверки перевода или получения денег.
               </div>
             </div>
           )}

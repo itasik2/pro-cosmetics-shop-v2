@@ -16,16 +16,28 @@ function statusLabel(s: string) {
   return map[s] || s;
 }
 
+function paymentStatusLabel(s: string) {
+  const map: Record<string, string> = {
+    UNPAID: "Не оплачен",
+    PENDING: "Ожидает проверки",
+    PAID: "Оплачен",
+    REFUNDED: "Возврат",
+  };
+  return map[s] || s;
+}
+
 export default async function AdminOrdersPage({
   searchParams,
 }: {
-  searchParams?: { q?: string; status?: string };
+  searchParams?: { q?: string; status?: string; paymentStatus?: string };
 }) {
   const q = (searchParams?.q || "").trim();
   const status = (searchParams?.status || "").trim();
+  const paymentStatus = (searchParams?.paymentStatus || "").trim();
 
   const where: any = {};
   if (status) where.status = status;
+  if (paymentStatus) where.paymentStatus = paymentStatus;
 
   if (q) {
     where.OR = [
@@ -46,6 +58,7 @@ export default async function AdminOrdersPage({
       phone: true,
       totalAmount: true,
       status: true,
+      paymentStatus: true,
       createdAt: true,
       _count: { select: { items: true } },
     },
@@ -79,6 +92,17 @@ export default async function AdminOrdersPage({
               </option>
             ))}
           </select>
+          <select
+            name="paymentStatus"
+            defaultValue={paymentStatus}
+            className="border rounded-xl px-3 py-2 text-sm bg-white"
+          >
+            {["", "UNPAID", "PENDING", "PAID", "REFUNDED"].map((s) => (
+              <option key={s} value={s}>
+                {s ? paymentStatusLabel(s) : "Вся оплата"}
+              </option>
+            ))}
+          </select>
           <button className="px-3 py-2 rounded-xl bg-black text-white text-sm" type="submit">
             Найти
           </button>
@@ -95,6 +119,7 @@ export default async function AdminOrdersPage({
               <th className="text-left p-3">Телефон</th>
               <th className="text-right p-3">Сумма</th>
               <th className="text-left p-3">Статус</th>
+              <th className="text-left p-3">Оплата</th>
               <th className="text-right p-3">Позиции</th>
             </tr>
           </thead>
@@ -115,12 +140,13 @@ export default async function AdminOrdersPage({
                   {o.totalAmount.toLocaleString("ru-RU")} ₸
                 </td>
                 <td className="p-3">{statusLabel(String(o.status))}</td>
+                <td className="p-3">{paymentStatusLabel(String(o.paymentStatus))}</td>
                 <td className="p-3 text-right">{o._count.items}</td>
               </tr>
             ))}
             {orders.length === 0 && (
               <tr>
-                <td className="p-4 text-gray-500" colSpan={7}>
+                <td className="p-4 text-gray-500" colSpan={8}>
                   Нет заказов по заданным фильтрам.
                 </td>
               </tr>

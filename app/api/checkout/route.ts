@@ -6,9 +6,12 @@ import type { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { buildOrderFromCart, makeOrderNumber } from "@/lib/order";
-import { recordOrderNotificationResult } from "@/lib/orderNotifications";
+import {
+  recordCustomerNotificationResult,
+  recordOrderNotificationResult,
+} from "@/lib/orderNotifications";
 import { prisma } from "@/lib/prisma";
-import { notifyAdminNewOrder } from "@/lib/notify";
+import { notifyAdminNewOrder, notifyCustomerOrderCreated } from "@/lib/notify";
 import { checkRateLimit, getClientIp } from "@/lib/rateLimit";
 
 const CheckoutSchema = z.object({
@@ -18,6 +21,7 @@ const CheckoutSchema = z.object({
   deliveryType: z.enum(["pickup", "delivery"]),
   address: z.string().max(250).optional().or(z.literal("")),
   comment: z.string().max(500).optional().or(z.literal("")),
+  paymentMethod: z.enum(["CASH", "KASPI_TRANSFER"]).default("CASH"),
   cart: z
     .array(
       z.object({
@@ -167,6 +171,9 @@ export async function POST(req: Request) {
           currency: "KZT",
           totalAmount: built.total,
           status: "NEW",
+          paymentMethod: data.paymentMethod,
+          paymentStatus: "UNPAID",
+          customerNotificationStatus: data.email ? "PENDING" : "SKIPPED",
           items: {
             create: built.items.map((item) => ({
               productId: item.productId,
@@ -184,7 +191,7 @@ export async function POST(req: Request) {
       });
     });
 
-    const notification = await notifyAdminNewOrder({
+    const notificationArgs = {
       orderId: created.id,
       orderNumber: created.orderNumber,
       totalAmount: created.totalAmount,
@@ -194,14 +201,22 @@ export async function POST(req: Request) {
       deliveryType: data.deliveryType,
       address: address || null,
       comment: data.comment ? data.comment.trim() : null,
+      paymentMethod: data.paymentMethod,
       items: built.items.map((item) => ({
         title: item.title,
         qty: item.qty,
         lineTotal: item.lineTotal,
         sku: item.sku,
       })),
-    });
+    };
+
+    const notification = await notifyAdminNewOrder(notificationArgs);
     await recordOrderNotificationResult(created.id, notification);
+
+    if (data.email) {
+      const customerNotification = await notifyCustomerOrderCreated(notificationArgs);
+      await recordCustomerNotificationResult(created.id, customerNotification);
+    }
 
     return NextResponse.json(
       {

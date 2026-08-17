@@ -1,6 +1,9 @@
 import type { MailDeliveryResult } from "@/lib/mailer";
 import { getMailConfigurationStatus } from "@/lib/mailer";
-import { notifyAdminNewOrder } from "@/lib/notify";
+import {
+  notifyAdminNewOrder,
+  notifyCustomerOrderCreated,
+} from "@/lib/notify";
 import { prisma } from "@/lib/prisma";
 
 function resultError(result: MailDeliveryResult) {
@@ -31,6 +34,31 @@ export async function recordOrderNotificationResult(
   }
 }
 
+export async function recordCustomerNotificationResult(
+  orderId: string,
+  result: MailDeliveryResult,
+) {
+  try {
+    await prisma.order.update({
+      where: { id: orderId },
+      data: {
+        customerNotificationStatus:
+          result.status === "sent"
+            ? "SENT"
+            : result.status === "skipped"
+              ? "PENDING"
+              : "FAILED",
+        customerNotificationAttempts: { increment: 1 },
+        customerNotificationLastError: resultError(result),
+        customerNotificationSentAt:
+          result.status === "sent" ? new Date() : null,
+      },
+    });
+  } catch (error) {
+    console.error("CUSTOMER NOTIFICATION STATUS UPDATE ERROR", error);
+  }
+}
+
 export async function retryPendingOrderNotifications(limit = 8) {
   if (!getMailConfigurationStatus().configured) {
     return { configured: false, attempted: 0, sent: 0, failed: 0 };
@@ -39,9 +67,18 @@ export async function retryPendingOrderNotifications(limit = 8) {
   const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
   const orders = await prisma.order.findMany({
     where: {
-      notificationStatus: { in: ["PENDING", "FAILED"] },
-      notificationAttempts: { lt: 5 },
       createdAt: { gte: since },
+      OR: [
+        {
+          notificationStatus: { in: ["PENDING", "FAILED"] },
+          notificationAttempts: { lt: 5 },
+        },
+        {
+          email: { not: null },
+          customerNotificationStatus: { in: ["PENDING", "FAILED"] },
+          customerNotificationAttempts: { lt: 5 },
+        },
+      ],
     },
     include: {
       items: {
@@ -52,36 +89,64 @@ export async function retryPendingOrderNotifications(limit = 8) {
     take: Math.min(Math.max(limit, 1), 20),
   });
 
+  let attempted = 0;
   let sent = 0;
   let failed = 0;
 
   for (const order of orders) {
-    const result = await notifyAdminNewOrder({
-      orderId: order.id,
-      orderNumber: order.orderNumber,
-      totalAmount: order.totalAmount,
-      customerName: order.customerName,
-      phone: order.phone,
-      customerEmail: order.email,
-      deliveryType: order.deliveryType,
-      address: order.address,
-      comment: order.comment,
-      items: order.items,
-    });
-    await recordOrderNotificationResult(order.id, result);
+    if (
+      ["PENDING", "FAILED"].includes(order.notificationStatus) &&
+      order.notificationAttempts < 5
+    ) {
+      const result = await notifyAdminNewOrder({
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        totalAmount: order.totalAmount,
+        customerName: order.customerName,
+        phone: order.phone,
+        customerEmail: order.email,
+        deliveryType: order.deliveryType,
+        address: order.address,
+        comment: order.comment,
+        paymentMethod: order.paymentMethod,
+        items: order.items,
+      });
+      await recordOrderNotificationResult(order.id, result);
+      attempted += 1;
+      if (result.status === "sent") sent += 1;
+      if (result.status === "failed") {
+        failed += 1;
+        break;
+      }
+    }
 
-    if (result.status === "sent") {
-      sent += 1;
-    } else {
-      failed += 1;
-      if (result.status === "failed") break;
+    if (
+      order.email &&
+      ["PENDING", "FAILED"].includes(order.customerNotificationStatus) &&
+      order.customerNotificationAttempts < 5
+    ) {
+      const result = await notifyCustomerOrderCreated({
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        totalAmount: order.totalAmount,
+        customerName: order.customerName,
+        phone: order.phone,
+        customerEmail: order.email,
+        deliveryType: order.deliveryType,
+        address: order.address,
+        comment: order.comment,
+        paymentMethod: order.paymentMethod,
+        items: order.items,
+      });
+      await recordCustomerNotificationResult(order.id, result);
+      attempted += 1;
+      if (result.status === "sent") sent += 1;
+      if (result.status === "failed") {
+        failed += 1;
+        break;
+      }
     }
   }
 
-  return {
-    configured: true,
-    attempted: sent + failed,
-    sent,
-    failed,
-  };
+  return { configured: true, attempted, sent, failed };
 }
