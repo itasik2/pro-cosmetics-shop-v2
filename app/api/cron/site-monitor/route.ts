@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 import { NextResponse } from "next/server";
+import { archiveOldOrders } from "@/lib/orderArchive";
 import { retryPendingOrderNotifications } from "@/lib/orderNotifications";
 import { cancelExpiredPrepaymentOrders } from "@/lib/orderPayments";
 import { runSiteMonitor } from "@/lib/siteMonitor";
@@ -28,6 +29,7 @@ async function run(req: Request) {
   if (forbidden) return forbidden;
 
   try {
+    const archivedOrders = await archiveOldOrders();
     const monitor = await runSiteMonitor();
     const orderNotifications = await retryPendingOrderNotifications();
     const expiredOrders = await cancelExpiredPrepaymentOrders();
@@ -39,6 +41,7 @@ async function run(req: Request) {
       notification: monitor.notification?.status || null,
       orderNotifications,
       expiredOrders,
+      archivedOrders,
     });
   } catch (error) {
     console.error("SITE MONITOR CRON ERROR", error);
