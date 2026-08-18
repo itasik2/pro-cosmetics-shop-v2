@@ -51,13 +51,16 @@ export default async function AdminOrderDetailPage({ params }: { params: { id: s
     );
   }
 
+  const ordersHref = order.archivedAt ? "/admin/orders?view=archive" : "/admin/orders";
+  const returnTo = `/admin/orders/${order.id}`;
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <div className="text-sm text-gray-500">
-            <Link className="hover:underline" href="/admin/orders">
-              Заказы
+            <Link className="hover:underline" href={ordersHref}>
+              {order.archivedAt ? "Архив заказов" : "Заказы"}
             </Link>{" "}
             / {order.orderNumber}
           </div>
@@ -68,52 +71,79 @@ export default async function AdminOrderDetailPage({ params }: { params: { id: s
           </div>
         </div>
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <form
-            action={`/admin/orders/${order.id}/status`}
-            method="post"
-            className="flex gap-2 items-center"
-          >
-            <select
-              name="status"
-              defaultValue={String(order.status)}
-              className="border rounded-xl px-3 py-2 text-sm bg-white"
-              aria-label="Статус заказа"
-            >
-              {statuses.map((s) => (
-                <option key={s} value={s}>
-                  {statusLabel(s)}
-                </option>
-              ))}
-            </select>
-            <button className="px-3 py-2 rounded-xl bg-black text-white text-sm" type="submit">
-              Сохранить статус
-            </button>
-          </form>
+        <div className="flex flex-col gap-2 xl:flex-row xl:items-center">
+          {order.archivedAt ? (
+            <form action={`/admin/orders/${order.id}/archive`} method="post">
+              <input type="hidden" name="action" value="restore" />
+              <input type="hidden" name="returnTo" value={returnTo} />
+              <button className="px-3 py-2 rounded-xl bg-black text-white text-sm" type="submit">
+                Восстановить из архива
+              </button>
+            </form>
+          ) : (
+            <>
+              <form
+                action={`/admin/orders/${order.id}/status`}
+                method="post"
+                className="flex gap-2 items-center"
+              >
+                <select
+                  name="status"
+                  defaultValue={String(order.status)}
+                  className="border rounded-xl px-3 py-2 text-sm bg-white"
+                  aria-label="Статус заказа"
+                >
+                  {statuses.map((s) => (
+                    <option key={s} value={s}>
+                      {statusLabel(s)}
+                    </option>
+                  ))}
+                </select>
+                <button className="px-3 py-2 rounded-xl bg-black text-white text-sm" type="submit">
+                  Сохранить статус
+                </button>
+              </form>
 
-          <form
-            action={`/admin/orders/${order.id}/status`}
-            method="post"
-            className="flex gap-2 items-center"
-          >
-            <select
-              name="paymentStatus"
-              defaultValue={String(order.paymentStatus)}
-              className="border rounded-xl px-3 py-2 text-sm bg-white"
-              aria-label="Статус оплаты"
-            >
-              {paymentStatuses.map((s) => (
-                <option key={s} value={s}>
-                  {paymentStatusLabel(s)}
-                </option>
-              ))}
-            </select>
-            <button className="px-3 py-2 rounded-xl border bg-white text-sm" type="submit">
-              Сохранить оплату
-            </button>
-          </form>
+              <form
+                action={`/admin/orders/${order.id}/status`}
+                method="post"
+                className="flex gap-2 items-center"
+              >
+                <select
+                  name="paymentStatus"
+                  defaultValue={String(order.paymentStatus)}
+                  className="border rounded-xl px-3 py-2 text-sm bg-white"
+                  aria-label="Статус оплаты"
+                >
+                  {paymentStatuses.map((s) => (
+                    <option key={s} value={s}>
+                      {paymentStatusLabel(s)}
+                    </option>
+                  ))}
+                </select>
+                <button className="px-3 py-2 rounded-xl border bg-white text-sm" type="submit">
+                  Сохранить оплату
+                </button>
+              </form>
+
+              <form action={`/admin/orders/${order.id}/archive`} method="post">
+                <input type="hidden" name="action" value="archive" />
+                <input type="hidden" name="returnTo" value={returnTo} />
+                <button className="px-3 py-2 rounded-xl border bg-white text-sm" type="submit">
+                  В архив
+                </button>
+              </form>
+            </>
+          )}
         </div>
       </div>
+
+      {order.archivedAt && (
+        <div className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+          Заказ находится в архиве с {new Date(order.archivedAt).toLocaleString("ru-RU")}.
+          Статус заказа и оплаты заблокированы до восстановления.
+        </div>
+      )}
 
       <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm">
         {order.paymentMethod === "KASPI_TRANSFER"
@@ -232,6 +262,11 @@ export default async function AdminOrderDetailPage({ params }: { params: { id: s
         <div>
           Статус заказа: <span className="font-semibold">{statusLabel(String(order.status))}</span>
         </div>
+        {order.archivedAt && (
+          <div>
+            Архивирован: <span className="font-semibold">{new Date(order.archivedAt).toLocaleString("ru-RU")}</span>
+          </div>
+        )}
         {order.email && (
           <div>
             Уведомление клиенту:{" "}

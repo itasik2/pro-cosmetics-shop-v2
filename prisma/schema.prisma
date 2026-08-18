@@ -213,7 +213,7 @@ model ProductEnrichmentProposal {
   jobId            String?                      @unique
   job              EnrichmentJob?               @relation(fields: [jobId], references: [id], onDelete: SetNull)
   status           EnrichmentProposalStatus     @default(PENDING)
-  sourceUrl        String
+  sourceUrl         String
   confidence       Int                          @default(0)
   title            String?
   shortDescription String?
@@ -372,6 +372,7 @@ model Order {
   paymentNotificationAttempts   Int       @default(0)
   paymentNotificationLastError  String?
   paymentNotificationSentAt     DateTime?
+  archivedAt                    DateTime?
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
   items        OrderItem[]
@@ -379,6 +380,7 @@ model Order {
   @@index([notificationStatus, createdAt], map: "Order_notification_status_created_idx")
   @@index([paymentDueAt, paymentMethod, paymentStatus], map: "Order_payment_due_idx")
   @@index([paymentNotificationStatus, createdAt], map: "Order_payment_notification_idx")
+  @@index([archivedAt, createdAt], map: "Order_archived_created_idx")
 }
 
 model OrderItem {

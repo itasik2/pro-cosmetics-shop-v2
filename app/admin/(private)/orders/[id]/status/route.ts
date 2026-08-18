@@ -60,6 +60,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     },
   });
   if (!order) return redirectToOrders(req, "order_not_found");
+  if (order.archivedAt) {
+    return redirectToOrders(req, "order_archived", order.orderNumber);
+  }
 
   const targetStatus = parsed.data.status || order.status;
   const targetPaymentStatus = parsed.data.paymentStatus || order.paymentStatus;
