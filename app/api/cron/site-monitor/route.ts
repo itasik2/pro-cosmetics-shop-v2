@@ -5,6 +5,7 @@ export const maxDuration = 60;
 import { NextResponse } from "next/server";
 import { archiveOldOrders } from "@/lib/orderArchive";
 import { retryPendingOrderNotifications } from "@/lib/orderNotifications";
+import { retryPendingMessengerNotifications } from "@/lib/orderMessengerNotifications";
 import { cancelExpiredPrepaymentOrders } from "@/lib/orderPayments";
 import { runSiteMonitor } from "@/lib/siteMonitor";
 
@@ -32,6 +33,7 @@ async function run(req: Request) {
     const archivedOrders = await archiveOldOrders();
     const monitor = await runSiteMonitor();
     const orderNotifications = await retryPendingOrderNotifications();
+    const messengerNotifications = await retryPendingMessengerNotifications();
     const expiredOrders = await cancelExpiredPrepaymentOrders();
     return NextResponse.json({
       ok: true,
@@ -40,6 +42,7 @@ async function run(req: Request) {
       checks: monitor.result.checks,
       notification: monitor.notification?.status || null,
       orderNotifications,
+      messengerNotifications,
       expiredOrders,
       archivedOrders,
     });

@@ -9,6 +9,7 @@ import {
   recordCustomerNotificationResult,
   recordPaymentNotificationResult,
 } from "@/lib/orderNotifications";
+import { sendOrderMessengerNotification } from "@/lib/orderMessengerNotifications";
 import {
   notifyCustomerPaymentReceipt,
   notifyCustomerPaymentRequired,
@@ -69,7 +70,6 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const paymentSettled =
     targetPaymentStatus === "PAID" || targetPaymentStatus === "REFUNDED";
 
-  // Kaspi orders stay in confirmation until payment is manually verified.
   if (
     order.paymentMethod === "KASPI_TRANSFER" &&
     (targetStatus === "PACKING" ||
@@ -84,6 +84,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   }
 
   const data: Prisma.OrderUpdateInput = {};
+  const statusWasChanged = Boolean(
+    parsed.data.status && parsed.data.status !== order.status,
+  );
   const statusWasChangedToConfirmed =
     parsed.data.status === "CONFIRMED" && order.status !== "CONFIRMED";
   let paymentDueAt = order.paymentDueAt;
@@ -155,6 +158,20 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       paymentDueAt,
     });
     await recordPaymentNotificationResult(order.id, result);
+  }
+
+  if (order.notificationChannel === "WHATSAPP" || order.notificationChannel === "TELEGRAM") {
+    if (paymentWasChangedToPaid) {
+      await sendOrderMessengerNotification(order.id, "PAYMENT_PAID");
+    } else if (
+      statusWasChangedToConfirmed &&
+      order.paymentMethod === "KASPI_TRANSFER" &&
+      !paymentSettled
+    ) {
+      await sendOrderMessengerNotification(order.id, "PAYMENT_REQUIRED");
+    } else if (statusWasChanged) {
+      await sendOrderMessengerNotification(order.id, "STATUS_UPDATE");
+    }
   }
 
   return redirectToOrders(req);

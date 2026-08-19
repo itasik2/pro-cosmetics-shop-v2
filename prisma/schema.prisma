@@ -348,6 +348,7 @@ model Order {
   email        String?
   notificationChannel String?
   notificationContact String?
+  telegramChatId String?
   deliveryType String
   address      String?
   comment      String?
@@ -365,6 +366,11 @@ model Order {
   customerNotificationAttempts  Int      @default(0)
   customerNotificationLastError String?
   customerNotificationSentAt    DateTime?
+  messengerNotificationStatus    String   @default("SKIPPED")
+  messengerNotificationAttempts  Int      @default(0)
+  messengerNotificationLastError String?
+  messengerNotificationSentAt    DateTime?
+  messengerNotificationEvent     String?
   customerAccessTokenHash       String?   @unique
   confirmedAt                   DateTime?
   paymentDueAt                  DateTime?
@@ -382,6 +388,7 @@ model Order {
   @@index([notificationStatus, createdAt], map: "Order_notification_status_created_idx")
   @@index([paymentDueAt, paymentMethod, paymentStatus], map: "Order_payment_due_idx")
   @@index([paymentNotificationStatus, createdAt], map: "Order_payment_notification_idx")
+  @@index([messengerNotificationStatus, createdAt], map: "Order_messenger_notification_idx")
   @@index([archivedAt, createdAt], map: "Order_archived_created_idx")
 }
 

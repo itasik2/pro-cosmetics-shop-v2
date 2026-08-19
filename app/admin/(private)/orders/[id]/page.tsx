@@ -41,6 +41,13 @@ function notificationChannelLabel(s?: string | null) {
   return s || "—";
 }
 
+function messengerStatusLabel(s?: string | null) {
+  if (s === "SENT") return "отправлено";
+  if (s === "FAILED") return "ошибка отправки";
+  if (s === "PENDING") return "ожидает отправки";
+  return "не отправлялось";
+}
+
 export default async function AdminOrderDetailPage({ params }: { params: { id: string } }) {
   const order = await prisma.order.findUnique({
     where: { id: params.id },
@@ -187,6 +194,14 @@ export default async function AdminOrderDetailPage({ params }: { params: { id: s
                 {order.notificationContact}
               </div>
             )}
+            {order.notificationChannel === "TELEGRAM" && (
+              <div>
+                <span className="text-gray-600">Telegram-бот:</span>{" "}
+                <span className="font-semibold">
+                  {order.telegramChatId ? "подключён" : "ожидает подключения клиентом"}
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -298,7 +313,13 @@ export default async function AdminOrderDetailPage({ params }: { params: { id: s
         )}
         {!order.email && order.notificationChannel && (
           <div>
-            Автоматическая отправка в {notificationChannelLabel(order.notificationChannel)} пока не подключена; контакт сохранён для менеджера.
+            Уведомления через {notificationChannelLabel(order.notificationChannel)}:{" "}
+            <span className="font-semibold">
+              {messengerStatusLabel(order.messengerNotificationStatus)}
+            </span>
+            {order.messengerNotificationLastError
+              ? ` • ${order.messengerNotificationLastError}`
+              : ""}
           </div>
         )}
         {order.email && order.paymentMethod === "KASPI_TRANSFER" && order.status === "CONFIRMED" && (

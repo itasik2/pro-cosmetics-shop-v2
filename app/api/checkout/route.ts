@@ -10,6 +10,7 @@ import {
   recordCustomerNotificationResult,
   recordOrderNotificationResult,
 } from "@/lib/orderNotifications";
+import { sendOrderMessengerNotification } from "@/lib/orderMessengerNotifications";
 import { prisma } from "@/lib/prisma";
 import { notifyAdminNewOrder, notifyCustomerOrderCreated } from "@/lib/notify";
 import { checkRateLimit, getClientIp } from "@/lib/rateLimit";
@@ -215,6 +216,10 @@ export async function POST(req: Request) {
           paymentStatus: data.paymentMethod === "CASH" ? "DUE_ON_DELIVERY" : "UNPAID",
           customerAccessTokenHash: access.tokenHash,
           customerNotificationStatus: email ? "PENDING" : "SKIPPED",
+          messengerNotificationStatus:
+            notificationChannel === "EMAIL" ? "SKIPPED" : "PENDING",
+          messengerNotificationEvent:
+            notificationChannel === "EMAIL" ? null : "ORDER_CREATED",
           items: {
             create: built.items.map((item) => ({
               productId: item.productId,
@@ -260,6 +265,8 @@ export async function POST(req: Request) {
     if (email) {
       const customerNotification = await notifyCustomerOrderCreated(notificationArgs);
       await recordCustomerNotificationResult(created.id, customerNotification);
+    } else {
+      await sendOrderMessengerNotification(created.id, "ORDER_CREATED");
     }
 
     return NextResponse.json(
