@@ -15,23 +15,50 @@ import { notifyAdminNewOrder, notifyCustomerOrderCreated } from "@/lib/notify";
 import { checkRateLimit, getClientIp } from "@/lib/rateLimit";
 import { createOrderAccessToken, orderAccessUrl } from "@/lib/orderAccess";
 
-const CheckoutSchema = z.object({
-  customerName: z.string().min(2).max(80),
-  phone: z.string().min(6).max(30),
-  email: z.string().email(),
-  deliveryType: z.enum(["pickup", "delivery"]),
-  address: z.string().max(250).optional().or(z.literal("")),
-  comment: z.string().max(500).optional().or(z.literal("")),
-  paymentMethod: z.enum(["CASH", "KASPI_TRANSFER"]).default("KASPI_TRANSFER"),
-  cart: z
-    .array(
-      z.object({
-        id: z.string().min(1),
-        qty: z.number().int().positive(),
-      }),
-    )
-    .min(1),
-});
+const CheckoutSchema = z
+  .object({
+    customerName: z.string().min(2).max(80),
+    phone: z.string().min(6).max(30),
+    email: z.string().email().optional().or(z.literal("")),
+    messenger: z.enum(["WHATSAPP", "TELEGRAM"]).optional(),
+    messengerContact: z.string().max(120).optional().or(z.literal("")),
+    deliveryType: z.enum(["pickup", "delivery"]),
+    address: z.string().max(250).optional().or(z.literal("")),
+    comment: z.string().max(500).optional().or(z.literal("")),
+    paymentMethod: z.enum(["CASH", "KASPI_TRANSFER"]).default("KASPI_TRANSFER"),
+    cart: z
+      .array(
+        z.object({
+          id: z.string().min(1),
+          qty: z.number().int().positive(),
+        }),
+      )
+      .min(1),
+  })
+  .superRefine((data, ctx) => {
+    const email = String(data.email || "").trim();
+    if (email) return;
+
+    if (!data.messenger) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["messenger"],
+        message: "Выберите WhatsApp или Telegram для связи по заказу",
+      });
+      return;
+    }
+
+    if (
+      data.messenger === "TELEGRAM" &&
+      String(data.messengerContact || "").trim().length < 2
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["messengerContact"],
+        message: "Укажите Telegram @username или другой контакт",
+      });
+    }
+  });
 
 function asArrayVariants(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value)
@@ -62,6 +89,15 @@ export async function POST(req: Request) {
 
   try {
     const data = CheckoutSchema.parse(await req.json().catch(() => ({})));
+    const email = String(data.email || "").trim();
+    const phone = data.phone.trim();
+    const notificationChannel = email ? "EMAIL" : data.messenger!;
+    const notificationContact = email
+      ? email
+      : data.messenger === "WHATSAPP"
+        ? String(data.messengerContact || "").trim() || phone
+        : String(data.messengerContact || "").trim();
+
     const address =
       data.deliveryType === "delivery" ? String(data.address || "").trim() : "";
 
@@ -165,8 +201,10 @@ export async function POST(req: Request) {
         data: {
           orderNumber,
           customerName: data.customerName.trim(),
-          phone: data.phone.trim(),
-          email: data.email.trim(),
+          phone,
+          email: email || null,
+          notificationChannel,
+          notificationContact,
           deliveryType: data.deliveryType,
           address: address || null,
           comment: data.comment ? data.comment.trim() : null,
@@ -176,7 +214,7 @@ export async function POST(req: Request) {
           paymentMethod: data.paymentMethod,
           paymentStatus: data.paymentMethod === "CASH" ? "DUE_ON_DELIVERY" : "UNPAID",
           customerAccessTokenHash: access.tokenHash,
-          customerNotificationStatus: "PENDING",
+          customerNotificationStatus: email ? "PENDING" : "SKIPPED",
           items: {
             create: built.items.map((item) => ({
               productId: item.productId,
@@ -199,8 +237,10 @@ export async function POST(req: Request) {
       orderNumber: created.orderNumber,
       totalAmount: created.totalAmount,
       customerName: data.customerName,
-      phone: data.phone,
-      customerEmail: data.email.trim(),
+      phone,
+      customerEmail: email || null,
+      notificationChannel,
+      notificationContact,
       orderAccessUrl: orderAccessUrl(access.token),
       deliveryType: data.deliveryType,
       address: address || null,
@@ -217,7 +257,7 @@ export async function POST(req: Request) {
     const notification = await notifyAdminNewOrder(notificationArgs);
     await recordOrderNotificationResult(created.id, notification);
 
-    if (data.email) {
+    if (email) {
       const customerNotification = await notifyCustomerOrderCreated(notificationArgs);
       await recordCustomerNotificationResult(created.id, customerNotification);
     }
@@ -229,6 +269,7 @@ export async function POST(req: Request) {
         orderNumber: created.orderNumber,
         accessToken: access.token,
         accessUrl: orderAccessUrl(access.token),
+        notificationChannel,
       },
       { status: 200 },
     );

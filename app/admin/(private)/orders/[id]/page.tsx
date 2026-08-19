@@ -34,6 +34,13 @@ function paymentMethodLabel(s: string) {
   return s === "KASPI_TRANSFER" ? "Перевод на Kaspi" : "Оплата при получении";
 }
 
+function notificationChannelLabel(s?: string | null) {
+  if (s === "WHATSAPP") return "WhatsApp";
+  if (s === "TELEGRAM") return "Telegram";
+  if (s === "EMAIL") return "Email";
+  return s || "—";
+}
+
 export default async function AdminOrderDetailPage({ params }: { params: { id: string } }) {
   const order = await prisma.order.findUnique({
     where: { id: params.id },
@@ -158,7 +165,7 @@ export default async function AdminOrderDetailPage({ params }: { params: { id: s
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <div className="rounded-2xl border p-4 space-y-2">
           <div className="font-bold">Клиент</div>
-          <div className="text-sm">
+          <div className="text-sm space-y-1">
             <div>
               <span className="text-gray-600">Имя:</span> {order.customerName}
             </div>
@@ -168,6 +175,16 @@ export default async function AdminOrderDetailPage({ params }: { params: { id: s
             {order.email && (
               <div>
                 <span className="text-gray-600">Email:</span> {order.email}
+              </div>
+            )}
+            <div>
+              <span className="text-gray-600">Канал связи:</span>{" "}
+              <span className="font-semibold">{notificationChannelLabel(order.notificationChannel)}</span>
+            </div>
+            {order.notificationContact && (
+              <div>
+                <span className="text-gray-600">Контакт для уведомлений:</span>{" "}
+                {order.notificationContact}
               </div>
             )}
           </div>
@@ -277,6 +294,11 @@ export default async function AdminOrderDetailPage({ params }: { params: { id: s
                   ? "ошибка отправки"
                   : "ожидает отправки"}
             </span>
+          </div>
+        )}
+        {!order.email && order.notificationChannel && (
+          <div>
+            Автоматическая отправка в {notificationChannelLabel(order.notificationChannel)} пока не подключена; контакт сохранён для менеджера.
           </div>
         )}
         {order.email && order.paymentMethod === "KASPI_TRANSFER" && order.status === "CONFIRMED" && (

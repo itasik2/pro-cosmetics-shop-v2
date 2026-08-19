@@ -16,6 +16,8 @@ export type NotifyArgs = {
   customerName: string;
   phone: string;
   customerEmail?: string | null;
+  notificationChannel?: string | null;
+  notificationContact?: string | null;
   deliveryType: string;
   address?: string | null;
   comment?: string | null;
@@ -37,6 +39,13 @@ function paymentMethodLabel(value?: string | null) {
   return value === "KASPI_TRANSFER" ? "Перевод на Kaspi" : "Оплата при получении";
 }
 
+function notificationChannelLabel(value?: string | null) {
+  if (value === "WHATSAPP") return "WhatsApp";
+  if (value === "TELEGRAM") return "Telegram";
+  if (value === "EMAIL") return "Email";
+  return value || null;
+}
+
 function itemLines(items: OrderMailItem[]) {
   return items.map(
     (item, index) =>
@@ -45,6 +54,7 @@ function itemLines(items: OrderMailItem[]) {
 }
 
 function commonOrderLines(args: NotifyArgs) {
+  const contactLabel = notificationChannelLabel(args.notificationChannel);
   return [
     `Заказ ${args.orderNumber}`,
     "",
@@ -52,6 +62,8 @@ function commonOrderLines(args: NotifyArgs) {
     `Клиент: ${args.customerName}`,
     `Телефон: ${args.phone}`,
     args.customerEmail ? `Email: ${args.customerEmail}` : null,
+    contactLabel ? `Канал связи: ${contactLabel}` : null,
+    args.notificationContact ? `Контакт для уведомлений: ${args.notificationContact}` : null,
     `Получение: ${deliveryLabel(args.deliveryType)}`,
     args.address ? `Адрес: ${args.address}` : null,
     args.comment ? `Комментарий: ${args.comment}` : null,
@@ -99,7 +111,7 @@ export async function notifyAdminNewOrder(args: NotifyArgs) {
   const result = await sendSiteMail({
     subject,
     text: lines.join("\n"),
-    replyTo: args.customerEmail,
+    replyTo: args.customerEmail || undefined,
   });
 
   if (result.status !== "sent") {
@@ -203,7 +215,7 @@ export async function notifyAdminPaymentReported(args: PaymentReportArgs) {
   const result = await sendSiteMail({
     subject,
     text: lines.join("\n"),
-    replyTo: args.customerEmail,
+    replyTo: args.customerEmail || undefined,
   });
 
   if (result.status !== "sent") {

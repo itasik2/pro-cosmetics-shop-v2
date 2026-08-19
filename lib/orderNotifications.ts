@@ -132,6 +132,10 @@ export async function retryPendingOrderNotifications(limit = 8) {
 
   for (const order of orders) {
     const access = orderAccessUrl(createOrderAccessToken(order.orderNumber).token);
+    const contactArgs = {
+      notificationChannel: order.notificationChannel,
+      notificationContact: order.notificationContact,
+    };
 
     if (
       ["PENDING", "FAILED"].includes(order.notificationStatus) &&
@@ -144,6 +148,7 @@ export async function retryPendingOrderNotifications(limit = 8) {
         customerName: order.customerName,
         phone: order.phone,
         customerEmail: order.email,
+        ...contactArgs,
         deliveryType: order.deliveryType,
         address: order.address,
         comment: order.comment,
@@ -171,6 +176,7 @@ export async function retryPendingOrderNotifications(limit = 8) {
         customerName: order.customerName,
         phone: order.phone,
         customerEmail: order.email,
+        ...contactArgs,
         deliveryType: order.deliveryType,
         address: order.address,
         comment: order.comment,
@@ -204,6 +210,7 @@ export async function retryPendingOrderNotifications(limit = 8) {
         customerName: order.customerName,
         phone: order.phone,
         customerEmail: order.email,
+        ...contactArgs,
         deliveryType: order.deliveryType,
         address: order.address,
         comment: order.comment,

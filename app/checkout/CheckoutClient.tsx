@@ -61,6 +61,8 @@ export default function CheckoutClient() {
   const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [messenger, setMessenger] = useState<"WHATSAPP" | "TELEGRAM">("WHATSAPP");
+  const [messengerContact, setMessengerContact] = useState("");
   const [deliveryType, setDeliveryType] = useState<"pickup" | "delivery">("pickup");
   const [address, setAddress] = useState("");
   const [comment, setComment] = useState("");
@@ -281,11 +283,19 @@ export default function CheckoutClient() {
 
     const name = customerName.trim();
     const ph = phone.trim();
+    const mail = email.trim();
     const addr = address.trim();
+    let contact = messengerContact.trim();
 
     if (name.length < 2) return setSubmitErr("Укажите имя");
     if (ph.length < 6) return setSubmitErr("Укажите телефон");
-    if (!email.trim()) return setSubmitErr("Укажите email для ссылки на заказ и уведомлений");
+    if (mail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) {
+      return setSubmitErr("Проверьте правильность email");
+    }
+    if (!mail && messenger === "WHATSAPP" && !contact) contact = ph;
+    if (!mail && messenger === "TELEGRAM" && contact.length < 2) {
+      return setSubmitErr("Укажите Telegram @username или другой контакт");
+    }
     if (deliveryType === "delivery" && addr.length < 5) {
       return setSubmitErr("Укажите адрес доставки");
     }
@@ -300,7 +310,9 @@ export default function CheckoutClient() {
         body: JSON.stringify({
           customerName: name,
           phone: ph,
-          email: email.trim(),
+          email: mail,
+          messenger: mail ? undefined : messenger,
+          messengerContact: mail ? "" : contact,
           deliveryType,
           address: addr,
           comment: comment.trim(),
@@ -315,6 +327,9 @@ export default function CheckoutClient() {
       }
 
       const orderNumber = String(data.orderNumber || "");
+      const notificationChannel = String(
+        data.notificationChannel || (mail ? "EMAIL" : messenger),
+      );
 
       cartSelected.forEach((it) => setQtyStorage(it.id, 0));
 
@@ -322,7 +337,9 @@ export default function CheckoutClient() {
       setSelected(new Set());
 
       const accessToken = String(data.accessToken || "");
-      router.push(`/checkout/success?order=${encodeURIComponent(orderNumber)}&token=${encodeURIComponent(accessToken)}`);
+      router.push(
+        `/checkout/success?order=${encodeURIComponent(orderNumber)}&token=${encodeURIComponent(accessToken)}&channel=${encodeURIComponent(notificationChannel)}`,
+      );
     } catch (e: any) {
       setSubmitErr(e?.message || "Ошибка оформления заказа");
     } finally {
@@ -526,14 +543,73 @@ export default function CheckoutClient() {
                 </label>
 
                 <label className="space-y-1 sm:col-span-2">
-                  <div className="text-sm text-gray-600">Email для ссылки на заказ и уведомлений *</div>
+                  <div className="text-sm text-gray-600">Email (если есть)</div>
                   <input
+                    type="email"
                     className="w-full border rounded-xl px-3 py-2"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@email.com"
                   />
+                  <div className="text-xs text-gray-500">
+                    Если у вас нет email, выберите WhatsApp или Telegram ниже.
+                  </div>
                 </label>
+
+                {!email.trim() && (
+                  <div className="sm:col-span-2 rounded-xl border bg-gray-50 p-3 space-y-3">
+                    <div>
+                      <div className="text-sm font-semibold">Куда отправлять информацию по заказу? *</div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        Укажите хотя бы один канал связи: email, WhatsApp или Telegram.
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-4">
+                      <label className="inline-flex items-center gap-2 text-sm">
+                        <input
+                          type="radio"
+                          checked={messenger === "WHATSAPP"}
+                          onChange={() => setMessenger("WHATSAPP")}
+                        />
+                        WhatsApp
+                      </label>
+                      <label className="inline-flex items-center gap-2 text-sm">
+                        <input
+                          type="radio"
+                          checked={messenger === "TELEGRAM"}
+                          onChange={() => setMessenger("TELEGRAM")}
+                        />
+                        Telegram
+                      </label>
+                    </div>
+
+                    {messenger === "WHATSAPP" ? (
+                      <label className="block space-y-1">
+                        <div className="text-sm text-gray-600">Номер WhatsApp</div>
+                        <input
+                          className="w-full border rounded-xl px-3 py-2 bg-white"
+                          value={messengerContact}
+                          onChange={(e) => setMessengerContact(e.target.value)}
+                          placeholder={phone.trim() || "+7 ..."}
+                        />
+                        <div className="text-xs text-gray-500">
+                          Если поле пустое, используем номер телефона, указанный выше.
+                        </div>
+                      </label>
+                    ) : (
+                      <label className="block space-y-1">
+                        <div className="text-sm text-gray-600">Telegram *</div>
+                        <input
+                          className="w-full border rounded-xl px-3 py-2 bg-white"
+                          value={messengerContact}
+                          onChange={(e) => setMessengerContact(e.target.value)}
+                          placeholder="@username"
+                        />
+                      </label>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="text-sm font-semibold pt-1">Доставка</div>
@@ -601,7 +677,11 @@ export default function CheckoutClient() {
               </div>
 
               <div className="text-xs text-gray-500">
-                На email придёт защищённая ссылка на страницу заказа. После перевода нажмите там «Я оплатил».
+                {email.trim()
+                  ? "На email придёт защищённая ссылка на страницу заказа. После перевода нажмите там «Я оплатил»."
+                  : messenger === "WHATSAPP"
+                    ? "Менеджер свяжется с вами в WhatsApp. Страница заказа также откроется сразу после оформления."
+                    : "Менеджер свяжется с вами в Telegram. Страница заказа также откроется сразу после оформления."}
               </div>
             </div>
           )}
