@@ -116,6 +116,8 @@ export async function POST(
         paymentProvider: "HALYK_EPAY",
         paymentProviderStatus: "PAYMENT_PAGE_READY",
         paymentProviderUpdatedAt: new Date(),
+        paymentDueAt:
+          order.paymentDueAt || new Date(Date.now() + 24 * 60 * 60 * 1000),
       },
     });
 
