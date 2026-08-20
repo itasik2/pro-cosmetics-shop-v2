@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import AddToCartButton from "@/components/AddToCartButton";
 import ProductDescription from "@/components/ProductDescription";
+import StockAlertForm from "@/components/StockAlertForm";
 import TrackProductView from "@/components/TrackProductView";
 import { formatProductName } from "@/lib/productNames";
 
@@ -50,19 +51,14 @@ export default function ProductDetailsClient({ product }: Props) {
   const displayName = formatProductName(product.name);
   const variants = useMemo(() => normalizeVariants(product.variants), [product]);
   const hasVariants = variants.length > 0;
-
   const defaultVariant = variants.find((v) => v.stock > 0) ?? variants[0] ?? null;
-
   const [variantId, setVariantId] = useState<string | null>(defaultVariant?.id ?? null);
-
   const selectedVariant = hasVariants
     ? variants.find((v) => v.id === variantId) ?? defaultVariant
     : null;
-
   const priceToShow = selectedVariant?.price ?? product.price;
   const stockToUse = selectedVariant?.stock ?? product.stock;
   const inStock = stockToUse > 0;
-
   const imageToShow = selectedVariant?.image || product.image;
   const brandName = product.brand?.name ?? "—";
   const shortDescription = product.shortDescription?.trim() || "";
@@ -85,25 +81,22 @@ export default function ProductDetailsClient({ product }: Props) {
           <div className="mt-3 flex flex-wrap gap-2">
             {variants.map((v) => {
               const active = v.id === variantId;
-              const disabled = v.stock <= 0;
-
+              const unavailable = v.stock <= 0;
               return (
                 <button
                   key={v.id}
                   type="button"
-                  disabled={disabled}
                   onClick={() => setVariantId(v.id)}
                   className={
                     "px-3 py-1 rounded-full text-xs border transition-colors shadow-sm " +
                     (active
                       ? "border-gray-400 bg-gray-200 text-gray-900"
                       : "border-gray-200 bg-gray-50 text-gray-700") +
-                    (disabled
-                      ? " opacity-40 cursor-not-allowed"
-                      : " hover:border-gray-400 hover:bg-gray-100")
+                    (unavailable ? " opacity-60" : " hover:border-gray-400 hover:bg-gray-100")
                   }
+                  title={unavailable ? "Нет в наличии — можно подписаться на поступление" : ""}
                 >
-                  {v.label}
+                  {v.label}{unavailable ? " · нет" : ""}
                 </button>
               );
             })}
@@ -123,24 +116,24 @@ export default function ProductDetailsClient({ product }: Props) {
           />
         </div>
 
-        <div
-          className={
-            "mt-1 text-xs " +
-            (inStock ? "text-emerald-700" : "text-gray-500")
-          }
-        >
+        <div className={"mt-1 text-xs " + (inStock ? "text-emerald-700" : "text-gray-500")}>
           {inStock ? `В наличии: ${stockToUse}` : "Нет в наличии"}
         </div>
+
+        {!inStock ? (
+          <StockAlertForm
+            productId={product.id}
+            variantId={selectedVariant?.id ?? null}
+            variantLabel={selectedVariant?.label ?? null}
+          />
+        ) : null}
 
         <div className="mt-2 flex items-center justify-between">
           <div className="text-xs text-gray-500">
             {brandName} • {product.category}
           </div>
 
-          <Link
-            href="/shop"
-            className="text-xs text-gray-600 hover:underline"
-          >
+          <Link href="/shop" className="text-xs text-gray-600 hover:underline">
             ← Вернуться в каталог
           </Link>
         </div>
@@ -150,9 +143,7 @@ export default function ProductDetailsClient({ product }: Props) {
         <h1 className="text-3xl font-bold">{displayName}</h1>
 
         {showShortDescription && (
-          <p className="text-base leading-7 text-gray-700">
-            {shortDescription}
-          </p>
+          <p className="text-base leading-7 text-gray-700">{shortDescription}</p>
         )}
 
         <ProductDescription description={product.description} />
