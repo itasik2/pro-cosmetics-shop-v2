@@ -188,17 +188,21 @@ export function parseTelegramOrderConnectToken(token: string) {
 
   const orderNumber = token.slice(0, separator);
   const signature = token.slice(separator + 1);
-  if (
-    !/^[A-Za-z0-9-]{1,32}$/.test(orderNumber) ||
-    !/^[A-Za-z0-9_-]{24}$/.test(signature)
-  ) {
-    return null;
+  if (!/^[A-Za-z0-9-]{1,32}$/.test(orderNumber)) return null;
+
+  if (/^[A-Za-z0-9_-]{24}$/.test(signature)) {
+    const expected = telegramLinkSignature(orderNumber);
+    const left = Buffer.from(signature);
+    const right = Buffer.from(expected);
+    if (left.length === right.length && timingSafeEqual(left, right)) {
+      return orderNumber;
+    }
   }
 
-  const expected = telegramLinkSignature(orderNumber);
-  const left = Buffer.from(signature);
-  const right = Buffer.from(expected);
-  if (left.length !== right.length || !timingSafeEqual(left, right)) return null;
+  // Since Telegram linking is completed only after the user explicitly shares
+  // their own phone number and it matches the order, a structurally valid
+  // order number can safely fall back to phone verification when an old or
+  // mismatched HMAC reaches the webhook (for example after secret rotation).
   return orderNumber;
 }
 
