@@ -77,16 +77,6 @@ export async function POST(
     );
   }
 
-  if (order.status !== "CONFIRMED") {
-    return NextResponse.json(
-      {
-        error: "order_not_confirmed",
-        message: "Оплата картой станет доступна после подтверждения заказа менеджером.",
-      },
-      { status: 409 },
-    );
-  }
-
   if (order.paymentDueAt && order.paymentDueAt < new Date()) {
     await prisma.order.update({
       where: { id: order.id },
