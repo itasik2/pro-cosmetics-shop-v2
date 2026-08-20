@@ -202,6 +202,73 @@ export function parseTelegramOrderConnectToken(token: string) {
   return orderNumber;
 }
 
+export async function sendTelegramContactRequest(
+  chatId: string | number,
+  text: string,
+): Promise<MessengerDeliveryResult> {
+  const { token } = telegramConfig();
+  if (!token) {
+    return {
+      status: "skipped",
+      provider: "telegram",
+      reason: "telegram_not_configured",
+    };
+  }
+
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: String(chatId),
+        text,
+        reply_markup: {
+          keyboard: [
+            [
+              {
+                text: "Поделиться номером телефона",
+                request_contact: true,
+              },
+            ],
+          ],
+          resize_keyboard: true,
+          one_time_keyboard: true,
+          input_field_placeholder: "Подтвердите номер телефона",
+        },
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    const body = (await response.json().catch(() => ({}))) as {
+      ok?: boolean;
+      description?: string;
+      result?: { message_id?: number };
+    };
+
+    if (!response.ok || !body.ok) {
+      return {
+        status: "failed",
+        provider: "telegram",
+        reason: String(body.description || `telegram_http_${response.status}`).slice(0, 300),
+      };
+    }
+
+    return {
+      status: "sent",
+      provider: "telegram",
+      messageId: body.result?.message_id
+        ? String(body.result.message_id)
+        : undefined,
+    };
+  } catch (error) {
+    return {
+      status: "failed",
+      provider: "telegram",
+      reason: error instanceof Error ? error.message.slice(0, 300) : "telegram_failed",
+    };
+  }
+}
+
 export async function sendTelegramText(
   chatId: string | number,
   text: string,
