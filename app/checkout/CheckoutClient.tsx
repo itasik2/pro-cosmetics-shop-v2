@@ -66,7 +66,7 @@ export default function CheckoutClient() {
   const deliveryType = "delivery" as const;
   const [address, setAddress] = useState("");
   const [comment, setComment] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<"CASH" | "KASPI_TRANSFER">("KASPI_TRANSFER");
+  const [paymentMethod] = useState<"CASH" | "KASPI_TRANSFER">("KASPI_TRANSFER");
 
   const [submitting, setSubmitting] = useState(false);
   const [submitErr, setSubmitErr] = useState<string | null>(null);
@@ -293,9 +293,6 @@ export default function CheckoutClient() {
       return setSubmitErr("Проверьте правильность email");
     }
     if (!mail && messenger === "WHATSAPP" && !contact) contact = ph;
-    if (!mail && messenger === "TELEGRAM" && contact.length < 2) {
-      return setSubmitErr("Укажите Telegram @username или другой контакт");
-    }
     if (addr.length < 5) {
       return setSubmitErr("Укажите адрес доставки");
     }
@@ -312,7 +309,8 @@ export default function CheckoutClient() {
           phone: ph,
           email: mail,
           messenger: mail ? undefined : messenger,
-          messengerContact: mail ? "" : contact,
+          messengerContact:
+            mail ? "" : messenger === "TELEGRAM" ? ph : contact,
           deliveryType,
           address: addr,
           comment: comment.trim(),
@@ -578,7 +576,10 @@ export default function CheckoutClient() {
                         <input
                           type="radio"
                           checked={messenger === "TELEGRAM"}
-                          onChange={() => setMessenger("TELEGRAM")}
+                          onChange={() => {
+                            setMessenger("TELEGRAM");
+                            setMessengerContact("");
+                          }}
                         />
                         Telegram
                       </label>
@@ -598,15 +599,12 @@ export default function CheckoutClient() {
                         </div>
                       </label>
                     ) : (
-                      <label className="block space-y-1">
-                        <div className="text-sm text-gray-600">Telegram *</div>
-                        <input
-                          className="w-full border rounded-xl px-3 py-2 bg-white"
-                          value={messengerContact}
-                          onChange={(e) => setMessengerContact(e.target.value)}
-                          placeholder="@username"
-                        />
-                      </label>
+                      <div className="rounded-xl border bg-white p-3 text-sm text-gray-700">
+                        <div className="font-medium">Telegram будет подключён по номеру телефона из заказа.</div>
+                        <div className="mt-1 text-xs text-gray-500">
+                          После оформления откройте бота и нажмите «Поделиться номером телефона». Telegram передаст номер боту только после вашего подтверждения.
+                        </div>
+                      </div>
                     )}
                   </div>
                 )}
@@ -660,7 +658,7 @@ export default function CheckoutClient() {
                   ? "После оформления откроется оплата, а на email придёт защищённая ссылка на страницу заказа."
                   : messenger === "WHATSAPP"
                     ? "После оформления откроется оплата. Информация по заказу будет отправляться в WhatsApp."
-                    : "После оформления откроется оплата. Информация по заказу будет отправляться в Telegram."}
+                    : "После оформления откроется оплата. Подключите Telegram-бота и подтвердите номер телефона для уведомлений."}
               </div>
             </div>
           )}
