@@ -88,6 +88,7 @@ model Product {
   images             ProductImage[]
   enrichmentJobs     EnrichmentJob[]
   enrichmentProposals ProductEnrichmentProposal[]
+  stockAlerts        StockAlert[]
 
   @@unique([supplierId, supplierSku])
   @@index([isPublished, isPopular, popularityPinned, popularityScore], map: "Product_popularity_rank_idx")
@@ -316,6 +317,28 @@ model ProductPriceHistory {
 
   @@index([productId, createdAt])
   @@index([importId])
+}
+
+model StockAlert {
+  id                  String   @id @default(cuid())
+  productId           String
+  product             Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variantId           String?
+  variantLabel        String?
+  customerName        String?
+  notificationChannel String
+  notificationContact String
+  telegramChatId      String?
+  status              String   @default("PENDING")
+  attempts            Int      @default(0)
+  lastError           String?
+  notifiedAt          DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([status, createdAt], map: "StockAlert_status_created_idx")
+  @@index([productId, variantId, status], map: "StockAlert_product_variant_status_idx")
+  @@index([notificationChannel, notificationContact], map: "StockAlert_channel_contact_idx")
 }
 
 enum OrderStatus {
