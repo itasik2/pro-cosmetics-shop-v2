@@ -149,14 +149,17 @@ export async function notifyCustomerOrderCreated(args: NotifyArgs) {
   }
 
   const subject = `Заказ ${args.orderNumber} принят`;
+  const halykAvailable = isHalykEpayConfigured();
   const lines = [
     `Здравствуйте, ${args.customerName}!`,
     "",
-    "Мы получили ваш заказ. Менеджер свяжется с вами для подтверждения.",
+    halykAvailable
+      ? "Мы получили ваш заказ. Ожидать подтверждения менеджера не нужно: перейдите к оплате через Halyk ePay."
+      : "Мы получили ваш заказ. Оплатить его можно сразу на персональной странице заказа.",
     "",
     ...commonOrderLines(args),
     "",
-    "Статус оплаты: Ожидает подтверждения заказа",
+    "Статус оплаты: Ожидает оплаты",
     args.orderAccessUrl ? `Персональная страница заказа: ${args.orderAccessUrl}` : null,
     "",
     "Если вы не оформляли этот заказ, ответьте на это письмо.",
