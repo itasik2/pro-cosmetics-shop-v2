@@ -46,18 +46,6 @@ const CheckoutSchema = z
         path: ["messenger"],
         message: "Выберите WhatsApp или Telegram для связи по заказу",
       });
-      return;
-    }
-
-    if (
-      data.messenger === "TELEGRAM" &&
-      String(data.messengerContact || "").trim().length < 2
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["messengerContact"],
-        message: "Укажите Telegram @username или другой контакт",
-      });
     }
   });
 
@@ -97,7 +85,7 @@ export async function POST(req: Request) {
       ? email
       : data.messenger === "WHATSAPP"
         ? String(data.messengerContact || "").trim() || phone
-        : String(data.messengerContact || "").trim();
+        : phone;
 
     const address = String(data.address || "").trim();
 
