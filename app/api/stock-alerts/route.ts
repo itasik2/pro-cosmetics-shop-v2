@@ -15,17 +15,20 @@ const Schema = z.object({
   contact: z.string().trim().min(2).max(160),
 });
 
-function normalizeContact(channel: string, value: string) {
-  const contact = value.trim();
-  if (channel === "EMAIL") return contact.toLowerCase();
-  if (channel === "TELEGRAM") {
-    const username = contact.replace(/^@/, "");
-    return username ? `@${username}` : "";
-  }
-  let digits = contact.replace(/\D/g, "");
+function normalizePhone(value: string) {
+  let digits = value.replace(/\D/g, "");
   if (digits.length === 11 && digits.startsWith("8")) digits = `7${digits.slice(1)}`;
   else if (digits.length === 10) digits = `7${digits}`;
   return digits;
+}
+
+function normalizeContact(channel: string, value: string) {
+  const contact = value.trim();
+  if (channel === "EMAIL") return contact.toLowerCase();
+  if (channel === "TELEGRAM" || channel === "WHATSAPP") {
+    return normalizePhone(contact);
+  }
+  return contact;
 }
 
 function normalizeVariants(value: unknown) {
@@ -64,15 +67,18 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
-  if (channel === "TELEGRAM" && !/^@[A-Za-z0-9_]{3,64}$/.test(contact)) {
+  if (
+    (channel === "TELEGRAM" || channel === "WHATSAPP") &&
+    (contact.length < 10 || contact.length > 15)
+  ) {
     return NextResponse.json(
-      { error: "invalid_telegram", message: "Укажите Telegram @username." },
-      { status: 400 },
-    );
-  }
-  if (channel === "WHATSAPP" && (contact.length < 10 || contact.length > 15)) {
-    return NextResponse.json(
-      { error: "invalid_whatsapp", message: "Проверьте номер WhatsApp." },
+      {
+        error: channel === "TELEGRAM" ? "invalid_telegram_phone" : "invalid_whatsapp",
+        message:
+          channel === "TELEGRAM"
+            ? "Проверьте номер телефона, привязанный к Telegram."
+            : "Проверьте номер WhatsApp.",
+      },
       { status: 400 },
     );
   }
@@ -142,7 +148,7 @@ export async function POST(req: Request) {
       channel === "TELEGRAM" ? stockAlertTelegramConnectUrl(alert.id) : "",
     message:
       channel === "TELEGRAM"
-        ? "Заявка сохранена. Подключите Telegram-бота, чтобы получить уведомление."
+        ? "Заявка сохранена. Откройте Telegram-бота и подтвердите номер телефона."
         : "Заявка сохранена. Мы сообщим, когда товар появится в наличии.",
   });
 }
