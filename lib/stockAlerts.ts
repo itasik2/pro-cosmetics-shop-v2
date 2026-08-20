@@ -242,6 +242,23 @@ export async function processStockAlertById(id: string) {
   return { status: "failed" as const, reason: delivery.reason };
 }
 
+async function processAlertIds(ids: string[]) {
+  let sent = 0;
+  let waitingStock = 0;
+  let skipped = 0;
+  let failed = 0;
+
+  for (const id of ids) {
+    const result = await processStockAlertById(id);
+    if (result.status === "sent") sent += 1;
+    else if (result.status === "waiting_stock") waitingStock += 1;
+    else if (result.status === "skipped") skipped += 1;
+    else if (result.status === "failed") failed += 1;
+  }
+
+  return { checked: ids.length, sent, waitingStock, skipped, failed };
+}
+
 export async function processPendingStockAlerts(limit = 50) {
   const alerts = await prisma.stockAlert.findMany({
     where: { status: "PENDING", attempts: { lt: 5 } },
@@ -250,18 +267,20 @@ export async function processPendingStockAlerts(limit = 50) {
     take: Math.max(1, Math.min(limit, 100)),
   });
 
-  let sent = 0;
-  let waitingStock = 0;
-  let skipped = 0;
-  let failed = 0;
+  return processAlertIds(alerts.map((alert) => alert.id));
+}
 
-  for (const alert of alerts) {
-    const result = await processStockAlertById(alert.id);
-    if (result.status === "sent") sent += 1;
-    else if (result.status === "waiting_stock") waitingStock += 1;
-    else if (result.status === "skipped") skipped += 1;
-    else if (result.status === "failed") failed += 1;
-  }
+export async function processStockAlertsForProduct(productId: string, limit = 100) {
+  const alerts = await prisma.stockAlert.findMany({
+    where: {
+      productId,
+      status: "PENDING",
+      attempts: { lt: 5 },
+    },
+    select: { id: true },
+    orderBy: { createdAt: "asc" },
+    take: Math.max(1, Math.min(limit, 100)),
+  });
 
-  return { checked: alerts.length, sent, waitingStock, skipped, failed };
+  return processAlertIds(alerts.map((alert) => alert.id));
 }
