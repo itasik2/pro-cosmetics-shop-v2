@@ -13,6 +13,10 @@
       "schedule": "12 2 * * *"
     },
     {
+      "path": "/api/cron/stock-alerts",
+      "schedule": "7 * * * *"
+    },
+    {
       "path": "/api/cron/weekly-report",
       "schedule": "30 4 * * 1"
     }
