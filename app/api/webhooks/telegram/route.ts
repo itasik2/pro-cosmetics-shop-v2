@@ -9,6 +9,10 @@ import {
 } from "@/lib/messenger";
 import { sendOrderMessengerNotification } from "@/lib/orderMessengerNotifications";
 import { prisma } from "@/lib/prisma";
+import {
+  parseStockAlertTelegramToken,
+  processStockAlertById,
+} from "@/lib/stockAlerts";
 
 type TelegramUpdate = {
   message?: {
@@ -33,15 +37,9 @@ async function findRecentOrderByTelegramUsername(username: string) {
       },
       telegramChatId: null,
       archivedAt: null,
-      createdAt: {
-        gte: new Date(Date.now() - TELEGRAM_FALLBACK_WINDOW_MS),
-      },
+      createdAt: { gte: new Date(Date.now() - TELEGRAM_FALLBACK_WINDOW_MS) },
     },
-    select: {
-      id: true,
-      orderNumber: true,
-      telegramChatId: true,
-    },
+    select: { id: true, orderNumber: true, telegramChatId: true },
     orderBy: { createdAt: "desc" },
     take: 2,
   });
@@ -52,10 +50,7 @@ async function findRecentOrderByTelegramUsername(username: string) {
 export async function POST(req: Request) {
   const expectedSecret = getTelegramWebhookSecret();
   if (!expectedSecret) {
-    return NextResponse.json(
-      { error: "telegram_webhook_not_configured" },
-      { status: 503 },
-    );
+    return NextResponse.json({ error: "telegram_webhook_not_configured" }, { status: 503 });
   }
 
   const actualSecret = req.headers.get("x-telegram-bot-api-secret-token") || "";
@@ -76,6 +71,40 @@ export async function POST(req: Request) {
   const connectToken = String(match?.[1] || "").trim();
   const username = String(message?.from?.username || "").trim();
 
+  if (connectToken.startsWith("stock_")) {
+    const alertId = parseStockAlertTelegramToken(connectToken);
+    if (!alertId) {
+      await sendTelegramText(chatId, "Ссылка уведомления о поступлении недействительна. Вернитесь на страницу товара и создайте заявку заново.");
+      return NextResponse.json({ ok: true });
+    }
+
+    const alert = await prisma.stockAlert.findUnique({
+      where: { id: alertId },
+      select: { id: true, status: true, telegramChatId: true },
+    });
+    if (!alert || alert.status !== "PENDING") {
+      await sendTelegramText(chatId, "Эта заявка уже закрыта или не найдена.");
+      return NextResponse.json({ ok: true });
+    }
+    if (alert.telegramChatId && alert.telegramChatId !== String(chatId)) {
+      await sendTelegramText(chatId, "Эта заявка уже подключена к другому Telegram-чату.");
+      return NextResponse.json({ ok: true });
+    }
+
+    await prisma.stockAlert.update({
+      where: { id: alert.id },
+      data: {
+        telegramChatId: String(chatId),
+        notificationContact: username ? `@${username}` : String(chatId),
+        lastError: null,
+      },
+    });
+
+    await sendTelegramText(chatId, "Уведомление подключено. Мы напишем сюда, когда товар появится в наличии.");
+    await processStockAlertById(alert.id);
+    return NextResponse.json({ ok: true, stockAlert: alert.id });
+  }
+
   let order: {
     id: string;
     orderNumber: string;
@@ -85,23 +114,13 @@ export async function POST(req: Request) {
   if (connectToken) {
     const orderNumber = parseTelegramOrderConnectToken(connectToken);
     if (!orderNumber) {
-      await sendTelegramText(
-        chatId,
-        "Ссылка подключения Telegram недействительна. Вернитесь на страницу заказа и откройте её заново.",
-      );
+      await sendTelegramText(chatId, "Ссылка подключения Telegram недействительна. Вернитесь на страницу заказа и откройте её заново.");
       return NextResponse.json({ ok: true });
     }
 
     order = await prisma.order.findFirst({
-      where: {
-        orderNumber,
-        notificationChannel: "TELEGRAM",
-      },
-      select: {
-        id: true,
-        orderNumber: true,
-        telegramChatId: true,
-      },
+      where: { orderNumber, notificationChannel: "TELEGRAM" },
+      select: { id: true, orderNumber: true, telegramChatId: true },
     });
   } else if (username) {
     order = await findRecentOrderByTelegramUsername(username);
@@ -118,10 +137,7 @@ export async function POST(req: Request) {
   }
 
   if (order.telegramChatId && order.telegramChatId !== String(chatId)) {
-    await sendTelegramText(
-      chatId,
-      "Этот заказ уже подключён к другому Telegram-чату.",
-    );
+    await sendTelegramText(chatId, "Этот заказ уже подключён к другому Telegram-чату.");
     return NextResponse.json({ ok: true });
   }
 
