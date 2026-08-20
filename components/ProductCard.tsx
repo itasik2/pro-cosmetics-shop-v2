@@ -85,6 +85,7 @@ export default function ProductCard({ product }: ProductCardProps) {
       ? String(selectedVariant.image).trim()
       : product.image;
   const productHref = `/api/products/by-id-redirect/${encodeURIComponent(product.id)}`;
+  const stockAlertHref = `/shop/${encodeURIComponent(product.slug)}#stock-alert`;
 
   return (
     <div className="card relative h-full flex flex-col transition-shadow duration-200 hover:shadow-md">
@@ -163,7 +164,7 @@ export default function ProductCard({ product }: ProductCardProps) {
         <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
           <Link href={productHref} className="text-xs text-gray-600 hover:underline">Подробнее</Link>
           {!inStock ? (
-            <Link href={`${productHref}#stock-alert`} className="text-xs font-semibold text-amber-800 hover:underline">
+            <Link href={stockAlertHref} className="text-xs font-semibold text-amber-800 hover:underline">
               Уведомить о поступлении
             </Link>
           ) : null}
