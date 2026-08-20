@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 declare global {
   interface Window {
@@ -53,11 +53,14 @@ function loadHalykScript(src: string) {
 export default function HalykPayButton({
   token,
   amount,
+  autoStart = false,
 }: {
   token: string;
   amount: number;
+  autoStart?: boolean;
 }) {
   const router = useRouter();
+  const autoStarted = useRef(false);
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(false);
   const [message, setMessage] = useState("");
@@ -105,6 +108,12 @@ export default function HalykPayButton({
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (!autoStart || autoStarted.current) return;
+    autoStarted.current = true;
+    void startPayment();
+  }, [autoStart]);
 
   async function checkStatus() {
     if (checking) return;
