@@ -28,9 +28,7 @@ export default function StockAlertForm({
   const placeholder =
     channel === "EMAIL"
       ? "you@email.com"
-      : channel === "TELEGRAM"
-        ? "@username"
-        : "+7 ...";
+      : "+7 ...";
 
   async function submit() {
     if (loading) return;
@@ -101,8 +99,15 @@ export default function StockAlertForm({
         ))}
       </div>
 
+      {channel === "TELEGRAM" ? (
+        <div className="text-xs text-amber-900">
+          Укажите номер телефона, привязанный к Telegram. После сохранения откройте бота и нажмите «Поделиться номером телефона» для подтверждения.
+        </div>
+      ) : null}
+
       <div className="flex flex-col gap-2 sm:flex-row">
         <input
+          type={channel === "EMAIL" ? "email" : "tel"}
           className="min-w-0 flex-1 rounded-xl border bg-white px-3 py-2 text-sm"
           value={contact}
           onChange={(event) => setContact(event.target.value)}
