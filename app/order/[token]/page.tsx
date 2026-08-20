@@ -53,7 +53,7 @@ export default async function GuestOrderPage({
   searchParams,
 }: {
   params: { token: string };
-  searchParams?: { payment?: string };
+  searchParams?: { payment?: string; startPayment?: string };
 }) {
   const token = String(params.token || "").trim();
   const order = await prisma.order.findUnique({
@@ -77,10 +77,13 @@ export default async function GuestOrderPage({
     (order.paymentStatus === "UNPAID" || order.paymentStatus === "PENDING");
   const canHalykPay =
     isPrepayment &&
-    order.status === "CONFIRMED" &&
+    order.status !== "CANCELED" &&
+    order.status !== "DONE" &&
     order.paymentStatus === "UNPAID" &&
     !paymentExpired &&
     isHalykEpayConfigured();
+  const autoStartHalyk =
+    canHalykPay && String(searchParams?.startPayment || "") === "halyk";
 
   const notificationChannel = String(order.notificationChannel || "").toUpperCase();
   const telegramConnectUrl =
@@ -189,7 +192,7 @@ export default async function GuestOrderPage({
             <h2 className="text-lg font-bold text-emerald-900">Оплата подтверждена</h2>
             <p className="mt-1 text-sm text-emerald-900">
               {order.paymentProvider === "HALYK_EPAY"
-                ? "Платёж картой через Halyk ePay подтверждён автоматически."
+                ? "Платёж картой через Halyk ePay подтверждён автоматически. Заказ передан в обработку."
                 : "Оплата заказа подтверждена магазином."}
             </p>
           </div>
@@ -197,15 +200,9 @@ export default async function GuestOrderPage({
           <div className="space-y-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
             <div>
               <h2 className="text-lg font-bold">Оплата заказа</h2>
-              {order.status === "CONFIRMED" ? (
-                <p className="mt-1 text-sm text-amber-900">
-                  Оплатите подтверждённый заказ картой через Halyk ePay или переводом на Kaspi.
-                </p>
-              ) : (
-                <p className="mt-1 text-sm text-amber-900">
-                  Способы оплаты станут доступны после подтверждения заказа менеджером.
-                </p>
-              )}
+              <p className="mt-1 text-sm text-amber-900">
+                Заказ уже создан. Оплатите его картой через Halyk ePay или переводом на Kaspi, ожидать подтверждения менеджера не нужно.
+              </p>
             </div>
 
             {order.paymentDueAt ? (
@@ -215,21 +212,21 @@ export default async function GuestOrderPage({
                   timeZone: "Asia/Almaty",
                 })}
               </div>
-            ) : (
-              <div className="text-sm text-amber-900">
-                Срок оплаты появится после подтверждения заказа менеджером.
-              </div>
-            )}
+            ) : null}
 
-            {order.status === "CONFIRMED" && order.paymentStatus === "UNPAID" ? (
+            {order.paymentStatus === "UNPAID" ? (
               <>
                 {canHalykPay ? (
                   <div className="space-y-2 rounded-xl border border-emerald-200 bg-white p-3">
                     <div className="font-semibold">Оплата банковской картой</div>
                     <div className="text-sm text-gray-600">
-                      Платёж проводится на защищённой странице Halyk ePay. Статус оплаты обновится автоматически после подтверждения банка.
+                      Платёж проводится на защищённой странице Halyk ePay. После успешной оплаты заказ подтвердится автоматически.
                     </div>
-                    <HalykPayButton token={token} amount={order.totalAmount} />
+                    <HalykPayButton
+                      token={token}
+                      amount={order.totalAmount}
+                      autoStart={autoStartHalyk}
+                    />
                   </div>
                 ) : null}
 
@@ -257,7 +254,7 @@ export default async function GuestOrderPage({
                   ) : null}
                   {!instructions.hasInstructions ? (
                     <div className="text-red-800">
-                      Реквизиты Kaspi ещё не настроены. Используйте доступную оплату картой или дождитесь сообщения менеджера.
+                      Реквизиты Kaspi ещё не настроены. Используйте доступную оплату картой.
                     </div>
                   ) : null}
                 </div>
