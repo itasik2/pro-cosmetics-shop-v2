@@ -8,6 +8,7 @@ import { retryPendingOrderNotifications } from "@/lib/orderNotifications";
 import { retryPendingMessengerNotifications } from "@/lib/orderMessengerNotifications";
 import { cancelExpiredPrepaymentOrders } from "@/lib/orderPayments";
 import { runSiteMonitor } from "@/lib/siteMonitor";
+import { processPendingStockAlerts } from "@/lib/stockAlerts";
 
 function authorize(req: Request) {
   const secret = process.env.CRON_SECRET?.trim();
@@ -34,6 +35,7 @@ async function run(req: Request) {
     const monitor = await runSiteMonitor();
     const orderNotifications = await retryPendingOrderNotifications();
     const messengerNotifications = await retryPendingMessengerNotifications();
+    const stockAlerts = await processPendingStockAlerts();
     const expiredOrders = await cancelExpiredPrepaymentOrders();
     return NextResponse.json({
       ok: true,
@@ -43,6 +45,7 @@ async function run(req: Request) {
       notification: monitor.notification?.status || null,
       orderNotifications,
       messengerNotifications,
+      stockAlerts,
       expiredOrders,
       archivedOrders,
     });
