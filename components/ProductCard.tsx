@@ -52,9 +52,7 @@ function normalizeVariants(value: unknown): Variant[] {
     const label = typeof raw.label === "string" ? raw.label.trim() : "";
     const price = Number(raw.price);
     const stock = Number(raw.stock);
-    if (!id || !label || !Number.isFinite(price) || !Number.isFinite(stock)) {
-      continue;
-    }
+    if (!id || !label || !Number.isFinite(price) || !Number.isFinite(stock)) continue;
     variants.push({
       id,
       label,
@@ -70,51 +68,35 @@ function normalizeVariants(value: unknown): Variant[] {
 export default function ProductCard({ product }: ProductCardProps) {
   const displayName = formatProductName(product.name);
   const newBadge = product.isNew === true || isRecentlyCreated(product.createdAt, 14);
-
   const variants = normalizeVariants(product.variants);
   const hasVariants = variants.length > 0;
-
   const defaultVariant = hasVariants
     ? variants.find((v) => (v.stock ?? 0) > 0) ?? variants[0]
     : null;
-
   const [variantId, setVariantId] = useState<string | null>(defaultVariant?.id ?? null);
-
   const selectedVariant = hasVariants
     ? variants.find((v) => v.id === variantId) ?? defaultVariant
     : null;
-
   const priceToShow = Number(selectedVariant?.price ?? product.price) || 0;
   const stockToUse = Math.trunc(Number(selectedVariant?.stock ?? product.stock) || 0);
   const inStock = stockToUse > 0;
-
   const imageToShow =
     selectedVariant?.image && String(selectedVariant.image).trim().length > 0
       ? String(selectedVariant.image).trim()
       : product.image;
+  const productHref = `/api/products/by-id-redirect/${encodeURIComponent(product.id)}`;
 
   return (
-    <div
-      className={
-        "card relative h-full flex flex-col " +
-        "transition-shadow duration-200 hover:shadow-md"
-      }
-    >
+    <div className="card relative h-full flex flex-col transition-shadow duration-200 hover:shadow-md">
       <div className="absolute left-3 top-3 z-10 flex flex-col gap-2">
         {product.isPopular && (
-          <span className="inline-flex items-center rounded-full bg-gray-700 px-2 py-1 text-xs text-white shadow-sm">
-            Хит
-          </span>
+          <span className="inline-flex items-center rounded-full bg-gray-700 px-2 py-1 text-xs text-white shadow-sm">Хит</span>
         )}
         {newBadge && (
-          <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 shadow-sm">
-            Новинка
-          </span>
+          <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 shadow-sm">Новинка</span>
         )}
         {!inStock && (
-          <span className="inline-flex items-center rounded-full bg-gray-200 px-2 py-1 text-xs text-gray-700">
-            Нет в наличии
-          </span>
+          <span className="inline-flex items-center rounded-full bg-gray-200 px-2 py-1 text-xs text-gray-700">Нет в наличии</span>
         )}
       </div>
 
@@ -122,40 +104,17 @@ export default function ProductCard({ product }: ProductCardProps) {
         <FavoriteButton productId={product.id} />
       </div>
 
-      <Link
-        href={`/api/products/by-id-redirect/${encodeURIComponent(product.id)}`}
-        className="block aspect-square w-full bg-gray-100 rounded-xl mb-3 overflow-hidden"
-        aria-label={`Открыть товар: ${displayName}`}
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={imageToShow}
-          alt={displayName}
-          width={640}
-          height={640}
-          className="w-full h-full object-cover"
-          loading="lazy"
-          decoding="async"
-        />
+      <Link href={productHref} className="block aspect-square w-full bg-gray-100 rounded-xl mb-3 overflow-hidden" aria-label={`Открыть товар: ${displayName}`}>
+        <img src={imageToShow} alt={displayName} width={640} height={640} className="w-full h-full object-cover" loading="lazy" decoding="async" />
       </Link>
 
       <div className="text-sm text-gray-500">
         {product.brand ? (
-          <Link
-            href={`/brand/${product.brand.name.toLowerCase()}`}
-            className="hover:underline"
-          >
-            {product.brand.name}
-          </Link>
-        ) : (
-          product.category
-        )}
+          <Link href={`/brand/${product.brand.name.toLowerCase()}`} className="hover:underline">{product.brand.name}</Link>
+        ) : product.category}
       </div>
 
-      <h3 className="font-semibold line-clamp-2 min-h-[40px]">
-        {displayName}
-      </h3>
-
+      <h3 className="font-semibold line-clamp-2 min-h-[40px]">{displayName}</h3>
       <p className="mt-1 min-h-[40px] line-clamp-2 text-xs leading-5 text-gray-600">
         {product.shortDescription?.trim() || "Подробное описание и способ применения — в карточке товара."}
       </p>
@@ -165,25 +124,20 @@ export default function ProductCard({ product }: ProductCardProps) {
           <div className="flex flex-wrap gap-2">
             {variants.map((v) => {
               const active = v.id === variantId;
-              const disabled = (v.stock ?? 0) <= 0;
+              const unavailable = (v.stock ?? 0) <= 0;
               return (
                 <button
                   key={v.id}
                   type="button"
-                  disabled={disabled}
                   onClick={() => setVariantId(v.id)}
                   className={
                     "px-3 py-1 rounded-full text-xs border transition-colors shadow-sm " +
-                    (active
-                      ? "border-gray-400 bg-gray-200 text-gray-900"
-                      : "border-gray-200 bg-gray-50 text-gray-700") +
-                    (disabled
-                      ? " opacity-40 cursor-not-allowed"
-                      : " hover:border-gray-400 hover:bg-gray-100")
+                    (active ? "border-gray-400 bg-gray-200 text-gray-900" : "border-gray-200 bg-gray-50 text-gray-700") +
+                    (unavailable ? " opacity-60" : " hover:border-gray-400 hover:bg-gray-100")
                   }
-                  title={disabled ? "Нет в наличии" : ""}
+                  title={unavailable ? "Нет в наличии — можно подписаться на поступление" : ""}
                 >
-                  {v.label}
+                  {v.label}{unavailable ? " · нет" : ""}
                 </button>
               );
             })}
@@ -193,10 +147,7 @@ export default function ProductCard({ product }: ProductCardProps) {
 
       <div className="mt-auto">
         <div className="mt-2 flex min-h-8 items-center justify-between gap-2">
-          <div className="min-w-0 font-semibold">
-            {priceToShow.toLocaleString("ru-RU")} ₸
-          </div>
-
+          <div className="min-w-0 font-semibold">{priceToShow.toLocaleString("ru-RU")} ₸</div>
           <AddToCartButton
             productId={product.id}
             variantId={selectedVariant?.id ?? null}
@@ -209,13 +160,13 @@ export default function ProductCard({ product }: ProductCardProps) {
           {inStock ? `В наличии: ${stockToUse}` : "Нет в наличии"}
         </div>
 
-        <div className="mt-2">
-          <Link
-            href={`/api/products/by-id-redirect/${encodeURIComponent(product.id)}`}
-            className="text-xs text-gray-600 hover:underline"
-          >
-            Подробнее
-          </Link>
+        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+          <Link href={productHref} className="text-xs text-gray-600 hover:underline">Подробнее</Link>
+          {!inStock ? (
+            <Link href={`${productHref}#stock-alert`} className="text-xs font-semibold text-amber-800 hover:underline">
+              Уведомить о поступлении
+            </Link>
+          ) : null}
         </div>
       </div>
     </div>
