@@ -7,7 +7,7 @@ export async function cancelExpiredPrepaymentOrders(now = new Date()) {
       paymentMethod: "KASPI_TRANSFER",
       paymentStatus: "UNPAID",
       paymentDueAt: { lt: now },
-      status: { in: ["CONFIRMED", "PACKING", "SHIPPED"] },
+      status: { in: ["NEW", "CONFIRMED", "PACKING", "SHIPPED"] },
     },
     select: { id: true, notificationChannel: true },
   });
