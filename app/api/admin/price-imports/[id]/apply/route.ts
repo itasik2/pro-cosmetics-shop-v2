@@ -17,7 +17,6 @@ import {
   baseProductName,
   findVariantBySku,
   makeImportedVariant,
-  mergeImportedVariant,
   normalizeStoredVariants,
   parsedProductGroupKey,
   variantLabel,
@@ -36,13 +35,12 @@ function normalizeBrandName(value: string) {
   return value.replace(/\s+/g, " ").trim();
 }
 
-function importedDescription(value: string | null | undefined) {
-  return String(value || "").replace(/\s+/g, " ").trim();
+function normalizeSku(value: string | null | undefined) {
+  return String(value || "").replace(/\s+/g, "").trim().toUpperCase();
 }
 
-function descriptionIsPlaceholder(value: string) {
-  const normalized = value.replace(/\s+/g, " ").trim().toLocaleLowerCase("ru-RU");
-  return !normalized || normalized === "описание готовится";
+function importedDescription(value: string | null | undefined) {
+  return String(value || "").replace(/\s+/g, " ").trim();
 }
 
 async function ensureBrand(name: string) {
@@ -82,13 +80,24 @@ async function ensureBrand(name: string) {
   });
 }
 
-async function updateExistingProduct(input: {
+function productOwnsSku(
+  product: { supplierSku: string | null; variants: unknown },
+  sku: string,
+) {
+  const key = normalizeSku(sku);
+  if (!key) return false;
+  if (normalizeSku(product.supplierSku) === key) return true;
+  return normalizeStoredVariants(product.variants).some(
+    (variant) => normalizeSku(variant.sku) === key,
+  );
+}
+
+async function updateExistingPrice(input: {
   tx: Prisma.TransactionClient;
   productId: string;
   parsed: ParsedImportRow;
   importId: string;
-  supplierId: string;
-  brandId: string;
+  incomingBrandId: string;
   sourceOnly: boolean;
   variantMode: boolean;
 }) {
@@ -96,86 +105,81 @@ async function updateExistingProduct(input: {
     where: { id: input.productId },
     select: {
       id: true,
-      name: true,
+      brandId: true,
       supplierSku: true,
       price: true,
       sourcePrice: true,
       stock: true,
       image: true,
       variants: true,
-      description: true,
       volumeValue: true,
       volumeUnit: true,
-      productLineCode: true,
-      productLineName: true,
     },
   });
 
   if (!product) throw new Error("product_not_found");
 
+  const exactSkuMatch = productOwnsSku(product, input.parsed.supplierSku || "");
+  const rebrand =
+    Boolean(product.brandId) &&
+    product.brandId !== input.incomingBrandId &&
+    exactSkuMatch;
+
+  if (
+    product.brandId &&
+    product.brandId !== input.incomingBrandId &&
+    !exactSkuMatch
+  ) {
+    throw new Error("brand_mismatch_requires_exact_sku");
+  }
+
   const storedVariants = normalizeStoredVariants(product.variants);
   const useVariants = input.variantMode || storedVariants.length > 0;
-  const nextDescription = importedDescription(input.parsed.description);
 
   if (useVariants) {
-    const label = variantLabel(input.parsed);
-    if (!label) throw new Error("variant_label_required");
-
+    const sku = input.parsed.supplierSku || "";
+    const existingVariant = findVariantBySku(storedVariants, sku);
     let variants = [...storedVariants];
-    const existingVariant = findVariantBySku(variants, input.parsed.supplierSku);
 
-    if (!variants.length && product.supplierSku && product.supplierSku !== input.parsed.supplierSku) {
-      const oldLabel = variantLabel({
-        volumeValue: product.volumeValue,
-        volumeUnit: product.volumeUnit,
-      }) || "Основной";
+    if (existingVariant) {
+      variants = variants.map((variant) =>
+        normalizeSku(variant.sku) === normalizeSku(sku)
+          ? {
+              ...variant,
+              price: input.sourceOnly ? variant.price : input.parsed.salePrice,
+            }
+          : variant,
+      );
+    } else {
+      if (!input.variantMode) throw new Error("variant_sku_not_found");
+      const label = variantLabel(input.parsed);
+      if (!label) throw new Error("variant_label_required");
       variants.push(
         makeImportedVariant({
-          sku: product.supplierSku,
-          label: oldLabel,
-          price: product.price,
-          stock: product.stock,
-          image: product.image,
+          sku,
+          label,
+          price: input.sourceOnly ? input.parsed.sourcePrice : input.parsed.salePrice,
+          stock: 0,
         }),
       );
     }
 
-    const variantPrice = input.sourceOnly
-      ? existingVariant?.price ?? input.parsed.sourcePrice
-      : input.parsed.salePrice;
-    const incoming = makeImportedVariant({
-      sku: input.parsed.supplierSku,
-      label,
-      price: variantPrice,
-      stock:
-        existingVariant?.stock ??
-        (product.supplierSku === input.parsed.supplierSku ? product.stock : 0),
-      image: existingVariant?.image,
-    });
-    variants = mergeImportedVariant(variants, incoming);
-
-    const positivePrices = variants.map((variant) => variant.price).filter((price) => price > 0);
-    const nextPrice = positivePrices.length ? Math.min(...positivePrices) : product.price;
-    const nextStock = variants.reduce((sum, variant) => sum + Math.max(0, variant.stock), 0);
+    const positivePrices = variants
+      .map((variant) => variant.price)
+      .filter((price) => price > 0);
+    const nextPrice = positivePrices.length
+      ? Math.min(...positivePrices)
+      : product.price;
 
     await input.tx.product.update({
       where: { id: product.id },
       data: {
-        name: formatProductName(product.name),
-        brandId: input.brandId,
-        supplierId: input.supplierId,
-        supplierSku: product.supplierSku || input.parsed.supplierSku,
+        ...(rebrand ? { brandId: input.incomingBrandId } : {}),
         sourcePrice: input.parsed.sourcePrice,
         price: nextPrice,
-        stock: nextStock,
         variants,
         priceListDate: parseSourceDate(input.parsed.sourceDate),
         lastImportedAt: new Date(),
-        productLineCode: product.productLineCode ?? input.parsed.productLineCode,
-        productLineName: product.productLineName ?? input.parsed.productLineName,
-        ...(nextDescription && descriptionIsPlaceholder(product.description)
-          ? { description: nextDescription }
-          : {}),
       },
     });
 
@@ -191,28 +195,18 @@ async function updateExistingProduct(input: {
       });
     }
 
-    return product.id;
+    return { productId: product.id, rebrand };
   }
 
   const nextPrice = input.sourceOnly ? product.price : input.parsed.salePrice;
   await input.tx.product.update({
     where: { id: product.id },
     data: {
-      name: formatProductName(product.name),
-      brandId: input.brandId,
-      supplierId: input.supplierId,
-      supplierSku: input.parsed.supplierSku,
+      ...(rebrand ? { brandId: input.incomingBrandId } : {}),
       sourcePrice: input.parsed.sourcePrice,
       price: nextPrice,
       priceListDate: parseSourceDate(input.parsed.sourceDate),
       lastImportedAt: new Date(),
-      volumeValue: product.volumeValue ?? input.parsed.volumeValue,
-      volumeUnit: product.volumeUnit ?? input.parsed.volumeUnit,
-      productLineCode: product.productLineCode ?? input.parsed.productLineCode,
-      productLineName: product.productLineName ?? input.parsed.productLineName,
-      ...(nextDescription && descriptionIsPlaceholder(product.description)
-        ? { description: nextDescription }
-        : {}),
     },
   });
 
@@ -228,7 +222,7 @@ async function updateExistingProduct(input: {
     });
   }
 
-  return product.id;
+  return { productId: product.id, rebrand };
 }
 
 export async function POST(_req: Request, { params }: Params) {
@@ -265,10 +259,41 @@ export async function POST(_req: Request, { params }: Params) {
   const variantGroupKeys = autoVariantGroupKeys(parsedRowsForGrouping);
   const groupProductCache = new Map<string, string>();
 
+  const supplierProducts = await prisma.product.findMany({
+    where: {
+      supplierId: priceImport.supplierId,
+      enrichmentStatus: { not: "MERGED" },
+    },
+    select: {
+      id: true,
+      supplierSku: true,
+      variants: true,
+    },
+  });
+  const skuCandidates = new Map<string, Set<string>>();
+  for (const product of supplierProducts) {
+    const skus = [
+      product.supplierSku,
+      ...normalizeStoredVariants(product.variants).map((variant) => variant.sku || null),
+    ];
+    for (const sku of skus) {
+      const key = normalizeSku(sku);
+      if (!key) continue;
+      const ids = skuCandidates.get(key) ?? new Set<string>();
+      ids.add(product.id);
+      skuCandidates.set(key, ids);
+    }
+  }
+  const uniqueProductBySku = new Map<string, string>();
+  for (const [sku, ids] of skuCandidates) {
+    if (ids.size === 1) uniqueProductBySku.set(sku, [...ids][0]);
+  }
+
   let createdRows = 0;
   let updatedRows = 0;
   let skippedRows = 0;
   let errorRows = 0;
+  let rebrandedRows = 0;
 
   for (const row of priceImport.rows) {
     if (
@@ -282,14 +307,10 @@ export async function POST(_req: Request, { params }: Params) {
 
     try {
       const parsed = ParsedImportRowSchema.parse(row.parsedData);
-
-      if (!parsed.supplierSku) {
-        throw new Error("sku_required_for_apply");
-      }
+      if (!parsed.supplierSku) throw new Error("sku_required_for_apply");
 
       const groupKey = parsedProductGroupKey(parsed);
       const variantMode = Boolean(groupKey && variantGroupKeys.has(groupKey));
-
       const brandKey = normalizeBrandName(parsed.brand).toLocaleLowerCase("ru-RU");
       let brand = brandCache.get(brandKey);
       if (!brand) {
@@ -298,46 +319,31 @@ export async function POST(_req: Request, { params }: Params) {
       }
 
       const cachedProductId = groupKey ? groupProductCache.get(groupKey) : undefined;
-      const skuOwner = await prisma.product.findFirst({
-        where: {
-          supplierId: priceImport.supplierId,
-          supplierSku: parsed.supplierSku,
-        },
-        select: { id: true, brandId: true },
-      });
+      const skuProductId = uniqueProductBySku.get(normalizeSku(parsed.supplierSku));
+      const matchedProductId = cachedProductId || row.productId || skuProductId;
 
-      if (skuOwner && skuOwner.brandId && skuOwner.brandId !== brand.id) {
-        throw new Error("supplier_sku_used_by_another_brand");
-      }
-
-      const matchedProduct = cachedProductId
-        ? { id: cachedProductId }
-        : row.productId
-          ? await prisma.product.findFirst({
-              where: { id: row.productId, brandId: brand.id },
-              select: { id: true },
-            })
-          : skuOwner;
-
-      if (matchedProduct) {
-        const productId = await prisma.$transaction((tx) =>
-          updateExistingProduct({
+      if (matchedProductId) {
+        const result = await prisma.$transaction((tx) =>
+          updateExistingPrice({
             tx,
-            productId: matchedProduct.id,
+            productId: matchedProductId,
             parsed,
             importId: priceImport.id,
-            supplierId: priceImport.supplierId,
-            brandId: brand.id,
+            incomingBrandId: brand.id,
             sourceOnly,
             variantMode,
           }),
         );
 
-        if (groupKey && variantMode) groupProductCache.set(groupKey, productId);
+        if (result.rebrand) rebrandedRows += 1;
+        if (groupKey && variantMode) {
+          groupProductCache.set(groupKey, result.productId);
+        }
+        uniqueProductBySku.set(normalizeSku(parsed.supplierSku), result.productId);
         await prisma.priceImportRow.update({
           where: { id: row.id },
           data: {
-            productId,
+            productId: result.productId,
             action: ImportRowAction.UPDATE,
             error: null,
           },
@@ -409,11 +415,11 @@ export async function POST(_req: Request, { params }: Params) {
             sourcePrice: parsed.sourcePrice,
           },
         });
-
         return product.id;
       });
 
       if (groupKey && variantMode) groupProductCache.set(groupKey, productId);
+      uniqueProductBySku.set(normalizeSku(parsed.supplierSku), productId);
       await prisma.priceImportRow.update({
         where: { id: row.id },
         data: {
@@ -454,5 +460,9 @@ export async function POST(_req: Request, { params }: Params) {
     },
   });
 
-  return NextResponse.json({ import: updatedImport, autoVariantGroups: variantGroupKeys.size });
+  return NextResponse.json({
+    import: updatedImport,
+    autoVariantGroups: variantGroupKeys.size,
+    rebrandedRows,
+  });
 }
