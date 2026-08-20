@@ -55,7 +55,13 @@ function statusLabel(value: string) {
 function formatDueDate(value?: Date | string | null) {
   if (!value) return "";
   const date = value instanceof Date ? value : new Date(value);
-  return Number.isNaN(date.getTime()) ? "" : date.toLocaleString("ru-RU");
+  return Number.isNaN(date.getTime())
+    ? ""
+    : date.toLocaleString("ru-RU", { timeZone: "Asia/Almaty" });
+}
+
+function sentenceValue(value: string) {
+  return value.trim().replace(/[.!?]+$/g, "");
 }
 
 function eventSummary(order: MessengerOrder, event: MessengerEvent) {
@@ -67,8 +73,10 @@ function eventSummary(order: MessengerOrder, event: MessengerEvent) {
     const instructions = getPaymentInstructions();
     const parts = [
       `заказ подтверждён. К оплате ${order.totalAmount.toLocaleString("ru-RU")} ₸.`,
-      instructions.recipientName ? `Получатель: ${instructions.recipientName}.` : "",
-      instructions.kaspiPhone ? `Kaspi: ${instructions.kaspiPhone}.` : "",
+      instructions.recipientName
+        ? `Получатель: ${sentenceValue(instructions.recipientName)}.`
+        : "",
+      instructions.kaspiPhone ? `Kaspi: ${sentenceValue(instructions.kaspiPhone)}.` : "",
       formatDueDate(order.paymentDueAt)
         ? `Оплатить до ${formatDueDate(order.paymentDueAt)}.`
         : "",
