@@ -320,25 +320,28 @@ model ProductPriceHistory {
 }
 
 model StockAlert {
-  id                  String   @id @default(cuid())
-  productId           String
-  product             Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  variantId           String?
-  variantLabel        String?
-  customerName        String?
-  notificationChannel String
-  notificationContact String
-  telegramChatId      String?
-  status              String   @default("PENDING")
-  attempts            Int      @default(0)
-  lastError           String?
-  notifiedAt          DateTime?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id                    String   @id @default(cuid())
+  productId             String
+  product               Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variantId             String?
+  variantLabel          String?
+  customerName          String?
+  notificationChannel   String
+  notificationContact   String
+  telegramChatId        String?
+  telegramPendingChatId String?
+  telegramPendingAt     DateTime?
+  status                String   @default("PENDING")
+  attempts              Int      @default(0)
+  lastError             String?
+  notifiedAt            DateTime?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
   @@index([status, createdAt], map: "StockAlert_status_created_idx")
   @@index([productId, variantId, status], map: "StockAlert_product_variant_status_idx")
   @@index([notificationChannel, notificationContact], map: "StockAlert_channel_contact_idx")
+  @@index([telegramPendingChatId, telegramPendingAt], map: "StockAlert_telegram_pending_idx")
 }
 
 enum OrderStatus {
@@ -364,23 +367,25 @@ enum PaymentStatus {
 }
 
 model Order {
-  id           String      @id @default(cuid())
-  orderNumber  String      @unique
-  customerName String
-  phone        String
-  email        String?
-  notificationChannel String?
-  notificationContact String?
-  telegramChatId String?
-  deliveryType String
-  address      String?
-  comment      String?
-  currency     String      @default("KZT")
-  totalAmount  Int
-  status          OrderStatus   @default(NEW)
-  paymentMethod  PaymentMethod @default(CASH)
-  paymentStatus  PaymentStatus @default(UNPAID)
-  paidAt         DateTime?
+  id                    String      @id @default(cuid())
+  orderNumber           String      @unique
+  customerName          String
+  phone                 String
+  email                 String?
+  notificationChannel   String?
+  notificationContact   String?
+  telegramChatId        String?
+  telegramPendingChatId String?
+  telegramPendingAt     DateTime?
+  deliveryType          String
+  address               String?
+  comment               String?
+  currency              String      @default("KZT")
+  totalAmount            Int
+  status                OrderStatus   @default(NEW)
+  paymentMethod         PaymentMethod @default(CASH)
+  paymentStatus         PaymentStatus @default(UNPAID)
+  paidAt                DateTime?
   paymentProvider          String?
   paymentExternalId        String?   @unique
   paymentTransactionId     String?
@@ -410,9 +415,9 @@ model Order {
   paymentNotificationLastError  String?
   paymentNotificationSentAt     DateTime?
   archivedAt                    DateTime?
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  items        OrderItem[]
+  createdAt                     DateTime    @default(now())
+  updatedAt                     DateTime    @updatedAt
+  items                         OrderItem[]
 
   @@index([notificationStatus, createdAt], map: "Order_notification_status_created_idx")
   @@index([paymentDueAt, paymentMethod, paymentStatus], map: "Order_payment_due_idx")
@@ -420,6 +425,7 @@ model Order {
   @@index([messengerNotificationStatus, createdAt], map: "Order_messenger_notification_idx")
   @@index([paymentProvider, paymentProviderStatus], map: "Order_payment_provider_status_idx")
   @@index([archivedAt, createdAt], map: "Order_archived_created_idx")
+  @@index([telegramPendingChatId, telegramPendingAt], map: "Order_telegram_pending_idx")
 }
 
 model OrderItem {
