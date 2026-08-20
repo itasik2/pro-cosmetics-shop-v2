@@ -18,6 +18,37 @@ type TelegramUpdate = {
   };
 };
 
+const TELEGRAM_FALLBACK_WINDOW_MS = 6 * 60 * 60 * 1000;
+
+async function findRecentOrderByTelegramUsername(username: string) {
+  const normalized = username.trim().replace(/^@/, "");
+  if (!normalized) return null;
+
+  const candidates = await prisma.order.findMany({
+    where: {
+      notificationChannel: "TELEGRAM",
+      notificationContact: {
+        equals: `@${normalized}`,
+        mode: "insensitive",
+      },
+      telegramChatId: null,
+      archivedAt: null,
+      createdAt: {
+        gte: new Date(Date.now() - TELEGRAM_FALLBACK_WINDOW_MS),
+      },
+    },
+    select: {
+      id: true,
+      orderNumber: true,
+      telegramChatId: true,
+    },
+    orderBy: { createdAt: "desc" },
+    take: 2,
+  });
+
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
 export async function POST(req: Request) {
   const expectedSecret = getTelegramWebhookSecret();
   if (!expectedSecret) {
@@ -43,34 +74,45 @@ export async function POST(req: Request) {
 
   const match = text.match(/^\/start(?:@\w+)?(?:\s+([A-Za-z0-9_-]{1,64}))?/);
   const connectToken = String(match?.[1] || "").trim();
-  const orderNumber = connectToken
-    ? parseTelegramOrderConnectToken(connectToken)
-    : null;
+  const username = String(message?.from?.username || "").trim();
 
-  if (!orderNumber) {
-    await sendTelegramText(
-      chatId,
-      "Откройте ссылку «Подключить Telegram» на странице вашего заказа.",
-    );
-    return NextResponse.json({ ok: true });
+  let order: {
+    id: string;
+    orderNumber: string;
+    telegramChatId: string | null;
+  } | null = null;
+
+  if (connectToken) {
+    const orderNumber = parseTelegramOrderConnectToken(connectToken);
+    if (!orderNumber) {
+      await sendTelegramText(
+        chatId,
+        "Ссылка подключения Telegram недействительна. Вернитесь на страницу заказа и откройте её заново.",
+      );
+      return NextResponse.json({ ok: true });
+    }
+
+    order = await prisma.order.findFirst({
+      where: {
+        orderNumber,
+        notificationChannel: "TELEGRAM",
+      },
+      select: {
+        id: true,
+        orderNumber: true,
+        telegramChatId: true,
+      },
+    });
+  } else if (username) {
+    order = await findRecentOrderByTelegramUsername(username);
   }
-
-  const order = await prisma.order.findFirst({
-    where: {
-      orderNumber,
-      notificationChannel: "TELEGRAM",
-    },
-    select: {
-      id: true,
-      orderNumber: true,
-      telegramChatId: true,
-    },
-  });
 
   if (!order) {
     await sendTelegramText(
       chatId,
-      "Не удалось привязать заказ. Откройте Telegram заново по кнопке на странице заказа.",
+      username
+        ? "Не удалось однозначно найти свежий заказ для вашего Telegram. Вернитесь на страницу заказа и нажмите «Подключить Telegram» ещё раз."
+        : "В Telegram не задан @username. Вернитесь на страницу заказа и нажмите «Подключить Telegram» ещё раз.",
     );
     return NextResponse.json({ ok: true });
   }
@@ -83,7 +125,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   }
 
-  const username = String(message?.from?.username || "").trim();
   await prisma.order.update({
     where: { id: order.id },
     data: {
