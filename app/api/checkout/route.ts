@@ -23,7 +23,7 @@ const CheckoutSchema = z
     email: z.string().email().optional().or(z.literal("")),
     messenger: z.enum(["WHATSAPP", "TELEGRAM"]).optional(),
     messengerContact: z.string().max(120).optional().or(z.literal("")),
-    deliveryType: z.enum(["pickup", "delivery"]),
+    deliveryType: z.literal("delivery"),
     address: z.string().max(250).optional().or(z.literal("")),
     comment: z.string().max(500).optional().or(z.literal("")),
     paymentMethod: z.enum(["CASH", "KASPI_TRANSFER"]).default("KASPI_TRANSFER"),
@@ -99,10 +99,9 @@ export async function POST(req: Request) {
         ? String(data.messengerContact || "").trim() || phone
         : String(data.messengerContact || "").trim();
 
-    const address =
-      data.deliveryType === "delivery" ? String(data.address || "").trim() : "";
+    const address = String(data.address || "").trim();
 
-    if (data.deliveryType === "delivery" && address.length < 5) {
+    if (address.length < 5) {
       return NextResponse.json(
         { error: "validation_error", message: "Укажите адрес доставки" },
         { status: 400 },
@@ -206,8 +205,8 @@ export async function POST(req: Request) {
           email: email || null,
           notificationChannel,
           notificationContact,
-          deliveryType: data.deliveryType,
-          address: address || null,
+          deliveryType: "delivery",
+          address,
           comment: data.comment ? data.comment.trim() : null,
           currency: "KZT",
           totalAmount: built.total,
@@ -247,8 +246,8 @@ export async function POST(req: Request) {
       notificationChannel,
       notificationContact,
       orderAccessUrl: orderAccessUrl(access.token),
-      deliveryType: data.deliveryType,
-      address: address || null,
+      deliveryType: "delivery",
+      address,
       comment: data.comment ? data.comment.trim() : null,
       paymentMethod: data.paymentMethod,
       items: built.items.map((item) => ({
