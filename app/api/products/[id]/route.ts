@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/adminGuard";
 import { formatProductName } from "@/lib/productNames";
+import { processStockAlertsForProduct } from "@/lib/stockAlerts";
 
 const ProductSchema = z.object({
   name: z.string().min(2),
@@ -169,6 +170,7 @@ export async function PUT(req: Request, { params }: Params) {
       include: { brand: true, supplier: true },
     });
 
+    await processStockAlertsForProduct(updated.id);
     return NextResponse.json(updated);
   } catch (error: any) {
     if (error?.name === "ZodError") {
@@ -255,6 +257,11 @@ export async function PATCH(req: Request, { params }: Params) {
     },
     include: { brand: true, supplier: true },
   });
+
+  if (parsed.data.stock !== undefined) {
+    await processStockAlertsForProduct(updated.id);
+  }
+
   return NextResponse.json(updated);
 }
 
