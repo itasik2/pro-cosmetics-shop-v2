@@ -67,7 +67,10 @@ function sentenceValue(value: string) {
 
 function eventSummary(order: MessengerOrder, event: MessengerEvent) {
   if (event === "ORDER_CREATED") {
-    return `заказ принят. Сумма ${order.totalAmount.toLocaleString("ru-RU")} ₸. Менеджер свяжется с вами для подтверждения.`;
+    const halykAvailable = isHalykEpayConfigured();
+    return halykAvailable
+      ? `заказ принят. Сумма ${order.totalAmount.toLocaleString("ru-RU")} ₸. Ожидать подтверждения менеджера не нужно: оплатите заказ через Halyk ePay на странице заказа.`
+      : `заказ принят. Сумма ${order.totalAmount.toLocaleString("ru-RU")} ₸. Оплатить заказ можно сразу на странице заказа.`;
   }
 
   if (event === "PAYMENT_REQUIRED") {
