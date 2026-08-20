@@ -63,7 +63,7 @@ export default function CheckoutClient() {
   const [email, setEmail] = useState("");
   const [messenger, setMessenger] = useState<"WHATSAPP" | "TELEGRAM">("WHATSAPP");
   const [messengerContact, setMessengerContact] = useState("");
-  const [deliveryType, setDeliveryType] = useState<"pickup" | "delivery">("pickup");
+  const deliveryType = "delivery" as const;
   const [address, setAddress] = useState("");
   const [comment, setComment] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<"CASH" | "KASPI_TRANSFER">("KASPI_TRANSFER");
@@ -296,7 +296,7 @@ export default function CheckoutClient() {
     if (!mail && messenger === "TELEGRAM" && contact.length < 2) {
       return setSubmitErr("Укажите Telegram @username или другой контакт");
     }
-    if (deliveryType === "delivery" && addr.length < 5) {
+    if (addr.length < 5) {
       return setSubmitErr("Укажите адрес доставки");
     }
 
@@ -613,40 +613,19 @@ export default function CheckoutClient() {
               </div>
 
               <div className="text-sm font-semibold pt-1">Доставка</div>
-              <div className="flex gap-4">
-                <label className="inline-flex items-center gap-2">
-                  <input
-                    type="radio"
-                    checked={deliveryType === "pickup"}
-                    onChange={() => setDeliveryType("pickup")}
-                  />
-                  <span>Самовывоз</span>
-                </label>
-                <label className="inline-flex items-center gap-2">
-                  <input
-                    type="radio"
-                    checked={deliveryType === "delivery"}
-                    onChange={() => setDeliveryType("delivery")}
-                  />
-                  <span>Доставка</span>
-                </label>
-              </div>
-
-              {deliveryType === "delivery" && (
-                <label className="space-y-1">
-                  <div className="text-sm text-gray-600">Адрес доставки *</div>
-                  <input
-                    className="w-full border rounded-xl px-3 py-2"
-                    value={address}
-                    onChange={(e) => setAddress(e.target.value)}
-                    placeholder="Город, улица, дом, квартира"
-                  />
-                </label>
-              )}
+              <label className="space-y-1">
+                <div className="text-sm text-gray-600">Адрес доставки *</div>
+                <input
+                  className="w-full border rounded-xl px-3 py-2"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  placeholder="Город, улица, дом, квартира"
+                />
+              </label>
 
               <div className="text-sm font-semibold pt-1">Оплата</div>
               <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                После подтверждения заказа менеджер отправит реквизиты для перевода на Kaspi. Сборка и отправка начнутся после ручной проверки оплаты.
+                После оформления заказа откроется страница оплаты. При доступном Halyk ePay можно оплатить картой; перевод на Kaspi останется альтернативным способом.
               </div>
 
               <label className="space-y-1">
@@ -678,10 +657,10 @@ export default function CheckoutClient() {
 
               <div className="text-xs text-gray-500">
                 {email.trim()
-                  ? "На email придёт защищённая ссылка на страницу заказа. После перевода нажмите там «Я оплатил»."
+                  ? "После оформления откроется оплата, а на email придёт защищённая ссылка на страницу заказа."
                   : messenger === "WHATSAPP"
-                    ? "Менеджер свяжется с вами в WhatsApp. Страница заказа также откроется сразу после оформления."
-                    : "Менеджер свяжется с вами в Telegram. Страница заказа также откроется сразу после оформления."}
+                    ? "После оформления откроется оплата. Информация по заказу будет отправляться в WhatsApp."
+                    : "После оформления откроется оплата. Информация по заказу будет отправляться в Telegram."}
               </div>
             </div>
           )}
