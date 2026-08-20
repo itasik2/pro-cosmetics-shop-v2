@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { isHalykEpayConfigured } from "@/lib/halykEpay";
 import { getPaymentInstructions } from "@/lib/paymentInstructions";
 import { getScopedEnv } from "@/lib/siteConfig";
 
@@ -71,8 +72,15 @@ function eventSummary(order: MessengerOrder, event: MessengerEvent) {
 
   if (event === "PAYMENT_REQUIRED") {
     const instructions = getPaymentInstructions();
+    const halykAvailable = isHalykEpayConfigured();
     const parts = [
       `заказ подтверждён. К оплате ${order.totalAmount.toLocaleString("ru-RU")} ₸.`,
+      halykAvailable
+        ? "На странице заказа доступна оплата банковской картой через Halyk ePay; подтверждение поступит автоматически."
+        : "",
+      instructions.hasInstructions && halykAvailable
+        ? "Также можно оплатить переводом на Kaspi."
+        : "",
       instructions.recipientName
         ? `Получатель: ${sentenceValue(instructions.recipientName)}.`
         : "",
@@ -80,7 +88,9 @@ function eventSummary(order: MessengerOrder, event: MessengerEvent) {
       formatDueDate(order.paymentDueAt)
         ? `Оплатить до ${formatDueDate(order.paymentDueAt)}.`
         : "",
-      "После перевода отметьте оплату на странице заказа.",
+      instructions.hasInstructions
+        ? "Если оплатили переводом на Kaspi, отметьте оплату на странице заказа."
+        : "",
     ];
     return parts.filter(Boolean).join(" ");
   }

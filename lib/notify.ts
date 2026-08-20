@@ -1,3 +1,4 @@
+import { isHalykEpayConfigured } from "@/lib/halykEpay";
 import { getMailConfigurationStatus, sendSiteMail } from "@/lib/mailer";
 import { getPaymentInstructions } from "@/lib/paymentInstructions";
 import { getPublicBaseUrl } from "@/lib/siteConfig";
@@ -36,7 +37,9 @@ function deliveryLabel(value: string) {
 }
 
 function paymentMethodLabel(value?: string | null) {
-  return value === "KASPI_TRANSFER" ? "Перевод на Kaspi" : "Оплата при получении";
+  if (value === "HALYK_EPAY") return "Банковская карта через Halyk ePay";
+  if (value === "KASPI_TRANSFER") return "Предоплата: Halyk ePay / перевод на Kaspi";
+  return "Оплата при получении";
 }
 
 function notificationChannelLabel(value?: string | null) {
@@ -77,24 +80,38 @@ function commonOrderLines(args: NotifyArgs) {
 function formatDueDate(value?: Date | string | null) {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date.toLocaleString("ru-RU");
+  return Number.isNaN(date.getTime())
+    ? null
+    : date.toLocaleString("ru-RU", { timeZone: "Asia/Almaty" });
 }
 
 function paymentInstructionLines(args: NotifyArgs) {
   const instructions = getPaymentInstructions();
+  const halykAvailable = isHalykEpayConfigured();
   return [
-    "Реквизиты для оплаты:",
+    halykAvailable
+      ? "Оплата картой: откройте персональную страницу заказа и нажмите «Оплатить картой» в блоке Halyk ePay. Подтверждение оплаты происходит автоматически."
+      : null,
+    instructions.hasInstructions
+      ? halykAvailable
+        ? "Альтернативный способ — перевод на Kaspi:"
+        : "Реквизиты для оплаты:"
+      : null,
     instructions.recipientName ? `Получатель: ${instructions.recipientName}` : null,
     instructions.kaspiPhone ? `Kaspi: ${instructions.kaspiPhone}` : null,
     instructions.paymentLink ? `Ссылка на оплату: ${instructions.paymentLink}` : null,
     instructions.note || null,
-    instructions.hasInstructions ? null : "Реквизиты ещё не настроены — менеджер отправит их отдельно.",
+    !halykAvailable && !instructions.hasInstructions
+      ? "Реквизиты ещё не настроены — менеджер отправит их отдельно."
+      : null,
     formatDueDate(args.paymentDueAt) ? `Оплатить до: ${formatDueDate(args.paymentDueAt)}` : null,
     "",
     args.orderAccessUrl
       ? `Открыть страницу заказа: ${args.orderAccessUrl}`
       : "Откройте персональную ссылку на заказ из письма о его оформлении.",
-    "После перевода нажмите на странице заказа «Я оплатил».",
+    instructions.hasInstructions
+      ? "Если оплатили переводом на Kaspi, нажмите на странице заказа «Я оплатил»."
+      : null,
   ].filter(Boolean) as string[];
 }
 
@@ -174,11 +191,13 @@ export async function notifyCustomerPaymentRequired(args: NotifyArgs) {
   const lines = [
     `Здравствуйте, ${args.customerName}!`,
     "",
-    `Заказ ${args.orderNumber} подтверждён. Для запуска сборки переведите ${args.totalAmount.toLocaleString("ru-RU")} ₸.`,
+    `Заказ ${args.orderNumber} подтверждён. Для запуска сборки оплатите ${args.totalAmount.toLocaleString("ru-RU")} ₸.`,
     "",
     ...paymentInstructionLines(args),
     "",
-    "После ручной проверки менеджер переведёт заказ в сборку.",
+    isHalykEpayConfigured()
+      ? "Оплата картой через Halyk ePay подтверждается автоматически. Перевод на Kaspi проверяет менеджер."
+      : "После ручной проверки менеджер переведёт заказ в сборку.",
   ];
 
   const result = await sendSiteMail({
@@ -243,7 +262,9 @@ export async function notifyCustomerPaymentReceipt(args: NotifyArgs) {
     "",
     ...commonOrderLines(args),
     "",
-    "Это подтверждение оплаты от магазина. Фискальный чек будет доступен после подключения онлайн-кассы или платёжного провайдера.",
+    args.paymentMethod === "HALYK_EPAY"
+      ? "Платёж подтверждён системой Halyk ePay."
+      : "Это подтверждение оплаты от магазина. Фискальный чек будет доступен после подключения онлайн-кассы или платёжного провайдера.",
   ];
 
   const result = await sendSiteMail({

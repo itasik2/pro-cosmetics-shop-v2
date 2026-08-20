@@ -113,6 +113,16 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     data.paymentStatus = parsed.data.paymentStatus;
     data.paidAt =
       parsed.data.paymentStatus === "PAID" ? order.paidAt || new Date() : null;
+
+    if (paymentWasChangedToPaid) {
+      data.paymentProvider =
+        order.paymentMethod === "KASPI_TRANSFER" ? "KASPI_MANUAL" : "MANUAL";
+      data.paymentProviderStatus = "MANUAL_CONFIRMED";
+      data.paymentProviderUpdatedAt = new Date();
+    } else if (parsed.data.paymentStatus === "REFUNDED") {
+      data.paymentProviderStatus = "MANUAL_REFUNDED";
+      data.paymentProviderUpdatedAt = new Date();
+    }
   }
 
   await prisma.order.update({

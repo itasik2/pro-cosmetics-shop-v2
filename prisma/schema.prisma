@@ -358,6 +358,12 @@ model Order {
   paymentMethod  PaymentMethod @default(CASH)
   paymentStatus  PaymentStatus @default(UNPAID)
   paidAt         DateTime?
+  paymentProvider          String?
+  paymentExternalId        String?   @unique
+  paymentTransactionId     String?
+  paymentProviderReference String?
+  paymentProviderStatus    String?
+  paymentProviderUpdatedAt DateTime?
   notificationStatus    String   @default("PENDING")
   notificationAttempts  Int      @default(0)
   notificationLastError String?
@@ -389,6 +395,7 @@ model Order {
   @@index([paymentDueAt, paymentMethod, paymentStatus], map: "Order_payment_due_idx")
   @@index([paymentNotificationStatus, createdAt], map: "Order_payment_notification_idx")
   @@index([messengerNotificationStatus, createdAt], map: "Order_messenger_notification_idx")
+  @@index([paymentProvider, paymentProviderStatus], map: "Order_payment_provider_status_idx")
   @@index([archivedAt, createdAt], map: "Order_archived_created_idx")
 }
 
