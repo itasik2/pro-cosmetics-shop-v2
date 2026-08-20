@@ -2,7 +2,9 @@ import { notFound } from "next/navigation";
 import PaymentReportForm from "./PaymentReportForm";
 import { hashOrderAccessToken } from "@/lib/orderAccess";
 import { getPaymentInstructions } from "@/lib/paymentInstructions";
+import { telegramOrderConnectUrl } from "@/lib/messenger";
 import { prisma } from "@/lib/prisma";
+import { SITE_WHATSAPP_URL } from "@/lib/siteConfig";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,6 +32,20 @@ function paymentLabel(value: string) {
   return labels[value] || value;
 }
 
+function whatsappOrderUrl(orderNumber: string) {
+  if (!SITE_WHATSAPP_URL) return "";
+  try {
+    const url = new URL(SITE_WHATSAPP_URL);
+    url.searchParams.set(
+      "text",
+      `Здравствуйте! Пишу по заказу ${orderNumber}.`,
+    );
+    return url.toString();
+  } catch {
+    return SITE_WHATSAPP_URL;
+  }
+}
+
 export default async function GuestOrderPage({
   params,
 }: {
@@ -49,7 +65,21 @@ export default async function GuestOrderPage({
     isPrepayment &&
     order.status !== "CANCELED" &&
     order.status !== "DONE" &&
-    order.paymentStatus === "UNPAID" || order.paymentStatus === "PENDING";
+    (order.paymentStatus === "UNPAID" || order.paymentStatus === "PENDING");
+
+  const notificationChannel = String(order.notificationChannel || "").toUpperCase();
+  const telegramConnectUrl =
+    notificationChannel === "TELEGRAM"
+      ? telegramOrderConnectUrl(order.orderNumber)
+      : "";
+  const telegramUrl =
+    telegramConnectUrl && order.telegramChatId
+      ? telegramConnectUrl.split("?")[0]
+      : telegramConnectUrl;
+  const whatsappUrl =
+    notificationChannel === "WHATSAPP"
+      ? whatsappOrderUrl(order.orderNumber)
+      : "";
 
   return (
     <div className="mx-auto max-w-3xl space-y-5 py-8">
@@ -87,6 +117,41 @@ export default async function GuestOrderPage({
         </div>
       </div>
 
+      {telegramUrl || whatsappUrl ? (
+        <div className="rounded-2xl border p-4">
+          <h2 className="font-semibold">Связь по заказу</h2>
+          <p className="mt-1 text-sm text-gray-600">
+            {notificationChannel === "TELEGRAM"
+              ? order.telegramChatId
+                ? "Откройте чат с ботом, чтобы посмотреть уведомления по заказу."
+                : "Подключите заказ к Telegram-боту, чтобы получать автоматические уведомления."
+              : "Откройте WhatsApp магазина. Номер заказа уже будет подставлен в сообщение."}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {telegramUrl ? (
+              <a
+                href={telegramUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex rounded-xl bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700"
+              >
+                {order.telegramChatId ? "Перейти в Telegram" : "Подключить Telegram"}
+              </a>
+            ) : null}
+            {whatsappUrl ? (
+              <a
+                href={whatsappUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+              >
+                Перейти в WhatsApp
+              </a>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
       {isPrepayment && order.status !== "CANCELED" ? (
         <div className="space-y-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
           <div>
@@ -98,7 +163,10 @@ export default async function GuestOrderPage({
 
           {order.paymentDueAt ? (
             <div className="text-sm font-semibold text-amber-900">
-              Оплатить до: {new Date(order.paymentDueAt).toLocaleString("ru-RU")}
+              Оплатить до:{" "}
+              {new Date(order.paymentDueAt).toLocaleString("ru-RU", {
+                timeZone: "Asia/Almaty",
+              })}
             </div>
           ) : (
             <div className="text-sm text-amber-900">
