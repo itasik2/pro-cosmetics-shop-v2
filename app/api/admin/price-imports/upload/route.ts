@@ -53,8 +53,12 @@ function normalizeLookup(value: string) {
   return value.toLocaleLowerCase("ru-RU").replace(/ё/g, "е").trim();
 }
 
+function skuKey(value: string | null | undefined) {
+  return String(value || "").replace(/\s+/g, "").trim().toUpperCase();
+}
+
 function productKey(brand: string, sku: string) {
-  return `${normalizeLookup(brand)}::${sku.toUpperCase()}`;
+  return `${normalizeLookup(brand)}::${skuKey(sku)}`;
 }
 
 function normalizeSiteUrl(value: string) {
@@ -230,11 +234,24 @@ export async function POST(req: Request) {
 
     const existingByBrandSku = new Map<string, (typeof existingProducts)[number]>();
     const existingByGroup = new Map<string, Array<(typeof existingProducts)[number]>>();
+    const skuCandidates = new Map<string, Map<string, (typeof existingProducts)[number]>>();
+
+    function registerSku(product: (typeof existingProducts)[number], sku: string | null | undefined) {
+      const key = skuKey(sku);
+      if (!key) return;
+      const candidates = skuCandidates.get(key) ?? new Map<string, (typeof existingProducts)[number]>();
+      candidates.set(product.id, product);
+      skuCandidates.set(key, candidates);
+    }
 
     for (const product of existingProducts) {
       const brandName = product.brand?.name;
-      if (!brandName) continue;
+      if (product.supplierSku) registerSku(product, product.supplierSku);
+      for (const variant of normalizeStoredVariants(product.variants)) {
+        if (variant.sku) registerSku(product, variant.sku);
+      }
 
+      if (!brandName) continue;
       if (product.supplierSku) {
         existingByBrandSku.set(productKey(brandName, product.supplierSku), product);
       }
@@ -260,6 +277,13 @@ export async function POST(req: Request) {
       }
     }
 
+    const existingBySku = new Map<string, (typeof existingProducts)[number]>();
+    for (const [sku, candidates] of skuCandidates) {
+      if (candidates.size === 1) {
+        existingBySku.set(sku, [...candidates.values()][0]);
+      }
+    }
+
     const groupedRows = new Map<string, typeof parsed.rows>();
     for (const row of parsed.rows) {
       const key = parsedProductGroupKey(row);
@@ -272,11 +296,13 @@ export async function POST(req: Request) {
     const groupCanonical = new Map<string, (typeof existingProducts)[number]>();
     for (const [key, rows] of groupedRows) {
       const skuMatches = rows
-        .map((row) =>
-          row.supplierSku
-            ? existingByBrandSku.get(productKey(row.brand, row.supplierSku))
-            : undefined,
-        )
+        .map((row) => {
+          if (!row.supplierSku) return undefined;
+          return (
+            existingByBrandSku.get(productKey(row.brand, row.supplierSku)) ||
+            existingBySku.get(skuKey(row.supplierSku))
+          );
+        })
         .filter((row): row is (typeof existingProducts)[number] => Boolean(row));
       const candidates = skuMatches.length ? skuMatches : existingByGroup.get(key) ?? [];
       const unique = [...new Map(candidates.map((product) => [product.id, product])).values()];
@@ -291,12 +317,21 @@ export async function POST(req: Request) {
     const rowData: Prisma.PriceImportRowCreateManyInput[] = parsed.rows.map((row) => {
       const groupKey = parsedProductGroupKey(row);
       const autoVariant = Boolean(groupKey && variantGroupKeys.has(groupKey));
-      const skuExisting = row.supplierSku
+      const exactBrandSku = row.supplierSku
         ? existingByBrandSku.get(productKey(row.brand, row.supplierSku))
         : undefined;
+      const exactSkuExisting = row.supplierSku
+        ? exactBrandSku || existingBySku.get(skuKey(row.supplierSku))
+        : undefined;
       const existing = autoVariant && groupKey
-        ? groupCanonical.get(groupKey) ?? skuExisting
-        : skuExisting;
+        ? groupCanonical.get(groupKey) ?? exactSkuExisting
+        : exactSkuExisting;
+      const previousBrand = exactSkuExisting?.brand?.name || null;
+      const rebrandDetected = Boolean(
+        exactSkuExisting &&
+          previousBrand &&
+          normalizeLookup(previousBrand) !== normalizeLookup(row.brand),
+      );
       const retailRestricted =
         priceMode === "PRICE_AS_IS" &&
         row.warnings.includes("retail_sale_restricted");
@@ -339,10 +374,14 @@ export async function POST(req: Request) {
           warnings: row.warnings,
           autoVariant,
           variantGroupKey: autoVariant ? groupKey : null,
+          rebrandDetected,
+          previousBrand,
         },
         parsedData: {
           ...row,
           salePrice,
+          rebrandDetected,
+          previousBrand,
           existingProduct: existing
             ? {
                 id: existing.id,
@@ -391,6 +430,10 @@ export async function POST(req: Request) {
           warnings: parsed.warnings,
           manualReviewRows: manualRows,
           autoVariantGroups: variantGroupKeys.size,
+          rebrandRows: rowData.filter((row) => {
+            const data = row.parsedData as Record<string, unknown> | null;
+            return data?.rebrandDetected === true;
+          }).length,
         },
       },
       { status: 201 },
