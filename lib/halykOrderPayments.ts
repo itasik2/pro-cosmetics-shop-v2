@@ -103,6 +103,7 @@ export async function syncHalykOrderPayment(orderId: string) {
     };
   }
 
+  const paidAt = order.paidAt || new Date();
   const updated = await prisma.order.updateMany({
     where: {
       id: order.id,
@@ -110,7 +111,9 @@ export async function syncHalykOrderPayment(orderId: string) {
     },
     data: {
       paymentStatus: "PAID",
-      paidAt: order.paidAt || new Date(),
+      paidAt,
+      status: order.status === "NEW" ? "CONFIRMED" : order.status,
+      confirmedAt: order.confirmedAt || paidAt,
       paymentProvider: "HALYK_EPAY",
       paymentProviderStatus: "CHARGE",
       paymentTransactionId: transaction?.id || null,
