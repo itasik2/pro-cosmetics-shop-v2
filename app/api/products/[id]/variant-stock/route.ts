@@ -1,6 +1,7 @@
 export const runtime = "nodejs";
 export const revalidate = 0;
 
+import type { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/adminGuard";
@@ -75,7 +76,8 @@ export async function PATCH(req: Request, { params }: Params) {
 
   const nextVariants = variants.map((row) => {
     const id = String(row.id || "");
-    return requested.has(id) ? { ...row, stock: requested.get(id) } : row;
+    const nextStock = requested.get(id);
+    return nextStock === undefined ? row : { ...row, stock: nextStock };
   });
   const totalStock = nextVariants.reduce(
     (sum, row) => sum + Math.max(0, Math.trunc(Number(row.stock) || 0)),
@@ -85,7 +87,7 @@ export async function PATCH(req: Request, { params }: Params) {
   const updated = await prisma.product.update({
     where: { id: product.id },
     data: {
-      variants: nextVariants,
+      variants: nextVariants as unknown as Prisma.InputJsonValue,
       stock: totalStock,
     },
     select: {
