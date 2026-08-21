@@ -44,6 +44,14 @@ type ImportRow = {
   parsedData: ParsedData | null;
 };
 
+type DateComparison = {
+  status: "NO_BASELINE" | "NO_SOURCE_DATE" | "CURRENT" | "OLDER";
+  sourceDate: string | null;
+  currentSourceDate: string | null;
+  currentImportId: string | null;
+  currentFileName: string | null;
+};
+
 type PriceImport = {
   id: string;
   fileName: string;
@@ -62,6 +70,7 @@ type PriceImport = {
   appliedAt: string | null;
   supplier: { id: string; name: string; slug: string };
   rows: ImportRow[];
+  dateComparison?: DateComparison | null;
 };
 
 type ImportListItem = Omit<PriceImport, "rows"> & {
@@ -90,6 +99,12 @@ function formatDate(value: string | null | undefined) {
   if (!value) return "—";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString("ru-RU");
+}
+
+function formatDay(value: string | null | undefined) {
+  if (!value) return "не определена";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "не определена" : date.toLocaleDateString("ru-RU");
 }
 
 function normalizeLookup(value: string) {
@@ -198,7 +213,7 @@ export default function PriceImportsClient({
         throw new Error(data?.message || data?.error || String(res.status));
       }
 
-      setCurrent(data.import);
+      await openImport(String(data.import?.id || ""));
       setMessage(
         `Распознано строк: ${data.import?.totalRows ?? 0}. Шаблон: ${data.parser?.id || "неизвестен"}.`,
       );
@@ -267,7 +282,15 @@ export default function PriceImportsClient({
 
   async function applyImport() {
     if (!current || current.status !== "REVIEW") return;
-    if (!confirm("Создать и обновить выбранные товары?")) return;
+
+    if (current.dateComparison?.status === "OLDER") {
+      const approved = confirm(
+        `Внимание: загруженный прайс от ${formatDay(current.dateComparison.sourceDate)} старше используемого прайса от ${formatDay(current.dateComparison.currentSourceDate)}. Применение может откатить цены назад. Всё равно применить этот прайс?`,
+      );
+      if (!approved) return;
+    } else if (!confirm("Создать и обновить выбранные товары?")) {
+      return;
+    }
 
     setApplying(true);
     setMessage(null);
@@ -506,6 +529,30 @@ export default function PriceImportsClient({
               </button>
             </div>
           </div>
+
+          {current.dateComparison?.status === "OLDER" ? (
+            <div className="rounded-2xl border border-red-300 bg-red-50 p-4 text-sm text-red-900">
+              <div className="font-bold">Внимание: загружен более старый прайс</div>
+              <div className="mt-1">
+                Новый файл датирован {formatDay(current.dateComparison.sourceDate)}, а для этого поставщика уже используется прайс от {formatDay(current.dateComparison.currentSourceDate)}.
+              </div>
+              <div className="mt-1">
+                Применение этого файла может вернуть старые цены. Перед применением потребуется отдельное подтверждение.
+              </div>
+              {current.dateComparison.currentFileName ? (
+                <div className="mt-1 text-xs text-red-700">
+                  Текущий прайс: {current.dateComparison.currentFileName}
+                </div>
+              ) : null}
+            </div>
+          ) : current.dateComparison?.status === "NO_SOURCE_DATE" && current.dateComparison.currentSourceDate ? (
+            <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+              <div className="font-bold">Дата загруженного прайса не распознана</div>
+              <div className="mt-1">
+                Используемый прайс датирован {formatDay(current.dateComparison.currentSourceDate)}. Автоматически определить, новее ли загруженный файл, невозможно.
+              </div>
+            </div>
+          ) : null}
 
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
             <Stat label="Всего строк" value={current.totalRows} />
