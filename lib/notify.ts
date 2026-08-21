@@ -105,6 +105,9 @@ function paymentInstructionLines(args: NotifyArgs) {
       ? "Реквизиты ещё не настроены — менеджер отправит их отдельно."
       : null,
     formatDueDate(args.paymentDueAt) ? `Оплатить до: ${formatDueDate(args.paymentDueAt)}` : null,
+    formatDueDate(args.paymentDueAt)
+      ? "Если оплата не поступит до этого времени, заказ будет автоматически отменён."
+      : null,
     "",
     args.orderAccessUrl
       ? `Открыть страницу заказа: ${args.orderAccessUrl}`
@@ -149,13 +152,15 @@ export async function notifyCustomerOrderCreated(args: NotifyArgs) {
   }
 
   const subject = `Заказ ${args.orderNumber} принят`;
-  const halykAvailable = isHalykEpayConfigured();
+  const due = formatDueDate(args.paymentDueAt);
   const lines = [
     `Здравствуйте, ${args.customerName}!`,
     "",
-    halykAvailable
-      ? "Мы получили ваш заказ. Ожидать подтверждения менеджера не нужно: перейдите к оплате через Halyk ePay."
-      : "Мы получили ваш заказ. Оплатить его можно сразу на персональной странице заказа.",
+    "Мы получили ваш заказ.",
+    due ? `Оплатите до: ${due}.` : "Перейдите на персональную страницу заказа для оплаты.",
+    due
+      ? "Если оплата не поступит до этого времени, заказ будет автоматически отменён."
+      : null,
     "",
     ...commonOrderLines(args),
     "",
@@ -194,13 +199,9 @@ export async function notifyCustomerPaymentRequired(args: NotifyArgs) {
   const lines = [
     `Здравствуйте, ${args.customerName}!`,
     "",
-    `Заказ ${args.orderNumber} подтверждён. Для запуска сборки оплатите ${args.totalAmount.toLocaleString("ru-RU")} ₸.`,
+    `К оплате по заказу ${args.orderNumber}: ${args.totalAmount.toLocaleString("ru-RU")} ₸.`,
     "",
     ...paymentInstructionLines(args),
-    "",
-    isHalykEpayConfigured()
-      ? "Оплата картой через Halyk ePay подтверждается автоматически. Перевод на Kaspi проверяет менеджер."
-      : "После ручной проверки менеджер переведёт заказ в сборку.",
   ];
 
   const result = await sendSiteMail({
