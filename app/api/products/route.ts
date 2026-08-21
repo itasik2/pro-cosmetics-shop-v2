@@ -8,6 +8,7 @@ import { requireAdmin } from "@/lib/adminGuard";
 import { slugify } from "@/lib/slug";
 import { uniqueSlug } from "@/lib/uniqueSlug";
 import { formatProductName } from "@/lib/productNames";
+import { variantStockTotal } from "@/lib/productStock";
 
 const ProductSchema = z.object({
   name: z.string().min(2),
@@ -112,6 +113,7 @@ export async function POST(req: Request) {
 
     const baseSlug = slugify(name);
     const slug = await uniqueSlug({ model: "product", value: baseSlug });
+    const stock = variantStockTotal(parsed.variants) ?? parsed.stock;
 
     const created = await prisma.product.create({
       data: {
@@ -123,7 +125,7 @@ export async function POST(req: Request) {
         image: parsed.image,
         category: parsed.category,
         price: parsed.price,
-        stock: parsed.stock,
+        stock,
         isPopular: parsed.isPopular,
         popularityPinned: parsed.isPopular,
         popularityExcluded: false,
