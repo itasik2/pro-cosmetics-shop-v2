@@ -109,6 +109,11 @@ export async function POST(req: Request) {
 
     const orderNumber = makeOrderNumber();
     const access = createOrderAccessToken(orderNumber);
+    const paymentDueAt =
+      data.paymentMethod === "KASPI_TRANSFER"
+        ? new Date(Date.now() + 24 * 60 * 60 * 1000)
+        : null;
+
     const created = await prisma.$transaction(async (tx) => {
       const productIds = Array.from(
         new Set(built.items.map((item) => item.productId)),
@@ -201,6 +206,7 @@ export async function POST(req: Request) {
           status: "NEW",
           paymentMethod: data.paymentMethod,
           paymentStatus: data.paymentMethod === "CASH" ? "DUE_ON_DELIVERY" : "UNPAID",
+          paymentDueAt,
           customerAccessTokenHash: access.tokenHash,
           customerNotificationStatus: email ? "PENDING" : "SKIPPED",
           messengerNotificationStatus:
@@ -220,7 +226,12 @@ export async function POST(req: Request) {
             })),
           },
         },
-        select: { id: true, orderNumber: true, totalAmount: true },
+        select: {
+          id: true,
+          orderNumber: true,
+          totalAmount: true,
+          paymentDueAt: true,
+        },
       });
     });
 
@@ -238,6 +249,7 @@ export async function POST(req: Request) {
       address,
       comment: data.comment ? data.comment.trim() : null,
       paymentMethod: data.paymentMethod,
+      paymentDueAt: created.paymentDueAt,
       items: built.items.map((item) => ({
         title: item.title,
         qty: item.qty,
