@@ -5,6 +5,7 @@ import { ImportRowAction, PriceImportStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/adminGuard";
+import { comparePriceImportDate } from "@/lib/price-import/dateGuard";
 import { prisma } from "@/lib/prisma";
 
 type Params = { params: { id: string } };
@@ -22,7 +23,7 @@ const RowPatchSchema = z.object({
 });
 
 async function readImport(id: string) {
-  return prisma.priceImport.findUnique({
+  const priceImport = await prisma.priceImport.findUnique({
     where: { id },
     include: {
       supplier: true,
@@ -31,6 +32,16 @@ async function readImport(id: string) {
       },
     },
   });
+
+  if (!priceImport) return null;
+
+  const dateComparison = await comparePriceImportDate({
+    supplierId: priceImport.supplierId,
+    sourceDate: priceImport.sourceDate,
+    excludeImportId: priceImport.id,
+  });
+
+  return { ...priceImport, dateComparison };
 }
 
 export async function GET(_req: Request, { params }: Params) {
