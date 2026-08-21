@@ -177,17 +177,25 @@ export function telegramOrderConnectUrl(orderNumber: string) {
     return "";
   }
 
-  const parameter = `${safeOrderNumber}_${telegramLinkSignature(safeOrderNumber)}`;
-  if (parameter.length > 64) return "";
+  // Phone verification is now the authorization step, so the deep-link only
+  // needs to identify the order. This avoids links breaking after secret
+  // rotation or between deployments while keeping the actual binding secure.
+  const parameter = safeOrderNumber;
   return `https://t.me/${encodeURIComponent(config.username)}?start=${encodeURIComponent(parameter)}`;
 }
 
 export function parseTelegramOrderConnectToken(token: string) {
-  const separator = token.lastIndexOf("_");
-  if (separator <= 0) return null;
+  const value = token.trim();
 
-  const orderNumber = token.slice(0, separator);
-  const signature = token.slice(separator + 1);
+  // Current links contain only the order number. The Telegram chat is not
+  // linked until the user explicitly shares a phone number matching the order.
+  if (/^[A-Za-z0-9-]{1,32}$/.test(value)) return value;
+
+  // Backward compatibility with previously issued signed links.
+  const separator = value.lastIndexOf("_");
+  if (separator <= 0) return null;
+  const orderNumber = value.slice(0, separator);
+  const signature = value.slice(separator + 1);
   if (!/^[A-Za-z0-9-]{1,32}$/.test(orderNumber)) return null;
 
   if (/^[A-Za-z0-9_-]{24}$/.test(signature)) {
@@ -199,10 +207,9 @@ export function parseTelegramOrderConnectToken(token: string) {
     }
   }
 
-  // Since Telegram linking is completed only after the user explicitly shares
-  // their own phone number and it matches the order, a structurally valid
-  // order number can safely fall back to phone verification when an old or
-  // mismatched HMAC reaches the webhook (for example after secret rotation).
+  // Old HMAC may no longer match after a secret change. That is acceptable:
+  // the phone-number check still prevents another Telegram account from
+  // claiming the order.
   return orderNumber;
 }
 
