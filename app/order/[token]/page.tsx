@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import HalykPayButton from "./HalykPayButton";
 import PaymentReportForm from "./PaymentReportForm";
+import QazPostTrackingPanel from "./QazPostTrackingPanel";
 import { isHalykEpayConfigured } from "@/lib/halykEpay";
 import { hashOrderAccessToken } from "@/lib/orderAccess";
 import { cancelExpiredPrepaymentOrder } from "@/lib/orderPayments";
@@ -176,6 +177,15 @@ export default async function GuestOrderPage({
           <span>{order.totalAmount.toLocaleString("ru-RU")} ₸</span>
         </div>
       </div>
+
+      <QazPostTrackingPanel
+        shippingStatus={order.shippingStatus}
+        trackingNumber={order.trackingNumber}
+        shippingServiceCode={order.shippingServiceCode}
+        shippingPrice={order.shippingPrice}
+        shippedAt={order.shippedAt}
+        deliveredAt={order.deliveredAt}
+      />
 
       {telegramUrl || whatsappUrl ? (
         <div className="rounded-2xl border p-4">
