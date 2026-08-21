@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/adminGuard";
 import { formatProductName } from "@/lib/productNames";
+import { variantStockTotal } from "@/lib/productStock";
 import { processStockAlertsForProduct } from "@/lib/stockAlerts";
 
 const ProductSchema = z.object({
@@ -144,6 +145,7 @@ export async function PUT(req: Request, { params }: Params) {
     }
 
     const popularityChanged = parsed.isPopular !== current.isPopular;
+    const stock = variantStockTotal(parsed.variants) ?? parsed.stock;
     const updated = await prisma.product.update({
       where: { id: params.id },
       data: {
@@ -154,7 +156,7 @@ export async function PUT(req: Request, { params }: Params) {
         image: parsed.image,
         category: parsed.category,
         price: parsed.price,
-        stock: parsed.stock,
+        stock,
         isPopular: parsed.isPopular,
         ...(popularityChanged
           ? {
