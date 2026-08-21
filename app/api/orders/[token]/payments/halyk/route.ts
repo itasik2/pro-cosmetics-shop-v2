@@ -12,6 +12,7 @@ import {
   syncHalykOrderPayment,
 } from "@/lib/halykOrderPayments";
 import { hashOrderAccessToken } from "@/lib/orderAccess";
+import { cancelExpiredPrepaymentOrder } from "@/lib/orderPayments";
 import { prisma } from "@/lib/prisma";
 import { checkRateLimit, getClientIp } from "@/lib/rateLimit";
 import { getPublicBaseUrl } from "@/lib/siteConfig";
@@ -78,12 +79,12 @@ export async function POST(
   }
 
   if (order.paymentDueAt && order.paymentDueAt < new Date()) {
-    await prisma.order.update({
-      where: { id: order.id },
-      data: { status: "CANCELED" },
-    });
+    await cancelExpiredPrepaymentOrder(order.id);
     return NextResponse.json(
-      { error: "payment_expired", message: "Срок оплаты истёк, заказ отменён." },
+      {
+        error: "payment_expired",
+        message: "Срок оплаты истёк. Заказ отменён, товары возвращены в продажу.",
+      },
       { status: 410 },
     );
   }
