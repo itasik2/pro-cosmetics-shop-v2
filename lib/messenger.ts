@@ -1,5 +1,4 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { isHalykEpayConfigured } from "@/lib/halykEpay";
 import { getPaymentInstructions } from "@/lib/paymentInstructions";
 import { getScopedEnv } from "@/lib/siteConfig";
 
@@ -65,31 +64,34 @@ function sentenceValue(value: string) {
   return value.trim().replace(/[.!?]+$/g, "");
 }
 
+function paymentDeadlineSummary(order: MessengerOrder) {
+  const due = formatDueDate(order.paymentDueAt);
+  return [
+    due ? `Оплатите до ${due}.` : "Перейдите на страницу заказа для оплаты.",
+    due
+      ? "Если оплата не поступит до этого времени, заказ будет автоматически отменён."
+      : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 function eventSummary(order: MessengerOrder, event: MessengerEvent) {
   if (event === "ORDER_CREATED") {
-    const halykAvailable = isHalykEpayConfigured();
-    return halykAvailable
-      ? `заказ принят. Сумма ${order.totalAmount.toLocaleString("ru-RU")} ₸. Ожидать подтверждения менеджера не нужно: оплатите заказ через Halyk ePay на странице заказа.`
-      : `заказ принят. Сумма ${order.totalAmount.toLocaleString("ru-RU")} ₸. Оплатить заказ можно сразу на странице заказа.`;
+    return `заказ принят. Сумма ${order.totalAmount.toLocaleString("ru-RU")} ₸. ${paymentDeadlineSummary(order)}`;
   }
 
   if (event === "PAYMENT_REQUIRED") {
     const instructions = getPaymentInstructions();
-    const halykAvailable = isHalykEpayConfigured();
     const parts = [
-      `заказ подтверждён. К оплате ${order.totalAmount.toLocaleString("ru-RU")} ₸.`,
-      halykAvailable
-        ? "На странице заказа доступна оплата банковской картой через Halyk ePay; подтверждение поступит автоматически."
-        : "",
-      instructions.hasInstructions && halykAvailable
-        ? "Также можно оплатить переводом на Kaspi."
-        : "",
+      `к оплате ${order.totalAmount.toLocaleString("ru-RU")} ₸.`,
+      paymentDeadlineSummary(order),
+      "Способы оплаты доступны на странице заказа.",
       instructions.recipientName
         ? `Получатель: ${sentenceValue(instructions.recipientName)}.`
         : "",
-      instructions.kaspiPhone ? `Kaspi: ${sentenceValue(instructions.kaspiPhone)}.` : "",
-      formatDueDate(order.paymentDueAt)
-        ? `Оплатить до ${formatDueDate(order.paymentDueAt)}.`
+      instructions.kaspiPhone
+        ? `Kaspi: ${sentenceValue(instructions.kaspiPhone)}.`
         : "",
       instructions.hasInstructions
         ? "Если оплатили переводом на Kaspi, отметьте оплату на странице заказа."
@@ -177,9 +179,6 @@ export function telegramOrderConnectUrl(orderNumber: string) {
     return "";
   }
 
-  // Phone verification is now the authorization step, so the deep-link only
-  // needs to identify the order. This avoids links breaking after secret
-  // rotation or between deployments while keeping the actual binding secure.
   const parameter = safeOrderNumber;
   return `https://t.me/${encodeURIComponent(config.username)}?start=${encodeURIComponent(parameter)}`;
 }
@@ -187,11 +186,8 @@ export function telegramOrderConnectUrl(orderNumber: string) {
 export function parseTelegramOrderConnectToken(token: string) {
   const value = token.trim();
 
-  // Current links contain only the order number. The Telegram chat is not
-  // linked until the user explicitly shares a phone number matching the order.
   if (/^[A-Za-z0-9-]{1,32}$/.test(value)) return value;
 
-  // Backward compatibility with previously issued signed links.
   const separator = value.lastIndexOf("_");
   if (separator <= 0) return null;
   const orderNumber = value.slice(0, separator);
@@ -207,9 +203,6 @@ export function parseTelegramOrderConnectToken(token: string) {
     }
   }
 
-  // Old HMAC may no longer match after a secret change. That is acceptable:
-  // the phone-number check still prevents another Telegram account from
-  // claiming the order.
   return orderNumber;
 }
 
