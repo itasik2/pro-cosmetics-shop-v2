@@ -1,6 +1,7 @@
 // app/admin/(private)/orders/[id]/page.tsx
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import QazPostShippingPanel from "./QazPostShippingPanel";
 
 export const runtime = "nodejs";
 
@@ -251,6 +252,21 @@ export default async function AdminOrderDetailPage({ params }: { params: { id: s
           </div>
         </div>
       </div>
+
+      <QazPostShippingPanel
+        orderId={order.id}
+        returnTo={returnTo}
+        paymentStatus={String(order.paymentStatus)}
+        shippingServiceCode={order.shippingServiceCode}
+        shippingStatus={order.shippingStatus}
+        trackingNumber={order.trackingNumber}
+        shippingPrice={order.shippingPrice}
+        shippingWeightGrams={order.shippingWeightGrams}
+        shipmentLabelUrl={order.shipmentLabelUrl}
+        shippedAt={order.shippedAt}
+        deliveredAt={order.deliveredAt}
+        shippingUpdatedAt={order.shippingUpdatedAt}
+      />
 
       <div className="rounded-2xl border overflow-x-auto">
         <table className="w-full text-sm">
