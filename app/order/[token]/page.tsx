@@ -3,6 +3,7 @@ import HalykPayButton from "./HalykPayButton";
 import PaymentReportForm from "./PaymentReportForm";
 import { isHalykEpayConfigured } from "@/lib/halykEpay";
 import { hashOrderAccessToken } from "@/lib/orderAccess";
+import { cancelExpiredPrepaymentOrder } from "@/lib/orderPayments";
 import { getPaymentInstructions } from "@/lib/paymentInstructions";
 import { telegramOrderConnectUrl } from "@/lib/messenger";
 import { prisma } from "@/lib/prisma";
@@ -56,12 +57,30 @@ export default async function GuestOrderPage({
   searchParams?: { payment?: string; startPayment?: string };
 }) {
   const token = String(params.token || "").trim();
-  const order = await prisma.order.findUnique({
-    where: { customerAccessTokenHash: hashOrderAccessToken(token) },
+  const accessHash = hashOrderAccessToken(token);
+  let order = await prisma.order.findUnique({
+    where: { customerAccessTokenHash: accessHash },
     include: { items: { orderBy: { createdAt: "asc" } } },
   });
 
   if (!order) notFound();
+
+  if (
+    order.paymentMethod === "KASPI_TRANSFER" &&
+    order.paymentStatus === "UNPAID" &&
+    order.paymentDueAt &&
+    order.paymentDueAt.getTime() < Date.now() &&
+    (order.status === "NEW" || order.status === "CONFIRMED")
+  ) {
+    const expired = await cancelExpiredPrepaymentOrder(order.id);
+    if (expired.canceled) {
+      order = await prisma.order.findUnique({
+        where: { customerAccessTokenHash: accessHash },
+        include: { items: { orderBy: { createdAt: "asc" } } },
+      });
+      if (!order) notFound();
+    }
+  }
 
   const instructions = getPaymentInstructions();
   const isPrepayment = order.paymentMethod === "KASPI_TRANSFER";
@@ -72,6 +91,7 @@ export default async function GuestOrderPage({
   );
   const canReport =
     isPrepayment &&
+    !paymentExpired &&
     order.status !== "CANCELED" &&
     order.status !== "DONE" &&
     (order.paymentStatus === "UNPAID" || order.paymentStatus === "PENDING");
@@ -127,6 +147,12 @@ export default async function GuestOrderPage({
       ) : paymentReturn === "failed" ? (
         <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
           Halyk ePay не подтвердил оплату. Деньги не считаются полученными, можно повторить попытку или выбрать перевод на Kaspi.
+        </div>
+      ) : null}
+
+      {order.status === "CANCELED" && order.paymentStatus === "UNPAID" ? (
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">
+          Срок оплаты истёк. Заказ автоматически отменён, товары возвращены в продажу.
         </div>
       ) : null}
 
@@ -201,7 +227,7 @@ export default async function GuestOrderPage({
             <div>
               <h2 className="text-lg font-bold">Оплата заказа</h2>
               <p className="mt-1 text-sm text-amber-900">
-                Заказ уже создан. Оплатите его картой через Halyk ePay или переводом на Kaspi, ожидать подтверждения менеджера не нужно.
+                Оплатите заказ до указанного ниже срока. Если оплата не поступит вовремя, заказ будет автоматически отменён.
               </p>
             </div>
 
