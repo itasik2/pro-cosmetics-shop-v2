@@ -39,7 +39,7 @@ export default function CheckoutSuccessPage({
           <div className="text-sm text-gray-500">Номер заказа</div>
           <div className="text-xl font-bold">{order}</div>
           <div className="text-sm text-gray-600 mt-2">
-            {channelMessage} Заказ уже можно оплатить, ожидать подтверждения менеджера не нужно.
+            {channelMessage} Перейдите на страницу заказа для оплаты.
           </div>
 
           <div className="mt-3 flex flex-wrap gap-2">
