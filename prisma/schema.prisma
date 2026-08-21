@@ -392,6 +392,18 @@ model Order {
   paymentProviderReference String?
   paymentProviderStatus    String?
   paymentProviderUpdatedAt DateTime?
+  shippingProvider         String    @default("QAZPOST")
+  shippingServiceCode      String?
+  shippingStatus           String    @default("NOT_CREATED")
+  shippingExternalId       String?
+  trackingNumber           String?
+  shippingPrice            Int?
+  shippingWeightGrams      Int?
+  shipmentLabelUrl         String?
+  shippingProviderData     Json?
+  shippingUpdatedAt        DateTime?
+  shippedAt                DateTime?
+  deliveredAt              DateTime?
   notificationStatus    String   @default("PENDING")
   notificationAttempts  Int      @default(0)
   notificationLastError String?
@@ -424,6 +436,8 @@ model Order {
   @@index([paymentNotificationStatus, createdAt], map: "Order_payment_notification_idx")
   @@index([messengerNotificationStatus, createdAt], map: "Order_messenger_notification_idx")
   @@index([paymentProvider, paymentProviderStatus], map: "Order_payment_provider_status_idx")
+  @@index([shippingProvider, shippingStatus], map: "Order_shipping_provider_status_idx")
+  @@index([trackingNumber], map: "Order_tracking_number_idx")
   @@index([archivedAt, createdAt], map: "Order_archived_created_idx")
   @@index([telegramPendingChatId, telegramPendingAt], map: "Order_telegram_pending_idx")
 }
