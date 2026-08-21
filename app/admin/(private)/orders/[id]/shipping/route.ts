@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/adminGuard";
+import { sendOrderMessengerNotification } from "@/lib/orderMessengerNotifications";
 import { prisma } from "@/lib/prisma";
 
 const SHIPPING_STATUSES = new Set([
@@ -33,6 +34,10 @@ function safeReturnTo(value: string, orderId: string) {
     : `/admin/orders/${orderId}`;
 }
 
+function usesMessenger(channel: string | null) {
+  return channel === "WHATSAPP" || channel === "TELEGRAM";
+}
+
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const forbidden = await requireAdmin();
   if (forbidden) return forbidden;
@@ -49,13 +54,20 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       paymentMethod: true,
       paymentStatus: true,
       trackingNumber: true,
+      shippingStatus: true,
+      notificationChannel: true,
+      archivedAt: true,
     },
   });
 
   if (!order) redirect("/admin/orders");
+  if (order.archivedAt) redirect(`${returnTo}?shippingError=order_archived`);
+
+  const paymentSettled =
+    order.paymentStatus === "PAID" || order.paymentStatus === "REFUNDED";
 
   if (action === "mark_shipped") {
-    if (order.paymentMethod === "KASPI_TRANSFER" && order.paymentStatus !== "PAID" && order.paymentStatus !== "REFUNDED") {
+    if (order.paymentMethod === "KASPI_TRANSFER" && !paymentSettled) {
       redirect(`${returnTo}?shippingError=payment_required`);
     }
     if (!order.trackingNumber) {
@@ -63,6 +75,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     }
 
     const now = new Date();
+    const statusChanged = order.status !== "SHIPPED" || order.shippingStatus !== "SHIPPED";
     await prisma.order.update({
       where: { id: order.id },
       data: {
@@ -73,6 +86,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         shippedAt: order.status === "SHIPPED" ? undefined : now,
       },
     });
+
+    if (statusChanged && usesMessenger(order.notificationChannel)) {
+      await sendOrderMessengerNotification(order.id, "STATUS_UPDATE");
+    }
     redirect(`${returnTo}?shippingSaved=shipped`);
   }
 
@@ -103,17 +120,31 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     }
   }
 
-  const markOrderShipped = shippingStatus === "SHIPPED" || shippingStatus === "IN_TRANSIT" || shippingStatus === "DELIVERED";
+  const markOrderShipped =
+    shippingStatus === "SHIPPED" ||
+    shippingStatus === "IN_TRANSIT" ||
+    shippingStatus === "DELIVERED";
+
   if (
     markOrderShipped &&
     order.paymentMethod === "KASPI_TRANSFER" &&
-    order.paymentStatus !== "PAID" &&
-    order.paymentStatus !== "REFUNDED"
+    !paymentSettled
   ) {
+    redirect(`${returnTo}?shippingError=payment_required`);
+  }
+  if (shippingStatus === "DELIVERED" && !paymentSettled) {
     redirect(`${returnTo}?shippingError=payment_required`);
   }
 
   const now = new Date();
+  const nextOrderStatus = shippingStatus === "DELIVERED"
+    ? "DONE"
+    : markOrderShipped
+      ? "SHIPPED"
+      : order.status;
+  const statusChanged =
+    order.status !== nextOrderStatus || order.shippingStatus !== shippingStatus;
+
   await prisma.order.update({
     where: { id: order.id },
     data: {
@@ -127,13 +158,17 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       shippingUpdatedAt: now,
       ...(markOrderShipped
         ? {
-            status: shippingStatus === "DELIVERED" ? order.status : "SHIPPED",
-            shippedAt: order.status === "SHIPPED" ? undefined : now,
+            status: nextOrderStatus,
+            shippedAt: order.status === "SHIPPED" || order.status === "DONE" ? undefined : now,
             deliveredAt: shippingStatus === "DELIVERED" ? now : undefined,
           }
         : {}),
     },
   });
+
+  if (statusChanged && usesMessenger(order.notificationChannel)) {
+    await sendOrderMessengerNotification(order.id, "STATUS_UPDATE");
+  }
 
   redirect(`${returnTo}?shippingSaved=1`);
 }
