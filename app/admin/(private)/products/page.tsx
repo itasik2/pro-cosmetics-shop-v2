@@ -2,6 +2,7 @@ import AdminProductSearchBar from "./AdminProductSearchBar";
 import AdminProductsClient from "./AdminProductsClient";
 import DraftProductsPublisher from "./DraftProductsPublisher";
 import VariantMergeMaintenance from "./VariantMergeMaintenance";
+import VariantStockManager from "./VariantStockManager";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -12,6 +13,7 @@ export default function Page() {
       <AdminProductSearchBar />
       <DraftProductsPublisher />
       <VariantMergeMaintenance />
+      <VariantStockManager />
       <AdminProductsClient />
     </div>
   );
