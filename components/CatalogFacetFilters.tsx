@@ -70,7 +70,7 @@ export default function CatalogFacetFilters({
   }
 
   return (
-    <div className="flex flex-wrap items-start gap-2">
+    <div className="flex min-w-0 flex-wrap items-start gap-2">
       <FilterDropdown
         title="Бренды"
         options={brands}
@@ -84,6 +84,7 @@ export default function CatalogFacetFilters({
         selected={selectedCategories}
         onChange={(slug, checked) => updateFilter("category", slug, checked)}
         onClear={() => clearFilter("category")}
+        mobileAlign="end"
       />
       {selectedBrands.length > 0 || selectedCategories.length > 0 ? (
         <button
@@ -104,12 +105,14 @@ function FilterDropdown({
   selected,
   onChange,
   onClear,
+  mobileAlign = "start",
 }: {
   title: string;
   options: FilterOption[];
   selected: string[];
   onChange: (slug: string, checked: boolean) => void;
   onClear: () => void;
+  mobileAlign?: "start" | "end";
 }) {
   const [open, setOpen] = useState(false);
   const selectedSet = useMemo(() => new Set(selected), [selected]);
@@ -122,10 +125,14 @@ function FilterDropdown({
       : selectedLabels.length === 1
         ? selectedLabels[0]
         : `${title}: ${selectedLabels.length}`;
+  const panelAlignment =
+    mobileAlign === "end"
+      ? "right-0 left-auto sm:right-auto sm:left-0"
+      : "left-0";
 
   return (
     <details
-      className="relative"
+      className="relative min-w-0"
       open={open}
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
@@ -136,7 +143,9 @@ function FilterDropdown({
         </span>
       </summary>
 
-      <div className="absolute left-0 z-30 mt-2 max-h-80 w-[min(18rem,calc(100vw-2rem))] overflow-y-auto rounded-2xl border bg-white p-2 shadow-xl">
+      <div
+        className={`absolute z-30 mt-2 max-h-80 w-[min(18rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-2xl border bg-white p-2 shadow-xl ${panelAlignment}`}
+      >
         <label className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 text-sm hover:bg-gray-50">
           <input
             type="checkbox"
