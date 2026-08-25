@@ -164,6 +164,7 @@ export async function monitorStaleProductSources(input?: {
   limit?: number;
   staleHours?: number;
   stopAfterChange?: boolean;
+  priceImportId?: string | null;
 }) {
   const limit = Math.min(8, Math.max(1, Math.trunc(input?.limit || 4)));
   const staleHours = Math.min(
@@ -176,6 +177,13 @@ export async function monitorStaleProductSources(input?: {
     where: {
       status: { in: [ProductSourceStatus.ACTIVE, ProductSourceStatus.ERROR] },
       supplierSource: { isEnabled: true },
+      ...(input?.priceImportId
+        ? {
+            product: {
+              importRows: { some: { importId: input.priceImportId } },
+            },
+          }
+        : {}),
       OR: [
         { lastCheckedAt: null },
         { lastCheckedAt: { lt: staleBefore } },
