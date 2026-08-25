@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import PriceImportsClient from "../price-imports/PriceImportsClient";
 import PriceImportMaintenance from "../price-imports/PriceImportMaintenance";
 import AdminEnrichmentClient from "../enrichment/AdminEnrichmentClient";
+import EnrichmentPriceScope from "./EnrichmentPriceScope";
 
 export type PriceWorkflowStep = "import" | "enrichment";
 
@@ -129,7 +130,12 @@ export default function PriceWorkflowClient({
           </div>
         )}
 
-        {step === "enrichment" && <AdminEnrichmentClient />}
+        {step === "enrichment" && (
+          <div className="space-y-4">
+            <EnrichmentPriceScope />
+            <AdminEnrichmentClient />
+          </div>
+        )}
       </section>
 
       <nav className="flex flex-col gap-3 rounded-2xl border bg-white/80 p-4 sm:flex-row sm:items-center sm:justify-between">
