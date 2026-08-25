@@ -264,17 +264,66 @@ export async function runProductEnrichment(input: RunInput) {
       );
     }
 
-    const finalSource =
+    let finalSource =
       findSourceForUrl(allowedSources, fetched.finalUrl) || requestedSource;
-    const extracted = extractProductFromHtml({
+    let extracted = extractProductFromHtml({
       buffer: fetched.buffer,
       finalUrl: fetched.finalUrl,
       selectors: selectorsFromJson(finalSource.selectors),
     });
-    const match = scoreProductMatch(product, extracted);
+    let match = scoreProductMatch(product, extracted);
+
+    if (
+      match.confidence === 0 &&
+      !explicitSourceUrl &&
+      input.discoverIfMissing !== false
+    ) {
+      const rejectedUrl = fetched.finalUrl;
+      const rejectedMatch = match.evidence;
+      const discovered = await discoverSource([
+        ...excludedSourceUrls,
+        rejectedUrl,
+      ]);
+      searchResult = {
+        ...discovered.result,
+        retryReason: "product_match_zero_confidence",
+        rejectedUrl,
+        rejectedMatch,
+      };
+
+      if (discovered.url && discovered.url !== rejectedUrl) {
+        sourceUrl = discovered.url;
+        requestedSource = findSourceForUrl(allowedSources, sourceUrl);
+        if (!requestedSource) throw new Error("source_domain_not_allowed");
+
+        try {
+          fetched = await safeFetchHtml(
+            sourceUrl,
+            toAllowedPolicies(allowedSources),
+          );
+        } catch (error) {
+          const message = errorMessage(error);
+          if (recoverableAutomaticSourceError(message)) {
+            throw new Error("product_match_zero_confidence");
+          }
+          throw error;
+        }
+
+        finalSource =
+          findSourceForUrl(allowedSources, fetched.finalUrl) || requestedSource;
+        extracted = extractProductFromHtml({
+          buffer: fetched.buffer,
+          finalUrl: fetched.finalUrl,
+          selectors: selectorsFromJson(finalSource.selectors),
+        });
+        match = scoreProductMatch(product, extracted);
+      }
+    }
+
     if (match.confidence === 0) {
       throw new Error("product_match_zero_confidence");
     }
+
     const contentHash = createHash("sha256")
       .update(fetched.buffer)
       .digest("hex");
