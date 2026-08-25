@@ -178,6 +178,39 @@ a.bg-black:hover {
   background-color: var(--color-primary-hover);
 }
 
+/* Источник фото в админке автозаполнения. */
+label:has(> input[type="radio"][name^="proposal-image-"])
+  > div.relative.aspect-square::before {
+  content: "Фото из сети";
+  position: absolute;
+  top: 0.5rem;
+  left: 0.5rem;
+  z-index: 20;
+  padding: 0.25rem 0.5rem;
+  border-radius: 9999px;
+  background: rgb(31 41 55 / 0.88);
+  color: white;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1rem;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.12);
+}
+
+label:has(> input[type="radio"][name^="proposal-image-"]):has(
+    img[src*="/price-imports/"]
+  ) {
+  border-color: #99f6e4;
+  background: #f0fdfa;
+}
+
+label:has(> input[type="radio"][name^="proposal-image-"]):has(
+    img[src*="/price-imports/"]
+  )
+  > div.relative.aspect-square::before {
+  content: "Фото из прайса";
+  background: rgb(15 118 110 / 0.94);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
