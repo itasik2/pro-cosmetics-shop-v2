@@ -19,6 +19,7 @@ export type ParsedPriceRow = {
   sourceDate: string | null;
   confidence: number;
   warnings: string[];
+  priceImageUrl?: string | null;
 };
 
 export type EmbeddedPriceImage = {
@@ -36,7 +37,6 @@ export type PriceParseResult = {
   pageCount: number;
   rows: ParsedPriceRow[];
   warnings: string[];
-  embeddedImages?: EmbeddedPriceImage[];
 };
 
 export type PriceParserMode =
