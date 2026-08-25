@@ -272,9 +272,22 @@ export async function processCatalogAutopilotProposal(
   }
 }
 
-export async function runCatalogAutopilot() {
+export async function runCatalogAutopilot(input?: {
+  priceImportId?: string | null;
+}) {
   const config = getCatalogAutopilotConfig();
   const startedAt = new Date();
+  const priceImportId = input?.priceImportId?.trim() || null;
+  const proposalProductScope = priceImportId
+    ? {
+        product: {
+          importRows: { some: { importId: priceImportId } },
+        },
+      }
+    : {};
+  const productScope = priceImportId
+    ? { importRows: { some: { importId: priceImportId } } }
+    : {};
 
   if (!config.enabled) {
     return {
@@ -292,6 +305,7 @@ export async function runCatalogAutopilot() {
     where: {
       status: EnrichmentProposalStatus.PENDING,
       confidence: 0,
+      ...proposalProductScope,
     },
     orderBy: { createdAt: "asc" },
     take: 25,
@@ -307,6 +321,7 @@ export async function runCatalogAutopilot() {
     where: {
       status: EnrichmentProposalStatus.PENDING,
       confidence: { gt: 0 },
+      ...proposalProductScope,
     },
     orderBy: { updatedAt: "asc" },
     take: config.proposalBatch,
@@ -333,6 +348,7 @@ export async function runCatalogAutopilot() {
       where: {
         supplierId: { not: null },
         enrichmentStatus: { in: ["PENDING", "FAILED"] },
+        ...productScope,
         enrichmentProposals: {
           none: {
             status: EnrichmentProposalStatus.PENDING,
@@ -405,6 +421,7 @@ export async function runCatalogAutopilot() {
     monitor = await monitorStaleProductSources({
       limit: config.monitorBatch,
       stopAfterChange: true,
+      priceImportId,
       staleHours: Math.max(
         1,
         Math.trunc(Number(process.env.ENRICHMENT_MONITOR_STALE_HOURS) || 24 * 7),
@@ -423,6 +440,7 @@ export async function runCatalogAutopilot() {
   return {
     enabled: true,
     config,
+    priceImportId,
     startedAt: startedAt.toISOString(),
     finishedAt: new Date().toISOString(),
     proposalResults,
