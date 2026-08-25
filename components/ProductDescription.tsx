@@ -10,6 +10,9 @@ const SECTION_TITLES = [
   "Важно",
 ] as const;
 
+const PRIVATE_SECTION_TITLES = new Set<string>([
+  "Состав и активные компоненты",
+]);
 const SECTION_TITLE_SET = new Set<string>(SECTION_TITLES);
 const SECTION_PATTERN = SECTION_TITLES.join("|");
 
@@ -62,45 +65,48 @@ export default function ProductDescription({
 
   if (!blocks.length) return null;
 
+  const visibleBlocks = blocks.flatMap((block, blockIndex) => {
+    const lines = block
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const heading = SECTION_TITLE_SET.has(lines[0]) ? lines[0] : null;
+    if (heading && PRIVATE_SECTION_TITLES.has(heading)) return [];
+
+    const contentLines = heading ? lines.slice(1) : lines;
+    if (!contentLines.length) return [];
+
+    return [{ blockIndex, heading, contentLines }];
+  });
+
+  if (!visibleBlocks.length) return null;
+
   return (
     <div className="rounded-2xl border border-gray-200 bg-white p-5 text-gray-700 shadow-sm sm:p-6">
       <div className="space-y-5">
-        {blocks.map((block, blockIndex) => {
-          const lines = block
-            .split("\n")
-            .map((line) => line.trim())
-            .filter(Boolean);
-          const heading = SECTION_TITLE_SET.has(lines[0]) ? lines[0] : null;
-          const contentLines = heading ? lines.slice(1) : lines;
+        {visibleBlocks.map(({ blockIndex, heading, contentLines }, visibleIndex) => (
+          <section
+            key={`${heading || "description"}-${blockIndex}`}
+            className={visibleIndex > 0 ? "border-t border-gray-100 pt-5" : undefined}
+          >
+            {heading && (
+              <h2 className="mb-2 text-base font-semibold text-gray-950">
+                {heading}
+              </h2>
+            )}
 
-          if (!contentLines.length) return null;
-
-          return (
-            <section
-              key={`${heading || "description"}-${blockIndex}`}
+            <div
               className={
-                blockIndex > 0 ? "border-t border-gray-100 pt-5" : undefined
+                "space-y-2 leading-7 " +
+                (visibleIndex === 0 && !heading
+                  ? "text-[17px] text-gray-800"
+                  : "text-[15px]")
               }
             >
-              {heading && (
-                <h2 className="mb-2 text-base font-semibold text-gray-950">
-                  {heading}
-                </h2>
-              )}
-
-              <div
-                className={
-                  "space-y-2 leading-7 " +
-                  (blockIndex === 0 && !heading
-                    ? "text-[17px] text-gray-800"
-                    : "text-[15px]")
-                }
-              >
-                {descriptionContent(contentLines)}
-              </div>
-            </section>
-          );
-        })}
+              {descriptionContent(contentLines)}
+            </div>
+          </section>
+        ))}
       </div>
     </div>
   );
