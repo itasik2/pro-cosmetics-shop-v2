@@ -22,7 +22,7 @@ export type ParsedPriceRow = {
 };
 
 export type PriceParseResult = {
-  parserId: "ANGIOPHARM_PDF" | "MESALTERA_PDF" | "GENERIC_PDF";
+  parserId: "ANGIOPHARM_PDF" | "MESALTERA_PDF" | "JEUDERM_PDF" | "GENERIC_PDF";
   sourceDate: string | null;
   pageCount: number;
   rows: ParsedPriceRow[];
@@ -33,4 +33,5 @@ export type PriceParserMode =
   | "AUTO"
   | "ANGIOPHARM_PDF"
   | "MESALTERA_PDF"
+  | "JEUDERM_PDF"
   | "GENERIC_PDF";
