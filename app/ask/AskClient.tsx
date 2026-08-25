@@ -24,7 +24,7 @@ function uid() {
 
 async function fetchProduct(productId: string): Promise<ProductCtx | null> {
   try {
-    const res = await fetch(`/api/products/${encodeURIComponent(productId)}`, {
+    const res = await fetch(`/api/ask/product/${encodeURIComponent(productId)}`, {
       cache: "no-store",
     });
     if (!res.ok) return null;
@@ -75,11 +75,7 @@ export default function AskClient() {
   const suggestedPrompt = useMemo(() => {
     if (!product) return "";
     const brand = product.brand?.name ? `${product.brand.name} • ` : "";
-    return `Вопрос по товару: ${product.name}
-${brand}${Number(product.price).toLocaleString("ru-RU")} ₸
-Категория: ${product.category}
-
-Мой вопрос: `;
+    return `Вопрос по товару: ${product.name}\n${brand}${Number(product.price).toLocaleString("ru-RU")} ₸\nКатегория: ${product.category}\n\nМой вопрос: `;
   }, [product]);
 
   // Префилл (только если поле пустое и нет истории)
