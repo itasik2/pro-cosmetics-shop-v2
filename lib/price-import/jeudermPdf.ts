@@ -1,4 +1,5 @@
-import type { ParsedPriceRow, PriceParseResult, PriceVolumeUnit } from "./types";
+import { extractJeudermEmbeddedImages } from "./jeudermEmbeddedImages";
+import type { EmbeddedPriceImage, ParsedPriceRow, PriceParseResult, PriceVolumeUnit } from "./types";
 
 type PdfTextItem = {
   str?: unknown;
@@ -200,6 +201,7 @@ export async function parseJeudermPdf(
   }
 
   const parsedRows: ParsedPriceRow[] = [];
+  const visualIndexByRowNumber = new Map<number, number>();
   let rowNumber = 0;
 
   for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
@@ -227,11 +229,13 @@ export async function parseJeudermPdf(
       columns[columnIndex].push(item);
     }
 
-    for (const columnItems of columns) {
+    for (let columnIndex = 0; columnIndex < columns.length; columnIndex += 1) {
+      const columnItems = columns[columnIndex];
       const rows = groupRows(columnItems);
       let nameParts: string[] = [];
       let bodyRows: string[] = [];
       let bodyStarted = false;
+      let cardInColumn = 0;
 
       for (let index = 0; index < rows.length; index += 1) {
         const row = rows[index];
@@ -274,6 +278,8 @@ export async function parseJeudermPdf(
             .join(" ");
           const volume = parseVolume(combinedText);
           const prices = parsePrices(row.text, supplementalRow);
+          const visualIndex = cardInColumn * 3 + columnIndex;
+          cardInColumn += 1;
 
           if (name && prices.sourcePrice !== null) {
             const description = cleanText(
@@ -306,6 +312,7 @@ export async function parseJeudermPdf(
               confidence: volume.value !== null ? 95 : 85,
               warnings,
             });
+            visualIndexByRowNumber.set(rowNumber, visualIndex);
           }
 
           nameParts = [];
@@ -338,11 +345,51 @@ export async function parseJeudermPdf(
     (a, b) => a.pageNumber - b.pageNumber || a.rowNumber - b.rowNumber,
   );
 
+  const warnings = ["source_date_not_found", "synthetic_skus_generated"];
+  const embeddedByPage = extractJeudermEmbeddedImages(bytes);
+  const embeddedImages: EmbeddedPriceImage[] = [];
+
+  for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+    const pageRows = parsedRows
+      .filter((row) => row.pageNumber === pageNumber)
+      .sort(
+        (a, b) =>
+          (visualIndexByRowNumber.get(a.rowNumber) ?? Number.MAX_SAFE_INTEGER) -
+          (visualIndexByRowNumber.get(b.rowNumber) ?? Number.MAX_SAFE_INTEGER),
+      );
+    const pageImages = embeddedByPage.get(pageNumber) || [];
+
+    if (pageRows.length !== pageImages.length) {
+      warnings.push(
+        `embedded_image_count_mismatch:${pageNumber}:${pageRows.length}:${pageImages.length}`,
+      );
+    }
+
+    const count = Math.min(pageRows.length, pageImages.length);
+    for (let index = 0; index < count; index += 1) {
+      const row = pageRows[index];
+      const image = pageImages[index];
+      embeddedImages.push({
+        rowNumber: row.rowNumber,
+        pageNumber,
+        mimeType: image.mimeType,
+        dataBase64: image.dataBase64,
+        width: image.width,
+        height: image.height,
+      });
+    }
+  }
+
+  if (embeddedImages.length) {
+    warnings.push(`embedded_images_found:${embeddedImages.length}`);
+  }
+
   return {
     parserId: "JEUDERM_PDF",
     sourceDate: null,
     pageCount: document.numPages,
     rows: parsedRows,
-    warnings: ["source_date_not_found", "synthetic_skus_generated"],
+    warnings,
+    embeddedImages,
   };
 }
