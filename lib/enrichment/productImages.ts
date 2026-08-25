@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { v2 as cloudinary } from "cloudinary";
 import { prisma } from "@/lib/prisma";
-import { safeFetchImage } from "./network";
+import { safeFetchImage, type AllowedSourcePolicy } from "./network";
 import {
   getEnabledSupplierSources,
   toAllowedPolicies,
@@ -69,6 +69,59 @@ async function uploadBuffer(buffer: Buffer) {
   });
 }
 
+function stringArray(value: unknown) {
+  if (!Array.isArray(value)) return [] as string[];
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+async function isTrustedProposalImage(productId: string, sourceUrl: string) {
+  const proposals = await prisma.productEnrichmentProposal.findMany({
+    where: {
+      productId,
+      status: "PENDING",
+      confidence: { gt: 0 },
+    },
+    select: { images: true },
+    take: 20,
+  });
+
+  return proposals.some((proposal) => stringArray(proposal.images).includes(sourceUrl));
+}
+
+function exactHostPolicy(rawUrl: string): AllowedSourcePolicy | null {
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    if (url.username || url.password || url.port) return null;
+    const hostname = url.hostname.trim().toLowerCase().replace(/\.$/, "");
+    return hostname ? { domain: hostname, allowSubdomains: false } : null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchProposalImage(input: {
+  productId: string;
+  sourceUrl: string;
+  policies: AllowedSourcePolicy[];
+}) {
+  try {
+    return await safeFetchImage(input.sourceUrl, input.policies);
+  } catch (error) {
+    const message = String(error instanceof Error ? error.message : error);
+    if (message !== "source_domain_not_allowed") throw error;
+
+    const trusted = await isTrustedProposalImage(input.productId, input.sourceUrl);
+    const exactPolicy = trusted ? exactHostPolicy(input.sourceUrl) : null;
+    if (!exactPolicy) throw error;
+
+    return safeFetchImage(input.sourceUrl, [...input.policies, exactPolicy]);
+  }
+}
+
 export async function importProductImage(input: {
   productId: string;
   supplierId: string;
@@ -78,10 +131,11 @@ export async function importProductImage(input: {
   const sources = await getEnabledSupplierSources(input.supplierId);
   if (!sources.length) throw new Error("enabled_sources_required");
 
-  const fetched = await safeFetchImage(
-    input.sourceUrl,
-    toAllowedPolicies(sources),
-  );
+  const fetched = await fetchProposalImage({
+    productId: input.productId,
+    sourceUrl: input.sourceUrl,
+    policies: toAllowedPolicies(sources),
+  });
   const checksum = createHash("sha256").update(fetched.buffer).digest("hex");
 
   const existing = await prisma.productImage.findFirst({
