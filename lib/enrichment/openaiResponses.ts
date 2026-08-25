@@ -167,7 +167,7 @@ async function requestStructured(input: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: process.env.OPENAI_ENRICHMENT_MODEL || "gpt-4.1-mini",
+        model: process.env.OPENAI_ENRICHMENT_MODEL || "gpt-5.6-luna",
         input: [
           {
             role: "system",
@@ -221,13 +221,17 @@ function productLabel(product: MatchableProduct) {
       ? `${product.volumeValue} ${product.volumeUnit}`
       : "объём не указан";
   const brand = product.brand?.name || product.supplier?.name || "бренд не указан";
+  const supplierSku = String(product.supplierSku || "").trim();
+  const searchableSku = /^JD-[A-Z0-9]{6,}$/i.test(supplierSku)
+    ? "не указан"
+    : supplierSku || "не указан";
 
   return [
     `Бренд: ${brand}`,
     `Название: ${product.name}`,
     `Категория каталога: ${product.category || "не указана"}`,
     `Линия: ${product.productLineName || "не указана"}`,
-    `SKU: ${product.supplierSku || "не указан"}`,
+    `SKU: ${searchableSku}`,
     `Штрихкод: ${product.barcode || "не указан"}`,
     `Объём: ${volume}`,
   ].join("\n");
