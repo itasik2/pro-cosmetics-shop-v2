@@ -5,9 +5,10 @@ export const maxDuration = 60;
 import { EnrichmentProposalStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/adminGuard";
-import { prisma } from "@/lib/prisma";
 import { runCatalogAutopilot } from "@/lib/enrichment/catalogAutopilot";
 import { getCatalogAutopilotConfig } from "@/lib/enrichment/catalogAutopilotPolicy";
+import { getEnrichmentPriceImportId } from "@/lib/enrichment/priceImportScope";
+import { prisma } from "@/lib/prisma";
 
 function jsonObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -15,20 +16,33 @@ function jsonObject(value: unknown): Record<string, unknown> {
     : {};
 }
 
-async function overview() {
+async function overview(priceImportId: string | null) {
   const config = getCatalogAutopilotConfig();
+  const proposalProductScope = priceImportId
+    ? {
+        product: {
+          importRows: { some: { importId: priceImportId } },
+        },
+      }
+    : {};
+  const productScope = priceImportId
+    ? { importRows: { some: { importId: priceImportId } } }
+    : {};
+
   const [pendingProposals, pendingDiscovery, sourceRequired, appliedRows] =
     await Promise.all([
       prisma.productEnrichmentProposal.count({
         where: {
           status: EnrichmentProposalStatus.PENDING,
           confidence: { gt: 0 },
+          ...proposalProductScope,
         },
       }),
       prisma.product.count({
         where: {
           supplierId: { not: null },
           enrichmentStatus: "PENDING",
+          ...productScope,
           enrichmentProposals: {
             none: {
               status: EnrichmentProposalStatus.PENDING,
@@ -38,10 +52,16 @@ async function overview() {
         },
       }),
       prisma.product.count({
-        where: { enrichmentStatus: "SOURCE_REQUIRED" },
+        where: {
+          enrichmentStatus: "SOURCE_REQUIRED",
+          ...productScope,
+        },
       }),
       prisma.productEnrichmentProposal.findMany({
-        where: { status: EnrichmentProposalStatus.APPLIED },
+        where: {
+          status: EnrichmentProposalStatus.APPLIED,
+          ...proposalProductScope,
+        },
         orderBy: { appliedAt: "desc" },
         take: 50,
         select: {
@@ -78,6 +98,7 @@ async function overview() {
 
   return {
     config,
+    priceImportId,
     counts: {
       pendingProposals,
       pendingDiscovery,
@@ -91,7 +112,8 @@ async function overview() {
 export async function GET() {
   const forbidden = await requireAdmin();
   if (forbidden) return forbidden;
-  return NextResponse.json(await overview());
+  const priceImportId = getEnrichmentPriceImportId();
+  return NextResponse.json(await overview(priceImportId));
 }
 
 export async function POST() {
@@ -99,8 +121,9 @@ export async function POST() {
   if (forbidden) return forbidden;
 
   try {
-    const result = await runCatalogAutopilot();
-    return NextResponse.json({ result, overview: await overview() });
+    const priceImportId = getEnrichmentPriceImportId();
+    const result = await runCatalogAutopilot({ priceImportId });
+    return NextResponse.json({ result, overview: await overview(priceImportId) });
   } catch (error) {
     console.error("POST catalog autopilot", error);
     return NextResponse.json(
