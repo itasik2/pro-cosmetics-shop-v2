@@ -4,6 +4,7 @@ export const dynamic = "force-dynamic";
 import { EnrichmentProposalStatus, type Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/adminGuard";
+import { getEnrichmentPriceImportId, productImportScope } from "@/lib/enrichment/priceImportScope";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(req: Request) {
@@ -13,6 +14,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const query = (url.searchParams.get("q") || "").trim();
   const status = (url.searchParams.get("status") || "").trim().toUpperCase();
+  const priceImportId = getEnrichmentPriceImportId();
 
   const statusFilter: Prisma.ProductWhereInput =
     status === "SOURCE_REQUIRED"
@@ -55,7 +57,7 @@ export async function GET(req: Request) {
   const products = await prisma.product.findMany({
     where: {
       supplierId: { not: null },
-      AND: [statusFilter, queryFilter],
+      AND: [statusFilter, queryFilter, productImportScope(priceImportId)],
     },
     orderBy: [{ enrichmentStatus: "asc" }, { updatedAt: "desc" }],
     take: 150,
