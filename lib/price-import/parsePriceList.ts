@@ -1,5 +1,6 @@
 import { parseAngiopharmPdf } from "./angiopharmPdf";
 import { parseGenericPdf } from "./genericPdf";
+import { parseJeudermPdf } from "./jeudermPdf";
 import { parseMesalteraPdf } from "./mesalteraPdf";
 import type { ParsedPriceRow, PriceParseResult, PriceParserMode } from "./types";
 
@@ -7,12 +8,15 @@ function normalizeParserMode(value: unknown): PriceParserMode {
   const mode = String(value || "AUTO").toUpperCase();
   if (mode === "ANGIOPHARM_PDF") return "ANGIOPHARM_PDF";
   if (mode === "MESALTERA_PDF") return "MESALTERA_PDF";
+  if (mode === "JEUDERM_PDF") return "JEUDERM_PDF";
   if (mode === "GENERIC_PDF") return "GENERIC_PDF";
   return "AUTO";
 }
 
 function normalizeHint(value: string) {
   return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
     .toLocaleLowerCase("ru-RU")
     .replace(/ё/g, "е")
     .replace(/[^a-zа-я0-9]+/g, "");
@@ -47,6 +51,18 @@ function isMesalteraHint(fileName: string, defaultBrand: string) {
     fileHint.includes("мезальтера") ||
     brandHint === "mesaltera" ||
     brandHint === "мезальтера"
+  );
+}
+
+function isJeudermHint(fileName: string, defaultBrand: string) {
+  const fileHint = normalizeHint(fileName);
+  const brandHint = normalizeHint(defaultBrand);
+
+  return (
+    fileHint.includes("jeuderm") ||
+    fileHint.includes("жеудерм") ||
+    brandHint === "jeuderm" ||
+    brandHint === "жеудерм"
   );
 }
 
@@ -144,6 +160,7 @@ export async function parsePriceListPdf(input: {
   const defaultBrand = String(input.defaultBrand || "").replace(/\s+/g, " ").trim();
   const angiopharmHint = isAngiopharmHint(input.fileName, defaultBrand);
   const mesalteraHint = isMesalteraHint(input.fileName, defaultBrand);
+  const jeudermHint = isJeudermHint(input.fileName, defaultBrand);
 
   const useAngiopharmParser =
     parserMode === "ANGIOPHARM_PDF" ||
@@ -182,6 +199,14 @@ export async function parsePriceListPdf(input: {
     );
   }
 
+  const useJeudermParser =
+    parserMode === "JEUDERM_PDF" ||
+    (jeudermHint && (parserMode === "AUTO" || !defaultBrand));
+  if (useJeudermParser) {
+    const parsed = await parseJeudermPdf(input.bytes, defaultBrand || "JeuDerm");
+    return withFileNameDate(parsed, input.fileName);
+  }
+
   const parsed = await parseGenericPdf({
     bytes: input.bytes,
     defaultBrand,
@@ -192,6 +217,7 @@ export async function parsePriceListPdf(input: {
 
 export {
   isAngiopharmHint,
+  isJeudermHint,
   isMesalteraHint,
   normalizeParserMode,
 };
