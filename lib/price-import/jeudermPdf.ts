@@ -15,9 +15,8 @@ type PositionedText = {
   height: number;
 };
 
-type CardRow = {
+type TextRow = {
   top: number;
-  items: PositionedText[];
   text: string;
   height: number;
 };
@@ -54,62 +53,71 @@ function isPdfTextItem(item: PdfTextItem): item is PdfTextItem & {
   );
 }
 
-function joinItems(items: PositionedText[]) {
-  return items
-    .map((item) => item.text)
-    .filter(Boolean)
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function groupRows(items: PositionedText[]): CardRow[] {
+function groupRows(items: PositionedText[]): TextRow[] {
   const sorted = [...items].sort((a, b) => a.top - b.top || a.x - b.x);
-  const rows: Array<{ top: number; items: PositionedText[] }> = [];
+  const grouped: Array<{ top: number; items: PositionedText[] }> = [];
 
   for (const item of sorted) {
-    const closest = rows
-      .slice(-3)
-      .find((row) => Math.abs(row.top - item.top) <= ROW_TOLERANCE);
+    const lastRows = grouped.slice(-3);
+    let target: { top: number; items: PositionedText[] } | undefined;
 
-    if (closest) {
-      closest.items.push(item);
-      closest.top =
-        (closest.top * (closest.items.length - 1) + item.top) / closest.items.length;
+    for (const candidate of lastRows) {
+      if (Math.abs(candidate.top - item.top) <= ROW_TOLERANCE) {
+        target = candidate;
+        break;
+      }
+    }
+
+    if (target) {
+      target.items.push(item);
+      target.top =
+        (target.top * (target.items.length - 1) + item.top) / target.items.length;
     } else {
-      rows.push({ top: item.top, items: [item] });
+      grouped.push({ top: item.top, items: [item] });
     }
   }
 
-  return rows
+  return grouped
     .sort((a, b) => a.top - b.top)
     .map((row) => {
       const ordered = row.items.sort((a, b) => a.x - b.x);
+      let height = 0;
+      for (const item of ordered) height = Math.max(height, item.height);
+
       return {
         top: row.top,
-        items: ordered,
-        text: joinItems(ordered),
-        height: Math.max(...ordered.map((item) => item.height), 0),
+        text: ordered
+          .map((item) => item.text)
+          .filter(Boolean)
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim(),
+        height,
       };
     });
 }
 
 function moneyValues(value: string) {
   const matches = value.match(/\d(?:[\d\s]*\d)?/g) || [];
-  return matches
-    .map((match) => Number(match.replace(/\s+/g, "")))
-    .filter((price) => Number.isInteger(price) && price >= 1_000);
-}
+  const result: number[] = [];
 
-function parsePrices(priceRow: string, supplementalRow = "") {
-  const marker = priceRow.match(/цена\s*:/iu);
-  if (!marker || marker.index === undefined) {
-    return { sourcePrice: null, recommendedPrice: null };
+  for (const match of matches) {
+    const number = Number(match.replace(/\s+/g, ""));
+    if (Number.isInteger(number) && number >= 1000) result.push(number);
   }
 
-  const values = moneyValues(priceRow.slice(marker.index + marker[0].length));
-  const sourcePrice = values[0] ?? null;
-  let recommendedPrice = values[1] ?? null;
+  return result;
+}
+
+function parsePrices(priceRow: string, supplementalRow: string) {
+  const marker = priceRow.match(/цена\s*:/i);
+  if (!marker || typeof marker.index !== "number") {
+    return { sourcePrice: null as number | null, recommendedPrice: null as number | null };
+  }
+
+  const prices = moneyValues(priceRow.slice(marker.index + marker[0].length));
+  const sourcePrice = prices.length ? prices[0] : null;
+  let recommendedPrice = prices.length > 1 ? prices[1] : null;
 
   if (
     sourcePrice !== null &&
@@ -117,8 +125,8 @@ function parsePrices(priceRow: string, supplementalRow = "") {
     priceRow.includes("/") &&
     supplementalRow
   ) {
-    const supplementalValues = moneyValues(supplementalRow);
-    recommendedPrice = supplementalValues.at(-1) ?? null;
+    const supplemental = moneyValues(supplementalRow);
+    if (supplemental.length) recommendedPrice = supplemental[supplemental.length - 1];
   }
 
   return { sourcePrice, recommendedPrice };
@@ -130,11 +138,12 @@ function parseVolume(text: string): {
   label: string;
 } {
   const match = text.match(
-    /объ[её]м\s*:\s*(\d+(?:[.,]\d+)?)\s*(млг|мл|гр\.?|г\b|шт|уп(?:\.|аковка)?)?/iu,
+    /объ[её]м\s*:\s*(\d+(?:[.,]\d+)?)\s*(млг|мл|гр\.?|г\b|шт|уп(?:\.|аковка)?)?/i,
   );
   if (!match) return { value: null, unit: null, label: "" };
 
-  const value = Math.max(0, Math.round(Number(match[1].replace(",", "."))));
+  const numeric = Number(match[1].replace(",", "."));
+  const value = Number.isFinite(numeric) ? Math.max(0, Math.round(numeric)) : null;
   const rawUnit = normalizeText(match[2] || "");
   let unit: PriceVolumeUnit = null;
 
@@ -146,34 +155,32 @@ function parseVolume(text: string): {
   return {
     value,
     unit,
-    label: cleanText(match[0].replace(/^объ[её]м\s*:\s*/iu, "")),
+    label: cleanText(match[0].replace(/^объ[её]м\s*:\s*/i, "")),
   };
 }
 
 function stripVolume(text: string) {
-  return cleanText(text.replace(/\s*объ[её]м\s*:.*$/iu, ""));
+  return cleanText(text.replace(/\s*объ[её]м\s*:.*$/i, ""));
 }
 
 function isFooter(text: string) {
   const normalized = normalizeText(text);
   return (
-    /^г\.\s*(?:алматы|астана)/iu.test(normalized) ||
-    /^\+?7[\d\s()-]{7,}$/u.test(text.trim())
+    /^г\.\s*(?:алматы|астана)/i.test(normalized) ||
+    /^\+?7[\d\s()-]{7,}$/.test(text.trim())
   );
 }
 
 function syntheticSku(name: string, volumeLabel: string) {
   const source = normalizeText(`${name}::${volumeLabel}`);
   let hash = 2166136261;
+
   for (let index = 0; index < source.length; index += 1) {
     hash ^= source.charCodeAt(index);
     hash = Math.imul(hash, 16777619);
   }
-  return `JD-${(hash >>> 0).toString(36).toUpperCase().padStart(7, "0")}`;
-}
 
-function confidenceFor(volume: ReturnType<typeof parseVolume>) {
-  return volume.value !== null ? 95 : 85;
+  return `JD-${(hash >>> 0).toString(36).toUpperCase().padStart(7, "0")}`;
 }
 
 export async function parseJeudermPdf(
@@ -215,58 +222,51 @@ export async function parseJeudermPdf(
         height: toNumber(rawItem.height),
       };
       const center = item.x + item.width / 2;
-      const columnIndex = Math.max(
-        0,
-        Math.min(2, Math.floor(center / (viewport.width / 3))),
-      );
+      let columnIndex = Math.floor(center / (viewport.width / 3));
+      columnIndex = Math.max(0, Math.min(2, columnIndex));
       columns[columnIndex].push(item);
     }
 
     for (const columnItems of columns) {
       const rows = groupRows(columnItems);
-      let card:
-        | {
-            nameParts: string[];
-            bodyRows: string[];
-            bodyStarted: boolean;
-          }
-        | null = null;
+      let nameParts: string[] = [];
+      let bodyRows: string[] = [];
+      let bodyStarted = false;
 
       for (let index = 0; index < rows.length; index += 1) {
         const row = rows[index];
         if (!row.text || isFooter(row.text)) continue;
 
-        const priceRow = /цена\s*:/iu.test(row.text);
-        const titleRow = row.height >= TITLE_HEIGHT && !priceRow;
+        const isPrice = /цена\s*:/i.test(row.text);
+        const isTitle = row.height >= TITLE_HEIGHT && !isPrice;
 
-        if (!card) {
-          if (titleRow) {
-            card = {
-              nameParts: [row.text],
-              bodyRows: [],
-              bodyStarted: false,
-            };
+        if (!nameParts.length) {
+          if (isTitle) {
+            nameParts = [row.text];
+            bodyRows = [];
+            bodyStarted = false;
           }
           continue;
         }
 
-        if (priceRow) {
+        if (isPrice) {
+          const beforePrice = [...nameParts, ...bodyRows].join(" ");
           let supplementalRow = "";
-          const joinedBeforePrice = [...card.nameParts, ...card.bodyRows].join(" ");
           const next = rows[index + 1];
+
           if (
-            !/объ[её]м\s*:/iu.test(joinedBeforePrice) &&
+            !/объ[её]м\s*:/i.test(beforePrice) &&
             next &&
-            /объ[её]м\s*:/iu.test(next.text)
+            /объ[её]м\s*:/i.test(next.text)
           ) {
             supplementalRow = next.text;
             index += 1;
           }
 
-          const name = cleanText(card.nameParts.join(" "));
+          const name = cleanText(nameParts.join(" "));
           const combinedText = [
-            ...card.nameParts,
-            ...card.bodyRows,
+            ...nameParts,
+            ...bodyRows,
             row.text,
             supplementalRow,
           ]
@@ -277,12 +277,8 @@ export async function parseJeudermPdf(
 
           if (name && prices.sourcePrice !== null) {
             const description = cleanText(
-              card.bodyRows
-                .map(stripVolume)
-                .filter(Boolean)
-                .join(" "),
+              bodyRows.map(stripVolume).filter(Boolean).join(" "),
             );
-            const volumeLabel = volume.label;
             const warnings = ["synthetic_sku"];
             if (volume.value === null) warnings.push("volume_not_found");
             if (prices.recommendedPrice === null) {
@@ -294,57 +290,59 @@ export async function parseJeudermPdf(
               pageNumber,
               rowNumber,
               brand: cleanText(brand) || "JeuDerm",
-              supplierSku: syntheticSku(name, volumeLabel),
+              supplierSku: syntheticSku(name, volume.label),
               originalName: name,
               normalizedName: name,
               description: description || null,
               volumeValue: volume.value,
               volumeUnit: volume.unit,
-              volumeLabel,
+              volumeLabel: volume.label,
               sourcePrice: prices.sourcePrice,
               recommendedPrice: prices.recommendedPrice,
               productLineCode: null,
               productLineName: null,
               category: "Без категории",
               sourceDate: null,
-              confidence: confidenceFor(volume),
+              confidence: volume.value !== null ? 95 : 85,
               warnings,
             });
           }
 
-          card = null;
+          nameParts = [];
+          bodyRows = [];
+          bodyStarted = false;
           continue;
         }
 
-        if (titleRow && !card.bodyStarted) {
-          card.nameParts.push(row.text);
+        if (isTitle && !bodyStarted) {
+          nameParts.push(row.text);
           continue;
         }
 
-        if (titleRow && card.bodyStarted) {
-          card = {
-            nameParts: [row.text],
-            bodyRows: [],
-            bodyStarted: false,
-          };
+        if (isTitle && bodyStarted) {
+          nameParts = [row.text];
+          bodyRows = [];
+          bodyStarted = false;
           continue;
         }
 
-        card.bodyStarted = true;
-        card.bodyRows.push(row.text);
+        bodyStarted = true;
+        bodyRows.push(row.text);
       }
     }
   }
 
-  if (parsedRows.length === 0) throw new Error("no_price_rows_found");
+  if (!parsedRows.length) throw new Error("no_price_rows_found");
+
+  parsedRows.sort(
+    (a, b) => a.pageNumber - b.pageNumber || a.rowNumber - b.rowNumber,
+  );
 
   return {
     parserId: "JEUDERM_PDF",
     sourceDate: null,
     pageCount: document.numPages,
-    rows: parsedRows.sort(
-      (a, b) => a.pageNumber - b.pageNumber || a.rowNumber - b.rowNumber,
-    ),
+    rows: parsedRows,
     warnings: ["source_date_not_found", "synthetic_skus_generated"],
   };
 }
