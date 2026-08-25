@@ -1,7 +1,7 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-import { EnrichmentProposalStatus } from "@prisma/client";
+import { EnrichmentProposalStatus, type Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/adminGuard";
 import { getEnrichmentPriceImportId } from "@/lib/enrichment/priceImportScope";
@@ -102,34 +102,51 @@ export async function GET(req: Request) {
     proposals.map((proposal) => proposal.productId),
     priceImportId,
   );
+  const updates: Prisma.PrismaPromise<unknown>[] = [];
 
   const enriched = proposals.map((proposal) => {
     const priceImage = priceImages.get(proposal.productId);
     if (!priceImage) return proposal;
 
+    const currentImages = stringArray(proposal.images);
     const images = [
-      ...new Set([priceImage.url, ...stringArray(proposal.images)]),
+      ...new Set([priceImage.url, ...currentImages]),
     ].slice(0, 12);
     const facts = jsonObject(proposal.facts);
+    const nextFacts = {
+      ...facts,
+      priceImageUrl: priceImage.url,
+      priceImageImport: {
+        importId: priceImage.importId,
+        fileName: priceImage.fileName,
+        rowNumber: priceImage.rowNumber,
+      },
+      imageCandidates: images.map((candidateUrl) => ({
+        url: candidateUrl,
+        source: candidateUrl === priceImage.url ? "PRICE_LIST" : "WEB",
+      })),
+    };
+
+    if (!currentImages.includes(priceImage.url)) {
+      updates.push(
+        prisma.productEnrichmentProposal.update({
+          where: { id: proposal.id },
+          data: {
+            images: images as Prisma.InputJsonValue,
+            facts: nextFacts as Prisma.InputJsonValue,
+          },
+        }),
+      );
+    }
 
     return {
       ...proposal,
       images,
-      facts: {
-        ...facts,
-        priceImageUrl: priceImage.url,
-        priceImageImport: {
-          importId: priceImage.importId,
-          fileName: priceImage.fileName,
-          rowNumber: priceImage.rowNumber,
-        },
-        imageCandidates: images.map((candidateUrl) => ({
-          url: candidateUrl,
-          source: candidateUrl === priceImage.url ? "PRICE_LIST" : "WEB",
-        })),
-      },
+      facts: nextFacts,
     };
   });
+
+  if (updates.length) await prisma.$transaction(updates);
 
   return NextResponse.json(enriched);
 }
