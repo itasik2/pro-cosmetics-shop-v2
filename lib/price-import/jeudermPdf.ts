@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import { extractJeudermEmbeddedImages } from "./jeudermEmbeddedImages";
+import { uploadEmbeddedPriceImages } from "./priceImportImages";
 import type { EmbeddedPriceImage, ParsedPriceRow, PriceParseResult, PriceVolumeUnit } from "./types";
 
 type PdfTextItem = {
@@ -382,6 +384,18 @@ export async function parseJeudermPdf(
 
   if (embeddedImages.length) {
     warnings.push(`embedded_images_found:${embeddedImages.length}`);
+    const fileHash = createHash("sha256").update(bytes).digest("hex");
+    const uploaded = await uploadEmbeddedPriceImages({
+      fileHash,
+      images: embeddedImages,
+      concurrency: 6,
+    });
+    warnings.push(...uploaded.warnings);
+
+    for (const row of parsedRows) {
+      row.priceImageUrl = uploaded.urls.get(row.rowNumber) || null;
+    }
+    warnings.push(`embedded_images_uploaded:${uploaded.urls.size}`);
   }
 
   return {
@@ -390,6 +404,5 @@ export async function parseJeudermPdf(
     pageCount: document.numPages,
     rows: parsedRows,
     warnings,
-    embeddedImages,
   };
 }
