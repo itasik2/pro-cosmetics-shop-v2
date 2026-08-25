@@ -4,6 +4,7 @@ export const dynamic = "force-dynamic";
 import { EnrichmentProposalStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/adminGuard";
+import { getEnrichmentPriceImportId } from "@/lib/enrichment/priceImportScope";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(req: Request) {
@@ -17,9 +18,20 @@ export async function GET(req: Request) {
   )
     ? (statusValue as EnrichmentProposalStatus)
     : EnrichmentProposalStatus.PENDING;
+  const priceImportId = getEnrichmentPriceImportId();
 
   const proposals = await prisma.productEnrichmentProposal.findMany({
-    where: { status, confidence: { gt: 0 } },
+    where: {
+      status,
+      confidence: { gt: 0 },
+      ...(priceImportId
+        ? {
+            product: {
+              importRows: { some: { importId: priceImportId } },
+            },
+          }
+        : {}),
+    },
     orderBy: { createdAt: "desc" },
     take: 100,
     include: {
