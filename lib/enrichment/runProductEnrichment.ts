@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   EnrichmentJobStatus,
+  PriceImportStatus,
   ProductSourceStatus,
   type Prisma,
 } from "@prisma/client";
@@ -38,6 +39,33 @@ function errorMessage(error: unknown) {
       ? (error as { message?: unknown }).message
       : error || "enrichment_failed",
   ).slice(0, 1000);
+}
+
+function jsonObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+async function latestPriceImageUrl(productId: string) {
+  const rows = await prisma.priceImportRow.findMany({
+    where: {
+      productId,
+      import: { status: PriceImportStatus.APPLIED },
+    },
+    orderBy: { updatedAt: "desc" },
+    take: 10,
+    select: { parsedData: true, rawData: true },
+  });
+
+  for (const row of rows) {
+    const parsed = jsonObject(row.parsedData);
+    const raw = jsonObject(row.rawData);
+    const url = String(parsed.priceImageUrl || raw.priceImageUrl || "").trim();
+    if (/^https?:\/\//i.test(url)) return url;
+  }
+
+  return "";
 }
 
 function recoverableAutomaticSourceError(message: string) {
@@ -135,6 +163,7 @@ export async function runProductEnrichment(input: RunInput) {
     if (!product.supplier) throw new Error("product_supplier_required");
     const searchableProduct = product;
     const supplier = product.supplier;
+    const priceImageUrl = await latestPriceImageUrl(product.id);
 
     await ensureDefaultSupplierSources({
       supplierId: supplier.id,
@@ -401,10 +430,19 @@ export async function runProductEnrichment(input: RunInput) {
       }
     }
 
+    const proposalImages = [
+      ...new Set(
+        [priceImageUrl, ...extracted.images]
+          .map((value) => String(value || "").trim())
+          .filter(Boolean),
+      ),
+    ].slice(0, 12);
+
     const warnings = [
       ...match.warnings,
       ...generated.warnings,
       ...generationWarnings,
+      ...(priceImageUrl ? ["price_list_image_available"] : []),
       ...(changed && existingSource ? ["source_content_changed"] : []),
       ...(finalSource.sourceType.toUpperCase() !== "OFFICIAL_SITE"
         ? ["external_source_manual_review_required"]
@@ -424,7 +462,7 @@ export async function runProductEnrichment(input: RunInput) {
         description: generated.description,
         application: generated.application,
         ingredients: generated.ingredients,
-        images: extracted.images as Prisma.InputJsonValue,
+        images: proposalImages as Prisma.InputJsonValue,
         facts: {
           extracted,
           match: match.evidence,
@@ -432,6 +470,11 @@ export async function runProductEnrichment(input: RunInput) {
           sourceCurrency: extracted.currency,
           contentChanged: changed,
           searchResult,
+          priceImageUrl: priceImageUrl || null,
+          imageCandidates: proposalImages.map((url) => ({
+            url,
+            source: priceImageUrl && url === priceImageUrl ? "PRICE_LIST" : "WEB",
+          })),
           autopilotRetry: input.autopilotRetryOf
             ? {
                 proposalId: input.autopilotRetryOf,
