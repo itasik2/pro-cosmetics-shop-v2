@@ -21,12 +21,22 @@ export type ParsedPriceRow = {
   warnings: string[];
 };
 
+export type EmbeddedPriceImage = {
+  rowNumber: number;
+  pageNumber: number;
+  mimeType: "image/jpeg" | "image/png";
+  dataBase64: string;
+  width: number;
+  height: number;
+};
+
 export type PriceParseResult = {
   parserId: "ANGIOPHARM_PDF" | "MESALTERA_PDF" | "JEUDERM_PDF" | "GENERIC_PDF";
   sourceDate: string | null;
   pageCount: number;
   rows: ParsedPriceRow[];
   warnings: string[];
+  embeddedImages?: EmbeddedPriceImage[];
 };
 
 export type PriceParserMode =
