@@ -36,6 +36,10 @@ function compact(value: unknown) {
   return normalize(value).replace(/\s+/g, "");
 }
 
+function isInternalSyntheticSku(value: unknown) {
+  return /^JD-[A-Z0-9]{6,}$/i.test(String(value || "").trim());
+}
+
 function tokenSet(value: string) {
   const ignored = new Set([
     "для",
@@ -88,9 +92,18 @@ export function scoreProductMatch(
   let score = 0;
   const warnings: string[] = [];
 
-  const expectedSku = compact(product.supplierSku || product.barcode);
+  const syntheticSupplierSku = isInternalSyntheticSku(product.supplierSku);
+  const expectedSku = compact(
+    syntheticSupplierSku
+      ? product.barcode
+      : product.supplierSku || product.barcode,
+  );
   const foundSku = compact(extracted.sku);
   let sku: ProductMatchResult["evidence"]["sku"] = "missing";
+
+  if (syntheticSupplierSku) {
+    warnings.push("internal_sku_ignored_for_matching");
+  }
 
   if (expectedSku && foundSku) {
     if (expectedSku === foundSku) {
