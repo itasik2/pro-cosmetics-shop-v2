@@ -19,6 +19,16 @@ const BodySchema = z.object({
   discoverIfMissing: z.boolean().optional().default(true),
 });
 
+function userMessage(message: string) {
+  if (message === "product_match_zero_confidence") {
+    return "Найденная страница не совпадает с этим товаром, поэтому она отброшена. Проверьте название, бренд и объём или укажите точный URL карточки товара.";
+  }
+  if (message === "product_page_not_found") {
+    return "Точная карточка товара не найдена ни на официальном сайте, ни у проверяемых продавцов. Можно указать точный URL вручную.";
+  }
+  return message;
+}
+
 export async function POST(req: Request, { params }: Params) {
   const forbidden = await requireAdmin();
   if (forbidden) return forbidden;
@@ -88,10 +98,12 @@ export async function POST(req: Request, { params }: Params) {
 
     return NextResponse.json({ proposal }, { status: 201 });
   } catch (error: any) {
+    const message = String(error?.message || error);
     return NextResponse.json(
       {
         error: "enrichment_failed",
-        message: String(error?.message || error),
+        message: userMessage(message),
+        code: message,
       },
       { status: 422 },
     );
