@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import PriceImportsClient from "../price-imports/PriceImportsClient";
 import PriceImportMaintenance from "../price-imports/PriceImportMaintenance";
 import AdminEnrichmentClient from "../enrichment/AdminEnrichmentClient";
+import UniversalProposalReview from "../enrichment/UniversalProposalReview";
 import EnrichmentPriceScope from "./EnrichmentPriceScope";
 
 export type PriceWorkflowStep = "import" | "enrichment";
@@ -38,13 +39,14 @@ const STEPS: Array<{
     id: "import",
     number: 1,
     title: "Импорт прайса",
-    description: "Загрузить файл, проверить строки и применить товары и цены.",
+    description: "Загрузить файл, проверить строки и применить товары, варианты и цены.",
   },
   {
     id: "enrichment",
     number: 2,
     title: "Фото, описание и количество",
-    description: "Найти официальный источник, выбрать фото, проверить описание и указать остаток.",
+    description:
+      "Проверить описание и остаток; фото необязательно и выбирается отдельно из доступных источников.",
   },
 ];
 
@@ -74,9 +76,10 @@ export default function PriceWorkflowClient({
       <header className="rounded-2xl border bg-white/80 p-4 sm:p-6">
         <h1 className="text-2xl font-bold">Работа с прайсом</h1>
         <p className="mt-2 max-w-3xl text-sm text-gray-600">
-          Весь путь подготовки товара находится на одной странице: импорт прайса,
-          затем проверка фото и описания с указанием количества. После одобрения
-          товар автоматически попадает в очередь черновиков для публикации.
+          Прайс используется прежде всего для коммерческих данных: товар, вариант,
+          цена и остаток. Фото и описание обрабатываются отдельным этапом. Если в
+          прайсе есть фотография, она становится дополнительным кандидатом; если её
+          нет, импорт всё равно работает полностью.
         </p>
 
         <div className="mt-5 grid gap-3 md:grid-cols-2">
@@ -133,6 +136,7 @@ export default function PriceWorkflowClient({
         {step === "enrichment" && (
           <div className="space-y-4">
             <EnrichmentPriceScope />
+            <UniversalProposalReview />
             <AdminEnrichmentClient />
           </div>
         )}
