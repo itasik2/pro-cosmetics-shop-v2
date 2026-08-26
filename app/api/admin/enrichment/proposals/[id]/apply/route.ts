@@ -5,11 +5,11 @@ export const maxDuration = 60;
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/adminGuard";
+import { finalizeProductEnrichmentText } from "@/lib/enrichment/applyProposal";
 import {
-  applyProductEnrichmentProposal,
-  finalizeProductEnrichmentText,
+  applyProductEnrichmentProposalUniversal,
   type ProposalApplyMode,
-} from "@/lib/enrichment/applyProposal";
+} from "@/lib/enrichment/applyProposalUniversal";
 
 type Params = { params: { id: string } };
 
@@ -69,7 +69,7 @@ export async function POST(req: Request, { params }: Params) {
       return NextResponse.json({ proposal, importedImage: null });
     }
 
-    const result = await applyProductEnrichmentProposal({
+    const result = await applyProductEnrichmentProposalUniversal({
       proposalId: params.id,
       mode: parsed.data.mode as ProposalApplyMode,
       imageUrl: parsed.data.imageUrl?.trim() || null,
