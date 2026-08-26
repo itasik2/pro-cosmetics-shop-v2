@@ -15,7 +15,7 @@ type Params = { params: { id: string } };
 
 const BodySchema = z.object({
   mode: z
-    .enum(["ALL", "DESCRIPTION", "DESCRIPTION_FINAL", "IMAGE"])
+    .enum(["ALL", "DESCRIPTION", "DESCRIPTION_FINAL", "IMAGE", "INVENTORY"])
     .default("ALL"),
   imageUrl: z.string().url().max(3000).optional().or(z.literal("")),
   stock: z.number().int().min(0).max(1_000_000).optional(),
