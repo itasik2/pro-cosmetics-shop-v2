@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import PriceImportsClient from "../price-imports/PriceImportsClient";
 import PriceImportMaintenance from "../price-imports/PriceImportMaintenance";
 import AdminEnrichmentClient from "../enrichment/AdminEnrichmentClient";
+import BatchEnrichmentSearch from "../enrichment/BatchEnrichmentSearch";
 import UniversalProposalReview from "../enrichment/UniversalProposalReview";
 import EnrichmentPriceScope from "./EnrichmentPriceScope";
 
@@ -136,6 +137,7 @@ export default function PriceWorkflowClient({
         {step === "enrichment" && (
           <div className="space-y-4">
             <EnrichmentPriceScope />
+            <BatchEnrichmentSearch />
             <UniversalProposalReview />
             <AdminEnrichmentClient />
           </div>
