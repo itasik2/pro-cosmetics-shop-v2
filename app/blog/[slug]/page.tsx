@@ -1,6 +1,7 @@
 // app/blog/[slug]/page.tsx
 import { prisma } from "@/lib/prisma";
-import { SITE_BRAND } from "@/lib/siteConfig";
+import { getPublicBaseUrl, SITE_BRAND } from "@/lib/siteConfig";
+import { seoDescription, serializeJsonLd } from "@/lib/seo";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 
@@ -26,39 +27,33 @@ function slugToId(s: string) {
     .slice(0, 80);
 }
 
-// 1) Заголовок, если строка целиком вида **...**
 function parseBoldHeading(line: string) {
   const t = line.trim();
   if (!t.startsWith("**") || !t.endsWith("**")) return null;
   const inner = t.slice(2, -2).trim();
-  if (!inner) return null;
-  if (inner.includes("**")) return null;
+  if (!inner || inner.includes("**")) return null;
   return inner;
 }
 
-// 2) Заголовок, если строка заканчивается ":" (без спец-символов)
 function parseColonHeading(line: string) {
   const t = line.trim();
   if (!t.endsWith(":")) return null;
   const inner = t.slice(0, -1).trim();
-  if (!inner) return null;
-  if (inner.length < 6) return null;
+  if (!inner || inner.length < 6) return null;
   if (/^[-•\d]+\s/.test(inner)) return null;
   return inner;
 }
 
-// 3) Markdown-подобные заголовки: ## / ###
 function parseHashHeading(line: string) {
   const t = line.trim();
   const m = t.match(/^(#{2,3})\s+(.+?)\s*$/);
   if (!m) return null;
-  const level = m[1].length; // 2 или 3
+  const level = m[1].length;
   const text = m[2].trim();
   if (!text) return null;
   return { level, text };
 }
 
-// 4) Разделитель вида --- (часто в генерации)
 function isSeparator(line: string) {
   const t = line.trim();
   return t === "---" || t === "—" || t === "——" || t === "———";
@@ -76,11 +71,9 @@ function makeUniqueId(base: string, used: Map<string, number>) {
 
 function parseContentToBlocks(content: string) {
   const lines = (content || "").replace(/\r/g, "").split("\n");
-
   const blocks: Block[] = [];
   const toc: { id: string; text: string }[] = [];
   const usedIds = new Map<string, number>();
-
   let buf: string[] = [];
 
   const flushParagraph = () => {
@@ -91,11 +84,8 @@ function parseContentToBlocks(content: string) {
 
   for (const rawLine of lines) {
     const line = rawLine ?? "";
-
-    // игнорируем разделители типа ---
     if (isSeparator(line)) continue;
 
-    // поддерживаем 3 формата заголовков
     const hHash = parseHashHeading(line);
     const hText = parseBoldHeading(line) || parseColonHeading(line);
 
@@ -104,7 +94,6 @@ function parseContentToBlocks(content: string) {
       const baseId = slugToId(hHash.text) || "section";
       const id = makeUniqueId(baseId, usedIds);
       const level: 2 | 3 = hHash.level === 3 ? 3 : 2;
-
       blocks.push({ type: "heading", text: hHash.text, id, level });
       toc.push({ id, text: hHash.text });
       continue;
@@ -114,7 +103,6 @@ function parseContentToBlocks(content: string) {
       flushParagraph();
       const baseId = slugToId(hText) || "section";
       const id = makeUniqueId(baseId, usedIds);
-
       blocks.push({ type: "heading", text: hText, id, level: 2 });
       toc.push({ id, text: hText });
       continue;
@@ -129,35 +117,52 @@ function parseContentToBlocks(content: string) {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const slug = normalizeSlug(params.slug);
+  const baseUrl = getPublicBaseUrl();
 
   const post = await prisma.post.findUnique({
     where: { slug },
-    select: { title: true, content: true, image: true },
+    select: {
+      title: true,
+      content: true,
+      image: true,
+      category: true,
+      createdAt: true,
+      updatedAt: true,
+    },
   });
 
   if (!post) {
     return {
       title: `Материал не найден — ${SITE_BRAND}`,
       description: "Статья не найдена или была удалена.",
-      alternates: { canonical: "/blog" },
+      alternates: { canonical: `${baseUrl}/blog` },
+      robots: { index: false, follow: false },
     };
   }
 
-  const shortBase = post.content.replace(/\s+/g, " ").trim();
+  const articleUrl = `${baseUrl}/blog/${encodeURIComponent(slug)}`;
   const short =
-    (shortBase.length > 0 ? shortBase.slice(0, 150) : `Материал блога ${SITE_BRAND}`) +
-    (shortBase.length > 150 ? "..." : "");
+    seoDescription(post.content, 160) || `Материал блога ${SITE_BRAND}`;
 
   return {
     title: `${post.title} — блог ${SITE_BRAND}`,
     description: short,
-    alternates: { canonical: `/blog/${slug}` },
+    alternates: { canonical: articleUrl },
     openGraph: {
       type: "article",
       title: `${post.title} — блог ${SITE_BRAND}`,
       description: short,
-      url: `/blog/${slug}`,
-      images: post.image ? [{ url: post.image }] : [],
+      url: articleUrl,
+      images: post.image ? [{ url: post.image, alt: post.title }] : [],
+      publishedTime: post.createdAt.toISOString(),
+      modifiedTime: post.updatedAt.toISOString(),
+      section: post.category,
+    },
+    twitter: {
+      card: post.image ? "summary_large_image" : "summary",
+      title: `${post.title} — ${SITE_BRAND}`,
+      description: short,
+      images: post.image ? [post.image] : undefined,
     },
   };
 }
@@ -177,15 +182,66 @@ export default async function PostPage({ params }: Props) {
       imageLicenseUrl: true,
       category: true,
       createdAt: true,
+      updatedAt: true,
     },
   });
 
   if (!post) notFound();
 
-  const { blocks, toc } = parseContentToBlocks(post.content);
+  const { blocks } = parseContentToBlocks(post.content);
+  const baseUrl = getPublicBaseUrl();
+  const articleUrl = `${baseUrl}/blog/${encodeURIComponent(slug)}`;
+  const structuredData = {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "BlogPosting",
+        "@id": `${articleUrl}#article`,
+        headline: post.title,
+        description: seoDescription(post.content, 300),
+        image: post.image ? [post.image] : undefined,
+        datePublished: post.createdAt.toISOString(),
+        dateModified: post.updatedAt.toISOString(),
+        articleSection: post.category,
+        inLanguage: "ru-KZ",
+        mainEntityOfPage: articleUrl,
+        author: { "@id": `${baseUrl}/#organization` },
+        publisher: { "@id": `${baseUrl}/#organization` },
+      },
+      {
+        "@type": "BreadcrumbList",
+        "@id": `${articleUrl}#breadcrumb`,
+        itemListElement: [
+          {
+            "@type": "ListItem",
+            position: 1,
+            name: "Главная",
+            item: baseUrl,
+          },
+          {
+            "@type": "ListItem",
+            position: 2,
+            name: "Блог",
+            item: `${baseUrl}/blog`,
+          },
+          {
+            "@type": "ListItem",
+            position: 3,
+            name: post.title,
+            item: articleUrl,
+          },
+        ],
+      },
+    ],
+  };
 
   return (
     <article className="container mx-auto py-8">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(structuredData) }}
+      />
+
       <div className="max-w-none">
         {post.image && (
           <figure className="mb-6">
@@ -193,7 +249,7 @@ export default async function PostPage({ params }: Props) {
             <img
               src={post.image}
               alt={post.title}
-              className="rounded-3xl border w-full max-h-[480px] object-cover"
+              className="max-h-[480px] w-full rounded-3xl border object-cover"
             />
             {post.imageSourceUrl ? (
               <figcaption className="mt-2 text-xs text-gray-500">
@@ -229,36 +285,34 @@ export default async function PostPage({ params }: Props) {
           </figure>
         )}
 
-        <div className="text-xs text-gray-500 uppercase mb-2">
+        <div className="mb-2 text-xs uppercase text-gray-500">
           {post.category} • {new Date(post.createdAt).toLocaleDateString("ru-RU")}
         </div>
 
         <h1 className="text-3xl font-bold tracking-tight">{post.title}</h1>
 
-    
-
-        {/* Контент */}
         <div className="mt-6 space-y-4">
-          {blocks.map((b, idx) => {
-            if (b.type === "heading") {
-              const cls =
-                b.level === 3
-                  ? "text-lg md:text-xl font-bold scroll-mt-24"
-                  : "text-xl md:text-2xl font-bold scroll-mt-24";
+          {blocks.map((block, idx) => {
+            if (block.type === "heading") {
+              const className =
+                block.level === 3
+                  ? "scroll-mt-24 text-lg font-bold md:text-xl"
+                  : "scroll-mt-24 text-xl font-bold md:text-2xl";
+              const Heading = block.level === 3 ? "h3" : "h2";
 
               return (
-                <h2 key={`${b.id}-${idx}`} id={b.id} className={cls}>
-                  {b.text}
-                </h2>
+                <Heading key={`${block.id}-${idx}`} id={block.id} className={className}>
+                  {block.text}
+                </Heading>
               );
             }
 
             return (
               <div
                 key={`p-${idx}`}
-                className="text-gray-800 whitespace-pre-line leading-relaxed"
+                className="whitespace-pre-line leading-relaxed text-gray-800"
               >
-                {b.text}
+                {block.text}
               </div>
             );
           })}

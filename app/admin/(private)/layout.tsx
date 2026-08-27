@@ -1,19 +1,16 @@
 // app/admin/(private)/layout.tsx
 export const runtime = "nodejs";
 
-import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { AdminShell } from "@/components/AdminShell";
+import { isAdminRequest } from "@/lib/adminGuard";
 
 export default async function AdminPrivateLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const session = await auth();
-  const isAdmin = (session?.user as any)?.role === "admin";
-
-  if (!isAdmin) redirect("/admin");
+  if (!(await isAdminRequest())) redirect("/admin");
 
   return <AdminShell>{children}</AdminShell>;
 }

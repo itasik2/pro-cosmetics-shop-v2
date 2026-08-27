@@ -5,21 +5,45 @@ import Footer from "@/components/Footer";
 import Navbar from "@/components/Navbar";
 import ScrollToTopButton from "@/components/ScrollToTopButton";
 import { prisma } from "@/lib/prisma";
+import { serializeJsonLd } from "@/lib/seo";
 import {
   getPublicBaseUrl,
+  SITE_BRAND,
+  SITE_CONTACT_EMAIL,
+  SITE_CONTACT_LOCATION,
+  SITE_CONTACT_PHONE,
   SITE_DESCRIPTION,
+  SITE_INSTAGRAM_URL,
   SITE_KEY,
+  SITE_TELEGRAM_URL,
+  SITE_TIKTOK_URL,
   SITE_TITLE,
+  SITE_WHATSAPP_URL,
 } from "@/lib/siteConfig";
 import { normalizeThemeProfile } from "@/lib/themeProfiles";
 import Providers from "./providers";
 
 const LEGACY_SETTINGS_ID = "default";
+const PUBLIC_BASE_URL = getPublicBaseUrl();
 
 export const metadata: Metadata = {
-  metadataBase: new URL(getPublicBaseUrl()),
+  metadataBase: new URL(PUBLIC_BASE_URL),
   title: SITE_TITLE,
   description: SITE_DESCRIPTION,
+  robots: { index: true, follow: true },
+  openGraph: {
+    type: "website",
+    locale: "ru_KZ",
+    url: PUBLIC_BASE_URL,
+    siteName: SITE_BRAND,
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+  },
+  twitter: {
+    card: "summary",
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+  },
   icons: {
     icon: [
       { url: "/brand/favicon.svg", type: "image/svg+xml" },
@@ -77,6 +101,48 @@ function safeBannerHref(value: unknown) {
   return safeHttpUrl(raw);
 }
 
+function siteStructuredData() {
+  const sameAs = [
+    SITE_INSTAGRAM_URL,
+    SITE_TELEGRAM_URL,
+    SITE_TIKTOK_URL,
+    SITE_WHATSAPP_URL,
+  ].filter(Boolean);
+
+  return {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": `${PUBLIC_BASE_URL}/#organization`,
+        name: SITE_BRAND,
+        url: PUBLIC_BASE_URL,
+        email: SITE_CONTACT_EMAIL || undefined,
+        telephone: SITE_CONTACT_PHONE || undefined,
+        address: SITE_CONTACT_LOCATION || undefined,
+        sameAs: sameAs.length ? sameAs : undefined,
+      },
+      {
+        "@type": "WebSite",
+        "@id": `${PUBLIC_BASE_URL}/#website`,
+        url: PUBLIC_BASE_URL,
+        name: SITE_BRAND,
+        description: SITE_DESCRIPTION,
+        inLanguage: "ru-KZ",
+        publisher: { "@id": `${PUBLIC_BASE_URL}/#organization` },
+        potentialAction: {
+          "@type": "SearchAction",
+          target: {
+            "@type": "EntryPoint",
+            urlTemplate: `${PUBLIC_BASE_URL}/shop?q={search_term_string}`,
+          },
+          "query-input": "required name=search_term_string",
+        },
+      },
+    ],
+  };
+}
+
 export default async function RootLayout({
   children,
 }: {
@@ -111,6 +177,10 @@ export default async function RootLayout({
   return (
     <html lang="ru" data-theme={themeProfile}>
       <head>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: serializeJsonLd(siteStructuredData()) }}
+        />
         {umamiId ? (
           <script
             defer

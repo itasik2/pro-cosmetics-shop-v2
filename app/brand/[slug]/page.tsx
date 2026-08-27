@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import ProductCard from "@/components/ProductCard";
 import { SITE_BRAND, getPublicBaseUrl } from "@/lib/siteConfig";
 import { collapseRepresentedProductCards } from "@/lib/publicProductCards";
+import { serializeJsonLd } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
 
@@ -17,27 +18,37 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   });
 
   if (!brand || !brand.isActive) {
-    return { title: `Бренд не найден — ${SITE_BRAND}` };
+    return {
+      title: `Бренд не найден — ${SITE_BRAND}`,
+      robots: { index: false, follow: false },
+    };
   }
 
   const baseUrl = getPublicBaseUrl();
+  const brandUrl = `${baseUrl}/brand/${brand.slug}`;
+  const description = `Профессиональная косметика ${brand.name}: подробные карточки и доставка по Казахстану.`;
 
   return {
     title: `${brand.name} — купить косметику в Казахстане | ${SITE_BRAND}`,
-    description: `Профессиональная косметика ${brand.name}: подробные карточки и доставка по Казахстану.`,
+    description,
     keywords: [
       `косметика ${brand.name}`,
       `${brand.name} купить`,
       `${brand.name} Казахстан`,
     ],
     alternates: {
-      canonical: `${baseUrl}/brand/${brand.slug}`,
+      canonical: brandUrl,
     },
     openGraph: {
       title: brand.name,
-      description: `Косметика ${brand.name}`,
-      url: `${baseUrl}/brand/${brand.slug}`,
+      description,
+      url: brandUrl,
       type: "website",
+    },
+    twitter: {
+      card: "summary",
+      title: `${brand.name} — ${SITE_BRAND}`,
+      description,
     },
   };
 }
@@ -61,18 +72,48 @@ export default async function BrandPage({ params }: Props) {
   const products = collapseRepresentedProductCards(productRows);
 
   const baseUrl = getPublicBaseUrl();
-  const schema = {
+  const brandUrl = `${baseUrl}/brand/${brand.slug}`;
+  const structuredData = {
     "@context": "https://schema.org",
-    "@type": "Brand",
-    name: brand.name,
-    url: `${baseUrl}/brand/${brand.slug}`,
+    "@graph": [
+      {
+        "@type": "Brand",
+        "@id": `${brandUrl}#brand`,
+        name: brand.name,
+        url: brandUrl,
+      },
+      {
+        "@type": "BreadcrumbList",
+        "@id": `${brandUrl}#breadcrumb`,
+        itemListElement: [
+          {
+            "@type": "ListItem",
+            position: 1,
+            name: "Главная",
+            item: baseUrl,
+          },
+          {
+            "@type": "ListItem",
+            position: 2,
+            name: "Бренды",
+            item: `${baseUrl}/shop`,
+          },
+          {
+            "@type": "ListItem",
+            position: 3,
+            name: brand.name,
+            item: brandUrl,
+          },
+        ],
+      },
+    ],
   };
 
   return (
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(structuredData) }}
       />
 
       <div className="space-y-6">
@@ -81,7 +122,7 @@ export default async function BrandPage({ params }: Props) {
         {products.length === 0 ? (
           <div className="text-gray-500">Товары отсутствуют</div>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
             {products.map((product) => (
               <ProductCard key={product.id} product={product} />
             ))}

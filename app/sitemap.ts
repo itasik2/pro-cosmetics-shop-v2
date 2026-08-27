@@ -1,8 +1,9 @@
-// app/sitemap.ts
 import type { MetadataRoute } from "next";
 import { prisma } from "@/lib/prisma";
 import { getPublicBaseUrl } from "@/lib/siteConfig";
 import { collapseRepresentedProductCards } from "@/lib/publicProductCards";
+
+const INDEXABLE_CATEGORY_SLUGS = ["kremy", "syvorotki", "toniki"] as const;
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const baseUrl = getPublicBaseUrl();
@@ -16,10 +17,17 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     "/ask",
   ].map((path) => ({
     url: `${baseUrl}${path || "/"}`,
-    lastModified: new Date(),
     changeFrequency: "weekly",
     priority: path === "" ? 1 : 0.7,
   }));
+
+  const categoryRoutes: MetadataRoute.Sitemap = INDEXABLE_CATEGORY_SLUGS.map(
+    (slug) => ({
+      url: `${baseUrl}/shop/category/${slug}`,
+      changeFrequency: "weekly",
+      priority: 0.75,
+    }),
+  );
 
   const productRows = await prisma.product.findMany({
     where: {
@@ -78,5 +86,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.8,
   }));
 
-  return [...staticRoutes, ...productRoutes, ...postRoutes, ...brandRoutes];
+  return [
+    ...staticRoutes,
+    ...categoryRoutes,
+    ...productRoutes,
+    ...postRoutes,
+    ...brandRoutes,
+  ];
 }

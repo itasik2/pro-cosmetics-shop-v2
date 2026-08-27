@@ -19,7 +19,7 @@ type ProductCardProps = {
     isNew?: boolean;
     createdAt: Date | string;
     category: string;
-    brand?: { name: string } | null;
+    brand?: { name: string; slug?: string } | null;
     variants?: unknown;
   };
 };
@@ -84,11 +84,11 @@ export default function ProductCard({ product }: ProductCardProps) {
     selectedVariant?.image && String(selectedVariant.image).trim().length > 0
       ? String(selectedVariant.image).trim()
       : product.image;
-  const productHref = `/api/products/by-id-redirect/${encodeURIComponent(product.id)}`;
-  const stockAlertHref = `/shop/${encodeURIComponent(product.slug)}#stock-alert`;
+  const productHref = `/shop/${encodeURIComponent(product.slug)}`;
+  const stockAlertHref = `${productHref}#stock-alert`;
 
   return (
-    <div className="card relative h-full flex flex-col transition-shadow duration-200 hover:shadow-md">
+    <div className="card relative flex h-full flex-col transition-shadow duration-200 hover:shadow-md">
       <div className="absolute left-3 top-3 z-10 flex flex-col gap-2">
         {product.isPopular && (
           <span className="inline-flex items-center rounded-full bg-gray-700 px-2 py-1 text-xs text-white shadow-sm">Хит</span>
@@ -105,17 +105,21 @@ export default function ProductCard({ product }: ProductCardProps) {
         <FavoriteButton productId={product.id} />
       </div>
 
-      <Link href={productHref} className="block aspect-square w-full bg-gray-100 rounded-xl mb-3 overflow-hidden" aria-label={`Открыть товар: ${displayName}`}>
-        <img src={imageToShow} alt={displayName} width={640} height={640} className="w-full h-full object-cover" loading="lazy" decoding="async" />
+      <Link href={productHref} className="mb-3 block aspect-square w-full overflow-hidden rounded-xl bg-gray-100" aria-label={`Открыть товар: ${displayName}`}>
+        <img src={imageToShow} alt={displayName} width={640} height={640} className="h-full w-full object-cover" loading="lazy" decoding="async" />
       </Link>
 
       <div className="text-sm text-gray-500">
         {product.brand ? (
-          <Link href={`/brand/${product.brand.name.toLowerCase()}`} className="hover:underline">{product.brand.name}</Link>
+          product.brand.slug ? (
+            <Link href={`/brand/${encodeURIComponent(product.brand.slug)}`} className="hover:underline">{product.brand.name}</Link>
+          ) : (
+            product.brand.name
+          )
         ) : product.category}
       </div>
 
-      <h3 className="font-semibold line-clamp-2 min-h-[40px]">{displayName}</h3>
+      <h3 className="min-h-[40px] line-clamp-2 font-semibold">{displayName}</h3>
       <p className="mt-1 min-h-[40px] line-clamp-2 text-xs leading-5 text-gray-600">
         {product.shortDescription?.trim() || "Подробное описание и способ применения — в карточке товара."}
       </p>
@@ -132,7 +136,7 @@ export default function ProductCard({ product }: ProductCardProps) {
                   type="button"
                   onClick={() => setVariantId(v.id)}
                   className={
-                    "px-3 py-1 rounded-full text-xs border transition-colors shadow-sm " +
+                    "rounded-full border px-3 py-1 text-xs shadow-sm transition-colors " +
                     (active ? "border-gray-400 bg-gray-200 text-gray-900" : "border-gray-200 bg-gray-50 text-gray-700") +
                     (unavailable ? " opacity-60" : " hover:border-gray-400 hover:bg-gray-100")
                   }
