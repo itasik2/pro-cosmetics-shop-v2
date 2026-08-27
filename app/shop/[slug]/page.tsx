@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import ProductDetailsClient from "@/components/ProductDetailsClient";
 import { SITE_BRAND, getPublicBaseUrl } from "@/lib/siteConfig";
 import { formatProductName } from "@/lib/productNames";
+import { seoDescription, serializeJsonLd } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
 
@@ -33,29 +34,36 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   }
 
   const baseUrl = getPublicBaseUrl();
+  const productUrl = `${baseUrl}/shop/${product.slug}`;
   const displayName = formatProductName(product.name);
   const metaDescription =
-    product.shortDescription?.trim() ||
-    product.description.replace(/\s+/g, " ").trim().slice(0, 280);
+    seoDescription(product.shortDescription, 160) ||
+    seoDescription(product.description, 160);
 
   return {
     title: `${displayName} — ${SITE_BRAND}`,
     description: metaDescription,
     keywords: [
       `купить ${displayName}`,
-      product.brand?.name ? `купить крем ${product.brand.name}` : "",
+      product.brand?.name ? `${product.brand.name} купить` : "",
       product.brand?.name ? `косметика ${product.brand.name}` : "",
       `${product.category} купить`,
     ].filter(Boolean),
     alternates: {
-      canonical: `${baseUrl}/shop/${product.slug}`,
+      canonical: productUrl,
     },
     openGraph: {
       title: displayName,
       description: metaDescription,
       images: product.image ? [product.image] : [],
-      url: `${baseUrl}/shop/${product.slug}`,
+      url: productUrl,
       type: "website",
+    },
+    twitter: {
+      card: product.image ? "summary_large_image" : "summary",
+      title: displayName,
+      description: metaDescription,
+      images: product.image ? [product.image] : undefined,
     },
   };
 }
@@ -65,30 +73,63 @@ export default async function ProductPage({ params }: Props) {
   if (!product) notFound();
 
   const baseUrl = getPublicBaseUrl();
+  const productUrl = `${baseUrl}/shop/${product.slug}`;
   const displayName = formatProductName(product.name);
-  const schema = {
+  const structuredData = {
     "@context": "https://schema.org",
-    "@type": "Product",
-    name: displayName,
-    image: product.image ? [product.image] : [],
-    description: product.shortDescription || product.description,
-    sku: product.supplierSku || undefined,
-    brand: product.brand?.name
-      ? {
-          "@type": "Brand",
-          name: product.brand.name,
-        }
-      : undefined,
-    offers: {
-      "@type": "Offer",
-      priceCurrency: "KZT",
-      price: product.price,
-      availability:
-        product.stock > 0
-          ? "https://schema.org/InStock"
-          : "https://schema.org/OutOfStock",
-      url: `${baseUrl}/shop/${product.slug}`,
-    },
+    "@graph": [
+      {
+        "@type": "Product",
+        "@id": `${productUrl}#product`,
+        name: displayName,
+        image: product.image ? [product.image] : [],
+        description: seoDescription(product.shortDescription || product.description, 500),
+        sku: product.supplierSku || undefined,
+        url: productUrl,
+        brand: product.brand?.name
+          ? {
+              "@type": "Brand",
+              name: product.brand.name,
+            }
+          : undefined,
+        offers: {
+          "@type": "Offer",
+          priceCurrency: "KZT",
+          price: product.price,
+          availability:
+            product.stock > 0
+              ? "https://schema.org/InStock"
+              : "https://schema.org/OutOfStock",
+          itemCondition: "https://schema.org/NewCondition",
+          url: productUrl,
+          seller: { "@id": `${baseUrl}/#organization` },
+        },
+      },
+      {
+        "@type": "BreadcrumbList",
+        "@id": `${productUrl}#breadcrumb`,
+        itemListElement: [
+          {
+            "@type": "ListItem",
+            position: 1,
+            name: "Главная",
+            item: baseUrl,
+          },
+          {
+            "@type": "ListItem",
+            position: 2,
+            name: "Каталог",
+            item: `${baseUrl}/shop`,
+          },
+          {
+            "@type": "ListItem",
+            position: 3,
+            name: displayName,
+            item: productUrl,
+          },
+        ],
+      },
+    ],
   };
 
   return (
@@ -96,7 +137,7 @@ export default async function ProductPage({ params }: Props) {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify(schema),
+          __html: serializeJsonLd(structuredData),
         }}
       />
 
