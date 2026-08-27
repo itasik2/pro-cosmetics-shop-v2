@@ -23,7 +23,7 @@ type Product = {
   isPopular: boolean;
   createdAt: Date | string;
   category: string;
-  brand?: { name: string } | null;
+  brand?: { name: string; slug?: string } | null;
   variants?: any;
 };
 
@@ -78,16 +78,15 @@ export default function ShopGridClient({ products }: { products: Product[] }) {
       list = list.filter((p) => isInStock(p));
     }
 
-    // порядок НЕ меняем -> сортировка (серверная) сохраняется и в избранном
     return list;
   }, [products, favMode, inStockMode, favIds]);
 
   return visible.length === 0 ? (
-    <div className="text-sm text-gray-500 mt-4">
+    <div className="mt-4 text-sm text-gray-500">
       {favMode ? "Нет товаров в избранном." : "Товары не найдены."}
     </div>
   ) : (
-    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 mt-4">
+    <div className="mt-4 grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3">
       {visible.map((p) => (
         <ProductCard key={p.id} product={p} />
       ))}
