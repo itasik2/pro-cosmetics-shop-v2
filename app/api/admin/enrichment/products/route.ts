@@ -14,7 +14,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const query = (url.searchParams.get("q") || "").trim();
   const status = (url.searchParams.get("status") || "").trim().toUpperCase();
-  const priceImportId = getEnrichmentPriceImportId();
+  const priceImportId = await getEnrichmentPriceImportId();
 
   const statusFilter: Prisma.ProductWhereInput =
     status === "SOURCE_REQUIRED"
