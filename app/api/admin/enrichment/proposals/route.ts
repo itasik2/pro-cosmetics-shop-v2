@@ -34,7 +34,7 @@ export async function GET(req: Request) {
   )
     ? (statusValue as EnrichmentProposalStatus)
     : EnrichmentProposalStatus.PENDING;
-  const priceImportId = getEnrichmentPriceImportId();
+  const priceImportId = await getEnrichmentPriceImportId();
 
   const proposals = await prisma.productEnrichmentProposal.findMany({
     where: {
