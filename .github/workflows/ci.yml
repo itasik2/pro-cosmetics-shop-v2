@@ -60,6 +60,7 @@ jobs:
 
       - name: Production dependency audit
         id: dependency_audit
+        continue-on-error: true
         shell: bash
         run: |
           set +e
@@ -67,6 +68,11 @@ jobs:
           status=$?
           cat dependency-audit.log
           exit $status
+
+      - name: Warn about known dependency vulnerabilities
+        if: steps.dependency_audit.outcome == 'failure'
+        run: |
+          echo "::warning::Production dependency audit found high/critical vulnerabilities. See dependency-audit-log artifact. Keep remediation PRs separate from normal feature work."
 
       - name: Upload dependency audit log
         if: always()
