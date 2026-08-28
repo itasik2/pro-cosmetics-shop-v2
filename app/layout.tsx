@@ -11,15 +11,34 @@ import {
   SITE_KEY,
   SITE_TITLE,
 } from "@/lib/siteConfig";
+import {
+  buildOrganizationJsonLd,
+  buildWebSiteJsonLd,
+  stringifyJsonLd,
+} from "@/lib/structuredData";
 import { normalizeThemeProfile } from "@/lib/themeProfiles";
 import Providers from "./providers";
 
 const LEGACY_SETTINGS_ID = "default";
+const publicBaseUrl = getPublicBaseUrl();
 
 export const metadata: Metadata = {
-  metadataBase: new URL(getPublicBaseUrl()),
+  metadataBase: new URL(publicBaseUrl),
   title: SITE_TITLE,
   description: SITE_DESCRIPTION,
+  openGraph: {
+    type: "website",
+    locale: "ru_KZ",
+    url: publicBaseUrl,
+    siteName: SITE_TITLE,
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+  },
+  twitter: {
+    card: "summary",
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+  },
   icons: {
     icon: [
       { url: "/brand/favicon.svg", type: "image/svg+xml" },
@@ -107,10 +126,20 @@ export default async function RootLayout({
       : "";
   const bannerHref = safeBannerHref(settings?.bannerHref);
   const umamiId = process.env.UMAMI_WEBSITE_ID;
+  const organizationJsonLd = buildOrganizationJsonLd();
+  const webSiteJsonLd = buildWebSiteJsonLd();
 
   return (
     <html lang="ru" data-theme={themeProfile}>
       <head>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: stringifyJsonLd(organizationJsonLd) }}
+        />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: stringifyJsonLd(webSiteJsonLd) }}
+        />
         {umamiId ? (
           <script
             defer
