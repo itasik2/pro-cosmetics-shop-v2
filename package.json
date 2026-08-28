@@ -21,7 +21,7 @@
     "next": "15.5.24",
     "next-auth": "5.0.0-beta.32",
     "nodemailer": "8.0.11",
-    "openai": "^4.0.0",
+    "openai": "^7.5.0",
     "pdfjs-dist": "4.10.38",
     "react": "19.2.8",
     "react-dom": "19.2.8",
