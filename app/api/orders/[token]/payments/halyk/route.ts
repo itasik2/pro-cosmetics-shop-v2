@@ -37,10 +37,8 @@ function rateLimitResponse(req: Request) {
   );
 }
 
-export async function POST(
-  req: Request,
-  { params }: { params: { token: string } },
-) {
+export async function POST(req: Request, props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   const limited = rateLimitResponse(req);
   if (limited) return limited;
 
@@ -136,10 +134,8 @@ export async function POST(
   }
 }
 
-export async function GET(
-  req: Request,
-  { params }: { params: { token: string } },
-) {
+export async function GET(req: Request, props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   const limited = rateLimitResponse(req);
   if (limited) return limited;
 

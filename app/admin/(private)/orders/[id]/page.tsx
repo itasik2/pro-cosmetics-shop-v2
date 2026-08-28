@@ -49,7 +49,8 @@ function messengerStatusLabel(s?: string | null) {
   return "не отправлялось";
 }
 
-export default async function AdminOrderDetailPage({ params }: { params: { id: string } }) {
+export default async function AdminOrderDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const order = await prisma.order.findUnique({
     where: { id: params.id },
     include: { items: { orderBy: { createdAt: "asc" } } },

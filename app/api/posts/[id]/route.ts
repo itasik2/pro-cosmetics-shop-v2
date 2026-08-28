@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/adminGuard";
 import { z } from "zod";
 
-type Params = { params: { id: string } };
+type Params = { params: Promise<{ id: string }> };
 
 const PostSchema = z.object({
   title: z.string().min(1),
@@ -18,7 +18,8 @@ const PostSchema = z.object({
   imageLicenseUrl: z.string().url().optional().nullable(),
 });
 
-export async function GET(_req: Request, { params }: Params) {
+export async function GET(_req: Request, props: Params) {
+  const params = await props.params;
   const post = await prisma.post.findUnique({
     where: { id: params.id },
   });
@@ -30,7 +31,8 @@ export async function GET(_req: Request, { params }: Params) {
   return NextResponse.json(post);
 }
 
-export async function PUT(req: Request, { params }: Params) {
+export async function PUT(req: Request, props: Params) {
+  const params = await props.params;
   const forbidden = await requireAdmin();
   if (forbidden) return forbidden;
 
@@ -62,7 +64,8 @@ export async function PUT(req: Request, { params }: Params) {
   }
 }
 
-export async function DELETE(_req: Request, { params }: Params) {
+export async function DELETE(_req: Request, props: Params) {
+  const params = await props.params;
   const forbidden = await requireAdmin();
   if (forbidden) return forbidden;
 

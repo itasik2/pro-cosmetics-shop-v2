@@ -14,14 +14,14 @@ import { collapseRepresentedProductCards } from "@/lib/publicProductCards";
 export const dynamic = "force-dynamic";
 
 type Props = {
-  searchParams?: {
+  searchParams?: Promise<{
     brand?: string | string[];
     category?: string | string[];
     sort?: string | string[];
     fav?: string | string[];
     instock?: string | string[];
     q?: string | string[];
-  };
+  }>;
 };
 
 type CategoryOption = {
@@ -153,7 +153,8 @@ function productMatchesCategory(
   );
 }
 
-export async function generateMetadata({ searchParams }: Props) {
+export async function generateMetadata(props: Props) {
+  const searchParams = await props.searchParams;
   const brandSlugs = parseSlugList(searchParams?.brand);
   const categorySlugs = parseSlugList(searchParams?.category);
   const brandSlug = brandSlugs.length === 1 ? brandSlugs[0] : "";
@@ -279,7 +280,8 @@ function toVariants(value: unknown): Variant[] | null {
   return variants.length ? variants : null;
 }
 
-export default async function ShopPage({ searchParams }: Props) {
+export default async function ShopPage(props: Props) {
+  const searchParams = await props.searchParams;
   const requestedBrandSlugs = parseSlugList(searchParams?.brand);
   const requestedCategorySlugs = parseSlugList(searchParams?.category);
   const sort = firstParam(searchParams?.sort) === "new" ? "new" : "";

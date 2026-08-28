@@ -5,9 +5,10 @@ import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/adminGuard";
 import { rejectProductEnrichmentProposal } from "@/lib/enrichment/applyProposal";
 
-type Params = { params: { id: string } };
+type Params = { params: Promise<{ id: string }> };
 
-export async function POST(_req: Request, { params }: Params) {
+export async function POST(_req: Request, props: Params) {
+  const params = await props.params;
   const forbidden = await requireAdmin();
   if (forbidden) return forbidden;
 

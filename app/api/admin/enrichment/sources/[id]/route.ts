@@ -8,7 +8,7 @@ import { requireAdmin } from "@/lib/adminGuard";
 import { prisma } from "@/lib/prisma";
 import { normalizedSourceDomain } from "@/lib/enrichment/sourcePolicies";
 
-type Params = { params: { id: string } };
+type Params = { params: Promise<{ id: string }> };
 
 const PatchSchema = z.object({
   name: z.string().min(2).max(120).optional(),
@@ -60,7 +60,8 @@ function normalizeAndValidate(input: {
   return { domain, baseUrl: url.toString().replace(/\/$/, "") };
 }
 
-export async function PATCH(req: Request, { params }: Params) {
+export async function PATCH(req: Request, props: Params) {
+  const params = await props.params;
   const forbidden = await requireAdmin();
   if (forbidden) return forbidden;
 
@@ -132,7 +133,8 @@ export async function PATCH(req: Request, { params }: Params) {
   }
 }
 
-export async function DELETE(_req: Request, { params }: Params) {
+export async function DELETE(_req: Request, props: Params) {
+  const params = await props.params;
   const forbidden = await requireAdmin();
   if (forbidden) return forbidden;
 

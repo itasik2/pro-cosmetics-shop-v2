@@ -25,7 +25,7 @@ import { formatProductName } from "@/lib/productNames";
 import { slugify } from "@/lib/slug";
 import { uniqueSlug } from "@/lib/uniqueSlug";
 
-type Params = { params: { id: string } };
+type Params = { params: Promise<{ id: string }> };
 
 function parseSourceDate(value: string | null) {
   return value ? new Date(`${value}T00:00:00.000Z`) : null;
@@ -225,7 +225,8 @@ async function updateExistingPrice(input: {
   return { productId: product.id, rebrand };
 }
 
-export async function POST(_req: Request, { params }: Params) {
+export async function POST(_req: Request, props: Params) {
+  const params = await props.params;
   const forbidden = await requireAdmin();
   if (forbidden) return forbidden;
 

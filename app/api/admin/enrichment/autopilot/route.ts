@@ -112,7 +112,7 @@ async function overview(priceImportId: string | null) {
 export async function GET() {
   const forbidden = await requireAdmin();
   if (forbidden) return forbidden;
-  const priceImportId = getEnrichmentPriceImportId();
+  const priceImportId = await getEnrichmentPriceImportId();
   return NextResponse.json(await overview(priceImportId));
 }
 
@@ -121,7 +121,7 @@ export async function POST() {
   if (forbidden) return forbidden;
 
   try {
-    const priceImportId = getEnrichmentPriceImportId();
+    const priceImportId = await getEnrichmentPriceImportId();
     const result = await runCatalogAutopilot({ priceImportId });
     return NextResponse.json({ result, overview: await overview(priceImportId) });
   } catch (error) {

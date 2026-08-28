@@ -8,7 +8,7 @@ import { requireAdmin } from "@/lib/adminGuard";
 import { comparePriceImportDate } from "@/lib/price-import/dateGuard";
 import { prisma } from "@/lib/prisma";
 
-type Params = { params: { id: string } };
+type Params = { params: Promise<{ id: string }> };
 
 const RowPatchSchema = z.object({
   rows: z
@@ -44,7 +44,8 @@ async function readImport(id: string) {
   return { ...priceImport, dateComparison };
 }
 
-export async function GET(_req: Request, { params }: Params) {
+export async function GET(_req: Request, props: Params) {
+  const params = await props.params;
   const forbidden = await requireAdmin();
   if (forbidden) return forbidden;
 
@@ -56,7 +57,8 @@ export async function GET(_req: Request, { params }: Params) {
   return NextResponse.json(priceImport);
 }
 
-export async function PATCH(req: Request, { params }: Params) {
+export async function PATCH(req: Request, props: Params) {
+  const params = await props.params;
   const forbidden = await requireAdmin();
   if (forbidden) return forbidden;
 
@@ -84,7 +86,8 @@ export async function PATCH(req: Request, { params }: Params) {
   return NextResponse.json(priceImport);
 }
 
-export async function DELETE(_req: Request, { params }: Params) {
+export async function DELETE(_req: Request, props: Params) {
+  const params = await props.params;
   const forbidden = await requireAdmin();
   if (forbidden) return forbidden;
 

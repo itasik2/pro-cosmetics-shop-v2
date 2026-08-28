@@ -11,10 +11,8 @@ const ReportSchema = z.object({
   note: z.string().trim().max(500).optional().or(z.literal("")),
 });
 
-export async function POST(
-  req: Request,
-  { params }: { params: { token: string } },
-) {
+export async function POST(req: Request, props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   const token = String(params.token || "").trim();
   const hash = hashOrderAccessToken(token);
   const order = await prisma.order.findUnique({

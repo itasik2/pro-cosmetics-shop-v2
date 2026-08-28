@@ -40,18 +40,19 @@ function viewClass(active: boolean) {
     : "rounded-xl border bg-white px-3 py-2 text-sm hover:bg-gray-50";
 }
 
-export default async function AdminOrdersPage({
-  searchParams,
-}: {
-  searchParams?: {
-    q?: string;
-    status?: string;
-    paymentStatus?: string;
-    view?: string;
-    error?: string;
-    order?: string;
-  };
-}) {
+export default async function AdminOrdersPage(
+  props: {
+    searchParams?: Promise<{
+      q?: string;
+      status?: string;
+      paymentStatus?: string;
+      view?: string;
+      error?: string;
+      order?: string;
+    }>;
+  }
+) {
+  const searchParams = await props.searchParams;
   const q = (searchParams?.q || "").trim();
   const status = (searchParams?.status || "").trim();
   const paymentStatus = (searchParams?.paymentStatus || "").trim();

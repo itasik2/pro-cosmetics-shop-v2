@@ -38,7 +38,8 @@ function usesMessenger(channel: string | null) {
   return channel === "WHATSAPP" || channel === "TELEGRAM";
 }
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const forbidden = await requireAdmin();
   if (forbidden) return forbidden;
 
