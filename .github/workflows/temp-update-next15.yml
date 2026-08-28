@@ -1,0 +1,56 @@
+name: TEMP Update Next 15
+
+on:
+  push:
+    branches:
+      - security/next-15-lts
+
+permissions:
+  contents: write
+
+jobs:
+  update-next15:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: postgresql://user:password@localhost:5432/procosmetics
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Update Next and React dependencies
+        run: |
+          npm install next@15.5.24 react@19.2.8 react-dom@19.2.8 --save-exact --no-audit --no-fund
+          npm install @types/react@19.2.18 @types/react-dom@19.2.5 --save-dev --save-exact --no-audit --no-fund
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: TypeScript check
+        run: npm run typecheck
+
+      - name: Audit critical production dependencies
+        run: npm audit --omit=dev --audit-level=critical
+
+      - name: Commit dependency update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          if git diff --cached --quiet; then
+            echo "No dependency changes to commit"
+            exit 0
+          fi
+          git commit -m "security: update Next.js and React dependencies"
+          git push origin HEAD:${GITHUB_REF_NAME}
