@@ -29,8 +29,10 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
-      - name: Update NextAuth
-        run: npm install next-auth@5.0.0-beta.32 --save-exact --no-audit --no-fund
+      - name: Update Auth dependencies
+        run: |
+          npm install next-auth@5.0.0-beta.32 nodemailer@8.0.11 --save-exact --no-audit --no-fund
+          npm install @types/nodemailer@8.0.1 --save-dev --save-exact --no-audit --no-fund
 
       - name: Generate Prisma client
         run: npx prisma generate
@@ -51,5 +53,5 @@ jobs:
             echo "No dependency changes to commit"
             exit 0
           fi
-          git commit -m "security: update next-auth to 5.0.0-beta.32"
+          git commit -m "security: update auth dependencies"
           git push origin HEAD:${GITHUB_REF_NAME}
