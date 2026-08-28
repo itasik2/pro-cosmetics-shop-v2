@@ -6,6 +6,8 @@ on:
       - main
       - "feat/**"
       - "fix/**"
+      - "security/**"
+      - "chore/**"
   pull_request:
 
 permissions:
@@ -55,3 +57,28 @@ jobs:
           path: typecheck.log
           if-no-files-found: warn
           retention-days: 3
+
+      - name: Production dependency audit
+        id: dependency_audit
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          npm audit --omit=dev --audit-level=high > dependency-audit.log 2>&1
+          status=$?
+          cat dependency-audit.log
+          exit $status
+
+      - name: Warn about known dependency vulnerabilities
+        if: steps.dependency_audit.outcome == 'failure'
+        run: |
+          echo "::warning::Production dependency audit found high/critical vulnerabilities. See dependency-audit-log artifact. Keep remediation PRs separate from normal feature work."
+
+      - name: Upload dependency audit log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-audit-log
+          path: dependency-audit.log
+          if-no-files-found: warn
+          retention-days: 7
