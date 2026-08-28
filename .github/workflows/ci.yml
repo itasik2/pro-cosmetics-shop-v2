@@ -6,6 +6,8 @@ on:
       - main
       - "feat/**"
       - "fix/**"
+      - "security/**"
+      - "chore/**"
   pull_request:
 
 permissions:
@@ -55,3 +57,22 @@ jobs:
           path: typecheck.log
           if-no-files-found: warn
           retention-days: 3
+
+      - name: Production dependency audit
+        id: dependency_audit
+        shell: bash
+        run: |
+          set +e
+          npm audit --omit=dev --audit-level=high > dependency-audit.log 2>&1
+          status=$?
+          cat dependency-audit.log
+          exit $status
+
+      - name: Upload dependency audit log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-audit-log
+          path: dependency-audit.log
+          if-no-files-found: warn
+          retention-days: 7
