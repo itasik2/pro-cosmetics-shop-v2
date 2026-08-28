@@ -39,13 +39,18 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
-      - name: TypeScript check
+      - name: TypeScript and route type check
         id: typecheck
         shell: bash
         run: |
           set +e
-          npm run typecheck > typecheck.log 2>&1
+          : > typecheck.log
+          npx next typegen >> typecheck.log 2>&1
           status=$?
+          if [ "$status" -eq 0 ]; then
+            npm run typecheck >> typecheck.log 2>&1
+            status=$?
+          fi
           cat typecheck.log
           exit $status
 
