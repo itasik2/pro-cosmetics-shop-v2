@@ -7,14 +7,15 @@ import { collapseRepresentedProductCards } from "@/lib/publicProductCards";
 export const dynamic = "force-dynamic";
 
 type Props = {
-  params: { slug: string };
+  params: Promise<{ slug: string }>;
 };
 
 function decodeCategory(slug: string) {
   return slug.replace(/-/g, " ");
 }
 
-export async function generateMetadata({ params }: Props) {
+export async function generateMetadata(props: Props) {
+  const params = await props.params;
   const categoryName = decodeCategory(params.slug);
 
   return {
@@ -26,7 +27,8 @@ export async function generateMetadata({ params }: Props) {
   };
 }
 
-export default async function CategoryPage({ params }: Props) {
+export default async function CategoryPage(props: Props) {
+  const params = await props.params;
   const categoryName = decodeCategory(params.slug);
 
   const productRows = await prisma.product.findMany({

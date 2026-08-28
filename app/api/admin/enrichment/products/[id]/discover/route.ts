@@ -12,7 +12,7 @@ import { requireAdmin } from "@/lib/adminGuard";
 import { runProductEnrichment } from "@/lib/enrichment/runProductEnrichment";
 import { prisma } from "@/lib/prisma";
 
-type Params = { params: { id: string } };
+type Params = { params: Promise<{ id: string }> };
 
 const BodySchema = z.object({
   sourceUrl: z.string().url().max(2000).optional().or(z.literal("")),
@@ -29,7 +29,8 @@ function userMessage(message: string) {
   return message;
 }
 
-export async function POST(req: Request, { params }: Params) {
+export async function POST(req: Request, props: Params) {
+  const params = await props.params;
   const forbidden = await requireAdmin();
   if (forbidden) return forbidden;
 

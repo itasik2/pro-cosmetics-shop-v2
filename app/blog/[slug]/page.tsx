@@ -12,7 +12,7 @@ import {
 } from "@/lib/structuredData";
 
 type Props = {
-  params: { slug: string };
+  params: Promise<{ slug: string }>;
 };
 
 function normalizeSlug(raw: string) {
@@ -140,7 +140,8 @@ function parseContentToBlocks(content: string) {
   return { blocks, toc };
 }
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
+export async function generateMetadata(props: Props): Promise<Metadata> {
+  const params = await props.params;
   const slug = normalizeSlug(params.slug);
 
   const post = await prisma.post.findUnique({
@@ -191,7 +192,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-export default async function PostPage({ params }: Props) {
+export default async function PostPage(props: Props) {
+  const params = await props.params;
   const slug = normalizeSlug(params.slug);
 
   const post = await prisma.post.findUnique({

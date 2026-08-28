@@ -11,7 +11,7 @@ import {
   type ProposalApplyMode,
 } from "@/lib/enrichment/applyProposalUniversal";
 
-type Params = { params: { id: string } };
+type Params = { params: Promise<{ id: string }> };
 
 const BodySchema = z.object({
   mode: z
@@ -48,7 +48,8 @@ function errorResponse(error: unknown) {
   );
 }
 
-export async function POST(req: Request, { params }: Params) {
+export async function POST(req: Request, props: Params) {
+  const params = await props.params;
   const forbidden = await requireAdmin();
   if (forbidden) return forbidden;
 

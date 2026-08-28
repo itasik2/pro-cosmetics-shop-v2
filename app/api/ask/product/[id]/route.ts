@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
-type Params = { params: { id: string } };
+type Params = { params: Promise<{ id: string }> };
 
 const INGREDIENT_HEADING = "Состав и активные компоненты";
 
@@ -24,7 +24,8 @@ function publicDescription(value: unknown) {
     .trim();
 }
 
-export async function GET(_req: Request, { params }: Params) {
+export async function GET(_req: Request, props: Params) {
+  const params = await props.params;
   const product = await prisma.product.findFirst({
     where: { id: params.id, isPublished: true },
     select: {

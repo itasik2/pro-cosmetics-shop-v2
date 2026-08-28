@@ -2,10 +2,11 @@ import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
 
 type Props = {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 };
 
-export async function GET(req: Request, { params }: Props) {
+export async function GET(req: Request, props: Props) {
+  const params = await props.params;
   const product = await prisma.product.findFirst({
     where: {
       id: params.id,

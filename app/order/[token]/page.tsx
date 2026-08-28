@@ -50,13 +50,14 @@ function whatsappOrderUrl(orderNumber: string) {
   }
 }
 
-export default async function GuestOrderPage({
-  params,
-  searchParams,
-}: {
-  params: { token: string };
-  searchParams?: { payment?: string; startPayment?: string };
-}) {
+export default async function GuestOrderPage(
+  props: {
+    params: Promise<{ token: string }>;
+    searchParams?: Promise<{ payment?: string; startPayment?: string }>;
+  }
+) {
+  const searchParams = await props.searchParams;
+  const params = await props.params;
   const token = String(params.token || "").trim();
   const accessHash = hashOrderAccessToken(token);
   let order = await prisma.order.findUnique({

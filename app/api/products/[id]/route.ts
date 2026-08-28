@@ -34,7 +34,7 @@ const ProductPatchSchema = z
     { message: "Укажите статус публикации или количество." },
   );
 
-type Params = { params: { id: string } };
+type Params = { params: Promise<{ id: string }> };
 
 type PublicationFields = {
   brandId: string | null;
@@ -78,7 +78,8 @@ async function hasAppliedEnrichment(productId: string) {
   return Boolean(proposal);
 }
 
-export async function PUT(req: Request, { params }: Params) {
+export async function PUT(req: Request, props: Params) {
+  const params = await props.params;
   const forbidden = await requireAdmin();
   if (forbidden) return forbidden;
 
@@ -190,7 +191,8 @@ export async function PUT(req: Request, { params }: Params) {
   }
 }
 
-export async function PATCH(req: Request, { params }: Params) {
+export async function PATCH(req: Request, props: Params) {
+  const params = await props.params;
   const forbidden = await requireAdmin();
   if (forbidden) return forbidden;
 
@@ -267,7 +269,8 @@ export async function PATCH(req: Request, { params }: Params) {
   return NextResponse.json(updated);
 }
 
-export async function DELETE(_req: Request, { params }: Params) {
+export async function DELETE(_req: Request, props: Params) {
+  const params = await props.params;
   const forbidden = await requireAdmin();
   if (forbidden) return forbidden;
 

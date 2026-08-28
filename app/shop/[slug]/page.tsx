@@ -8,7 +8,7 @@ import { formatProductName } from "@/lib/productNames";
 export const dynamic = "force-dynamic";
 
 type Props = {
-  params: { slug: string };
+  params: Promise<{ slug: string }>;
 };
 
 async function getPublicProduct(slug: string) {
@@ -22,7 +22,8 @@ async function getPublicProduct(slug: string) {
   });
 }
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
+export async function generateMetadata(props: Props): Promise<Metadata> {
+  const params = await props.params;
   const product = await getPublicProduct(params.slug);
 
   if (!product) {
@@ -60,7 +61,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-export default async function ProductPage({ params }: Props) {
+export default async function ProductPage(props: Props) {
+  const params = await props.params;
   const product = await getPublicProduct(params.slug);
   if (!product) notFound();
 

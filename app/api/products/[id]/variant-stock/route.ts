@@ -20,7 +20,7 @@ const VariantStockSchema = z.object({
     .max(100),
 });
 
-type Params = { params: { id: string } };
+type Params = { params: Promise<{ id: string }> };
 
 type VariantRow = Record<string, unknown>;
 
@@ -32,7 +32,8 @@ function normalizeVariants(value: unknown): VariantRow[] {
     : [];
 }
 
-export async function PATCH(req: Request, { params }: Params) {
+export async function PATCH(req: Request, props: Params) {
+  const params = await props.params;
   const forbidden = await requireAdmin();
   if (forbidden) return forbidden;
 

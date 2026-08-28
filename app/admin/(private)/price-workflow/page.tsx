@@ -7,9 +7,9 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 type PageProps = {
-  searchParams?: {
+  searchParams?: Promise<{
     step?: string | string[];
-  };
+  }>;
 };
 
 function normalizeStep(value: string | string[] | undefined): PriceWorkflowStep {
@@ -18,7 +18,8 @@ function normalizeStep(value: string | string[] | undefined): PriceWorkflowStep 
   return "import";
 }
 
-export default async function Page({ searchParams }: PageProps) {
+export default async function Page(props: PageProps) {
+  const searchParams = await props.searchParams;
   const [suppliers, brands] = await Promise.all([
     prisma.supplier.findMany({
       where: { isActive: true },

@@ -4,11 +4,12 @@ import { redirect } from "next/navigation";
 import { isHalykEpayConfigured } from "@/lib/halykEpay";
 import { telegramOrderConnectUrl } from "@/lib/messenger";
 
-export default function CheckoutSuccessPage({
-  searchParams,
-}: {
-  searchParams?: { order?: string; token?: string; channel?: string };
-}) {
+export default async function CheckoutSuccessPage(
+  props: {
+    searchParams?: Promise<{ order?: string; token?: string; channel?: string }>;
+  }
+) {
+  const searchParams = await props.searchParams;
   const order = (searchParams?.order || "").trim();
   const token = (searchParams?.token || "").trim();
   const channel = (searchParams?.channel || "EMAIL").trim().toUpperCase();

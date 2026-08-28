@@ -21,7 +21,8 @@ function redirectWithError(req: Request, error: string) {
   return NextResponse.redirect(url, 303);
 }
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await auth();
   const isAdmin = (session?.user as any)?.role === "admin";
   if (!isAdmin) return NextResponse.redirect(new URL("/admin", req.url), 303);
