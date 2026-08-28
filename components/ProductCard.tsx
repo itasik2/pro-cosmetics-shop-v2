@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import FavoriteButton from "./FavoriteCompareButtons";
 import AddToCartButton from "./AddToCartButton";
+import { brandNameToSlug } from "@/lib/brandSlug";
 import { formatProductName } from "@/lib/productNames";
 
 type ProductCardProps = {
@@ -86,6 +87,9 @@ export default function ProductCard({ product }: ProductCardProps) {
       : product.image;
   const productHref = `/api/products/by-id-redirect/${encodeURIComponent(product.id)}`;
   const stockAlertHref = `/shop/${encodeURIComponent(product.slug)}#stock-alert`;
+  const brandHref = product.brand
+    ? `/brand/${encodeURIComponent(brandNameToSlug(product.brand.name))}`
+    : null;
 
   return (
     <div className="card relative h-full flex flex-col transition-shadow duration-200 hover:shadow-md">
@@ -110,8 +114,8 @@ export default function ProductCard({ product }: ProductCardProps) {
       </Link>
 
       <div className="text-sm text-gray-500">
-        {product.brand ? (
-          <Link href={`/brand/${product.brand.name.toLowerCase()}`} className="hover:underline">{product.brand.name}</Link>
+        {product.brand && brandHref ? (
+          <Link href={brandHref} className="hover:underline">{product.brand.name}</Link>
         ) : product.category}
       </div>
 

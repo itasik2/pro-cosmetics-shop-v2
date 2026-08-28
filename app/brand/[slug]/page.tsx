@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/prisma";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import type { Metadata } from "next";
 import ProductCard from "@/components/ProductCard";
+import { brandNameToSlug } from "@/lib/brandSlug";
 import { SITE_BRAND, getPublicBaseUrl } from "@/lib/siteConfig";
 import { collapseRepresentedProductCards } from "@/lib/publicProductCards";
 
@@ -11,13 +12,42 @@ type Props = {
   params: { slug: string };
 };
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const brand = await prisma.brand.findUnique({
-    where: { slug: params.slug },
+const BRAND_ROUTE_SELECT = {
+  id: true,
+  name: true,
+  slug: true,
+  isActive: true,
+} as const;
+
+async function resolveBrandRoute(slug: string) {
+  const exact = await prisma.brand.findUnique({
+    where: { slug },
+    select: BRAND_ROUTE_SELECT,
   });
+  if (exact) return { brand: exact, shouldRedirect: false };
+
+  const activeBrands = await prisma.brand.findMany({
+    where: { isActive: true },
+    select: BRAND_ROUTE_SELECT,
+  });
+  const fallback = activeBrands.find(
+    (brand) => brandNameToSlug(brand.name) === slug,
+  );
+
+  return {
+    brand: fallback ?? null,
+    shouldRedirect: Boolean(fallback && fallback.slug !== slug),
+  };
+}
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { brand } = await resolveBrandRoute(params.slug);
 
   if (!brand || !brand.isActive) {
-    return { title: `Бренд не найден — ${SITE_BRAND}` };
+    return {
+      title: `Бренд не найден — ${SITE_BRAND}`,
+      robots: { index: false, follow: false },
+    };
   }
 
   const baseUrl = getPublicBaseUrl();
@@ -43,11 +73,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 }
 
 export default async function BrandPage({ params }: Props) {
-  const brand = await prisma.brand.findUnique({
-    where: { slug: params.slug },
-  });
+  const { brand, shouldRedirect } = await resolveBrandRoute(params.slug);
 
   if (!brand || !brand.isActive) notFound();
+  if (shouldRedirect) {
+    permanentRedirect(`/brand/${encodeURIComponent(brand.slug)}`);
+  }
 
   const productRows = await prisma.product.findMany({
     where: {
