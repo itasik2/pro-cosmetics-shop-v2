@@ -49,8 +49,8 @@ const privatePageHeaders = [
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  serverExternalPackages: ["pdfjs-dist"],
   experimental: {
-    serverComponentsExternalPackages: ["pdfjs-dist"],
     outputFileTracingIncludes: {
       "/api/admin/price-imports/upload": [
         "./node_modules/pdfjs-dist/legacy/build/**/*",
