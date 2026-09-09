@@ -1,12 +1,18 @@
 import { createHash, createHmac, randomBytes } from "node:crypto";
-import { getPublicBaseUrl } from "@/lib/siteConfig";
+import { getPublicBaseUrl, getScopedEnv } from "@/lib/siteConfig";
 
 function accessSecret() {
-  return (
-    process.env.ORDER_ACCESS_SECRET ||
-    process.env.NEXTAUTH_SECRET ||
-    "development-only-order-access-secret"
-  );
+  const configured =
+    getScopedEnv("ORDER_ACCESS_SECRET").trim() ||
+    getScopedEnv("NEXTAUTH_SECRET").trim();
+
+  if (configured) return configured;
+
+  if (process.env.NODE_ENV !== "production") {
+    return "development-only-order-access-secret";
+  }
+
+  throw new Error("order_access_secret_not_configured");
 }
 
 export function hashOrderAccessToken(token: string) {
