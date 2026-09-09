@@ -4,6 +4,7 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { v2 as cloudinary } from "cloudinary";
 import { requireAdmin } from "@/lib/adminGuard";
+import { normalizeProductImage } from "@/lib/productImageNormalization";
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME!,
@@ -62,6 +63,48 @@ function detectImageMime(bytes: Buffer): string | null {
   return null;
 }
 
+function uploadPurpose(req: Request, form: FormData) {
+  const explicit = String(form.get("purpose") || "").trim().toLowerCase();
+  if (explicit) return explicit;
+
+  try {
+    const referer = req.headers.get("referer");
+    if (referer && new URL(referer).pathname.startsWith("/admin/products")) {
+      return "product";
+    }
+  } catch {
+    // Ignore malformed/missing Referer and keep generic upload behavior.
+  }
+
+  return "generic";
+}
+
+async function uploadGenericImage(bytes: Buffer) {
+  return new Promise<any>((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder: "pro-cosmetics/uploads",
+        resource_type: "image",
+        eager: [
+          {
+            width: 1200,
+            crop: "limit",
+            fetch_format: "auto",
+            quality: "auto:good",
+          },
+        ],
+        eager_async: false,
+      },
+      (err, res) => {
+        if (err || !res) reject(err || new Error("upload_failed"));
+        else resolve(res);
+      },
+    );
+
+    stream.end(bytes);
+  });
+}
+
 export async function POST(req: Request) {
   const forbidden = await requireAdmin();
   if (forbidden) return forbidden;
@@ -80,6 +123,7 @@ export async function POST(req: Request) {
 
     const form = await req.formData();
     const file = form.get("file");
+    const purpose = uploadPurpose(req, form);
 
     if (!file || !(file instanceof File)) {
       return NextResponse.json({ error: "file_required" }, { status: 400 });
@@ -110,30 +154,22 @@ export async function POST(req: Request) {
       );
     }
 
-    const result = await new Promise<any>((resolve, reject) => {
-      const stream = cloudinary.uploader.upload_stream(
+    if (purpose === "product") {
+      const normalized = await normalizeProductImage(bytes);
+      return NextResponse.json(
         {
-          folder: "pro-cosmetics/products",
-          resource_type: "image",
-          eager: [
-            {
-              width: 1200,
-              crop: "limit",
-              fetch_format: "auto",
-              quality: "auto:good",
-            },
-          ],
-          eager_async: false,
+          url: normalized.url,
+          originalUrl: normalized.originalUrl,
+          processedUrl: normalized.processedUrl,
+          processingStatus: normalized.status,
+          processingError: normalized.error,
+          publicId: normalized.publicId,
         },
-        (err, res) => {
-          if (err || !res) reject(err || new Error("upload_failed"));
-          else resolve(res);
-        },
+        { status: 200 },
       );
+    }
 
-      stream.end(bytes);
-    });
-
+    const result = await uploadGenericImage(bytes);
     const optimizedUrl =
       result?.eager?.[0]?.secure_url || result?.secure_url || "";
 
@@ -148,7 +184,8 @@ export async function POST(req: Request) {
       },
       { status: 200 },
     );
-  } catch {
+  } catch (error) {
+    console.error("PRODUCT IMAGE UPLOAD ERROR", error);
     return NextResponse.json({ error: "upload_failed" }, { status: 500 });
   }
 }

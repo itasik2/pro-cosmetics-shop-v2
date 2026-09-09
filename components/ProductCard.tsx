@@ -109,8 +109,8 @@ export default function ProductCard({ product }: ProductCardProps) {
         <FavoriteButton productId={product.id} />
       </div>
 
-      <Link href={productHref} className="block aspect-square w-full bg-gray-100 rounded-xl mb-3 overflow-hidden" aria-label={`Открыть товар: ${displayName}`}>
-        <img src={imageToShow} alt={displayName} width={640} height={640} className="w-full h-full object-cover" loading="lazy" decoding="async" />
+      <Link href={productHref} className="block aspect-square w-full bg-white rounded-xl mb-3 overflow-hidden" aria-label={`Открыть товар: ${displayName}`}>
+        <img src={imageToShow} alt={displayName} width={640} height={640} className="w-full h-full object-contain" loading="lazy" decoding="async" />
       </Link>
 
       <div className="text-sm text-gray-500">

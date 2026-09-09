@@ -71,11 +71,13 @@ export default function ProductDetailsClient({ product }: Props) {
       <TrackProductView productId={product.id} />
 
       <div>
-        <img
-          src={imageToShow}
-          alt={displayName}
-          className="w-full rounded-3xl border object-cover max-h-[480px]"
-        />
+        <div className="flex aspect-square w-full items-center justify-center overflow-hidden rounded-3xl border bg-white">
+          <img
+            src={imageToShow}
+            alt={displayName}
+            className="h-full w-full object-contain"
+          />
+        </div>
 
         {hasVariants && (
           <div className="mt-3 flex flex-wrap gap-2">
