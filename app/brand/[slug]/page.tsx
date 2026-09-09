@@ -5,6 +5,7 @@ import ProductCard from "@/components/ProductCard";
 import { brandNameToSlug } from "@/lib/brandSlug";
 import { SITE_BRAND, getPublicBaseUrl } from "@/lib/siteConfig";
 import { collapseRepresentedProductCards } from "@/lib/publicProductCards";
+import { stringifyJsonLd } from "@/lib/structuredData";
 
 export const dynamic = "force-dynamic";
 
@@ -105,7 +106,7 @@ export default async function BrandPage(props: Props) {
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
+        dangerouslySetInnerHTML={{ __html: stringifyJsonLd(schema) }}
       />
 
       <div className="space-y-6">
