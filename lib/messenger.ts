@@ -138,12 +138,16 @@ function telegramConfig() {
 }
 
 function telegramLinkSecret() {
-  return (
+  const secret =
     getScopedEnv("TELEGRAM_LINK_SECRET").trim() ||
-    process.env.ORDER_ACCESS_SECRET ||
-    process.env.NEXTAUTH_SECRET ||
-    "development-only-telegram-link-secret"
-  );
+    getScopedEnv("ORDER_ACCESS_SECRET").trim() ||
+    getScopedEnv("NEXTAUTH_SECRET").trim();
+
+  if (secret) return secret;
+  if (process.env.NODE_ENV !== "production") {
+    return "development-only-telegram-link-secret";
+  }
+  throw new Error("telegram_link_secret_not_configured");
 }
 
 function telegramLinkSignature(orderNumber: string) {
@@ -179,13 +183,19 @@ export function telegramOrderConnectUrl(orderNumber: string) {
     return "";
   }
 
-  const parameter = safeOrderNumber;
-  return `https://t.me/${encodeURIComponent(config.username)}?start=${encodeURIComponent(parameter)}`;
+  try {
+    const parameter = `${safeOrderNumber}_${telegramLinkSignature(safeOrderNumber)}`;
+    return `https://t.me/${encodeURIComponent(config.username)}?start=${encodeURIComponent(parameter)}`;
+  } catch {
+    return "";
+  }
 }
 
 export function parseTelegramOrderConnectToken(token: string) {
   const value = token.trim();
 
+  // Legacy unsigned tokens are retained for existing customer links. Linking still
+  // requires Telegram to share the same phone number stored on the order.
   if (/^[A-Za-z0-9-]{1,32}$/.test(value)) return value;
 
   const separator = value.lastIndexOf("_");
@@ -193,17 +203,18 @@ export function parseTelegramOrderConnectToken(token: string) {
   const orderNumber = value.slice(0, separator);
   const signature = value.slice(separator + 1);
   if (!/^[A-Za-z0-9-]{1,32}$/.test(orderNumber)) return null;
+  if (!/^[A-Za-z0-9_-]{24}$/.test(signature)) return null;
 
-  if (/^[A-Za-z0-9_-]{24}$/.test(signature)) {
+  try {
     const expected = telegramLinkSignature(orderNumber);
     const left = Buffer.from(signature);
     const right = Buffer.from(expected);
-    if (left.length === right.length && timingSafeEqual(left, right)) {
-      return orderNumber;
-    }
+    return left.length === right.length && timingSafeEqual(left, right)
+      ? orderNumber
+      : null;
+  } catch {
+    return null;
   }
-
-  return orderNumber;
 }
 
 export async function sendTelegramContactRequest(
