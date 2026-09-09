@@ -63,8 +63,12 @@ jobs:
           if-no-files-found: warn
           retention-days: 3
 
-      - name: Production dependency audit
-        id: dependency_audit
+      - name: Block critical production dependency vulnerabilities
+        shell: bash
+        run: npm audit --omit=dev --audit-level=critical
+
+      - name: Audit high production dependency vulnerabilities
+        id: dependency_audit_high
         continue-on-error: true
         shell: bash
         run: |
@@ -74,10 +78,10 @@ jobs:
           cat dependency-audit.log
           exit $status
 
-      - name: Warn about known dependency vulnerabilities
-        if: steps.dependency_audit.outcome == 'failure'
+      - name: Warn about high dependency vulnerabilities
+        if: steps.dependency_audit_high.outcome == 'failure'
         run: |
-          echo "::warning::Production dependency audit found high/critical vulnerabilities. See dependency-audit-log artifact. Keep remediation PRs separate from normal feature work."
+          echo "::warning::Production dependency audit found high vulnerabilities. Critical vulnerabilities block CI. Review dependency-audit-log before merging."
 
       - name: Upload dependency audit log
         if: always()
