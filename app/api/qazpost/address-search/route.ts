@@ -8,7 +8,7 @@ import { checkRateLimit, getClientIp } from "@/lib/rateLimit";
 export async function GET(req: Request) {
   const ip = getClientIp(req);
   if (ip) {
-    const rateLimit = checkRateLimit(`qazpost-address:${ip}`, 30, 60_000);
+    const rateLimit = await checkRateLimit(`qazpost-address:${ip}`, 30, 60_000);
     if (!rateLimit.ok) {
       return NextResponse.json(
         { error: "too_many_requests" },
