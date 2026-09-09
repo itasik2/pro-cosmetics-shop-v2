@@ -61,7 +61,7 @@ function asArrayVariants(value: unknown): Record<string, unknown>[] {
 export async function POST(req: Request) {
   const ip = getClientIp(req);
   if (ip) {
-    const rateLimit = checkRateLimit(`checkout:${ip}`, 8, 60_000);
+    const rateLimit = await checkRateLimit(`checkout:${ip}`, 8, 60_000);
     if (!rateLimit.ok) {
       return NextResponse.json(
         {
