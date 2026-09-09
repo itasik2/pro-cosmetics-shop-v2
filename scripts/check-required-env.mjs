@@ -36,14 +36,23 @@ if (command === "build") {
 
 if (command === "build" && productionDeploy) {
   const authSecret = direct("AUTH_SECRET") || direct("NEXTAUTH_SECRET");
+  const orderAccessSecret = scoped("ORDER_ACCESS_SECRET") || authSecret;
+
   requireMinLength("AUTH_SECRET or NEXTAUTH_SECRET", authSecret, 32);
   requireValue("AUTH_ADMIN_EMAIL", scoped("AUTH_ADMIN_EMAIL"));
   requireMinLength("AUTH_ADMIN_PASSWORD", scoped("AUTH_ADMIN_PASSWORD"), 16);
-  requireMinLength("ORDER_ACCESS_SECRET", scoped("ORDER_ACCESS_SECRET"), 32);
+  requireMinLength(
+    "ORDER_ACCESS_SECRET or AUTH_SECRET/NEXTAUTH_SECRET",
+    orderAccessSecret,
+    32,
+  );
   requireMinLength("CRON_SECRET", direct("CRON_SECRET"), 32);
 
   const telegramToken = scoped("TELEGRAM_BOT_TOKEN");
   if (telegramToken) {
+    const telegramLinkSecret =
+      scoped("TELEGRAM_LINK_SECRET") || orderAccessSecret;
+
     requireValue("TELEGRAM_BOT_USERNAME", scoped("TELEGRAM_BOT_USERNAME"));
     requireMinLength(
       "TELEGRAM_WEBHOOK_SECRET",
@@ -51,8 +60,8 @@ if (command === "build" && productionDeploy) {
       32,
     );
     requireMinLength(
-      "TELEGRAM_LINK_SECRET",
-      scoped("TELEGRAM_LINK_SECRET"),
+      "TELEGRAM_LINK_SECRET or ORDER_ACCESS_SECRET/AUTH_SECRET",
+      telegramLinkSecret,
       32,
     );
   }
