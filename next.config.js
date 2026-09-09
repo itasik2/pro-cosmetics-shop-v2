@@ -21,24 +21,6 @@ const securityHeaders = [
     key: "Strict-Transport-Security",
     value: "max-age=31536000; includeSubDomains",
   },
-  {
-    key: "Content-Security-Policy",
-    value: [
-      "default-src 'self'",
-      "base-uri 'self'",
-      "object-src 'none'",
-      "frame-ancestors 'none'",
-      "script-src 'self' 'unsafe-inline' https://cloud.umami.is https://epay.homebank.kz https://test-epay.epayment.kz",
-      "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: blob: https:",
-      "font-src 'self' data: https:",
-      "connect-src 'self' https://cloud.umami.is https://*.homebank.kz https://*.epayment.kz",
-      "frame-src 'self' https://*.homebank.kz https://*.epayment.kz",
-      "form-action 'self' https://*.homebank.kz https://*.epayment.kz",
-      "worker-src 'self' blob:",
-      "upgrade-insecure-requests",
-    ].join("; "),
-  },
 ];
 
 const privatePageHeaders = [
