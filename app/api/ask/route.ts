@@ -91,7 +91,7 @@ function cleanHistory(value: unknown) {
 export async function POST(req: Request) {
   const ip = getClientIp(req);
   if (ip) {
-    const rateLimit = checkRateLimit(`ask:${ip}`, 12, 60_000);
+    const rateLimit = await checkRateLimit(`ask:${ip}`, 12, 60_000);
     if (!rateLimit.ok) {
       return new Response("Too many requests", {
         status: 429,
