@@ -63,6 +63,22 @@ function detectImageMime(bytes: Buffer): string | null {
   return null;
 }
 
+function uploadPurpose(req: Request, form: FormData) {
+  const explicit = String(form.get("purpose") || "").trim().toLowerCase();
+  if (explicit) return explicit;
+
+  try {
+    const referer = req.headers.get("referer");
+    if (referer && new URL(referer).pathname.startsWith("/admin/products")) {
+      return "product";
+    }
+  } catch {
+    // Ignore malformed/missing Referer and keep generic upload behavior.
+  }
+
+  return "generic";
+}
+
 async function uploadGenericImage(bytes: Buffer) {
   return new Promise<any>((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
@@ -107,7 +123,7 @@ export async function POST(req: Request) {
 
     const form = await req.formData();
     const file = form.get("file");
-    const purpose = String(form.get("purpose") || "generic").trim().toLowerCase();
+    const purpose = uploadPurpose(req, form);
 
     if (!file || !(file instanceof File)) {
       return NextResponse.json({ error: "file_required" }, { status: 400 });
