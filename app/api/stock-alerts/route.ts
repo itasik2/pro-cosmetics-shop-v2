@@ -40,7 +40,7 @@ function normalizeVariants(value: unknown) {
 export async function POST(req: Request) {
   const ip = getClientIp(req);
   if (ip) {
-    const limit = checkRateLimit(`stock-alert:${ip}`, 10, 60_000);
+    const limit = await checkRateLimit(`stock-alert:${ip}`, 10, 60_000);
     if (!limit.ok) {
       return NextResponse.json(
         { error: "too_many_requests", message: "Слишком много заявок. Попробуйте позже." },
