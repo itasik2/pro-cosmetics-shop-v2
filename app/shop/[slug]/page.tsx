@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import ProductDetailsClient from "@/components/ProductDetailsClient";
+import { getCspNonce } from "@/lib/csp";
 import { SITE_BRAND, getPublicBaseUrl } from "@/lib/siteConfig";
 import { formatProductName } from "@/lib/productNames";
 import { stringifyJsonLd } from "@/lib/structuredData";
@@ -64,6 +65,7 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
 
 export default async function ProductPage(props: Props) {
   const params = await props.params;
+  const nonce = await getCspNonce();
   const product = await getPublicProduct(params.slug);
   if (!product) notFound();
 
@@ -97,6 +99,7 @@ export default async function ProductPage(props: Props) {
   return (
     <>
       <script
+        nonce={nonce}
         type="application/ld+json"
         dangerouslySetInnerHTML={{
           __html: stringifyJsonLd(schema),
