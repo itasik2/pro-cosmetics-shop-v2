@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import ProductDetailsClient from "@/components/ProductDetailsClient";
 import { SITE_BRAND, getPublicBaseUrl } from "@/lib/siteConfig";
 import { formatProductName } from "@/lib/productNames";
+import { stringifyJsonLd } from "@/lib/structuredData";
 
 export const dynamic = "force-dynamic";
 
@@ -98,7 +99,7 @@ export default async function ProductPage(props: Props) {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify(schema),
+          __html: stringifyJsonLd(schema),
         }}
       />
 
