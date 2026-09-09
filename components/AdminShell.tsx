@@ -31,6 +31,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
         <div className="flex flex-wrap gap-2 min-w-0">
           {link("/admin/price-workflow", "Работа с прайсом")}
           {link("/admin/products", "Товары")}
+          {link("/admin/image-normalization", "Фото товаров")}
           {link("/admin/blog", "Блог")}
           {link("/admin/orders", "Заказы")}
           {link("/admin/reviews", "Отзывы")}
