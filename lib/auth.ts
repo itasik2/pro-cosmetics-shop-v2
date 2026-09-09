@@ -34,7 +34,7 @@ export const authConfig = {
         if (!parsed.success) return null;
 
         const clientIp = getClientIp(request) ?? "unknown";
-        const rateLimit = checkRateLimit(
+        const rateLimit = await checkRateLimit(
           `admin-login:${clientIp}`,
           ADMIN_LOGIN_LIMIT,
           ADMIN_LOGIN_WINDOW_MS,
@@ -59,11 +59,16 @@ export const authConfig = {
   ],
   callbacks: {
     async jwt({ token, user }) {
-      if (user) (token as any).role = (user as any).role || "admin";
+      if (user && (user as any).role === "admin") {
+        (token as any).role = "admin";
+      }
       return token;
     },
     async session({ session, token }) {
-      (session.user as any).role = (token as any).role || "admin";
+      if (session.user) {
+        (session.user as any).role =
+          (token as any).role === "admin" ? "admin" : undefined;
+      }
       return session;
     },
   },
