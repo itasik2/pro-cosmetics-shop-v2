@@ -1,73 +1,11 @@
 import { createHash } from "node:crypto";
-import { v2 as cloudinary } from "cloudinary";
 import { prisma } from "@/lib/prisma";
+import { normalizeProductImage } from "@/lib/productImageNormalization";
 import { safeFetchImage, type AllowedSourcePolicy } from "./network";
 import {
   getEnabledSupplierSources,
   toAllowedPolicies,
 } from "./sourcePolicies";
-
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
-
-function ensureCloudinaryConfigured() {
-  if (
-    !process.env.CLOUDINARY_CLOUD_NAME ||
-    !process.env.CLOUDINARY_API_KEY ||
-    !process.env.CLOUDINARY_API_SECRET
-  ) {
-    throw new Error("cloudinary_not_configured");
-  }
-}
-
-async function uploadBuffer(buffer: Buffer) {
-  ensureCloudinaryConfigured();
-
-  return new Promise<{
-    url: string;
-    width: number | null;
-    height: number | null;
-  }>((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream(
-      {
-        folder: "pro-cosmetics/products/enriched",
-        resource_type: "image",
-        eager: [
-          {
-            width: 1200,
-            crop: "limit",
-            fetch_format: "auto",
-            quality: "auto:good",
-          },
-        ],
-        eager_async: false,
-      },
-      (error, result) => {
-        if (error || !result) {
-          reject(error || new Error("cloudinary_upload_failed"));
-          return;
-        }
-
-        const url = result.eager?.[0]?.secure_url || result.secure_url || "";
-        if (!url) {
-          reject(new Error("cloudinary_url_missing"));
-          return;
-        }
-
-        resolve({
-          url,
-          width: typeof result.width === "number" ? result.width : null,
-          height: typeof result.height === "number" ? result.height : null,
-        });
-      },
-    );
-
-    stream.end(buffer);
-  });
-}
 
 function stringArray(value: unknown) {
   if (!Array.isArray(value)) return [] as string[];
@@ -165,7 +103,9 @@ export async function importProductImage(input: {
     return existing;
   }
 
-  const uploaded = await uploadBuffer(fetched.buffer);
+  const normalized = await normalizeProductImage(fetched.buffer, {
+    folder: "pro-cosmetics/products/enriched-originals",
+  });
   const sourceDomain = new URL(fetched.finalUrl).hostname.toLowerCase();
 
   return prisma.$transaction(async (tx) => {
@@ -179,12 +119,12 @@ export async function importProductImage(input: {
     const image = await tx.productImage.create({
       data: {
         productId: input.productId,
-        url: uploaded.url,
+        url: normalized.url,
         sourceUrl: fetched.finalUrl,
         sourceDomain,
         checksum,
-        width: uploaded.width,
-        height: uploaded.height,
+        width: normalized.width,
+        height: normalized.height,
         isPrimary: input.makePrimary,
       },
     });
@@ -193,7 +133,7 @@ export async function importProductImage(input: {
       await tx.product.update({
         where: { id: input.productId },
         data: {
-          image: uploaded.url,
+          image: normalized.url,
           imageSourceUrl: fetched.finalUrl,
         },
       });
