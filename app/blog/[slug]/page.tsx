@@ -2,6 +2,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { getCspNonce } from "@/lib/csp";
 import { prisma } from "@/lib/prisma";
 import { SITE_BRAND } from "@/lib/siteConfig";
 import {
@@ -39,7 +40,6 @@ function buildPostDescription(content: string) {
   return shortBase.length > 150 ? `${shortBase.slice(0, 150)}...` : shortBase;
 }
 
-// 1) Заголовок, если строка целиком вида **...**
 function parseBoldHeading(line: string) {
   const t = line.trim();
   if (!t.startsWith("**") || !t.endsWith("**")) return null;
@@ -49,7 +49,6 @@ function parseBoldHeading(line: string) {
   return inner;
 }
 
-// 2) Заголовок, если строка заканчивается ":" (без спец-символов)
 function parseColonHeading(line: string) {
   const t = line.trim();
   if (!t.endsWith(":")) return null;
@@ -60,18 +59,16 @@ function parseColonHeading(line: string) {
   return inner;
 }
 
-// 3) Markdown-подобные заголовки: ## / ###
 function parseHashHeading(line: string) {
   const t = line.trim();
   const m = t.match(/^(#{2,3})\s+(.+?)\s*$/);
   if (!m) return null;
-  const level = m[1].length; // 2 или 3
+  const level = m[1].length;
   const text = m[2].trim();
   if (!text) return null;
   return { level, text };
 }
 
-// 4) Разделитель вида --- (часто в генерации)
 function isSeparator(line: string) {
   const t = line.trim();
   return t === "---" || t === "—" || t === "——" || t === "———";
@@ -104,11 +101,8 @@ function parseContentToBlocks(content: string) {
 
   for (const rawLine of lines) {
     const line = rawLine ?? "";
-
-    // игнорируем разделители типа ---
     if (isSeparator(line)) continue;
 
-    // поддерживаем 3 формата заголовков
     const hHash = parseHashHeading(line);
     const hText = parseBoldHeading(line) || parseColonHeading(line);
 
@@ -194,6 +188,7 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
 
 export default async function PostPage(props: Props) {
   const params = await props.params;
+  const nonce = await getCspNonce();
   const slug = normalizeSlug(params.slug);
 
   const post = await prisma.post.findUnique({
@@ -234,10 +229,12 @@ export default async function PostPage(props: Props) {
   return (
     <>
       <script
+        nonce={nonce}
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: stringifyJsonLd(articleJsonLd) }}
       />
       <script
+        nonce={nonce}
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: stringifyJsonLd(breadcrumbJsonLd) }}
       />
@@ -309,7 +306,6 @@ export default async function PostPage(props: Props) {
 
           <h1 className="text-3xl font-bold tracking-tight">{post.title}</h1>
 
-          {/* Контент */}
           <div className="mt-6 space-y-4">
             {blocks.map((b, idx) => {
               if (b.type === "heading") {

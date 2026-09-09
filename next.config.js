@@ -19,24 +19,7 @@ const securityHeaders = [
   },
   {
     key: "Strict-Transport-Security",
-    value: "max-age=31536000",
-  },
-  {
-    key: "Content-Security-Policy-Report-Only",
-    value: [
-      "default-src 'self'",
-      "base-uri 'self'",
-      "object-src 'none'",
-      "frame-ancestors 'none'",
-      "script-src 'self' 'unsafe-inline' https://cloud.umami.is",
-      "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: blob: https:",
-      "font-src 'self' data: https:",
-      "connect-src 'self' https:",
-      "frame-src 'self' https:",
-      "form-action 'self' https:",
-      "worker-src 'self' blob:",
-    ].join("; "),
+    value: "max-age=31536000; includeSubDomains",
   },
 ];
 
@@ -44,6 +27,10 @@ const privatePageHeaders = [
   {
     key: "X-Robots-Tag",
     value: "noindex, nofollow, noarchive, nosnippet",
+  },
+  {
+    key: "Cache-Control",
+    value: "private, no-store, max-age=0",
   },
 ];
 

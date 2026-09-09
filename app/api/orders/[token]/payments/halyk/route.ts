@@ -23,10 +23,10 @@ async function getOrder(token: string) {
   });
 }
 
-function rateLimitResponse(req: Request) {
+async function rateLimitResponse(req: Request) {
   const ip = getClientIp(req);
   if (!ip) return null;
-  const result = checkRateLimit(`halyk-payment:${ip}`, 12, 60_000);
+  const result = await checkRateLimit(`halyk-payment:${ip}`, 12, 60_000);
   if (result.ok) return null;
   return NextResponse.json(
     { error: "too_many_requests", message: "Слишком много запросов. Попробуйте позже." },
@@ -39,7 +39,7 @@ function rateLimitResponse(req: Request) {
 
 export async function POST(req: Request, props: { params: Promise<{ token: string }> }) {
   const params = await props.params;
-  const limited = rateLimitResponse(req);
+  const limited = await rateLimitResponse(req);
   if (limited) return limited;
 
   if (!isHalykEpayConfigured()) {
@@ -136,7 +136,7 @@ export async function POST(req: Request, props: { params: Promise<{ token: strin
 
 export async function GET(req: Request, props: { params: Promise<{ token: string }> }) {
   const params = await props.params;
-  const limited = rateLimitResponse(req);
+  const limited = await rateLimitResponse(req);
   if (limited) return limited;
 
   const token = String(params.token || "").trim();

@@ -3,7 +3,7 @@ import HalykPayButton from "./HalykPayButton";
 import PaymentReportForm from "./PaymentReportForm";
 import QazPostTrackingPanel from "./QazPostTrackingPanel";
 import { isHalykEpayConfigured } from "@/lib/halykEpay";
-import { hashOrderAccessToken } from "@/lib/orderAccess";
+import { hashOrderAccessToken, isOrderAccessExpired } from "@/lib/orderAccess";
 import { cancelExpiredPrepaymentOrder } from "@/lib/orderPayments";
 import { getPaymentInstructions } from "@/lib/paymentInstructions";
 import { telegramOrderConnectUrl } from "@/lib/messenger";
@@ -65,7 +65,7 @@ export default async function GuestOrderPage(
     include: { items: { orderBy: { createdAt: "asc" } } },
   });
 
-  if (!order) notFound();
+  if (!order || isOrderAccessExpired(order)) notFound();
 
   if (
     order.paymentMethod === "KASPI_TRANSFER" &&
@@ -80,7 +80,7 @@ export default async function GuestOrderPage(
         where: { customerAccessTokenHash: accessHash },
         include: { items: { orderBy: { createdAt: "asc" } } },
       });
-      if (!order) notFound();
+      if (!order || isOrderAccessExpired(order)) notFound();
     }
   }
 

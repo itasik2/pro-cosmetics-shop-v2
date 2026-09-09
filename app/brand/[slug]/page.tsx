@@ -3,8 +3,10 @@ import { notFound, permanentRedirect } from "next/navigation";
 import type { Metadata } from "next";
 import ProductCard from "@/components/ProductCard";
 import { brandNameToSlug } from "@/lib/brandSlug";
+import { getCspNonce } from "@/lib/csp";
 import { SITE_BRAND, getPublicBaseUrl } from "@/lib/siteConfig";
 import { collapseRepresentedProductCards } from "@/lib/publicProductCards";
+import { stringifyJsonLd } from "@/lib/structuredData";
 
 export const dynamic = "force-dynamic";
 
@@ -75,6 +77,7 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
 
 export default async function BrandPage(props: Props) {
   const params = await props.params;
+  const nonce = await getCspNonce();
   const { brand, shouldRedirect } = await resolveBrandRoute(params.slug);
 
   if (!brand || !brand.isActive) notFound();
@@ -104,8 +107,9 @@ export default async function BrandPage(props: Props) {
   return (
     <>
       <script
+        nonce={nonce}
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
+        dangerouslySetInnerHTML={{ __html: stringifyJsonLd(schema) }}
       />
 
       <div className="space-y-6">

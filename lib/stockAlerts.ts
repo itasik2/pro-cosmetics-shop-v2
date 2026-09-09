@@ -5,12 +5,16 @@ import { prisma } from "@/lib/prisma";
 import { getPublicBaseUrl, getScopedEnv } from "@/lib/siteConfig";
 
 function linkSecret() {
-  return (
+  const secret =
     getScopedEnv("TELEGRAM_LINK_SECRET").trim() ||
-    process.env.ORDER_ACCESS_SECRET ||
-    process.env.NEXTAUTH_SECRET ||
-    "development-only-stock-alert-secret"
-  );
+    getScopedEnv("ORDER_ACCESS_SECRET").trim() ||
+    getScopedEnv("NEXTAUTH_SECRET").trim();
+
+  if (secret) return secret;
+  if (process.env.NODE_ENV !== "production") {
+    return "development-only-stock-alert-secret";
+  }
+  throw new Error("stock_alert_link_secret_not_configured");
 }
 
 function alertSignature(id: string) {
@@ -23,9 +27,13 @@ function alertSignature(id: string) {
 export function stockAlertTelegramConnectUrl(id: string) {
   const username = getScopedEnv("TELEGRAM_BOT_USERNAME").trim().replace(/^@/, "");
   if (!username || !/^[A-Za-z0-9_-]{10,40}$/.test(id)) return "";
-  const token = `stock_${id}_${alertSignature(id)}`;
-  if (token.length > 64) return "";
-  return `https://t.me/${encodeURIComponent(username)}?start=${encodeURIComponent(token)}`;
+  try {
+    const token = `stock_${id}_${alertSignature(id)}`;
+    if (token.length > 64) return "";
+    return `https://t.me/${encodeURIComponent(username)}?start=${encodeURIComponent(token)}`;
+  } catch {
+    return "";
+  }
 }
 
 export function parseStockAlertTelegramToken(token: string) {
@@ -33,11 +41,16 @@ export function parseStockAlertTelegramToken(token: string) {
   if (!match) return null;
   const id = match[1];
   const signature = match[2];
-  const expected = alertSignature(id);
-  const left = Buffer.from(signature);
-  const right = Buffer.from(expected);
-  if (left.length !== right.length || !timingSafeEqual(left, right)) return null;
-  return id;
+
+  try {
+    const expected = alertSignature(id);
+    const left = Buffer.from(signature);
+    const right = Buffer.from(expected);
+    if (left.length !== right.length || !timingSafeEqual(left, right)) return null;
+    return id;
+  } catch {
+    return null;
+  }
 }
 
 function normalizeWhatsAppPhone(value: string) {

@@ -4,6 +4,7 @@ import { unstable_cache } from "next/cache";
 import Footer from "@/components/Footer";
 import Navbar from "@/components/Navbar";
 import ScrollToTopButton from "@/components/ScrollToTopButton";
+import { getCspNonce } from "@/lib/csp";
 import { prisma } from "@/lib/prisma";
 import {
   getPublicBaseUrl,
@@ -101,6 +102,7 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const nonce = await getCspNonce();
   let settings: Awaited<ReturnType<typeof getThemeSettings>> = null;
   try {
     settings = await getThemeSettings();
@@ -133,15 +135,18 @@ export default async function RootLayout({
     <html lang="ru" data-theme={themeProfile}>
       <head>
         <script
+          nonce={nonce}
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: stringifyJsonLd(organizationJsonLd) }}
         />
         <script
+          nonce={nonce}
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: stringifyJsonLd(webSiteJsonLd) }}
         />
         {umamiId ? (
           <script
+            nonce={nonce}
             defer
             src="https://cloud.umami.is/script.js"
             data-website-id={umamiId}
