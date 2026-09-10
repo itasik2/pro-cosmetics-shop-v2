@@ -4,6 +4,10 @@
   },
   "crons": [
     {
+      "path": "/api/cron/site-monitor",
+      "schedule": "12 2 * * *"
+    },
+    {
       "path": "/api/cron/enrichment-monitor",
       "schedule": "17 3 * * *"
     },
@@ -12,8 +16,8 @@
       "schedule": "47 3 * * *"
     },
     {
-      "path": "/api/cron/site-monitor",
-      "schedule": "12 2 * * *"
+      "path": "/api/cron/image-normalization",
+      "schedule": "17 5 * * *"
     },
     {
       "path": "/api/cron/weekly-report",
