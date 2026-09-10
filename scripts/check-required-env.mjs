@@ -18,6 +18,7 @@ function direct(name) {
 }
 
 const errors = [];
+const warnings = [];
 
 function requireValue(label, value) {
   if (!value) errors.push(`${label} is missing`);
@@ -28,6 +29,10 @@ function requireMinLength(label, value, min) {
   if (value && value.length < min) {
     errors.push(`${label} must be at least ${min} characters`);
   }
+}
+
+function warnMissing(label, value) {
+  if (!value) warnings.push(`${label} is missing; related feature will remain disabled/fail-closed`);
 }
 
 if (command === "build") {
@@ -46,33 +51,27 @@ if (command === "build" && productionDeploy) {
     orderAccessSecret,
     32,
   );
-  requireMinLength("CRON_SECRET", direct("CRON_SECRET"), 32);
+
+  // Optional operational integrations are fail-closed at runtime. Missing
+  // credentials should not take the storefront offline during deployment.
+  warnMissing("CRON_SECRET", direct("CRON_SECRET"));
 
   const telegramToken = scoped("TELEGRAM_BOT_TOKEN");
   if (telegramToken) {
     const telegramLinkSecret =
       scoped("TELEGRAM_LINK_SECRET") || orderAccessSecret;
 
-    requireValue("TELEGRAM_BOT_USERNAME", scoped("TELEGRAM_BOT_USERNAME"));
-    requireMinLength(
-      "TELEGRAM_WEBHOOK_SECRET",
-      scoped("TELEGRAM_WEBHOOK_SECRET"),
-      32,
-    );
-    requireMinLength(
-      "TELEGRAM_LINK_SECRET or ORDER_ACCESS_SECRET/AUTH_SECRET",
-      telegramLinkSecret,
-      32,
-    );
+    warnMissing("TELEGRAM_BOT_USERNAME", scoped("TELEGRAM_BOT_USERNAME"));
+    warnMissing("TELEGRAM_WEBHOOK_SECRET", scoped("TELEGRAM_WEBHOOK_SECRET"));
+    if (telegramLinkSecret.length < 32) {
+      warnings.push(
+        "TELEGRAM_LINK_SECRET or ORDER_ACCESS_SECRET/AUTH_SECRET is too short; Telegram linking will remain unavailable",
+      );
+    }
   }
 
   const halykMode = scoped("HALYK_EPAY_MODE").toLowerCase();
-  const halykConfigured = Boolean(
-    scoped("HALYK_EPAY_CLIENT_ID") ||
-      scoped("HALYK_EPAY_CLIENT_SECRET") ||
-      scoped("HALYK_EPAY_TERMINAL_ID"),
-  );
-  if (halykMode === "production" || halykConfigured) {
+  if (halykMode === "production") {
     requireValue("HALYK_EPAY_CLIENT_ID", scoped("HALYK_EPAY_CLIENT_ID"));
     requireValue("HALYK_EPAY_CLIENT_SECRET", scoped("HALYK_EPAY_CLIENT_SECRET"));
     requireValue("HALYK_EPAY_TERMINAL_ID", scoped("HALYK_EPAY_TERMINAL_ID"));
@@ -82,6 +81,11 @@ if (command === "build" && productionDeploy) {
       32,
     );
   }
+}
+
+if (warnings.length > 0) {
+  console.warn(`[env-check] ${warnings.length} warning(s):`);
+  for (const warning of warnings) console.warn(`- ${warning}`);
 }
 
 if (errors.length > 0) {
