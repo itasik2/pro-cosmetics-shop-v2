@@ -7,10 +7,12 @@ import { requireAdmin } from "@/lib/adminGuard";
 import {
   getCatalogImageNormalizationCounts,
   normalizeCatalogImageBatch,
+  resetNeedsReviewAttempts,
 } from "@/lib/catalogImageNormalization";
 
 const BatchSchema = z.object({
-  limit: z.number().int().min(1).max(5).optional().default(3),
+  limit: z.number().int().min(1).max(5).optional().default(5),
+  resetNeedsReview: z.boolean().optional().default(false),
 });
 
 export async function GET() {
@@ -31,8 +33,13 @@ export async function POST(req: Request) {
     );
   }
 
+  const reset = parsed.data.resetNeedsReview
+    ? await resetNeedsReviewAttempts()
+    : 0;
+
   return NextResponse.json({
     ok: true,
+    reset,
     ...(await normalizeCatalogImageBatch(parsed.data.limit)),
   });
 }
