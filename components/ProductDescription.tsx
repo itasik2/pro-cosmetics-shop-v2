@@ -1,3 +1,4 @@
+import { hasMissingProductData } from "@/lib/productCopy";
 import type { ReactNode } from "react";
 
 const SECTION_TITLES = [
@@ -73,7 +74,11 @@ export default function ProductDescription({
     const heading = SECTION_TITLE_SET.has(lines[0]) ? lines[0] : null;
     if (heading && PRIVATE_SECTION_TITLES.has(heading)) return [];
 
-    const contentLines = heading ? lines.slice(1) : lines;
+    const rawContentLines = heading ? lines.slice(1) : lines;
+    const contentLines = rawContentLines.filter((line) => !hasMissingProductData(line));
+    if (heading === "Способ применения" && !contentLines.length) {
+      contentLines.push("Уточните способ применения перед покупкой через кнопку «Спросить о товаре». При использовании следуйте инструкции на упаковке.");
+    }
     if (!contentLines.length) return [];
 
     return [{ blockIndex, heading, contentLines }];

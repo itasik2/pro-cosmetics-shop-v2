@@ -1,3 +1,5 @@
+import { hasMissingProductData } from "../productCopy";
+
 export type CatalogAutopilotDecision =
   | "AUTO_APPLY"
   | "RETRY"
@@ -207,6 +209,9 @@ export function evaluateCatalogAutopilotProposal(
   if (benefitCount < 3) reasons.push("benefits_missing");
   if (application.length < 20) reasons.push("application_missing");
   if (promotionalTextFound) reasons.push("promotional_text_found");
+  if (hasMissingProductData(description) || hasMissingProductData(shortDescription) || hasMissingProductData(application)) {
+    reasons.push("incomplete_product_information");
+  }
 
   reasons.push(...blockingWarnings);
 

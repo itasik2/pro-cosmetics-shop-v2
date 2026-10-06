@@ -10,6 +10,7 @@ import CatalogFacetFilters from "@/components/CatalogFacetFilters";
 import { SITE_BRAND, getPublicBaseUrl } from "@/lib/siteConfig";
 import { buildBrandIntentKeywords } from "@/lib/seo";
 import { collapseRepresentedProductCards } from "@/lib/publicProductCards";
+import { CATEGORY_OPTIONS, CARE_OPTIONS, productMatchesCategory, productMatchesCare, productMatchesBudget, parseBudget } from "@/lib/catalogFilters";
 
 export const dynamic = "force-dynamic";
 
@@ -21,32 +22,10 @@ type Props = {
     fav?: string | string[];
     instock?: string | string[];
     q?: string | string[];
+    care?: string | string[];
+    maxPrice?: string | string[];
   }>;
 };
-
-type CategoryOption = {
-  slug: string;
-  label: string;
-  searchTerms: string[];
-};
-
-const CATEGORY_OPTIONS: CategoryOption[] = [
-  {
-    slug: "kremy",
-    label: "Кремы",
-    searchTerms: ["крем", "cream", "creme", "флюид"],
-  },
-  {
-    slug: "syvorotki",
-    label: "Сыворотки",
-    searchTerms: ["сыворот", "serum", "концентрат", "ампул", "ampoule"],
-  },
-  {
-    slug: "toniki",
-    label: "Тоники",
-    searchTerms: ["тоник", "тонер", "tonic", "toner", "лосьон"],
-  },
-];
 
 function findCategory(slug: string) {
   return CATEGORY_OPTIONS.find((item) => item.slug === slug) ?? null;
@@ -113,44 +92,6 @@ function productMatchesSearch(
   ].filter(Boolean).join(" "));
 
   return normalizedQuery.split(" ").every((token) => haystack.includes(token));
-}
-
-function containsCategoryTerm(value: string, terms: string[]) {
-  return terms.some((term) => value.includes(normalizeSearch(term)));
-}
-
-function productMatchesCategory(
-  product: {
-    name: string;
-    category: string;
-    shortDescription: string | null;
-    productLineName: string | null;
-  },
-  selectedCategory: CategoryOption | null,
-) {
-  if (!selectedCategory) return true;
-
-  const primaryText = normalizeSearch(
-    [product.name, product.category, product.productLineName]
-      .filter(Boolean)
-      .join(" "),
-  );
-
-  if (containsCategoryTerm(primaryText, selectedCategory.searchTerms)) {
-    return true;
-  }
-
-  const hasAnotherExplicitType = CATEGORY_OPTIONS.some(
-    (category) =>
-      category.slug !== selectedCategory.slug &&
-      containsCategoryTerm(primaryText, category.searchTerms),
-  );
-  if (hasAnotherExplicitType) return false;
-
-  return containsCategoryTerm(
-    normalizeSearch(product.shortDescription),
-    selectedCategory.searchTerms,
-  );
 }
 
 export async function generateMetadata(props: Props) {
@@ -233,6 +174,8 @@ export async function generateMetadata(props: Props) {
       fav ||
       instock ||
       searchQuery ||
+      firstParam(searchParams?.care) ||
+      firstParam(searchParams?.maxPrice) ||
       brandSlugs.length > 0 ||
       categorySlugs.length > 0
         ? { index: false, follow: true }
@@ -282,6 +225,9 @@ function toVariants(value: unknown): Variant[] | null {
 
 export default async function ShopPage(props: Props) {
   const searchParams = await props.searchParams;
+  const care = firstParam(searchParams?.care);
+  const selectedCare = CARE_OPTIONS.find((option) => option.slug === care);
+  const maxPrice = parseBudget(firstParam(searchParams?.maxPrice));
   const requestedBrandSlugs = parseSlugList(searchParams?.brand);
   const requestedCategorySlugs = parseSlugList(searchParams?.category);
   const sort = firstParam(searchParams?.sort) === "new" ? "new" : "";
@@ -325,7 +271,6 @@ export default async function ShopPage(props: Props) {
     ...(selectedBrands.length
       ? { brandId: { in: selectedBrands.map((brand) => brand.id) } }
       : {}),
-    ...(instock === "1" ? { stock: { gt: 0 } } : {}),
     ...(andConditions.length ? { AND: andConditions } : {}),
   };
 
@@ -363,9 +308,12 @@ export default async function ShopPage(props: Props) {
         selectedCategories.some((category) => productMatchesCategory(product, category)),
     )
     .filter((product) => productMatchesSearch(product, searchQuery))
+    .filter((product) => productMatchesCare(product, care))
+    .filter((product) => productMatchesBudget(product, maxPrice))
+    .filter((product) => instock !== "1" || (toVariants(product.variants)?.some((variant) => variant.stock > 0) ?? product.stock > 0))
     .map((product) => ({
       ...product,
-      variants: toVariants(product.variants),
+      variants: toVariants(product.variants)?.sort((a, b) => maxPrice === null ? 0 : Number(b.stock > 0 && b.price <= maxPrice) - Number(a.stock > 0 && a.price <= maxPrice)) ?? null,
     }));
 
   const brandSummary =
@@ -390,6 +338,15 @@ export default async function ShopPage(props: Props) {
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center gap-3">
+        <Link href="/care" className="btn-secondary">Подобрать уход</Link>
+        {(selectedCare || maxPrice !== null) && <div className="rounded-xl border bg-white p-3 text-sm">
+          {selectedCare?.label}{selectedCare && maxPrice !== null ? " • " : ""}
+          {maxPrice !== null && `До ${maxPrice.toLocaleString("ru-RU")} ₸ за средство`}
+          <Link href="/shop" className="ml-3 underline">Сбросить подбор</Link>
+        </div>}
+      </div>
+
       <form action="/shop" method="get" className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <div className="relative flex-1">
           <input
@@ -401,6 +358,8 @@ export default async function ShopPage(props: Props) {
           />
           <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">⌕</span>
         </div>
+        {selectedCare && <input type="hidden" name="care" value={selectedCare.slug} />}
+        {maxPrice !== null && <input type="hidden" name="maxPrice" value={maxPrice} />}
         {brandSlug && <input type="hidden" name="brand" value={brandSlug} />}
         {categorySlug && <input type="hidden" name="category" value={categorySlug} />}
         {sort && <input type="hidden" name="sort" value={sort} />}
@@ -409,7 +368,7 @@ export default async function ShopPage(props: Props) {
         <button type="submit" className="btn">Найти</button>
         {searchQuery && (
           <Link
-            href={buildHref(brandSlug, categorySlug, sort, fav, instock, "")}
+            href={buildHref(brandSlug, categorySlug, sort, fav, instock, "", care, maxPrice)}
             className="inline-flex min-h-8 items-center justify-center rounded-full border px-3 py-1 text-center text-sm hover:bg-gray-50"
           >
             Очистить
@@ -451,6 +410,8 @@ function buildHref(
   fav: string,
   instock: string,
   searchQuery = "",
+  care = "",
+  maxPrice: number | null = null,
 ) {
   const params = new URLSearchParams();
 
@@ -460,6 +421,8 @@ function buildHref(
   if (fav === "1") params.set("fav", "1");
   if (instock === "1") params.set("instock", "1");
   if (searchQuery) params.set("q", searchQuery);
+  if (care) params.set("care", care);
+  if (maxPrice !== null) params.set("maxPrice", String(maxPrice));
 
   const query = params.toString();
   return query ? `/shop?${query}` : "/shop";

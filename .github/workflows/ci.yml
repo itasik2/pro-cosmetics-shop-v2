@@ -54,6 +54,9 @@ jobs:
           cat typecheck.log
           exit $status
 
+      - name: Store purchase regressions
+        run: npm run test:store
+
       - name: Upload TypeScript log
         if: always()
         uses: actions/upload-artifact@v4

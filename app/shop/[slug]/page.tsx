@@ -1,3 +1,6 @@
+import { publicShortDescription } from "@/lib/productCopy";
+import { publicProductCategory } from "@/lib/catalogFilters";
+import { verifiedProductCopy } from "@/lib/verifiedProductInstructions";
 import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
@@ -38,8 +41,8 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
   const baseUrl = getPublicBaseUrl();
   const displayName = formatProductName(product.name);
   const metaDescription =
-    product.shortDescription?.trim() ||
-    product.description.replace(/\s+/g, " ").trim().slice(0, 280);
+    publicShortDescription(product.shortDescription) ||
+    (verifiedProductCopy(product)?.description || product.description).replace(/\s+/g, " ").trim().slice(0, 280);
 
   return {
     title: `${displayName} — ${SITE_BRAND}`,
@@ -48,7 +51,7 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
       `купить ${displayName}`,
       product.brand?.name ? `купить крем ${product.brand.name}` : "",
       product.brand?.name ? `косметика ${product.brand.name}` : "",
-      `${product.category} купить`,
+      `${publicProductCategory(product)} купить`,
     ].filter(Boolean),
     alternates: {
       canonical: `${baseUrl}/shop/${product.slug}`,
@@ -76,7 +79,7 @@ export default async function ProductPage(props: Props) {
     "@type": "Product",
     name: displayName,
     image: product.image ? [product.image] : [],
-    description: product.shortDescription || product.description,
+    description: publicShortDescription(product.shortDescription) || verifiedProductCopy(product)?.description || product.description,
     sku: product.supplierSku || undefined,
     brand: product.brand?.name
       ? {

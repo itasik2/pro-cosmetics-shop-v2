@@ -10,7 +10,8 @@
     "db:push": "prisma db push",
     "db:seed": "node prisma/seed.mjs",
     "check:env:build": "node scripts/check-required-env.mjs build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:store": "TSX_TSCONFIG_PATH=tests/tsconfig.json node --import tsx --test tests/store-audit.test.tsx"
   },
   "dependencies": {
     "@prisma/client": "^6.19.1",
@@ -25,6 +26,8 @@
     "pdfjs-dist": "4.10.38",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "stripe": "16.6.0",
     "zod": "3.23.8"
   },
@@ -37,6 +40,7 @@
     "postcss": "8.5.26",
     "prisma": "^6.19.1",
     "tailwindcss": "3.4.13",
+    "tsx": "^4.23.15",
     "typescript": "5.6.2"
   }
 }

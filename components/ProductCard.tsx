@@ -5,6 +5,8 @@ import { useState } from "react";
 import FavoriteButton from "./FavoriteCompareButtons";
 import AddToCartButton from "./AddToCartButton";
 import { brandNameToSlug } from "@/lib/brandSlug";
+import { publicShortDescription } from "@/lib/productCopy";
+import { publicProductCategory } from "@/lib/catalogFilters";
 import { formatProductName } from "@/lib/productNames";
 
 type ProductCardProps = {
@@ -85,7 +87,7 @@ export default function ProductCard({ product }: ProductCardProps) {
     selectedVariant?.image && String(selectedVariant.image).trim().length > 0
       ? String(selectedVariant.image).trim()
       : product.image;
-  const productHref = `/api/products/by-id-redirect/${encodeURIComponent(product.id)}`;
+  const productHref = product.slug ? `/shop/${encodeURIComponent(product.slug)}` : `/api/products/by-id-redirect/${encodeURIComponent(product.id)}`;
   const stockAlertHref = `/shop/${encodeURIComponent(product.slug)}#stock-alert`;
   const brandHref = product.brand
     ? `/brand/${encodeURIComponent(brandNameToSlug(product.brand.name))}`
@@ -116,12 +118,12 @@ export default function ProductCard({ product }: ProductCardProps) {
       <div className="text-sm text-gray-500">
         {product.brand && brandHref ? (
           <Link href={brandHref} className="hover:underline">{product.brand.name}</Link>
-        ) : product.category}
+        ) : publicProductCategory(product)}
       </div>
 
       <h3 className="font-semibold line-clamp-2 min-h-[40px]">{displayName}</h3>
       <p className="mt-1 min-h-[40px] line-clamp-2 text-xs leading-5 text-gray-600">
-        {product.shortDescription?.trim() || "Подробное описание и способ применения — в карточке товара."}
+        {publicShortDescription(product.shortDescription) || "Подробное описание и способ применения — в карточке товара."}
       </p>
 
       <div className="mt-2 min-h-[36px]">

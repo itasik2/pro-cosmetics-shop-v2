@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { getStorePolicy } from "@/lib/storePolicy";
 import {
   SITE_BRAND,
   SITE_CONTACT_EMAIL,
@@ -14,6 +16,7 @@ export const metadata = {
 };
 
 export default async function ContactsPage() {
+  const policy = getStorePolicy();
   const externalLinks = await getPublicExternalLinks();
   const socialLinks = externalLinks.filter((link) => link.kind === "SOCIAL");
   const marketplaceLinks = externalLinks.filter(
@@ -78,6 +81,20 @@ export default async function ContactsPage() {
           </div>
         </section>
       </div>
+
+      {policy.sellerName && <section className="site-panel rounded-3xl p-6 md:p-8">
+        <h2 className="text-xl font-semibold">Сведения о продавце</h2>
+        <dl className="mt-4 space-y-3">
+          <div><dt className="text-sm text-gray-500">Продавец</dt><dd className="font-semibold">{policy.sellerName}</dd></div>
+          {policy.sellerId && <div><dt className="text-sm text-gray-500">ИИН / БИН</dt><dd>{policy.sellerId}</dd></div>}
+          {policy.sellerAddress && <div><dt className="text-sm text-gray-500">Адрес</dt><dd>{policy.sellerAddress}</dd></div>}
+        </dl>
+      </section>}
+      <section className="site-panel-muted rounded-3xl p-6 md:p-8">
+        <h2 className="text-xl font-semibold">Перед покупкой</h2>
+        <p className="mt-3 leading-7">Проверьте условия доставки и оплаты. Сведения о происхождении продукции и документы по конкретному товару можно запросить у магазина.</p>
+        <Link href="/delivery" className="mt-4 inline-block underline">Доставка, оплата и вопросы по возврату</Link>
+      </section>
 
       {marketplaceLinks.length > 0 ? (
         <section className="site-panel rounded-3xl p-6 md:p-8">
