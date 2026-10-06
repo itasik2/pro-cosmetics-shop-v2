@@ -24,6 +24,8 @@ test("retrieval excludes wrong need, unavailable variants and outside budget", (
 test("generic selection asks a question instead of choosing newest products", () => {
   const criteria = parseConsultantCriteria(["Подбери мне уход"]);
   assert.ok(needsConsultantClarification(criteria, ""));
+  assert.ok(needsConsultantClarification(parseConsultantCriteria(["Помоги выбрать уход"]), ""));
+  assert.ok(needsConsultantClarification(parseConsultantCriteria(["Помоги с выбором"]), ""));
   assert.deepEqual(rankConsultantProducts([base], { ...criteria, query: "Привет" }), []);
 });
 

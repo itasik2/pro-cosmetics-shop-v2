@@ -153,7 +153,7 @@ export function validateConsultantReply(value: unknown, products: ConsultantProd
 }
 
 export function needsConsultantClarification(criteria: ConsultantCriteria, productId: string) {
-  return !productId && !criteria.care && !criteria.category && !criteria.brand && /подбер|подбор|посовет|порекоменд|хочу уход|нужен уход/iu.test(criteria.query);
+  return !productId && !criteria.care && !criteria.category && !criteria.brand && /подбер|подбор|посовет|порекоменд|выбра|выбор|хочу уход|нужен уход/iu.test(criteria.query);
 }
 
 export function needsSpecialist(messages: string[]) {
