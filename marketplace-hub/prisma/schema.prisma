@@ -30,15 +30,23 @@ enum SyncStatus {
   FAILED
 }
 
+enum ImportStatus {
+  PREVIEW
+  APPLIED
+  FAILED
+}
+
 model Organization {
   id        String   @id @default(cuid())
   name      String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  accounts   MarketplaceAccount[]
-  products   Product[]
-  warehouses Warehouse[]
+  accounts       MarketplaceAccount[]
+  products       Product[]
+  warehouses     Warehouse[]
+  suppliers      Supplier[]
+  pricingRules   PricingRule[]
 }
 
 model MarketplaceAccount {
@@ -72,14 +80,127 @@ model Product {
   attributes     Json?
   images         Json?
   purchasePrice  Int?
+  basePrice      Int?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  listings  MarketplaceListing[]
-  inventory Inventory[]
+  listings       MarketplaceListing[]
+  inventory      Inventory[]
+  supplierLinks  SupplierProduct[]
+  importRows     PriceImportRow[]
 
   @@unique([organizationId, sku])
   @@index([barcode])
+}
+
+model Supplier {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  code           String
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  importProfiles ImportProfile[]
+  imports        PriceImport[]
+  products       SupplierProduct[]
+
+  @@unique([organizationId, code])
+}
+
+model SupplierProduct {
+  id            String   @id @default(cuid())
+  supplierId    String
+  supplier      Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  productId     String
+  product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  supplierSku   String?
+  barcode       String?
+  purchasePrice Int?
+  lastStock     Int?
+  lastSeenAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([supplierId, productId])
+  @@unique([supplierId, supplierSku])
+  @@index([barcode])
+}
+
+model ImportProfile {
+  id         String   @id @default(cuid())
+  supplierId String
+  supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  name       String
+  fileType   String
+  delimiter  String?
+  sheetName  String?
+  mapping    Json
+  isDefault  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([supplierId, name])
+}
+
+model PriceImport {
+  id          String       @id @default(cuid())
+  supplierId  String
+  supplier    Supplier     @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  filename    String
+  sourceType  String
+  status      ImportStatus @default(PREVIEW)
+  rowCount    Int          @default(0)
+  validRows   Int          @default(0)
+  invalidRows Int          @default(0)
+  appliedAt   DateTime?
+  createdAt   DateTime     @default(now())
+
+  rows PriceImportRow[]
+
+  @@index([supplierId, createdAt])
+}
+
+model PriceImportRow {
+  id            String      @id @default(cuid())
+  importId      String
+  import        PriceImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  rowNumber     Int
+  productId     String?
+  product       Product?    @relation(fields: [productId], references: [id], onDelete: SetNull)
+  supplierSku   String?
+  barcode       String?
+  title         String?
+  purchasePrice Int?
+  stock         Int?
+  raw           Json
+  errors        Json?
+  createdAt     DateTime    @default(now())
+
+  @@index([importId, rowNumber])
+  @@index([supplierSku])
+  @@index([barcode])
+}
+
+model PricingRule {
+  id              String       @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name            String
+  priority        Int          @default(100)
+  isActive        Boolean      @default(true)
+  minPurchase     Int?
+  maxPurchase     Int?
+  markupPercent   Float?
+  fixedMarkup     Int?
+  roundingStep    Int          @default(10)
+  marketplace     MarketplaceCode?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([organizationId, isActive, priority])
 }
 
 model MarketplaceListing {
