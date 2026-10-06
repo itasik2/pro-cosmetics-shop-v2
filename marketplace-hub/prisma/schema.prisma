@@ -1,0 +1,155 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum MarketplaceCode {
+  KASPI
+  WILDBERRIES
+  OZON
+}
+
+enum ListingStatus {
+  DRAFT
+  READY
+  SUBMITTED
+  MODERATION
+  PUBLISHED
+  REJECTED
+  ARCHIVED
+}
+
+enum SyncStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  accounts   MarketplaceAccount[]
+  products   Product[]
+  warehouses Warehouse[]
+}
+
+model MarketplaceAccount {
+  id             String          @id @default(cuid())
+  organizationId String
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  marketplace    MarketplaceCode
+  externalId     String?
+  displayName    String
+  secretRef      String?
+  isActive       Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  listings MarketplaceListing[]
+  syncJobs SyncJob[]
+
+  @@unique([organizationId, marketplace, externalId])
+}
+
+model Product {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sku            String
+  barcode        String?
+  title          String
+  brand          String?
+  description    String?
+  categoryKey    String?
+  attributes     Json?
+  images         Json?
+  purchasePrice  Int?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  listings  MarketplaceListing[]
+  inventory Inventory[]
+
+  @@unique([organizationId, sku])
+  @@index([barcode])
+}
+
+model MarketplaceListing {
+  id                   String             @id @default(cuid())
+  marketplaceAccountId String
+  marketplaceAccount   MarketplaceAccount @relation(fields: [marketplaceAccountId], references: [id], onDelete: Cascade)
+  productId            String
+  product              Product            @relation(fields: [productId], references: [id], onDelete: Cascade)
+  externalProductId    String?
+  externalOfferId      String?
+  externalCategoryId   String?
+  sellerSku            String?
+  titleOverride        String?
+  descriptionOverride  String?
+  attributesOverride   Json?
+  price                Int?
+  preorderDays         Int?
+  status               ListingStatus      @default(DRAFT)
+  lastError            String?
+  lastSyncedAt         DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  @@unique([marketplaceAccountId, productId])
+  @@index([externalProductId])
+  @@index([externalOfferId])
+}
+
+model Warehouse {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  code           String
+  name           String
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  inventory Inventory[]
+
+  @@unique([organizationId, code])
+}
+
+model Inventory {
+  id          String    @id @default(cuid())
+  productId   String
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  onHand      Int       @default(0)
+  reserved    Int       @default(0)
+  safetyStock Int       @default(0)
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([productId, warehouseId])
+}
+
+model SyncJob {
+  id                   String             @id @default(cuid())
+  marketplaceAccountId String
+  marketplaceAccount   MarketplaceAccount @relation(fields: [marketplaceAccountId], references: [id], onDelete: Cascade)
+  kind                 String
+  status               SyncStatus         @default(PENDING)
+  payload              Json?
+  result               Json?
+  error                String?
+  attempts             Int                @default(0)
+  createdAt            DateTime           @default(now())
+  startedAt            DateTime?
+  finishedAt           DateTime?
+
+  @@index([status, createdAt])
+}
