@@ -17,8 +17,6 @@ export const kaspiCapabilities: MarketplaceCapabilities = {
     publicationStatus: "API",
   },
   offer: {
-    // Public Seller API documentation does not expose direct per-offer
-    // mutation endpoints for these operations. Keep the transport explicit.
     price: "PRICE_FEED",
     stock: "PRICE_FEED",
     preorder: "PRICE_FEED",
@@ -62,8 +60,39 @@ export class KaspiConnector implements MarketplaceConnector {
     return this.get("/shop/api/products/classification/categories");
   }
 
+  async getAttributes(categoryCode: string): Promise<unknown> {
+    const query = new URLSearchParams({ c: categoryCode });
+    return this.get(
+      `/shop/api/products/classification/attributes?${query.toString()}`,
+    );
+  }
+
+  async getAttributeValues(
+    categoryCode: string,
+    attributeCode: string,
+  ): Promise<unknown> {
+    const query = new URLSearchParams({
+      c: categoryCode,
+      a: attributeCode,
+    });
+    return this.get(
+      `/shop/api/products/classification/attribute/values?${query.toString()}`,
+    );
+  }
+
   async getImportSchema(): Promise<unknown> {
     return this.get("/shop/api/products/import/schema");
+  }
+
+  async importProducts(products: unknown): Promise<unknown> {
+    return this.request("/shop/api/products/import", {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "text/plain",
+      },
+      body: JSON.stringify(products),
+    });
   }
 
   async getImportStatus(importCode: string): Promise<unknown> {
@@ -79,7 +108,10 @@ export class KaspiConnector implements MarketplaceConnector {
   }): Promise<unknown> {
     const query = new URLSearchParams();
     query.set("page[number]", String(params?.page ?? 0));
-    query.set("page[size]", String(Math.min(Math.max(params?.size ?? 20, 1), 100)));
+    query.set(
+      "page[size]",
+      String(Math.min(Math.max(params?.size ?? 20, 1), 100)),
+    );
 
     if (params?.state) query.set("filter[orders][state]", params.state);
     if (params?.status) query.set("filter[orders][status]", params.status);
@@ -96,14 +128,31 @@ export class KaspiConnector implements MarketplaceConnector {
     );
   }
 
-  private async get(path: string, extraHeaders: Record<string, string> = {}) {
-    const response = await fetch(`${this.baseUrl}${path}`, {
+  private get(path: string, extraHeaders: Record<string, string> = {}) {
+    return this.request(path, {
       method: "GET",
       headers: {
         Accept: "application/json",
-        "X-Auth-Token": this.token,
         ...extraHeaders,
       },
+    });
+  }
+
+  private async request(
+    path: string,
+    init: {
+      method: "GET" | "POST";
+      headers?: Record<string, string>;
+      body?: string;
+    },
+  ) {
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      method: init.method,
+      headers: {
+        "X-Auth-Token": this.token,
+        ...init.headers,
+      },
+      body: init.body,
       signal: AbortSignal.timeout(20_000),
     });
 
