@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { checkRateLimit, getClientIp } from "@/lib/rateLimit";
 import { collapseRepresentedProductCards } from "@/lib/publicProductCards";
 import { parseConsultantCriteria, rankConsultantProducts, recommendationFromProduct, needsConsultantClarification, needsSpecialist } from "@/lib/consultantCatalog";
-import { askCatalogAi } from "@/lib/consultantAi";
+import { askCatalogAi, ConsultantProviderError } from "@/lib/consultantAi";
 import { getScopedEnv, SITE_KEY } from "@/lib/siteConfig";
 import { getStorePolicy } from "@/lib/storePolicy";
 
@@ -57,7 +57,7 @@ export async function POST(req: Request) {
       const card = recommendationFromProduct(product, criteria, "Соответствует выбранным фильтрам каталога. Назначение и применение уточните в карточке.");
       return card ? [card] : [];
     }).slice(0, 3);
-    const fallback = (answer: string) => json({ answer, recommendations: /без\s+[а-яa-z]/iu.test(query) ? [] : fallbackCards, mode: "catalog" });
+    const fallback = (answer: string, diagnostic?: { status: number; code: string; parameter: string }) => json({ answer, recommendations: /без\s+[а-яa-z]/iu.test(query) ? [] : fallbackCards, mode: "catalog", ...(diagnostic ? { diagnostic } : {}) });
     if (getScopedEnv("AI_CONSULTANT_ENABLED") === "false") return fallback("Консультант временно отключён. Можно посмотреть варианты по фильтрам или обратиться в магазин.");
     const apiKey = getScopedEnv("OPENAI_API_KEY").trim();
     if (!apiKey) return fallback("Консультант пока недоступен. Ниже — варианты по фильтрам каталога; с выбором поможет магазин.");
@@ -75,7 +75,7 @@ export async function POST(req: Request) {
       return json({ ...reply, mode: "ai" });
     } catch (error) {
       console.error("CONSULTANT_PROVIDER_ERROR", error instanceof Error && /^ai_/.test(error.message) ? error.message : "provider_unavailable");
-      return fallback("Не удалось получить ответ ИИ. Можно посмотреть варианты по фильтрам или уточнить выбор у магазина.");
+      return fallback("Не удалось получить ответ ИИ. Можно посмотреть варианты по фильтрам или уточнить выбор у магазина.", error instanceof ConsultantProviderError ? { status: error.status, code: error.code, parameter: error.parameter } : undefined);
     }
   } catch {
     return json({ answer: "Консультант временно недоступен. Попробуйте ещё раз или обратитесь в магазин.", recommendations: [] }, 503);
