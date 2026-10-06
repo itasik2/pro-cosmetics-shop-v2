@@ -65,7 +65,7 @@ export default function AskClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query, context: productId && !productError ? { productId } : null, history }) });
       const data = await response.json() as { answer?: string; recommendations?: ConsultantRecommendation[]; mode?: string; diagnostic?: { status: number; code: string; parameter: string } };
-      if (data.diagnostic) console.warn("CONSULTANT_UNAVAILABLE", data.diagnostic);
+      if (data.diagnostic) console.warn("CONSULTANT_UNAVAILABLE", JSON.stringify(data.diagnostic));
       if (!controller.signal.aborted) setMessages((current) => [...current, { id: ++nextId.current, role: "assistant",
         text: data.answer || "Не удалось получить ответ. Попробуйте ещё раз или обратитесь в магазин.",
         recommendations: response.ok && Array.isArray(data.recommendations) ? data.recommendations : [], mode: data.mode }]);
