@@ -1,5 +1,6 @@
 import Fastify from "fastify";
-import { z } from "zod";\nimport { renderAdminPage } from "./ui/admin.js";
+import { z } from "zod";
+import { renderAdminPage } from "./ui/admin.js";
 import { parseCsv, mapRows, mappingSchema } from "./offline/importer.js";
 import { validateMasterCard } from "./offline/master-card.js";
 import { parseXlsx, listWorkbookSheets } from "./offline/xlsx.js";
@@ -9,19 +10,27 @@ import {
   catalogExportSchema,
 } from "./offline/catalog-export.js";
 import {
+  previewUniversalImport,
+  universalImportSchema,
+} from "./offline/import-engine.js";
+import {
   buildKaspiPriceFeed,
   kaspiPriceFeedSchema,
 } from "./connectors/kaspi/price-feed.js";
 
 const app = Fastify({
   logger: true,
-  bodyLimit: 20 * 1024 * 1024,
+  bodyLimit: 25 * 1024 * 1024,
 });
 
-app.get("/", async (_request, reply) =>\n  reply.type("text/html; charset=utf-8").send(renderAdminPage()),\n);\n\napp.get("/health", async () => ({
+app.get("/", async (_request, reply) =>
+  reply.type("text/html; charset=utf-8").send(renderAdminPage()),
+);
+
+app.get("/health", async () => ({
   ok: true,
   service: "marketplace-hub",
-  version: "0.3.0",
+  version: "0.4.0",
   mode: "offline",
 }));
 
@@ -31,16 +40,38 @@ app.get("/v1/offline/capabilities", async () => ({
   features: {
     masterCards: true,
     cardValidation: true,
+    universalImport: true,
     csvImport: true,
     xlsxImport: true,
+    jsonImport: true,
+    xmlImport: true,
+    yamlImport: true,
     columnMapping: true,
+    nestedFieldMapping: true,
     pricingRules: true,
     catalogExport: true,
     kaspiPriceFeedPreview: true,
-    kaspiCardDrafts: true,
     directMarketplaceSync: false,
   },
 }));
+
+app.post("/v1/offline/import/preview", async (request, reply) => {
+  const parsed = universalImportSchema.safeParse(request.body);
+  if (!parsed.success) {
+    return reply.code(400).send({
+      error: "Invalid universal import request",
+      details: parsed.error.flatten(),
+    });
+  }
+
+  try {
+    return previewUniversalImport(parsed.data);
+  } catch (error) {
+    return reply.code(400).send({
+      error: error instanceof Error ? error.message : "Catalog import failed",
+    });
+  }
+});
 
 app.post("/v1/offline/cards/validate", async (request, reply) => {
   const result = validateMasterCard(request.body);
