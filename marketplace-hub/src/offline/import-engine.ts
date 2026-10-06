@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { detectImportFormat, type ImportFormat } from "./formats.js";
-import { mapRows, mappingSchema, parseCsv } from "./importer.js";
+import { mapRows, mappingSchema, parseCsv, type ImportedRow } from "./importer.js";
 import { parseJson, parseXml, parseYaml } from "./structured.js";
 import { listWorkbookSheets, parseXlsx } from "./xlsx.js";
 
@@ -36,7 +36,7 @@ export function previewUniversalImport(raw: UniversalImportInput) {
         })
       : input.format;
 
-  let rows;
+  let rows: ImportedRow[];
   let metadata: Record<string, unknown> = { format };
 
   if (format === "xlsx") {
