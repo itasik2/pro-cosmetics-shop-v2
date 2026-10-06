@@ -8,6 +8,12 @@ type AiInput = {
   deliveryTerms: string; deliveryPrice: number | null; returnsTerms: string;
 };
 
+export class ConsultantProviderError extends Error {
+  constructor(public status: number, public code: string, public parameter: string) { super(`ai_http_${status}`); }
+}
+const SAFE_CODES = new Set(["invalid_api_key", "insufficient_quota", "rate_limit_exceeded", "model_not_found", "unsupported_parameter", "unsupported_value", "invalid_json_schema", "invalid_request_error"]);
+const SAFE_PARAMETERS = new Set(["model", "max_completion_tokens", "max_tokens", "response_format", "store", "messages"]);
+
 export async function askCatalogAi(input: AiInput, fetcher: typeof fetch = fetch) {
   const context = input.products.map((product) => {
     const copy = consultantDescription(product);
@@ -50,7 +56,12 @@ export async function askCatalogAi(input: AiInput, fetcher: typeof fetch = fetch
       ],
     }),
   });
-  if (!response.ok) throw new Error(`ai_http_${response.status}`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => null) as { error?: { code?: unknown; param?: unknown; type?: unknown } } | null;
+    const code = String(error?.error?.code || error?.error?.type || "provider_error");
+    const parameter = String(error?.error?.param || "");
+    throw new ConsultantProviderError(response.status, SAFE_CODES.has(code) ? code : "provider_error", SAFE_PARAMETERS.has(parameter) ? parameter : "");
+  }
   const data = await response.json() as { choices?: Array<{ finish_reason?: string; message?: { content?: string; refusal?: string } }> };
   const choice = data.choices?.[0];
   if (!choice?.message?.content || choice.message.refusal || choice.finish_reason === "length") throw new Error("ai_incomplete_reply");
