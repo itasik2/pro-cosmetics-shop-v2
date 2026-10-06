@@ -81,7 +81,7 @@ export function renderAdminPage() {
 
     <div class="grid">
       <div class="metric"><span class="muted">Режим</span><b>Offline</b></div>
-      <div class="metric"><span class="muted">Импорт</span><b>CSV/XLSX</b></div>
+      <div class="metric"><span class="muted">Импорт</span><b>CSV/XLSX/JSON/XML/YML</b></div>
       <div class="metric"><span class="muted">Kaspi</span><b>XML</b></div>
       <div class="metric"><span class="muted">Источник</span><b>Master Card</b></div>
     </div>
@@ -94,22 +94,38 @@ export function renderAdminPage() {
     </div>
 
     <section id="tab-import" class="panel tab active">
-      <h2>Импорт прайса поставщика</h2>
+      <h2>Универсальный импорт каталога</h2>
       <div class="two">
         <div>
-          <label>CSV-текст
-            <textarea id="csvText" placeholder="Артикул;Название;Бренд;Цена;Остаток"></textarea>
+          <div class="fields">
+            <label>Формат
+              <select id="importFormat">
+                <option value="auto">Определить автоматически</option>
+                <option value="csv">CSV / TSV</option>
+                <option value="xlsx">XLS / XLSX</option>
+                <option value="json">JSON</option>
+                <option value="xml">XML</option>
+                <option value="yaml">YAML / YML</option>
+              </select>
+            </label>
+            <label>Путь к списку товаров
+              <input id="collectionPath" placeholder="catalog.offers.offer" />
+            </label>
+          </div>
+          <label style="margin-top:14px">Файл каталога
+            <input id="catalogFile" type="file" accept=".csv,.tsv,.xls,.xlsx,.json,.xml,.yml,.yaml" />
+          </label>
+          <div class="hint">
+            Для JSON/XML/YML укажите путь к массиву товаров, если он вложен. Например:
+            <code>catalog.products</code> или <code>catalog.offers.offer</code>.
+          </div>
+          <label style="margin-top:14px">Или вставьте текст каталога
+            <textarea id="catalogText" placeholder="CSV, JSON, XML или YAML"></textarea>
           </label>
           <div class="actions">
-            <button id="csvPreview">Проверить CSV</button>
+            <button id="catalogPreview">Проверить каталог</button>
           </div>
-          <div class="hint">Для XLSX выберите файл ниже. Данные пока только анализируются и не применяются автоматически.</div>
-          <label style="margin-top:14px">XLSX-файл
-            <input id="xlsxFile" type="file" accept=".xlsx,.xls" />
-          </label>
-          <div class="actions">
-            <button id="xlsxPreview">Проверить XLSX</button>
-          </div>
+          <div class="hint">Импорт выполняется только в режиме предпросмотра и не меняет каталог автоматически.</div>
         </div>
 
         <div>
@@ -120,6 +136,10 @@ export function renderAdminPage() {
             <label>Штрихкод<input id="mBarcode" value="Штрихкод" /></label>
             <label>Закупочная цена<input id="mPrice" value="Цена" /></label>
             <label>Остаток<input id="mStock" value="Остаток" /></label>
+          </div>
+          <div class="hint">
+            Для вложенных форматов используйте пути полей: <code>identity.sku</code>,
+            <code>commerce.price</code>. Для XML-атрибутов: <code>@sku</code>.
           </div>
         </div>
       </div>
@@ -217,31 +237,42 @@ export function renderAdminPage() {
       typeof value === "string" ? value : JSON.stringify(value, null, 2);
   }
 
-  document.getElementById("csvPreview").onclick = async () => {
-    try {
-      const value = await postJson("/v1/offline/import/csv", {
-        text: document.getElementById("csvText").value,
-        delimiter: ";",
-        mapping: mapping(),
-      });
-      show("importResult", value);
-    } catch (error) { show("importResult", String(error)); }
-  };
-
-  document.getElementById("xlsxPreview").onclick = async () => {
-    const file = document.getElementById("xlsxFile").files[0];
-    if (!file) return show("importResult", "Выберите XLSX-файл.");
+  async function fileToBase64(file) {
     const buffer = await file.arrayBuffer();
     let binary = "";
     const bytes = new Uint8Array(buffer);
-    for (let i = 0; i < bytes.byteLength; i += 1) binary += String.fromCharCode(bytes[i]);
+    for (let i = 0; i < bytes.byteLength; i += 1) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  }
+
+  document.getElementById("catalogPreview").onclick = async () => {
+    const file = document.getElementById("catalogFile").files[0];
+    const text = document.getElementById("catalogText").value;
+    const collectionPath = document.getElementById("collectionPath").value.trim();
+
+    if (!file && !text.trim()) {
+      return show("importResult", "Выберите файл или вставьте содержимое каталога.");
+    }
+
+    const payload = {
+      format: document.getElementById("importFormat").value,
+      filename: file?.name,
+      contentType: file?.type || undefined,
+      text: text.trim() || undefined,
+      base64: file ? await fileToBase64(file) : undefined,
+      delimiter: ";",
+      collectionPath: collectionPath || undefined,
+      mapping: mapping(),
+    };
+
     try {
-      const value = await postJson("/v1/offline/import/xlsx/preview", {
-        base64: btoa(binary),
-        mapping: mapping(),
-      });
+      const value = await postJson("/v1/offline/import/preview", payload);
       show("importResult", value);
-    } catch (error) { show("importResult", String(error)); }
+    } catch (error) {
+      show("importResult", String(error));
+    }
   };
 
   document.getElementById("calcPrice").onclick = async () => {
