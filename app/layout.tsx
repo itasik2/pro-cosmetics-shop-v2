@@ -134,6 +134,12 @@ export default async function RootLayout({
   return (
     <html lang="ru" data-theme={themeProfile}>
       <head>
+        {SITE_KEY === "procosmetics" ? (
+          <meta
+            name="facebook-domain-verification"
+            content="2gzh0recv4abcx1l6u3v370xu1n91f"
+          />
+        ) : null}
         <script
           nonce={nonce}
           type="application/ld+json"
