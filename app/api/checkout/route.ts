@@ -11,6 +11,7 @@ import {
   recordOrderNotificationResult,
 } from "@/lib/orderNotifications";
 import { sendOrderMessengerNotification } from "@/lib/orderMessengerNotifications";
+import { getStorePolicy } from "@/lib/storePolicy";
 import { prisma } from "@/lib/prisma";
 import { notifyAdminNewOrder, notifyCustomerOrderCreated } from "@/lib/notify";
 import { checkRateLimit, getClientIp } from "@/lib/rateLimit";
@@ -107,6 +108,9 @@ export async function POST(req: Request) {
       );
     }
 
+    // Delivery fee is configured by the store on the server, never trusted from the cart.
+    const { deliveryPrice } = getStorePolicy();
+    const totalAmount = built.total + (deliveryPrice ?? 0);
     const orderNumber = makeOrderNumber();
     const access = createOrderAccessToken(orderNumber);
     const paymentDueAt =
@@ -202,7 +206,8 @@ export async function POST(req: Request) {
           address,
           comment: data.comment ? data.comment.trim() : null,
           currency: "KZT",
-          totalAmount: built.total,
+          totalAmount,
+          shippingPrice: deliveryPrice,
           status: "NEW",
           paymentMethod: data.paymentMethod,
           paymentStatus: data.paymentMethod === "CASH" ? "DUE_ON_DELIVERY" : "UNPAID",

@@ -12,6 +12,8 @@ import { getPublicExternalLinks } from "@/lib/externalLinks";
 
 const FOOTER_LINKS = [
   { href: "/shop", label: "Каталог" },
+  { href: "/care", label: "Подобрать уход" },
+  { href: "/delivery", label: "Доставка и оплата" },
   { href: "/blog", label: "Полезные материалы" },
   { href: "/about", label: "О магазине" },
   { href: "/contacts", label: "Контакты" },

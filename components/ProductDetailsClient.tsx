@@ -6,6 +6,9 @@ import AddToCartButton from "@/components/AddToCartButton";
 import ProductDescription from "@/components/ProductDescription";
 import StockAlertForm from "@/components/StockAlertForm";
 import TrackProductView from "@/components/TrackProductView";
+import { verifiedProductCopy } from "@/lib/verifiedProductInstructions";
+import { publicProductCategory } from "@/lib/catalogFilters";
+import { publicShortDescription } from "@/lib/productCopy";
 import { formatProductName } from "@/lib/productNames";
 
 type Variant = {
@@ -48,6 +51,8 @@ function normalizeVariants(v: any): Variant[] {
 }
 
 export default function ProductDetailsClient({ product }: Props) {
+  const verifiedCopy = verifiedProductCopy(product);
+  const description = verifiedCopy?.description || product.description;
   const displayName = formatProductName(product.name);
   const variants = useMemo(() => normalizeVariants(product.variants), [product]);
   const hasVariants = variants.length > 0;
@@ -61,10 +66,10 @@ export default function ProductDetailsClient({ product }: Props) {
   const inStock = stockToUse > 0;
   const imageToShow = selectedVariant?.image || product.image;
   const brandName = product.brand?.name ?? "—";
-  const shortDescription = product.shortDescription?.trim() || "";
+  const shortDescription = publicShortDescription(product.shortDescription);
   const showShortDescription =
     shortDescription.length > 0 &&
-    !product.description.trim().startsWith(shortDescription);
+    !description.trim().startsWith(shortDescription);
 
   return (
     <div className="grid md:grid-cols-2 gap-8">
@@ -132,7 +137,7 @@ export default function ProductDetailsClient({ product }: Props) {
 
         <div className="mt-2 flex items-center justify-between">
           <div className="text-xs text-gray-500">
-            {brandName} • {product.category}
+            {brandName} • {publicProductCategory(product)}
           </div>
 
           <Link href="/shop" className="text-xs text-gray-600 hover:underline">
@@ -148,7 +153,8 @@ export default function ProductDetailsClient({ product }: Props) {
           <p className="text-base leading-7 text-gray-700">{shortDescription}</p>
         )}
 
-        <ProductDescription description={product.description} />
+        <ProductDescription description={description} />
+        {verifiedCopy && <a href={verifiedCopy.sourceUrl} target="_blank" rel="noopener noreferrer" className="block text-sm text-gray-600 underline">Инструкция производителя Angiopharm</a>}
 
         <Link
           href={`/ask?productId=${encodeURIComponent(product.id)}`}

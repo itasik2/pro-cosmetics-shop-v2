@@ -54,7 +54,7 @@ export default function AboutPage() {
             ухода был осознанным, а не случайным.
           </p>
           <div className="mt-7 flex flex-wrap gap-3">
-            <Link href="/shop" className="btn">
+            <Link href="/care" className="btn">
               Подобрать средства
             </Link>
             <Link

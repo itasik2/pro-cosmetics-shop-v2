@@ -45,7 +45,7 @@ function normalizeVariants(v: any): ProductVariant[] {
     .filter((x) => x.id && x.label);
 }
 
-export default function CheckoutClient() {
+export default function CheckoutClient({ deliveryPrice, deliveryTerms }: { deliveryPrice: number | null; deliveryTerms: string }) {
   const router = useRouter();
 
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -276,6 +276,8 @@ export default function CheckoutClient() {
     setShowForm(true);
   };
 
+  const payableTotal = totalSelected + (deliveryPrice ?? 0);
+
   async function submitOrder() {
     if (!canOpenForm || submitting) return;
 
@@ -357,7 +359,7 @@ export default function CheckoutClient() {
             Выбрано: <strong className="font-semibold text-gray-700">{selectedCount}</strong>
           </span>
           <span>
-            К оплате:{" "}
+            Товары:{" "}
             <strong className="font-semibold text-gray-700">
               {totalSelected.toLocaleString("ru-RU")} ₸
             </strong>
@@ -471,6 +473,7 @@ export default function CheckoutClient() {
             })}
           </div>
 
+          {!showForm && <p className="text-sm leading-6 text-gray-600">{deliveryPrice === null ? "Доставка рассчитывается отдельно. Уточните стоимость и сроки до оплаты." : `Доставка: ${deliveryPrice.toLocaleString("ru-RU")} ₸.`} <Link href="/delivery" className="underline">Условия доставки и оплаты</Link></p>}
           {!showForm ? (
             <div className="rounded-2xl border p-4 shadow-sm">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -479,7 +482,7 @@ export default function CheckoutClient() {
                     Всего в корзине: {totalAll.toLocaleString("ru-RU")} ₸
                   </div>
                   <div className="mt-1 text-lg font-bold">
-                    К оплате: {totalSelected.toLocaleString("ru-RU")} ₸
+                    {deliveryPrice === null ? "Товары без доставки" : "К оплате"}: {payableTotal.toLocaleString("ru-RU")} ₸
                   </div>
                 </div>
                 <button
@@ -503,7 +506,7 @@ export default function CheckoutClient() {
                 <div>
                   <div className="text-lg font-bold">Оформление</div>
                   <div className="text-sm text-gray-500">
-                    Выбрано: {selectedCount} • Итого: {totalSelected.toLocaleString("ru-RU")} ₸
+                    Выбрано: {selectedCount} • {deliveryPrice === null ? "Товары без доставки" : "Итого"}: {payableTotal.toLocaleString("ru-RU")} ₸
                   </div>
                 </div>
 
@@ -526,6 +529,7 @@ export default function CheckoutClient() {
                     className="w-full border rounded-xl px-3 py-2"
                     value={customerName}
                     onChange={(e) => setCustomerName(e.target.value)}
+                    autoComplete="name"
                     placeholder="Ваше имя"
                   />
                 </label>
@@ -536,6 +540,8 @@ export default function CheckoutClient() {
                     className="w-full border rounded-xl px-3 py-2"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
+                    type="tel"
+                    autoComplete="tel"
                     placeholder="+7 ..."
                   />
                 </label>
@@ -543,6 +549,7 @@ export default function CheckoutClient() {
                 <label className="space-y-1 sm:col-span-2">
                   <div className="text-sm text-gray-600">Email (если есть)</div>
                   <input
+                    autoComplete="email"
                     type="email"
                     className="w-full border rounded-xl px-3 py-2"
                     value={email}
@@ -611,12 +618,18 @@ export default function CheckoutClient() {
               </div>
 
               <div className="text-sm font-semibold pt-1">Доставка</div>
+              <div className="rounded-xl border bg-gray-50 p-3 text-sm leading-6">
+                <p>{deliveryTerms}</p>
+                <p className="mt-1 font-semibold">{deliveryPrice === null ? "Стоимость доставки не включена в сумму товаров. Уточните её до оплаты." : `Доставка: ${deliveryPrice === 0 ? "бесплатно" : `${deliveryPrice.toLocaleString("ru-RU")} ₸`}`}</p>
+                <Link href="/delivery" target="_blank" className="mt-2 inline-block underline">Доставка и оплата</Link>
+              </div>
               <label className="space-y-1">
                 <div className="text-sm text-gray-600">Адрес доставки *</div>
                 <input
                   className="w-full border rounded-xl px-3 py-2"
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
+                  autoComplete="street-address"
                   placeholder="Город, улица, дом, квартира"
                 />
               </label>
@@ -640,7 +653,7 @@ export default function CheckoutClient() {
 
               <div className="flex items-center justify-between pt-1">
                 <div className="text-base font-bold">
-                  К оплате: {totalSelected.toLocaleString("ru-RU")} ₸
+                  {deliveryPrice === null ? "Товары без доставки" : "К оплате"}: {payableTotal.toLocaleString("ru-RU")} ₸
                 </div>
 
                 <button
