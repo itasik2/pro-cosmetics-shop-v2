@@ -1,5 +1,5 @@
 import Fastify from "fastify";
-import { z } from "zod";
+import { z } from "zod";\nimport { renderAdminPage } from "./ui/admin.js";
 import { parseCsv, mapRows, mappingSchema } from "./offline/importer.js";
 import { validateMasterCard } from "./offline/master-card.js";
 import { parseXlsx, listWorkbookSheets } from "./offline/xlsx.js";
@@ -18,7 +18,7 @@ const app = Fastify({
   bodyLimit: 20 * 1024 * 1024,
 });
 
-app.get("/health", async () => ({
+app.get("/", async (_request, reply) =>\n  reply.type("text/html; charset=utf-8").send(renderAdminPage()),\n);\n\napp.get("/health", async () => ({
   ok: true,
   service: "marketplace-hub",
   version: "0.3.0",
