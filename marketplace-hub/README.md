@@ -106,3 +106,63 @@ XML можно сначала проверить локально, затем и
 10. Интеграция ProCosmetics как источника каталога.
 
 API маркетплейсов подключается позже как дополнительный транспорт, не меняя ядро.
+
+
+## Universal Import Engine
+
+Разработка универсального импорта ведётся в отдельной ветке
+`feature/catalog-hub-universal-import`.
+
+Поддерживаются:
+
+- CSV / TSV;
+- XLS / XLSX;
+- JSON;
+- XML;
+- YAML / YML;
+- автоматическое определение формата;
+- вложенные коллекции через `collectionPath`;
+- вложенные поля через dot-path, например `product.identity.sku`;
+- XML-атрибуты через `@attribute`;
+- единый результат нормализации перед созданием Master Card.
+
+Основной endpoint:
+
+```
+POST /v1/offline/import/preview
+```
+
+Пример JSON-каталога:
+
+```json
+{
+  "catalog": {
+    "products": [
+      {
+        "identity": { "sku": "A001" },
+        "name": "Крем 50 мл",
+        "commerce": { "price": 12990, "stock": 7 }
+      }
+    ]
+  }
+}
+```
+
+Настройка:
+
+```json
+{
+  "format": "json",
+  "collectionPath": "catalog.products",
+  "mapping": {
+    "sku": "identity.sku",
+    "title": "name",
+    "price": "commerce.price",
+    "stock": "commerce.stock"
+  }
+}
+```
+
+PDF, сканированные каталоги и обработка изображений будут отдельным слоем
+Document/Media Import, потому что им требуются извлечение страниц, проверка
+качества изображений и OCR только как резервный механизм.
