@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import AskClient from "./AskClient";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "ИИ-консультант — pro.cosmetics", robots: { index: false, follow: true } };
 
 export default function AskPage() {
   return (

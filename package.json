@@ -11,7 +11,7 @@
     "db:seed": "node prisma/seed.mjs",
     "check:env:build": "node scripts/check-required-env.mjs build",
     "typecheck": "tsc --noEmit",
-    "test:store": "TSX_TSCONFIG_PATH=tests/tsconfig.json node --import tsx --test tests/store-audit.test.tsx"
+    "test:store": "TSX_TSCONFIG_PATH=tests/tsconfig.json node --import tsx --test tests/store-audit.test.tsx tests/consultant.test.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.1",

@@ -1,49 +1,19 @@
+import { prisma } from "@/lib/prisma";
+import { publicProductCategory } from "@/lib/catalogFilters";
+import { recommendationFromProduct } from "@/lib/consultantCatalog";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-
-type Params = { params: Promise<{ id: string }> };
-
-const INGREDIENT_HEADING = "Состав и активные компоненты";
-
-function publicDescription(value: unknown) {
-  return String(value || "")
-    .replace(/\r\n?/g, "\n")
-    .split(/\n{2,}/)
-    .map((block) => block.trim())
-    .filter(Boolean)
-    .filter(
-      (block) =>
-        !block.toLocaleLowerCase("ru-RU").startsWith(
-          INGREDIENT_HEADING.toLocaleLowerCase("ru-RU"),
-        ),
-    )
-    .join("\n\n")
-    .trim();
-}
-
-export async function GET(_req: Request, props: Params) {
-  const params = await props.params;
+export async function GET(_req: Request, props: { params: Promise<{ id: string }> }) {
+  const { id } = await props.params;
   const product = await prisma.product.findFirst({
-    where: { id: params.id, isPublished: true },
-    select: {
-      id: true,
-      name: true,
-      description: true,
-      price: true,
-      category: true,
-      brand: { select: { name: true } },
-    },
+    where: { id, isPublished: true, enrichmentStatus: { not: "MERGED" } },
+    select: { id: true, slug: true, name: true, image: true, description: true, shortDescription: true,
+      category: true, productLineName: true, price: true, stock: true, variants: true, brand: { select: { name: true } } },
   });
-
-  if (!product) {
-    return NextResponse.json({ error: "product_not_found" }, { status: 404 });
-  }
-
-  return NextResponse.json({
-    ...product,
-    description: publicDescription(product.description),
-  });
+  if (!product) return Response.json({ error: "product_not_found" }, { status: 404 });
+  const card = recommendationFromProduct(product, { care: "", category: "", maxPrice: null, brand: "", query: "" }, "");
+  return Response.json({ id: product.id, slug: product.slug, name: product.name, brand: product.brand,
+    category: publicProductCategory(product), price: card?.price ?? null, volume: card?.volume ?? "", inStock: !!card }, { headers: { "Cache-Control": "no-store" } });
 }
