@@ -1,6 +1,10 @@
 import Fastify from "fastify";
 import { z } from "zod";
 import { KaspiConnector, kaspiCapabilities } from "./connectors/kaspi.js";
+import {
+  buildKaspiPriceFeed,
+  kaspiPriceFeedSchema,
+} from "./connectors/kaspi/price-feed.js";
 
 const app = Fastify({ logger: true });
 
@@ -16,6 +20,10 @@ function getKaspi() {
   });
 }
 
+function writesEnabled() {
+  return process.env.KASPI_ALLOW_WRITES?.trim().toLowerCase() === "true";
+}
+
 app.get("/health", async () => ({
   ok: true,
   service: "marketplace-hub",
@@ -27,6 +35,7 @@ app.get("/v1/connectors", async () => ({
     {
       code: "KASPI",
       enabled: Boolean(process.env.KASPI_API_TOKEN?.trim()),
+      writesEnabled: writesEnabled(),
       capabilities: kaspiCapabilities,
     },
   ],
@@ -54,6 +63,48 @@ app.get("/v1/kaspi/categories", async (_request, reply) => {
   }
 });
 
+app.get("/v1/kaspi/categories/:categoryCode/attributes", async (request, reply) => {
+  const parsed = z
+    .object({ categoryCode: z.string().trim().min(1) })
+    .safeParse(request.params);
+  if (!parsed.success) return reply.code(400).send({ error: "Invalid category" });
+
+  try {
+    return await getKaspi().getAttributes(parsed.data.categoryCode);
+  } catch (error) {
+    return reply.code(502).send({
+      error: error instanceof Error ? error.message : "Kaspi request failed",
+    });
+  }
+});
+
+app.get(
+  "/v1/kaspi/categories/:categoryCode/attributes/:attributeCode/values",
+  async (request, reply) => {
+    const parsed = z
+      .object({
+        categoryCode: z.string().trim().min(1),
+        attributeCode: z.string().trim().min(1),
+      })
+      .safeParse(request.params);
+
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Invalid category or attribute" });
+    }
+
+    try {
+      return await getKaspi().getAttributeValues(
+        parsed.data.categoryCode,
+        parsed.data.attributeCode,
+      );
+    } catch (error) {
+      return reply.code(502).send({
+        error: error instanceof Error ? error.message : "Kaspi request failed",
+      });
+    }
+  },
+);
+
 app.get("/v1/kaspi/import-schema", async (_request, reply) => {
   try {
     return await getKaspi().getImportSchema();
@@ -62,6 +113,41 @@ app.get("/v1/kaspi/import-schema", async (_request, reply) => {
       error: error instanceof Error ? error.message : "Kaspi request failed",
     });
   }
+});
+
+app.post("/v1/kaspi/cards/import", async (request, reply) => {
+  if (!writesEnabled()) {
+    return reply.code(403).send({
+      error: "Kaspi writes are disabled",
+      hint: "Set KASPI_ALLOW_WRITES=true only after validating the target account.",
+    });
+  }
+
+  if (!Array.isArray(request.body) || request.body.length === 0) {
+    return reply.code(400).send({ error: "Expected a non-empty product array" });
+  }
+
+  try {
+    return await getKaspi().importProducts(request.body);
+  } catch (error) {
+    return reply.code(502).send({
+      error: error instanceof Error ? error.message : "Kaspi import failed",
+    });
+  }
+});
+
+app.post("/v1/kaspi/price-feed/preview", async (request, reply) => {
+  const parsed = kaspiPriceFeedSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    return reply.code(400).send({
+      error: "Invalid Kaspi price feed",
+      details: parsed.error.flatten(),
+    });
+  }
+
+  const xml = buildKaspiPriceFeed(parsed.data);
+  return reply.type("application/xml; charset=utf-8").send(xml);
 });
 
 app.get("/v1/kaspi/orders", async (request, reply) => {
