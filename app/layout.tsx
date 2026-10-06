@@ -137,7 +137,7 @@ export default async function RootLayout({
         {SITE_KEY === "procosmetics" ? (
           <meta
             name="facebook-domain-verification"
-            content="2gzh0recv4abcx1l6u3v370xu1n91f"
+            content="2gzh0recv4abcx1l6u3v370xu1n91l"
           />
         ) : null}
         <script
