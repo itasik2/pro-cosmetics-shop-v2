@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { checkRateLimit, getClientIp } from "@/lib/rateLimit";
 import { collapseRepresentedProductCards } from "@/lib/publicProductCards";
 import { parseConsultantCriteria, rankConsultantProducts, recommendationFromProduct, needsConsultantClarification, needsSpecialist } from "@/lib/consultantCatalog";
-import { askCatalogAi, ConsultantProviderError } from "@/lib/consultantAi";
+import { askCatalogAi, ConsultantProviderError, DEFAULT_CONSULTANT_MODEL } from "@/lib/consultantAi";
 import { getScopedEnv, SITE_KEY } from "@/lib/siteConfig";
 import { getStorePolicy } from "@/lib/storePolicy";
 
@@ -70,7 +70,7 @@ export async function POST(req: Request) {
     if (!daily.ok) return fallback("Консультант сегодня временно недоступен. Подбор по фильтрам и помощь магазина доступны.");
 
     try {
-      const reply = await askCatalogAi({ apiKey, model: getScopedEnv("OPENAI_ASK_MODEL").trim() || "gpt-4o-mini",
+      const reply = await askCatalogAi({ apiKey, model: getScopedEnv("OPENAI_ASK_MODEL").trim() || DEFAULT_CONSULTANT_MODEL,
         query, history, criteria, products: candidates, ...getStorePolicy() });
       return json({ ...reply, mode: "ai" });
     } catch (error) {

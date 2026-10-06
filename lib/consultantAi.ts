@@ -8,11 +8,13 @@ type AiInput = {
   deliveryTerms: string; deliveryPrice: number | null; returnsTerms: string;
 };
 
+export const DEFAULT_CONSULTANT_MODEL = "gpt-5.6-luna";
+
 export class ConsultantProviderError extends Error {
   constructor(public status: number, public code: string, public parameter: string) { super(`ai_http_${status}`); }
 }
 const SAFE_CODES = new Set(["invalid_api_key", "insufficient_quota", "rate_limit_exceeded", "model_not_found", "unsupported_parameter", "unsupported_value", "invalid_json_schema", "invalid_request_error"]);
-const SAFE_PARAMETERS = new Set(["model", "max_completion_tokens", "max_tokens", "response_format", "store", "messages"]);
+const SAFE_PARAMETERS = new Set(["model", "max_completion_tokens", "max_tokens", "response_format", "reasoning_effort", "store", "messages"]);
 
 export async function askCatalogAi(input: AiInput, fetcher: typeof fetch = fetch) {
   const context = input.products.map((product) => {
@@ -29,6 +31,7 @@ export async function askCatalogAi(input: AiInput, fetcher: typeof fetch = fetch
     headers: { Authorization: `Bearer ${input.apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model: input.model, store: false, max_completion_tokens: 1000,
+      ...(input.model === DEFAULT_CONSULTANT_MODEL ? { reasoning_effort: "none" } : {}),
       response_format: { type: "json_schema", json_schema: { name: "catalog_consultation", strict: true, schema: {
         type: "object", properties: {
           answer: { type: "string" },

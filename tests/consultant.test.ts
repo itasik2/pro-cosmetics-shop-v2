@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { parseConsultantCriteria, rankConsultantProducts, recommendationFromProduct, validateConsultantReply, consultantDescription, needsConsultantClarification, respectsIngredientExclusions, needsSpecialist } from "../lib/consultantCatalog";
 import type { ConsultantProduct } from "../lib/consultantCatalog";
-import { askCatalogAi, ConsultantProviderError } from "../lib/consultantAi";
+import { askCatalogAi, ConsultantProviderError, DEFAULT_CONSULTANT_MODEL } from "../lib/consultantAi";
 
 const base: ConsultantProduct = { id: "cream", slug: "cream", name: "Крем для чувствительной кожи", image: "/cream.jpg", category: "Без категории", description: "Увлажняет кожу. Способ применения\nНаносите по инструкции.", shortDescription: "Увлажняющий крем для чувствительной кожи", productLineName: null, price: 1000, stock: 0, variants: [{ id: "sample", label: "7 мл", price: 4500, stock: 2 }, { id: "full", label: "50 мл", price: 15000, stock: 5 }], brand: { name: "Angiopharm" } };
 
@@ -76,11 +76,13 @@ test("provider gets constrained schema and server catalog, errors and truncation
   const fake: typeof fetch = async (_url, options) => {
     const body = JSON.parse(String(options?.body));
     assert.equal(body.store, false); assert.equal(body.max_completion_tokens, 1000);
+    assert.equal(body.reasoning_effort, body.model === DEFAULT_CONSULTANT_MODEL ? "none" : undefined);
     assert.deepEqual(body.response_format.json_schema.schema.properties.recommendations.items.properties.productId.enum, ["cream"]);
     const context = JSON.parse(body.messages.at(-1).content); assert.equal(context.catalog[0].offer.price, 4500);
     return Response.json({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify({ answer: "Подходит по назначению", recommendations: [{ productId: "cream", reason: "Увлажнение" }] }) } }] });
   };
   assert.equal((await askCatalogAi(input, fake)).recommendations[0].variantId, "sample");
+  assert.equal((await askCatalogAi({ ...input, model: DEFAULT_CONSULTANT_MODEL }, fake)).recommendations[0].variantId, "sample");
   await assert.rejects(askCatalogAi(input, async () => new Response("", { status: 429 })), /ai_http_429/);
   await assert.rejects(askCatalogAi(input, async () => Response.json({ error: { code: "unsupported_parameter", param: "max_completion_tokens", message: "must not expose request or key" } }, { status: 400 })), (error: unknown) => error instanceof ConsultantProviderError && error.parameter === "max_completion_tokens" && !error.message.includes("key"));
   await assert.rejects(askCatalogAi(input, async () => Response.json({ choices: [{ finish_reason: "length", message: { content: "{}" } }] })), /ai_incomplete_reply/);
