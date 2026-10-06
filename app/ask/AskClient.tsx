@@ -1,302 +1,139 @@
-// app/ask/AskClient.tsx
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import AddToCartButton from "@/components/AddToCartButton";
+import { CATEGORY_OPTIONS, CARE_OPTIONS, parseBudget } from "@/lib/catalogFilters";
+import { SITE_WHATSAPP_URL } from "@/lib/siteConfig";
+import type { ConsultantRecommendation } from "@/lib/consultantCatalog";
 
-type ProductCtx = {
-  id: string;
-  name: string;
-  description: string;
-  price: number;
-  category: string;
-  brand?: { name?: string } | null;
-};
-
-type ChatMsg =
-  | { id: string; role: "user"; text: string; ts: number }
-  | { id: string; role: "assistant"; text: string; ts: number };
-
-function uid() {
-  return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
-}
-
-async function fetchProduct(productId: string): Promise<ProductCtx | null> {
-  try {
-    const res = await fetch(`/api/ask/product/${encodeURIComponent(productId)}`, {
-      cache: "no-store",
-    });
-    if (!res.ok) return null;
-    const p = await res.json();
-    if (!p?.id) return null;
-    return p as ProductCtx;
-  } catch {
-    return null;
-  }
-}
+type ProductContext = { id: string; slug: string; name: string; price: number | null; volume: string; category: string; brand?: { name: string } | null };
+type Message = { id: number; role: "user" | "assistant"; text: string; recommendations?: ConsultantRecommendation[]; mode?: string };
+const examples = ["Крем для чувствительной кожи до 10 000 ₸", "Нужно увлажнение после умывания", "Помоги выбрать средство для очищения"];
 
 export default function AskClient() {
-  const sp = useSearchParams();
-  const productId = (sp.get("productId") || "").trim();
-
-  const [product, setProduct] = useState<ProductCtx | null>(null);
-
-  const [q, setQ] = useState("");
+  const params = useSearchParams();
+  const productId = params.get("productId") || "";
+  const care = CARE_OPTIONS.find((option) => option.slug === params.get("care"));
+  const category = CATEGORY_OPTIONS.find((option) => option.slug === params.get("category"));
+  const budget = parseBudget(params.get("maxPrice") || "");
+  const initialQuestion = [params.get("q")?.slice(0, 500) || "", care?.label, category?.label, budget ? `Бюджет до ${budget} ₸` : ""].filter(Boolean).join(". ");
+  const [question, setQuestion] = useState(initialQuestion);
+  const [product, setProduct] = useState<ProductContext | null>(null);
+  const [productLoading, setProductLoading] = useState(!!productId);
+  const [productError, setProductError] = useState(false);
   const [loading, setLoading] = useState(false);
-
-  const [msgs, setMsgs] = useState<ChatMsg[]>([]);
-
-  // refs for focus/scroll
-  const endRef = useRef<HTMLDivElement | null>(null);
-  const lastAssistantRef = useRef<HTMLDivElement | null>(null);
-
-  // textarea autoresize
-  const taRef = useRef<HTMLTextAreaElement | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const nextId = useRef(0);
+  const answerRef = useRef<HTMLDivElement | null>(null);
+  const requestRef = useRef<AbortController | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
+    requestRef.current?.abort();
+    setLoading(false); setMessages([]); setProduct(null); setProductError(false);
+    setProductLoading(!!productId); setQuestion(initialQuestion);
+    if (productId) fetch(`/api/ask/product/${encodeURIComponent(productId)}`, { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("product_unavailable");
+        const data = await response.json() as ProductContext;
+        if (!controller.signal.aborted) { setProduct(data); setQuestion(initialQuestion || "Как применять это средство?"); }
+      }).catch(() => { if (!controller.signal.aborted) setProductError(true); })
+      .finally(() => { if (!controller.signal.aborted) setProductLoading(false); });
+    return () => { controller.abort(); requestRef.current?.abort(); };
+  }, [productId, initialQuestion]);
 
-    async function run() {
-      if (!productId) {
-        setProduct(null);
-        return;
-      }
-      const p = await fetchProduct(productId);
-      if (!cancelled) setProduct(p);
+  useEffect(() => {
+    if (messages.at(-1)?.role === "assistant") {
+      answerRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      answerRef.current?.focus({ preventScroll: true });
     }
-
-    run();
-    return () => {
-      cancelled = true;
-    };
-  }, [productId]);
-
-  const suggestedPrompt = useMemo(() => {
-    if (!product) return "";
-    const brand = product.brand?.name ? `${product.brand.name} • ` : "";
-    return `Вопрос по товару: ${product.name}\n${brand}${Number(product.price).toLocaleString("ru-RU")} ₸\nКатегория: ${product.category}\n\nМой вопрос: `;
-  }, [product]);
-
-  // Префилл (только если поле пустое и нет истории)
-  useEffect(() => {
-    if (product && !q.trim() && msgs.length === 0) {
-      setQ(suggestedPrompt);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [product?.id]);
-
-  // Автоскролл вниз по новым сообщениям/загрузке
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [msgs.length, loading]);
-
-  // После прихода ответа: фокус на последнем ответе (assistant)
-  useEffect(() => {
-    const last = msgs[msgs.length - 1];
-    if (!last) return;
-    if (last.role !== "assistant") return;
-
-    // небольшой микротаймаут чтобы DOM успел отрисоваться
-    const t = window.setTimeout(() => {
-      lastAssistantRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      lastAssistantRef.current?.focus();
-    }, 0);
-
-    return () => window.clearTimeout(t);
-  }, [msgs]);
-
-  // autoresize textarea (min 2 строки, max ~8 строк)
-  const resizeTextarea = () => {
-    const el = taRef.current;
-    if (!el) return;
-
-    el.style.height = "auto";
-
-    const maxPx = 8 * 24; // ~8 строк по 24px (с запасом)
-    const next = Math.min(el.scrollHeight, maxPx);
-
-    el.style.height = `${next}px`;
-  };
-
-  useEffect(() => {
-    resizeTextarea();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q]);
+  }, [messages]);
 
   async function ask() {
-    const query = q.trim();
-    if (query.length < 3 || loading) return;
-
-    setLoading(true);
-
-    const userMsg: ChatMsg = { id: uid(), role: "user", text: query, ts: Date.now() };
-    setMsgs((m) => [...m, userMsg]);
-
-    const context = product
-      ? {
-          productId: product.id,
-          name: product.name,
-          brand: product.brand?.name || "",
-          category: product.category,
-          price: product.price,
-          description: product.description,
-        }
-      : null;
-
+    const query = question.trim();
+    if (loading || productLoading || query.length < 3 || query.length > 2000) return;
+    const controller = new AbortController();
+    requestRef.current = controller;
+    const history = messages.slice(-8).map((message) => ({ role: message.role, text: message.text.slice(0, 1500) }));
+    setMessages((current) => [...current, { id: ++nextId.current, role: "user", text: query }]);
+    setQuestion(""); setLoading(true);
     try {
-      const res = await fetch("/api/ask", {
-        method: "POST",
+      const response = await fetch("/api/ask", { method: "POST", signal: controller.signal,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          query,
-          context,
-          history: msgs.slice(-8).map((m) => ({ role: m.role, text: m.text })),
-        }),
-      });
-
-      const data = await res.json().catch(() => ({} as any));
-      const answer = (data.answer || data.note || "Нет ответа") as string;
-
-      const botMsg: ChatMsg = { id: uid(), role: "assistant", text: answer, ts: Date.now() };
-      setMsgs((m) => [...m, botMsg]);
-
-      // очищаем поле и сжимаем обратно
-      setQ("");
-      requestAnimationFrame(() => resizeTextarea());
+        body: JSON.stringify({ query, context: productId && !productError ? { productId } : null, history }) });
+      const data = await response.json() as { answer?: string; recommendations?: ConsultantRecommendation[]; mode?: string };
+      if (!controller.signal.aborted) setMessages((current) => [...current, { id: ++nextId.current, role: "assistant",
+        text: data.answer || "Не удалось получить ответ. Попробуйте ещё раз или обратитесь в магазин.",
+        recommendations: response.ok && Array.isArray(data.recommendations) ? data.recommendations : [], mode: data.mode }]);
     } catch {
-      const botMsg: ChatMsg = {
-        id: uid(),
-        role: "assistant",
-        text: "Ошибка запроса. Попробуйте ещё раз.",
-        ts: Date.now(),
-      };
-      setMsgs((m) => [...m, botMsg]);
-    } finally {
-      setLoading(false);
-    }
+      if (!controller.signal.aborted) setMessages((current) => [...current, { id: ++nextId.current, role: "assistant", text: "Не удалось связаться с консультантом. Попробуйте ещё раз или обратитесь в магазин.", mode: "catalog" }]);
+    } finally { if (!controller.signal.aborted) setLoading(false); }
   }
 
-  function clearChat() {
-    setMsgs([]);
-    setQ(product ? suggestedPrompt : "");
-    requestAnimationFrame(() => resizeTextarea());
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">Вопрос-ответ</h1>
-          <p className="text-sm text-gray-600 mt-1">
-            Спросите о продукте, его составе и совместимости с другими средствами. Я отвечу на основе каталога и блога.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {productId ? (
-            <Link
-              href={`/api/products/by-id-redirect/${encodeURIComponent(productId)}`}
-              className="px-3 py-2 rounded-xl border bg-white/80 hover:bg-white transition text-sm"
-            >
-              К товару
-            </Link>
-          ) : null}
-
-          <button
-            type="button"
-            className="px-3 py-2 rounded-xl border bg-white/80 hover:bg-white transition text-sm"
-            onClick={clearChat}
-            disabled={loading && msgs.length === 0}
-          >
-            Очистить
-          </button>
-        </div>
+  return <div className="mx-auto max-w-4xl space-y-6 py-8">
+    <div className="flex flex-wrap items-start justify-between gap-4">
+      <div>
+        <p className="site-eyebrow">Помощь с выбором</p>
+        <h1 className="mt-3 text-3xl font-bold">ИИ-консультант</h1>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-gray-600">Расскажите о задаче ухода и бюджете. Подберём варианты из каталога, объясним назначение и применение.</p>
       </div>
-
-      {product ? (
-        <div className="rounded-2xl border p-4 bg-white/70 backdrop-blur">
-          <div className="text-xs text-gray-500">Тема:</div>
-          <div className="font-semibold">{product.name}</div>
-          <div className="text-sm text-gray-600 mt-1">
-            {(product.brand?.name || product.category) ?? product.category} •{" "}
-            {Number(product.price).toLocaleString("ru-RU")} ₸
-          </div>
-        </div>
-      ) : null}
-
-      {/* История */}
-      <div className="space-y-3">
-        {msgs.length === 0 ? (
-          <div className="text-sm text-gray-500">
-            {product ? "Задайте вопрос по этому товару." : "Задайте вопрос."}
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {msgs.map((m, idx) => {
-              const isLastAssistant = m.role === "assistant" && idx === msgs.length - 1;
-
-              return (
-                <div
-                  key={m.id}
-                  ref={isLastAssistant ? lastAssistantRef : undefined}
-                  tabIndex={isLastAssistant ? -1 : undefined}
-                  className={
-                    "rounded-2xl border p-4 whitespace-pre-line outline-none " +
-                    (m.role === "user"
-                      ? "bg-white/90"
-                      : "bg-white/70 backdrop-blur") +
-                    (isLastAssistant ? " ring-2 ring-black/10" : "")
-                  }
-                  aria-label={m.role === "user" ? "Ваш вопрос" : "Ответ ассистента"}
-                >
-                  <div className="text-xs text-gray-500 mb-1">
-                    {m.role === "user" ? "Вы" : "ИИ"}
-                  </div>
-                  <div className="text-sm text-gray-800">{m.text}</div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {loading ? <div className="text-sm text-gray-500">Думаю…</div> : null}
-        <div ref={endRef} />
-      </div>
-
-      {/* Ввод */}
-      <div className="card space-y-3">
-        <textarea
-          ref={taRef}
-          className="w-full border rounded-xl px-3 py-2 text-sm resize-none overflow-hidden"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Например: можно ли это средство при чувствительной коже?"
-          rows={2}
-          onKeyDown={(e) => {
-            // Enter = отправить, Shift+Enter = новая строка
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              ask();
-            }
-          }}
-        />
-
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-xs text-gray-500">
-            Enter — отправить, Shift+Enter — новая строка
-          </div>
-
-          <button
-            className="btn"
-            onClick={ask}
-            disabled={loading || q.trim().length < 3}
-            type="button"
-          >
-            {loading ? "Думаю…" : "Отправить"}
-          </button>
-        </div>
-      </div>
+      <button className="btn-secondary" disabled={loading} onClick={() => { setMessages([]); setQuestion(initialQuestion); textareaRef.current?.focus(); }}>Новый диалог</button>
     </div>
-  );
+    <p className="rounded-2xl border bg-white p-4 text-xs leading-6 text-gray-600">Ответы создаёт ИИ на основе сведений магазина; он может ошибаться. Сообщения передаются сервису ИИ. Не указывайте личные данные и медицинские документы. Консультация помогает выбрать косметику и не заменяет специалиста.</p>
+    {productLoading && <p role="status" className="text-sm text-gray-600">Загружаем сведения о товаре…</p>}
+    {productError && <p role="alert" className="text-sm text-gray-600">Товар недоступен. Вы можете задать общий вопрос или <Link href="/shop" className="underline">выбрать другой товар</Link>.</p>}
+    {product && <div className="site-panel rounded-2xl p-4">
+      <p className="text-xs text-gray-500">Вопрос о товаре</p>
+      <Link href={`/shop/${encodeURIComponent(product.slug)}`} className="font-semibold underline">{product.name}</Link>
+      <p className="mt-1 text-sm text-gray-600">{product.brand?.name} • {product.category} • {product.price === null ? "Нет в наличии" : `${product.volume ? `${product.volume} • ` : ""}${product.price.toLocaleString("ru-RU")} ₸`}</p>
+    </div>}
+    {!messages.length && !product && <div className="flex flex-wrap gap-2" aria-label="Примеры вопросов">
+      {examples.map((example) => <button key={example} className="btn-secondary text-sm" onClick={() => { setQuestion(example); textareaRef.current?.focus(); }}>{example}</button>)}
+    </div>}
+    <div className="space-y-4" aria-busy={loading}>
+      {messages.map((message, index) => <div key={message.id} ref={message.role === "assistant" && index === messages.length - 1 ? answerRef : undefined}
+        tabIndex={message.role === "assistant" ? -1 : undefined} className={`rounded-2xl border p-4 outline-none ${message.role === "user" ? "bg-gray-50" : "bg-white"}`} aria-label={message.role === "user" ? "Ваш вопрос" : "Ответ консультанта"}>
+        <p className="mb-2 text-xs font-semibold text-gray-500">{message.role === "user" ? "Вы" : message.mode === "ai" ? "ИИ-консультант" : message.mode === "catalog" ? "Подбор каталога" : "Консультант"}</p>
+        <p className="whitespace-pre-line text-sm leading-7">{message.text}</p>
+        {!!message.recommendations?.length && <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {message.recommendations.map((card) => <Recommendation key={card.id} product={card} />)}
+        </div>}
+      </div>)}
+      {loading && <p role="status" className="text-sm text-gray-500">Ищем подходящие средства и готовим ответ…</p>}
+    </div>
+    <form className="site-panel space-y-3 rounded-2xl p-4" onSubmit={(event) => { event.preventDefault(); void ask(); }}>
+      <label htmlFor="consultant-question" className="block text-sm font-semibold">Ваш вопрос</label>
+      <textarea id="consultant-question" ref={textareaRef} className="w-full resize-y rounded-xl border bg-white px-3 py-3 text-sm" rows={3} maxLength={2000} value={question}
+        onChange={(event) => setQuestion(event.target.value)} placeholder="Например: нужен крем для чувствительной кожи до 10 000 ₸"
+        onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void ask(); } }} />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs text-gray-500">Enter — отправить, Shift+Enter — новая строка</p>
+        <button type="submit" className="btn" disabled={loading || productLoading || question.trim().length < 3}>{loading ? "Готовим ответ…" : "Спросить консультанта"}</button>
+      </div>
+    </form>
+    <div className="flex flex-wrap items-center gap-4 text-sm">
+      <Link href="/care" className="underline">Подбор по фильтрам</Link>
+      {SITE_WHATSAPP_URL && <a href={SITE_WHATSAPP_URL} target="_blank" rel="noopener noreferrer" className="underline">Помощь магазина в WhatsApp</a>}
+    </div>
+  </div>;
+}
+
+function Recommendation({ product }: { product: ConsultantRecommendation }) {
+  const href = `/shop/${encodeURIComponent(product.slug)}`;
+  return <article className="flex flex-col rounded-xl border p-3">
+    <Link href={href} aria-label={`Открыть товар: ${product.name}`}><img src={product.image} alt={product.name} width={200} height={200} loading="lazy" className="mb-3 h-36 w-full rounded-lg object-contain" /></Link>
+    <p className="text-xs text-gray-500">{product.brand} • {product.category}</p>
+    <Link href={href} className="mt-1 text-sm font-semibold hover:underline">{product.name}</Link>
+    <p className="mt-2 text-xs leading-5 text-gray-600">{product.reason || product.summary}</p>
+    {product.sourceUrl && <a href={product.sourceUrl} className="mt-2 text-xs underline" target="_blank" rel="noopener noreferrer">Источник сведений</a>}
+    <div className="mt-auto pt-3">
+      <p className="text-xs text-gray-600">{product.volume ? `${product.volume} • ` : ""}В наличии: {product.stock}</p>
+      <p className="my-2 font-semibold">{product.price.toLocaleString("ru-RU")} ₸</p>
+      <AddToCartButton productId={product.id} variantId={product.variantId} maxStock={product.stock} />
+      <Link href={href} className="mt-2 block text-xs underline">Инструкция и другие объёмы</Link>
+    </div>
+  </article>;
 }

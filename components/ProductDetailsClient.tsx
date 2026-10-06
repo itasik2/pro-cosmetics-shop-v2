@@ -160,7 +160,7 @@ export default function ProductDetailsClient({ product }: Props) {
           href={`/ask?productId=${encodeURIComponent(product.id)}`}
           className="inline-block px-4 py-2 rounded-xl border bg-white hover:bg-gray-50 text-sm"
         >
-          Спросить о товаре
+          Помочь выбрать — спросить ИИ
         </Link>
       </div>
     </div>

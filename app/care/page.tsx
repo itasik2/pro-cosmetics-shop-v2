@@ -39,7 +39,10 @@ export default function CarePage() {
           </select>
         </label>
         <input type="hidden" name="instock" value="1" />
-        <button type="submit" className="btn">Показать подходящие товары</button>
+        <div className="flex flex-wrap gap-3">
+          <button type="submit" className="btn">Показать подходящие товары</button>
+          <button type="submit" formAction="/ask" name="q" value="Помоги выбрать средство" className="btn-secondary">Обсудить выбор с ИИ</button>
+        </div>
         <p className="text-sm leading-6 text-gray-600">Подбор помогает найти товары, но не определяет совместимость активных средств. Если уход назначен специалистом, следуйте его рекомендациям.</p>
       </form>
       <div className="flex flex-wrap gap-3">
