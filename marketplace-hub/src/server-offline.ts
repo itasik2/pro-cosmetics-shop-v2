@@ -33,6 +33,21 @@ import {
   cloudinaryMediaConfigured,
   normalizeCatalogImageWithCloudinary,
 } from "./media/cloudinary.js";
+import {
+  applyApprovedChanges,
+  buildCardDiff,
+  stagingApplyRequestSchema,
+  stagingDiffRequestSchema,
+  suggestedApprovalGroups,
+} from "./offline/staging.js";
+import {
+  applyChangeSet,
+  approveChangeSet,
+  createChangeSet,
+  getChangeSet,
+  rejectChangeSet,
+  stagingDatabaseConfigured,
+} from "./offline/staging-store.js";
 
 const app = Fastify({
   logger: true,
@@ -46,7 +61,7 @@ app.get("/", async (_request, reply) =>
 app.get("/health", async () => ({
   ok: true,
   service: "marketplace-hub",
-  version: "0.6.0",
+  version: "0.7.0",
   mode: "offline",
 }));
 
@@ -68,6 +83,10 @@ app.get("/v1/offline/capabilities", async () => ({
     catalogAi: true,
     aiWebSearch: Boolean(process.env.OPENAI_API_KEY),
     cloudinaryBackgroundNormalization: cloudinaryMediaConfigured(),
+    stagingDiff: true,
+    selectiveApproval: true,
+    persistentChangeSets: stagingDatabaseConfigured(),
+    revisionSnapshots: stagingDatabaseConfigured(),
     columnMapping: true,
     nestedFieldMapping: true,
     pricingRules: true,
@@ -315,6 +334,171 @@ app.post("/v1/offline/media/background-normalize", async (request, reply) => {
         error instanceof Error
           ? error.message
           : "Background normalization failed",
+    });
+  }
+});
+
+app.post("/v1/offline/staging/diff", async (request, reply) => {
+  const parsed = stagingDiffRequestSchema.safeParse(request.body);
+  if (!parsed.success) {
+    return reply.code(400).send({
+      error: "Invalid staging diff request",
+      details: parsed.error.flatten(),
+    });
+  }
+
+  const diff = buildCardDiff(parsed.data.current, parsed.data.proposed);
+  return {
+    ...diff,
+    approvalGroups: suggestedApprovalGroups(
+      parsed.data.current,
+      parsed.data.proposed,
+    ),
+  };
+});
+
+app.post("/v1/offline/staging/apply-preview", async (request, reply) => {
+  const parsed = stagingApplyRequestSchema.safeParse(request.body);
+  if (!parsed.success) {
+    return reply.code(400).send({
+      error: "Invalid staging apply request",
+      details: parsed.error.flatten(),
+    });
+  }
+
+  return applyApprovedChanges(parsed.data);
+});
+
+app.post("/v1/staging/changesets", async (request, reply) => {
+  if (!stagingDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  const schema = z.object({
+    organizationId: z.string().min(1),
+    productId: z.string().min(1).optional(),
+    sourceType: z.enum(["IMPORT", "AI_ENRICHMENT", "MANUAL", "SYSTEM"]),
+    sourceRef: z.string().optional(),
+    current: stagingDiffRequestSchema.shape.current,
+    proposed: stagingDiffRequestSchema.shape.proposed,
+    createdBy: z.string().optional(),
+  });
+
+  const parsed = schema.safeParse(request.body);
+  if (!parsed.success) {
+    return reply.code(400).send({
+      error: "Invalid changeset request",
+      details: parsed.error.flatten(),
+    });
+  }
+
+  try {
+    return await createChangeSet(parsed.data);
+  } catch (error) {
+    return reply.code(400).send({
+      error: error instanceof Error ? error.message : "changeset_create_failed",
+    });
+  }
+});
+
+app.get("/v1/staging/changesets/:id", async (request, reply) => {
+  if (!stagingDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  const id = (request.params as { id: string }).id;
+  const result = await getChangeSet(id);
+  if (!result) return reply.code(404).send({ error: "changeset_not_found" });
+  return result;
+});
+
+app.post("/v1/staging/changesets/:id/approve", async (request, reply) => {
+  if (!stagingDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  const id = (request.params as { id: string }).id;
+  const schema = z.object({
+    approvedFields: z.array(
+      z.enum([
+        "barcode",
+        "title",
+        "brand",
+        "description",
+        "categoryKey",
+        "attributes",
+        "images",
+        "purchasePrice",
+        "price",
+        "stock",
+      ]),
+    ).min(1),
+    approvedBy: z.string().optional(),
+  });
+  const parsed = schema.safeParse(request.body);
+  if (!parsed.success) {
+    return reply.code(400).send({
+      error: "Invalid changeset approval",
+      details: parsed.error.flatten(),
+    });
+  }
+
+  try {
+    return await approveChangeSet({ id, ...parsed.data });
+  } catch (error) {
+    return reply.code(400).send({
+      error: error instanceof Error ? error.message : "changeset_approve_failed",
+    });
+  }
+});
+
+app.post("/v1/staging/changesets/:id/apply", async (request, reply) => {
+  if (!stagingDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  const id = (request.params as { id: string }).id;
+  const schema = z.object({
+    appliedBy: z.string().optional(),
+    warehouseId: z.string().min(1).optional(),
+  });
+  const parsed = schema.safeParse(request.body);
+  if (!parsed.success) {
+    return reply.code(400).send({
+      error: "Invalid changeset apply request",
+      details: parsed.error.flatten(),
+    });
+  }
+
+  try {
+    return await applyChangeSet({ id, ...parsed.data });
+  } catch (error) {
+    return reply.code(409).send({
+      error: error instanceof Error ? error.message : "changeset_apply_failed",
+    });
+  }
+});
+
+app.post("/v1/staging/changesets/:id/reject", async (request, reply) => {
+  if (!stagingDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  const id = (request.params as { id: string }).id;
+  const schema = z.object({ rejectedBy: z.string().optional() });
+  const parsed = schema.safeParse(request.body ?? {});
+  if (!parsed.success) {
+    return reply.code(400).send({
+      error: "Invalid changeset rejection",
+      details: parsed.error.flatten(),
+    });
+  }
+
+  try {
+    return await rejectChangeSet({ id, ...parsed.data });
+  } catch (error) {
+    return reply.code(400).send({
+      error: error instanceof Error ? error.message : "changeset_reject_failed",
     });
   }
 });
