@@ -533,28 +533,23 @@ export function renderAdminPage() {
       const checked = change.risk === "LOW" ? "checked" : "";
       const before = JSON.stringify(change.before, null, 2) ?? "null";
       const after = JSON.stringify(change.after, null, 2) ?? "null";
-      return `
-        <tr>
-          <td><input type="checkbox" data-staging-field="${change.field}" ${checked} /></td>
-          <td><b>${change.field}</b></td>
-          <td><span class="risk risk-${change.risk}">${change.risk}</span></td>
-          <td><code>${escapeHtml(before)}</code></td>
-          <td><code>${escapeHtml(after)}</code></td>
-        </tr>
-      `;
+      return (
+        "<tr>" +
+          "<td><input type='checkbox' data-staging-field='" + escapeHtml(change.field) + "' " + checked + " /></td>" +
+          "<td><b>" + escapeHtml(change.field) + "</b></td>" +
+          "<td><span class='risk risk-" + escapeHtml(change.risk) + "'>" + escapeHtml(change.risk) + "</span></td>" +
+          "<td><code>" + escapeHtml(before) + "</code></td>" +
+          "<td><code>" + escapeHtml(after) + "</code></td>" +
+        "</tr>"
+      );
     }).join("");
 
-    host.innerHTML = `
-      <table class="diff-table">
-        <thead>
-          <tr>
-            <th>✓</th><th>Поле</th><th>Риск</th><th>Было</th><th>Стало</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
-      <p class="hint">LOW отмечены автоматически только для предпросмотра. MEDIUM/HIGH требуют явного выбора.</p>
-    `;
+    host.innerHTML =
+      "<table class='diff-table'>" +
+        "<thead><tr><th>✓</th><th>Поле</th><th>Риск</th><th>Было</th><th>Стало</th></tr></thead>" +
+        "<tbody>" + rows + "</tbody>" +
+      "</table>" +
+      "<p class='hint'>LOW отмечены автоматически только для предпросмотра. MEDIUM/HIGH требуют явного выбора.</p>";
   }
 
   function escapeHtml(value) {
