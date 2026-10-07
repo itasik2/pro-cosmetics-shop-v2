@@ -84,7 +84,10 @@ export function renderAdminPage() {
         <h1>Catalog Hub</h1>
         <div class="muted" style="margin-top:5px">Отдельное управление каталогом ProCosmetics и маркетплейсами</div>
       </div>
-      <span class="badge">Без API маркетплейсов</span>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <input id="hubApiKey" type="password" placeholder="Catalog Hub API key" style="width:240px" autocomplete="off" />
+        <span class="badge">Без API маркетплейсов</span>
+      </div>
     </div>
 
     <div class="grid">
@@ -355,10 +358,25 @@ export function renderAdminPage() {
     return out;
   }
 
+  const hubApiKeyInput = document.getElementById("hubApiKey");
+  hubApiKeyInput.value = sessionStorage.getItem("catalogHubApiKey") || "";
+  hubApiKeyInput.addEventListener("input", () => {
+    const value = hubApiKeyInput.value.trim();
+    if (value) sessionStorage.setItem("catalogHubApiKey", value);
+    else sessionStorage.removeItem("catalogHubApiKey");
+  });
+
+  function apiHeaders() {
+    const headers = { "content-type": "application/json" };
+    const key = hubApiKeyInput.value.trim();
+    if (key) headers["x-catalog-hub-key"] = key;
+    return headers;
+  }
+
   async function postJson(url, body) {
     const response = await fetch(url, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: apiHeaders(),
       body: JSON.stringify(body),
     });
     const text = await response.text();
