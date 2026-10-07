@@ -91,6 +91,7 @@ export function renderAdminPage() {
       <button class="active" data-tab="import">Импорт прайса</button>
       <button data-tab="document">PDF-каталог</button>
       <button data-tab="media">Фото</button>
+      <button data-tab="ai">AI-карточка</button>
       <button data-tab="pricing">Расчёт цены</button>
       <button data-tab="card">Проверка карточки</button>
       <button data-tab="xml">Kaspi XML</button>
@@ -191,6 +192,41 @@ export function renderAdminPage() {
         </div>
       </div>
       <pre id="mediaResult">Метаданные изображения появятся здесь.</pre>
+    </section>
+
+    <section id="tab-ai" class="panel tab">
+      <h2>Catalog AI — предложение для карточки</h2>
+      <div class="two">
+        <div>
+          <div class="fields">
+            <label>SKU<input id="aiSku" value="TEST001" /></label>
+            <label>Название<input id="aiTitle" value="Тестовый товар" /></label>
+            <label>Бренд<input id="aiBrand" /></label>
+            <label>Штрихкод<input id="aiBarcode" /></label>
+          </div>
+          <label style="margin-top:14px">Явный URL источника (необязательно)
+            <input id="aiSourceUrl" placeholder="https://manufacturer.example/product" />
+          </label>
+          <label style="margin-top:14px">Разрешённые официальные домены
+            <textarea id="aiDomains" placeholder="brand.com&#10;brand.kz"></textarea>
+          </label>
+          <label style="margin-top:12px;display:flex;grid-template-columns:auto 1fr;align-items:center;gap:8px">
+            <input id="aiExternal" type="checkbox" style="width:auto" />
+            Разрешить поиск у проверяемого внешнего дистрибьютора, если официальная карточка не найдена
+          </label>
+          <div class="actions">
+            <button id="aiEnrich">Подготовить предложение</button>
+          </div>
+          <div class="hint">
+            Если OPENAI_API_KEY не настроен, можно указать явный URL разрешённого источника:
+            HTML всё равно будет извлечён и проверен, но поиск в сети и генерация текста не выполняются.
+          </div>
+        </div>
+        <div>
+          <img id="aiImagePreview" class="preview-image" alt="Первый найденный кандидат фото" hidden />
+        </div>
+      </div>
+      <pre id="aiResult">Предложение AI появится здесь. Карточка автоматически не изменяется.</pre>
     </section>
 
     <section id="tab-pricing" class="panel tab">
@@ -374,6 +410,47 @@ export function renderAdminPage() {
       show("mediaResult", safe);
     } catch (error) {
       show("mediaResult", String(error));
+    }
+  };
+
+  document.getElementById("aiEnrich").onclick = async () => {
+    const domains = document.getElementById("aiDomains").value
+      .split(/[\n,;]+/)
+      .map((value) => value.trim())
+      .filter(Boolean);
+
+    const sourceUrl = document.getElementById("aiSourceUrl").value.trim();
+
+    try {
+      const value = await postJson("/v1/offline/ai/enrich", {
+        product: {
+          sku: document.getElementById("aiSku").value,
+          title: document.getElementById("aiTitle").value,
+          brand: document.getElementById("aiBrand").value || undefined,
+          barcode: document.getElementById("aiBarcode").value || undefined,
+        },
+        sourceUrl: sourceUrl || undefined,
+        discoverIfMissing: true,
+        allowExternalSearch: document.getElementById("aiExternal").checked,
+        sources: domains.map((domain) => ({
+          domain,
+          allowSubdomains: true,
+          sourceType: "OFFICIAL_SITE",
+        })),
+      });
+
+      show("aiResult", value);
+      const preview = document.getElementById("aiImagePreview");
+      const firstImage = value.imageCandidates?.[0]?.url;
+      if (firstImage) {
+        preview.src = firstImage;
+        preview.hidden = false;
+      } else {
+        preview.hidden = true;
+        preview.removeAttribute("src");
+      }
+    } catch (error) {
+      show("aiResult", String(error));
     }
   };
 
