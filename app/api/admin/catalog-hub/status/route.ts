@@ -93,7 +93,7 @@ export async function GET(request: Request) {
     },
   });
 
-  let snapshot;
+  let snapshot: Awaited<ReturnType<typeof getCatalogHubSnapshot>>;
   try {
     snapshot = await getCatalogHubSnapshot();
   } catch (error) {
