@@ -126,7 +126,10 @@ model Product {
   barcode        String?
   title          String
   brand          String?
-  description    String?
+  shortDescription String?
+  description      String?
+  application      String?
+  ingredients      String?
   categoryKey    String?
   attributes     Json?
   images         Json?
