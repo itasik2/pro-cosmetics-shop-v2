@@ -38,7 +38,10 @@ function productToCard(input: {
   barcode: string | null;
   title: string;
   brand: string | null;
+  shortDescription: string | null;
   description: string | null;
+  application: string | null;
+  ingredients: string | null;
   categoryKey: string | null;
   attributes: Prisma.JsonValue | null;
   images: Prisma.JsonValue | null;
@@ -50,7 +53,10 @@ function productToCard(input: {
     barcode: input.barcode || undefined,
     title: input.title,
     brand: input.brand || undefined,
+    shortDescription: input.shortDescription || undefined,
     description: input.description || undefined,
+    application: input.application || undefined,
+    ingredients: input.ingredients || undefined,
     categoryKey: input.categoryKey || undefined,
     attributes:
       input.attributes && typeof input.attributes === "object" && !Array.isArray(input.attributes)
@@ -230,7 +236,10 @@ export async function applyChangeSet(input: {
       barcode: actual.barcode,
       title: actual.title,
       brand: actual.brand,
+      shortDescription: actual.shortDescription,
       description: actual.description,
+      application: actual.application,
+      ingredients: actual.ingredients,
       categoryKey: actual.categoryKey,
       attributes: actual.attributes,
       images: actual.images,
@@ -262,8 +271,17 @@ export async function applyChangeSet(input: {
     if (applied.appliedFields.includes("brand")) {
       updateData.brand = revised.brand ?? null;
     }
+    if (applied.appliedFields.includes("shortDescription")) {
+      updateData.shortDescription = revised.shortDescription ?? null;
+    }
     if (applied.appliedFields.includes("description")) {
       updateData.description = revised.description ?? null;
+    }
+    if (applied.appliedFields.includes("application")) {
+      updateData.application = revised.application ?? null;
+    }
+    if (applied.appliedFields.includes("ingredients")) {
+      updateData.ingredients = revised.ingredients ?? null;
     }
     if (applied.appliedFields.includes("categoryKey")) {
       updateData.categoryKey = revised.categoryKey ?? null;
