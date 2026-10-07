@@ -181,6 +181,7 @@ export function renderAdminPage() {
           <div class="actions">
             <button id="mediaAnalyze">Проверить фото</button>
             <button id="mediaTransform">Создать вариант</button>
+            <button id="mediaBackground">Очистить фон</button>
           </div>
           <div class="hint">
             Оригинал не изменяется. Производная версия создаётся отдельно с нормализацией ориентации,
@@ -451,6 +452,24 @@ export function renderAdminPage() {
       }
     } catch (error) {
       show("aiResult", String(error));
+    }
+  };
+
+  document.getElementById("mediaBackground").onclick = async () => {
+    const file = document.getElementById("mediaFile").files[0];
+    if (!file) return show("mediaResult", "Выберите изображение.");
+
+    try {
+      const value = await postJson("/v1/offline/media/background-normalize", {
+        base64: await fileToBase64(file),
+      });
+
+      const preview = document.getElementById("mediaPreviewImage");
+      preview.src = value.url;
+      preview.hidden = false;
+      show("mediaResult", value);
+    } catch (error) {
+      show("mediaResult", String(error));
     }
   };
 
