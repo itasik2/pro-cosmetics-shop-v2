@@ -329,7 +329,6 @@ export function renderAdminPage() {
     try {
       const value = await postJson("/v1/offline/import/pdf/preview", {
         base64: await fileToBase64(file),
-        mapping: mapping(),
       });
       show("pdfResult", value);
     } catch (error) {
