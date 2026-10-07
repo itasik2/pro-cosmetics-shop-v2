@@ -12,7 +12,7 @@ import {
 } from "@/lib/catalogHubClient";
 
 function readLimit(request: Request) {
-  const raw = Number(new URL(request.url).searchParams.get("limit") || 20);
+  const raw = Number(new URL(request.url).searchParams.get("limit") || 50);
   return Number.isFinite(raw) ? Math.max(1, Math.min(200, Math.trunc(raw))) : 50;
 }
 
@@ -74,6 +74,7 @@ export async function GET(request: Request) {
 
   const products = await prisma.product.findMany({
     where: {
+      isPublished: true,
       supplierSku: { not: null },
       enrichmentStatus: { not: "MERGED" },
     },
@@ -92,7 +93,23 @@ export async function GET(request: Request) {
     },
   });
 
-  const snapshot = await getCatalogHubSnapshot();
+  let snapshot;
+  try {
+    snapshot = await getCatalogHubSnapshot();
+  } catch (error) {
+    return NextResponse.json(
+      {
+        ok: false,
+        config: publicConfig,
+        health,
+        summary: null,
+        comparisons: [],
+        error: shortError(error),
+      },
+      { status: 502, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
   const bySku = new Map(snapshot.items.map((item) => [item.sku, item]));
   const comparisons: Array<Record<string, unknown>> = [];
 
