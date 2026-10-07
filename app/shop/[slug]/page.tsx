@@ -9,6 +9,7 @@ import { getCspNonce } from "@/lib/csp";
 import { SITE_BRAND, getPublicBaseUrl } from "@/lib/siteConfig";
 import { formatProductName } from "@/lib/productNames";
 import { stringifyJsonLd } from "@/lib/structuredData";
+import { overlayCatalogHubProduct } from "@/lib/catalogHubOverlay";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,7 @@ type Props = {
 };
 
 async function getPublicProduct(slug: string) {
-  return prisma.product.findFirst({
+  const product = await prisma.product.findFirst({
     where: {
       slug,
       isPublished: true,
@@ -25,6 +26,8 @@ async function getPublicProduct(slug: string) {
     },
     include: { brand: true },
   });
+
+  return overlayCatalogHubProduct(product);
 }
 
 export async function generateMetadata(props: Props): Promise<Metadata> {
