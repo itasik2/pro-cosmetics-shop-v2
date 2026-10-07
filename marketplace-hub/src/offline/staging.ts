@@ -39,11 +39,6 @@ export const stagingApplyRequestSchema = z.object({
 
 export type StagingPatch = z.infer<typeof stagingPatchSchema>;
 
-function stableJson(value: unknown) {
-  if (value === undefined) return "__undefined__";
-  return JSON.stringify(value, Object.keys(value as object ?? {}).sort());
-}
-
 function equalValue(left: unknown, right: unknown) {
   if (
     left &&
