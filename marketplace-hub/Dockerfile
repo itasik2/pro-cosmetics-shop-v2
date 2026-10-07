@@ -18,8 +18,9 @@ WORKDIR /app
 COPY package.json ./
 COPY prisma ./prisma
 RUN npm install --omit=dev
-RUN npx prisma generate
 
+COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=build /app/node_modules/@prisma/client ./node_modules/@prisma/client
 COPY --from=build /app/dist ./dist
 
 EXPOSE 4100
