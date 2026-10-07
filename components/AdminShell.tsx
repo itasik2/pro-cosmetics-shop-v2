@@ -32,6 +32,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
           {link("/admin/price-workflow", "Работа с прайсом")}
           {link("/admin/products", "Товары")}
           {link("/admin/image-normalization", "Фото товаров")}
+          {link("/admin/catalog-hub", "Catalog Hub")}
           {link("/admin/blog", "Блог")}
           {link("/admin/orders", "Заказы")}
           {link("/admin/reviews", "Отзывы")}
