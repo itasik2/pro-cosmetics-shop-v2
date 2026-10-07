@@ -24,6 +24,11 @@ import {
   mediaTransformSchema,
   transformImage,
 } from "./media/image.js";
+import {
+  buildEnrichmentProposal,
+  enrichmentRequestSchema,
+} from "./ai/enrich.js";
+import { safeFetchImage } from "./ai/network.js";
 
 const app = Fastify({
   logger: true,
@@ -37,7 +42,7 @@ app.get("/", async (_request, reply) =>
 app.get("/health", async () => ({
   ok: true,
   service: "marketplace-hub",
-  version: "0.5.0",
+  version: "0.6.0",
   mode: "offline",
 }));
 
@@ -56,6 +61,8 @@ app.get("/v1/offline/capabilities", async () => ({
     pdfImport: true,
     imageAnalysis: true,
     imageTransform: true,
+    catalogAi: true,
+    aiWebSearch: Boolean(process.env.OPENAI_API_KEY),
     columnMapping: true,
     nestedFieldMapping: true,
     pricingRules: true,
@@ -180,6 +187,86 @@ app.post("/v1/offline/media/transform", async (request, reply) => {
   } catch (error) {
     return reply.code(400).send({
       error: error instanceof Error ? error.message : "Image transform failed",
+    });
+  }
+});
+
+app.get("/v1/offline/ai/status", async () => ({
+  configured: Boolean(process.env.OPENAI_API_KEY),
+  model: process.env.OPENAI_ENRICHMENT_MODEL || "gpt-6-luna",
+  mode: process.env.OPENAI_API_KEY
+    ? "WEB_SEARCH_AND_SOURCE_ANALYSIS"
+    : "SOURCE_ANALYSIS_ONLY",
+}));
+
+app.post("/v1/offline/ai/enrich", async (request, reply) => {
+  const parsed = enrichmentRequestSchema.safeParse(request.body);
+  if (!parsed.success) {
+    return reply.code(400).send({
+      error: "Invalid enrichment request",
+      details: parsed.error.flatten(),
+    });
+  }
+
+  try {
+    return await buildEnrichmentProposal(parsed.data);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Product enrichment failed";
+    const status =
+      message === "openai_not_configured" ||
+      message === "source_url_required"
+        ? 503
+        : 400;
+    return reply.code(status).send({ error: message });
+  }
+});
+
+app.post("/v1/offline/ai/image-preview", async (request, reply) => {
+  const schema = z.object({
+    sourceUrl: z.string().url(),
+    sources: z.array(
+      z.object({
+        domain: z.string().trim().min(1),
+        allowSubdomains: z.boolean().default(true),
+        sourceType: z
+          .enum(["OFFICIAL_SITE", "DISTRIBUTOR", "DISCOVERED_WEB"])
+          .optional(),
+      }),
+    ).min(1),
+    preset: z
+      .enum(["master", "storefront", "marketplace", "thumbnail"])
+      .default("storefront"),
+  });
+
+  const parsed = schema.safeParse(request.body);
+  if (!parsed.success) {
+    return reply.code(400).send({
+      error: "Invalid enrichment image request",
+      details: parsed.error.flatten(),
+    });
+  }
+
+  try {
+    const fetched = await safeFetchImage(
+      parsed.data.sourceUrl,
+      parsed.data.sources,
+    );
+    const result = await transformImage(
+      fetched.buffer,
+      MEDIA_PRESETS[parsed.data.preset],
+    );
+
+    return {
+      sourceUrl: fetched.finalUrl,
+      contentType: fetched.contentType,
+      preset: parsed.data.preset,
+      ...result,
+    };
+  } catch (error) {
+    return reply.code(400).send({
+      error:
+        error instanceof Error ? error.message : "Enrichment image failed",
     });
   }
 });
