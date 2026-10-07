@@ -323,9 +323,20 @@ export type LegacyProductComparable = {
   stock: number;
 };
 
-export function compareLegacyProductToHub(
+type CatalogHubComparable = {
+  id: string;
+  title: string;
+  brand: string | null;
+  shortDescription: string | null;
+  description: string | null;
+  price: number | null;
+  purchasePrice: number | null;
+  stock: number;
+};
+
+function compareLegacyProductToHubValues(
   legacy: LegacyProductComparable,
-  hub: CatalogHubProduct,
+  hub: CatalogHubComparable,
 ) {
   const comparisons = [
     {
@@ -372,8 +383,8 @@ export function compareLegacyProductToHub(
     {
       field: "stock",
       legacy: legacy.stock,
-      hub: hub.totals.stock,
-      equal: legacy.stock === hub.totals.stock,
+      hub: hub.stock,
+      equal: legacy.stock === hub.stock,
     },
   ];
 
@@ -386,4 +397,36 @@ export function compareLegacyProductToHub(
     matched: differences.length === 0,
     differences,
   };
+}
+
+export function compareLegacyProductToHub(
+  legacy: LegacyProductComparable,
+  hub: CatalogHubProduct,
+) {
+  return compareLegacyProductToHubValues(legacy, {
+    id: hub.id,
+    title: hub.title,
+    brand: hub.brand,
+    shortDescription: hub.shortDescription,
+    description: hub.description,
+    price: hub.price,
+    purchasePrice: hub.purchasePrice,
+    stock: hub.totals.stock,
+  });
+}
+
+export function compareLegacyProductToSnapshot(
+  legacy: LegacyProductComparable,
+  hub: CatalogHubSnapshotItem,
+) {
+  return compareLegacyProductToHubValues(legacy, {
+    id: hub.id,
+    title: hub.title,
+    brand: hub.brand,
+    shortDescription: hub.shortDescription,
+    description: hub.description,
+    price: hub.price,
+    purchasePrice: hub.purchasePrice,
+    stock: hub.stock,
+  });
 }
