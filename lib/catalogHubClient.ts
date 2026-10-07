@@ -29,6 +29,8 @@ export type CatalogHubProduct = {
 export type CatalogHubShadowConfig = {
   enabled: boolean;
   writeEnabled: boolean;
+  readEnabled: boolean;
+  readStrict: boolean;
   configured: boolean;
   baseUrl: string;
   organizationId: string;
@@ -91,10 +93,20 @@ export function getCatalogHubShadowConfig(): CatalogHubShadowConfig {
     getScopedEnv("CATALOG_HUB_WRITE_ENABLED"),
     false,
   );
+  const readEnabled = boolEnv(
+    getScopedEnv("CATALOG_HUB_READ_ENABLED"),
+    false,
+  );
+  const readStrict = boolEnv(
+    getScopedEnv("CATALOG_HUB_READ_STRICT"),
+    false,
+  );
 
   return {
     enabled,
     writeEnabled,
+    readEnabled,
+    readStrict,
     configured: Boolean(baseUrl && organizationId && apiKey),
     baseUrl,
     organizationId,
@@ -197,6 +209,44 @@ export async function getCatalogHubHealth() {
         ? { ok: true, data: ready.value }
         : { ok: false, error: String(ready.reason?.message || ready.reason) },
   };
+}
+
+export type CatalogHubSnapshotItem = {
+  id: string;
+  sku: string;
+  barcode: string | null;
+  title: string;
+  brand: string | null;
+  shortDescription: string | null;
+  description: string | null;
+  application: string | null;
+  ingredients: string | null;
+  categoryKey: string | null;
+  attributes: unknown;
+  images: string[];
+  purchasePrice: number | null;
+  price: number | null;
+  stock: number;
+  available: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CatalogHubSnapshot = {
+  items: CatalogHubSnapshotItem[];
+  total: number;
+};
+
+export async function getCatalogHubSnapshot() {
+  const config = getCatalogHubShadowConfig();
+  if (!config.organizationId) {
+    throw new Error("catalog_hub_organization_not_configured");
+  }
+
+  return catalogHubFetch<CatalogHubSnapshot>(
+    "/v1/catalog/snapshot?organizationId=" +
+      encodeURIComponent(config.organizationId),
+  );
 }
 
 export async function getCatalogHubProductBySku(sku: string) {
