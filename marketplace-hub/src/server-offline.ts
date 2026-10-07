@@ -29,6 +29,10 @@ import {
   enrichmentRequestSchema,
 } from "./ai/enrich.js";
 import { safeFetchImage } from "./ai/network.js";
+import {
+  cloudinaryMediaConfigured,
+  normalizeCatalogImageWithCloudinary,
+} from "./media/cloudinary.js";
 
 const app = Fastify({
   logger: true,
@@ -63,6 +67,7 @@ app.get("/v1/offline/capabilities", async () => ({
     imageTransform: true,
     catalogAi: true,
     aiWebSearch: Boolean(process.env.OPENAI_API_KEY),
+    cloudinaryBackgroundNormalization: cloudinaryMediaConfigured(),
     columnMapping: true,
     nestedFieldMapping: true,
     pricingRules: true,
@@ -267,6 +272,49 @@ app.post("/v1/offline/ai/image-preview", async (request, reply) => {
     return reply.code(400).send({
       error:
         error instanceof Error ? error.message : "Enrichment image failed",
+    });
+  }
+});
+
+app.get("/v1/offline/media/cloud-status", async () => ({
+  configured: cloudinaryMediaConfigured(),
+}));
+
+app.post("/v1/offline/media/background-normalize", async (request, reply) => {
+  const schema = z.object({
+    base64: z.string().min(1),
+    canvas: z.number().int().min(600).max(2400).optional(),
+    content: z.number().int().min(400).max(2400).optional(),
+    background: z.string().trim().min(1).max(32).optional(),
+  });
+
+  const parsed = schema.safeParse(request.body);
+  if (!parsed.success) {
+    return reply.code(400).send({
+      error: "Invalid background normalization request",
+      details: parsed.error.flatten(),
+    });
+  }
+
+  if (!cloudinaryMediaConfigured()) {
+    return reply.code(503).send({ error: "cloudinary_not_configured" });
+  }
+
+  try {
+    return await normalizeCatalogImageWithCloudinary(
+      Buffer.from(parsed.data.base64, "base64"),
+      {
+        canvas: parsed.data.canvas,
+        content: parsed.data.content,
+        background: parsed.data.background,
+      },
+    );
+  } catch (error) {
+    return reply.code(400).send({
+      error:
+        error instanceof Error
+          ? error.message
+          : "Background normalization failed",
     });
   }
 });
