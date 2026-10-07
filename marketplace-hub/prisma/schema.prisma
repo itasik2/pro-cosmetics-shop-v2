@@ -43,6 +43,21 @@ enum MediaStatus {
   REJECTED
 }
 
+enum CatalogEnrichmentJobStatus {
+  PENDING
+  RUNNING
+  REVIEW
+  APPLIED
+  FAILED
+  CANCELED
+}
+
+enum CatalogEnrichmentProposalStatus {
+  PENDING
+  APPLIED
+  REJECTED
+}
+
 model Organization {
   id        String   @id @default(cuid())
   name      String
@@ -95,7 +110,10 @@ model Product {
   inventory      Inventory[]
   supplierLinks  SupplierProduct[]
   importRows     PriceImportRow[]
-  media          ProductMedia[]
+  media               ProductMedia[]
+  sourceSnapshots     ProductSourceSnapshot[]
+  enrichmentJobs      CatalogEnrichmentJob[]
+  enrichmentProposals CatalogEnrichmentProposal[]
 
   @@unique([organizationId, sku])
   @@index([barcode])
@@ -115,6 +133,7 @@ model Supplier {
   imports        PriceImport[]
   products       SupplierProduct[]
   documentImports DocumentImport[]
+  sourcePolicies  CatalogSourcePolicy[]
 
   @@unique([organizationId, code])
 }
@@ -341,4 +360,97 @@ model MediaVariant {
   createdAt DateTime     @default(now())
 
   @@unique([mediaId, preset])
+}
+
+
+model CatalogSourcePolicy {
+  id              String   @id @default(cuid())
+  supplierId      String
+  supplier        Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  name            String
+  domain          String
+  baseUrl         String?
+  sourceType      String   @default("OFFICIAL_SITE")
+  allowSubdomains Boolean  @default(true)
+  isEnabled       Boolean  @default(true)
+  priority        Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  snapshots ProductSourceSnapshot[]
+
+  @@unique([supplierId, domain])
+  @@index([supplierId, isEnabled, priority])
+}
+
+model ProductSourceSnapshot {
+  id             String               @id @default(cuid())
+  productId      String
+  product        Product              @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sourcePolicyId String?
+  sourcePolicy   CatalogSourcePolicy? @relation(fields: [sourcePolicyId], references: [id], onDelete: SetNull)
+  url            String
+  canonicalUrl   String?
+  title          String?
+  sourceType     String
+  contentHash    String?
+  httpStatus     Int?
+  rawData        Json?
+  extractedData  Json?
+  lastCheckedAt  DateTime             @default(now())
+  lastChangedAt  DateTime?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  proposals CatalogEnrichmentProposal[]
+
+  @@unique([productId, url])
+  @@index([productId, lastCheckedAt])
+}
+
+model CatalogEnrichmentJob {
+  id         String                     @id @default(cuid())
+  productId  String
+  product    Product                    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  status     CatalogEnrichmentJobStatus @default(PENDING)
+  sourceUrl  String?
+  result     Json?
+  error      String?
+  attempt    Int                        @default(0)
+  createdAt  DateTime                   @default(now())
+  updatedAt  DateTime                   @updatedAt
+  startedAt  DateTime?
+  finishedAt DateTime?
+
+  proposals CatalogEnrichmentProposal[]
+
+  @@index([productId, status, createdAt])
+}
+
+model CatalogEnrichmentProposal {
+  id               String                          @id @default(cuid())
+  productId        String
+  product          Product                         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sourceId         String?
+  source           ProductSourceSnapshot?          @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  jobId            String?
+  job              CatalogEnrichmentJob?           @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  sourceUrl        String
+  confidence       Int
+  title            String?
+  shortDescription String?
+  description      String?
+  application      String?
+  ingredients      String?
+  images           Json?
+  facts            Json?
+  warnings         Json?
+  evaluation       Json?
+  status           CatalogEnrichmentProposalStatus @default(PENDING)
+  createdAt        DateTime                        @default(now())
+  updatedAt        DateTime                        @updatedAt
+  appliedAt        DateTime?
+
+  @@index([productId, status, createdAt])
+  @@index([confidence])
 }
