@@ -17,6 +17,13 @@ import {
   buildKaspiPriceFeed,
   kaspiPriceFeedSchema,
 } from "./connectors/kaspi/price-feed.js";
+import { extractPdfCatalogRows } from "./document/pdf.js";
+import {
+  analyzeImage,
+  MEDIA_PRESETS,
+  mediaTransformSchema,
+  transformImage,
+} from "./media/image.js";
 
 const app = Fastify({
   logger: true,
@@ -30,7 +37,7 @@ app.get("/", async (_request, reply) =>
 app.get("/health", async () => ({
   ok: true,
   service: "marketplace-hub",
-  version: "0.4.0",
+  version: "0.5.0",
   mode: "offline",
 }));
 
@@ -46,6 +53,9 @@ app.get("/v1/offline/capabilities", async () => ({
     jsonImport: true,
     xmlImport: true,
     yamlImport: true,
+    pdfImport: true,
+    imageAnalysis: true,
+    imageTransform: true,
     columnMapping: true,
     nestedFieldMapping: true,
     pricingRules: true,
@@ -69,6 +79,107 @@ app.post("/v1/offline/import/preview", async (request, reply) => {
   } catch (error) {
     return reply.code(400).send({
       error: error instanceof Error ? error.message : "Catalog import failed",
+    });
+  }
+});
+
+app.post("/v1/offline/import/pdf/preview", async (request, reply) => {
+  const schema = z.object({
+    base64: z.string().min(1),
+    mapping: mappingSchema.optional(),
+  });
+
+  const parsed = schema.safeParse(request.body);
+  if (!parsed.success) {
+    return reply.code(400).send({
+      error: "Invalid PDF import request",
+      details: parsed.error.flatten(),
+    });
+  }
+
+  try {
+    const bytes = new Uint8Array(Buffer.from(parsed.data.base64, "base64"));
+    const preview = await extractPdfCatalogRows(bytes);
+    const mapping =
+      parsed.data.mapping ??
+      ({
+        sku: "sku",
+        title: "title",
+        brand: "brand",
+        barcode: "barcode",
+        description: "description",
+        price: "price",
+        stock: "stock",
+      } as const);
+
+    const mapped = preview.rows.length ? mapRows(preview.rows, mapping) : [];
+
+    return {
+      ...preview,
+      validRows: mapped.filter((row) => row.valid).length,
+      invalidRows: mapped.filter((row) => !row.valid).length,
+      data: mapped,
+    };
+  } catch (error) {
+    return reply.code(400).send({
+      error: error instanceof Error ? error.message : "PDF parsing failed",
+    });
+  }
+});
+
+app.get("/v1/offline/media/presets", async () => ({
+  presets: MEDIA_PRESETS,
+}));
+
+app.post("/v1/offline/media/analyze", async (request, reply) => {
+  const schema = z.object({ base64: z.string().min(1) });
+  const parsed = schema.safeParse(request.body);
+
+  if (!parsed.success) {
+    return reply.code(400).send({
+      error: "Invalid image request",
+      details: parsed.error.flatten(),
+    });
+  }
+
+  try {
+    return await analyzeImage(Buffer.from(parsed.data.base64, "base64"));
+  } catch (error) {
+    return reply.code(400).send({
+      error: error instanceof Error ? error.message : "Image analysis failed",
+    });
+  }
+});
+
+app.post("/v1/offline/media/transform", async (request, reply) => {
+  const schema = z.object({
+    base64: z.string().min(1),
+    preset: z
+      .enum(["master", "storefront", "marketplace", "thumbnail"])
+      .optional(),
+    transform: z.record(z.unknown()).optional(),
+  });
+
+  const parsed = schema.safeParse(request.body);
+  if (!parsed.success) {
+    return reply.code(400).send({
+      error: "Invalid media transform request",
+      details: parsed.error.flatten(),
+    });
+  }
+
+  try {
+    const transform = parsed.data.preset
+      ? MEDIA_PRESETS[parsed.data.preset]
+      : mediaTransformSchema.parse(parsed.data.transform ?? {});
+
+    return await transformImage(
+      Buffer.from(parsed.data.base64, "base64"),
+      transform,
+    );
+  } catch (error) {
+    return reply.code(400).send({
+      error: error instanceof Error ? error.message : "Image transform failed",
     });
   }
 });
