@@ -47,6 +47,7 @@ export function renderAdminPage() {
     .tab { display:none; }
     .tab.active { display:block; }
     .hint { font-size:13px; line-height:1.5; color:#6f7787; margin-top:8px; }
+    .preview-image { display:block; max-width:360px; max-height:360px; margin-top:14px; border-radius:14px; border:1px solid #e1e5ea; background:#fff; }
     @media (max-width: 900px) {
       .shell { grid-template-columns:1fr; }
       .side { display:none; }
@@ -88,6 +89,8 @@ export function renderAdminPage() {
 
     <div class="tabs">
       <button class="active" data-tab="import">Импорт прайса</button>
+      <button data-tab="document">PDF-каталог</button>
+      <button data-tab="media">Фото</button>
       <button data-tab="pricing">Расчёт цены</button>
       <button data-tab="card">Проверка карточки</button>
       <button data-tab="xml">Kaspi XML</button>
@@ -144,6 +147,50 @@ export function renderAdminPage() {
         </div>
       </div>
       <pre id="importResult">Результат проверки появится здесь.</pre>
+    </section>
+
+    <section id="tab-document" class="panel tab">
+      <h2>PDF-каталог</h2>
+      <label>PDF-файл
+        <input id="pdfFile" type="file" accept=".pdf,application/pdf" />
+      </label>
+      <div class="hint">
+        Текстовые PDF разбираются напрямую. Если у большинства страниц нет текстового слоя,
+        Catalog Hub пометит документ как требующий OCR, но не будет автоматически распознавать его.
+      </div>
+      <div class="actions"><button id="pdfPreview">Проверить PDF</button></div>
+      <pre id="pdfResult">Результат анализа PDF появится здесь.</pre>
+    </section>
+
+    <section id="tab-media" class="panel tab">
+      <h2>Media Studio</h2>
+      <div class="two">
+        <div>
+          <label>Изображение
+            <input id="mediaFile" type="file" accept="image/jpeg,image/png,image/webp,image/avif,image/tiff,.jpg,.jpeg,.png,.webp,.avif,.tif,.tiff" />
+          </label>
+          <label style="margin-top:14px">Профиль обработки
+            <select id="mediaPreset">
+              <option value="master">Master — до 2400 px</option>
+              <option value="storefront">ProCosmetics — до 1600 px WebP</option>
+              <option value="marketplace">Marketplace — до 1600 px JPEG</option>
+              <option value="thumbnail">Thumbnail — до 360 px</option>
+            </select>
+          </label>
+          <div class="actions">
+            <button id="mediaAnalyze">Проверить фото</button>
+            <button id="mediaTransform">Создать вариант</button>
+          </div>
+          <div class="hint">
+            Оригинал не изменяется. Производная версия создаётся отдельно с нормализацией ориентации,
+            размера и формата.
+          </div>
+        </div>
+        <div>
+          <img id="mediaPreviewImage" class="preview-image" alt="Предпросмотр обработанного изображения" hidden />
+        </div>
+      </div>
+      <pre id="mediaResult">Метаданные изображения появятся здесь.</pre>
     </section>
 
     <section id="tab-pricing" class="panel tab">
@@ -272,6 +319,62 @@ export function renderAdminPage() {
       show("importResult", value);
     } catch (error) {
       show("importResult", String(error));
+    }
+  };
+
+  document.getElementById("pdfPreview").onclick = async () => {
+    const file = document.getElementById("pdfFile").files[0];
+    if (!file) return show("pdfResult", "Выберите PDF-файл.");
+
+    try {
+      const value = await postJson("/v1/offline/import/pdf/preview", {
+        base64: await fileToBase64(file),
+        mapping: mapping(),
+      });
+      show("pdfResult", value);
+    } catch (error) {
+      show("pdfResult", String(error));
+    }
+  };
+
+  document.getElementById("mediaAnalyze").onclick = async () => {
+    const file = document.getElementById("mediaFile").files[0];
+    if (!file) return show("mediaResult", "Выберите изображение.");
+
+    try {
+      const value = await postJson("/v1/offline/media/analyze", {
+        base64: await fileToBase64(file),
+      });
+      show("mediaResult", value);
+    } catch (error) {
+      show("mediaResult", String(error));
+    }
+  };
+
+  document.getElementById("mediaTransform").onclick = async () => {
+    const file = document.getElementById("mediaFile").files[0];
+    if (!file) return show("mediaResult", "Выберите изображение.");
+
+    try {
+      const value = await postJson("/v1/offline/media/transform", {
+        base64: await fileToBase64(file),
+        preset: document.getElementById("mediaPreset").value,
+      });
+
+      const preview = document.getElementById("mediaPreviewImage");
+      preview.src = "data:" + value.output.mimeType + ";base64," + value.output.base64;
+      preview.hidden = false;
+
+      const safe = {
+        ...value,
+        output: {
+          ...value.output,
+          base64: "[скрыто в JSON; показано как изображение]",
+        },
+      };
+      show("mediaResult", safe);
+    } catch (error) {
+      show("mediaResult", String(error));
     }
   };
 
