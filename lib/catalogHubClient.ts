@@ -28,9 +28,11 @@ export type CatalogHubProduct = {
 
 export type CatalogHubShadowConfig = {
   enabled: boolean;
+  writeEnabled: boolean;
   configured: boolean;
   baseUrl: string;
   organizationId: string;
+  warehouseId: string;
   hasApiKey: boolean;
   timeoutMs: number;
 };
@@ -83,13 +85,20 @@ export function getCatalogHubShadowConfig(): CatalogHubShadowConfig {
 
   const organizationId = getScopedEnv("CATALOG_HUB_ORGANIZATION_ID").trim();
   const apiKey = getScopedEnv("CATALOG_HUB_API_KEY").trim();
+  const warehouseId = getScopedEnv("CATALOG_HUB_WAREHOUSE_ID").trim();
   const enabled = boolEnv(getScopedEnv("CATALOG_HUB_SHADOW_ENABLED"), false);
+  const writeEnabled = boolEnv(
+    getScopedEnv("CATALOG_HUB_WRITE_ENABLED"),
+    false,
+  );
 
   return {
     enabled,
+    writeEnabled,
     configured: Boolean(baseUrl && organizationId && apiKey),
     baseUrl,
     organizationId,
+    warehouseId,
     hasApiKey: Boolean(apiKey),
     timeoutMs: intEnv(
       getScopedEnv("CATALOG_HUB_TIMEOUT_MS"),
@@ -104,6 +113,8 @@ async function catalogHubFetch<T>(
   path: string,
   options?: {
     authenticated?: boolean;
+    method?: "GET" | "POST";
+    body?: unknown;
   },
 ): Promise<T> {
   const config = getCatalogHubShadowConfig();
@@ -121,15 +132,20 @@ async function catalogHubFetch<T>(
 
   try {
     const response = await fetch(`${config.baseUrl}${path}`, {
-      method: "GET",
+      method: options?.method || "GET",
       cache: "no-store",
       signal: controller.signal,
       headers: authenticated
         ? {
             "x-catalog-hub-key": apiKey,
             accept: "application/json",
+            ...(options?.body ? { "content-type": "application/json" } : {}),
           }
-        : { accept: "application/json" },
+        : {
+            accept: "application/json",
+            ...(options?.body ? { "content-type": "application/json" } : {}),
+          },
+      body: options?.body ? JSON.stringify(options.body) : undefined,
     });
 
     const text = await response.text();
@@ -200,6 +216,43 @@ export async function getCatalogHubProductBySku(sku: string) {
     if (message.startsWith("catalog_hub_http_404:")) return null;
     throw error;
   }
+}
+
+export type CatalogHubCreateCard = {
+  sku: string;
+  barcode?: string;
+  title: string;
+  brand?: string;
+  shortDescription?: string;
+  description?: string;
+  categoryKey?: string;
+  attributes?: Record<string, unknown>;
+  images?: string[];
+  purchasePrice?: number;
+  price?: number;
+  stock?: number;
+};
+
+export async function createCatalogHubProduct(card: CatalogHubCreateCard) {
+  const config = getCatalogHubShadowConfig();
+  if (!config.writeEnabled) {
+    throw new Error("catalog_hub_write_disabled");
+  }
+  if (!config.organizationId) {
+    throw new Error("catalog_hub_organization_not_configured");
+  }
+  if (card.stock !== undefined && !config.warehouseId) {
+    throw new Error("catalog_hub_warehouse_not_configured");
+  }
+
+  return catalogHubFetch<CatalogHubProduct>("/v1/catalog/products", {
+    method: "POST",
+    body: {
+      organizationId: config.organizationId,
+      warehouseId: config.warehouseId || undefined,
+      card,
+    },
+  });
 }
 
 function normalizedText(value: unknown) {
