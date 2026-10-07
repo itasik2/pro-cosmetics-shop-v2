@@ -36,6 +36,13 @@ enum ImportStatus {
   FAILED
 }
 
+enum MediaStatus {
+  ORIGINAL
+  PROCESSED
+  APPROVED
+  REJECTED
+}
+
 model Organization {
   id        String   @id @default(cuid())
   name      String
@@ -88,6 +95,7 @@ model Product {
   inventory      Inventory[]
   supplierLinks  SupplierProduct[]
   importRows     PriceImportRow[]
+  media          ProductMedia[]
 
   @@unique([organizationId, sku])
   @@index([barcode])
@@ -106,6 +114,7 @@ model Supplier {
   importProfiles ImportProfile[]
   imports        PriceImport[]
   products       SupplierProduct[]
+  documentImports DocumentImport[]
 
   @@unique([organizationId, code])
 }
@@ -273,4 +282,63 @@ model SyncJob {
   finishedAt           DateTime?
 
   @@index([status, createdAt])
+}
+
+
+model DocumentImport {
+  id             String    @id @default(cuid())
+  supplierId     String?
+  supplier       Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  filename       String
+  mimeType       String
+  sizeBytes      Int
+  pageCount      Int?
+  textCharacters Int?
+  ocrRecommended Boolean   @default(false)
+  warnings       Json?
+  metadata       Json?
+  createdAt      DateTime  @default(now())
+
+  @@index([supplierId, createdAt])
+}
+
+model ProductMedia {
+  id             String      @id @default(cuid())
+  productId      String
+  product        Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sourceType     String
+  sourceUrl      String?
+  originalFormat String?
+  mimeType       String
+  width          Int?
+  height         Int?
+  sizeBytes      Int?
+  fileHash       String?
+  isPrimary      Boolean     @default(false)
+  status         MediaStatus @default(ORIGINAL)
+  metadata       Json?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  variants MediaVariant[]
+
+  @@index([productId, isPrimary])
+  @@index([fileHash])
+}
+
+model MediaVariant {
+  id        String       @id @default(cuid())
+  mediaId   String
+  media     ProductMedia @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  preset    String
+  format    String
+  mimeType  String
+  width     Int
+  height    Int
+  sizeBytes Int
+  storageKey String?
+  url       String?
+  createdAt DateTime     @default(now())
+
+  @@unique([mediaId, preset])
 }
