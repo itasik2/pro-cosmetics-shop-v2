@@ -29,9 +29,11 @@ export async function GET(request: Request) {
   const config = getCatalogHubShadowConfig();
   const publicConfig = {
     enabled: config.enabled,
+    writeEnabled: config.writeEnabled,
     configured: config.configured,
     baseUrl: config.baseUrl || null,
     organizationId: config.organizationId || null,
+    warehouseId: config.warehouseId || null,
     hasApiKey: config.hasApiKey,
     timeoutMs: config.timeoutMs,
   };
