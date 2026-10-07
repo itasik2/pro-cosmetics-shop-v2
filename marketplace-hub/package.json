@@ -1,6 +1,6 @@
 {
   "name": "marketplace-hub",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,7 +12,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --import tsx --test src/**/*.test.ts",
     "prisma:generate": "prisma generate",
-    "prisma:push": "prisma db push"
+    "prisma:push": "prisma db push",
+    "db:validate": "prisma validate",
+    "db:bootstrap": "prisma db push",
+    "service:check": "npm run prisma:generate && npm run typecheck && npm test"
   },
   "dependencies": {
     "@prisma/client": "^6.19.1",
