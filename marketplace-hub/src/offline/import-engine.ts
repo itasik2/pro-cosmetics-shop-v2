@@ -18,7 +18,7 @@ export const universalImportSchema = z.object({
   mapping: mappingSchema,
 });
 
-export type UniversalImportInput = z.infer<typeof universalImportSchema>;
+export type UniversalImportInput = z.input<typeof universalImportSchema>;
 
 export function previewUniversalImport(raw: UniversalImportInput) {
   const input = universalImportSchema.parse(raw);
@@ -76,6 +76,7 @@ export function previewUniversalImport(raw: UniversalImportInput) {
 
   return {
     ...metadata,
+    format,
     rows: mapped.length,
     validRows: mapped.filter((row) => row.valid).length,
     invalidRows: mapped.filter((row) => !row.valid).length,
