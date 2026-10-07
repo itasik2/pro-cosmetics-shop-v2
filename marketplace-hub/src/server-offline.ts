@@ -48,6 +48,10 @@ import {
   rejectChangeSet,
   stagingDatabaseConfigured,
 } from "./offline/staging-store.js";
+import {
+  aiProposalToStagingPatch,
+  importRowToStagingPatch,
+} from "./offline/staging-sources.js";
 
 const app = Fastify({
   logger: true,
@@ -338,6 +342,55 @@ app.post("/v1/offline/media/background-normalize", async (request, reply) => {
   }
 });
 
+app.post("/v1/offline/staging/from-import", async (request, reply) => {
+  const schema = z.object({ product: z.record(z.unknown()) });
+  const parsed = schema.safeParse(request.body);
+  if (!parsed.success) {
+    return reply.code(400).send({
+      error: "Invalid import staging request",
+      details: parsed.error.flatten(),
+    });
+  }
+
+  try {
+    return { proposed: importRowToStagingPatch(parsed.data.product) };
+  } catch (error) {
+    return reply.code(400).send({
+      error: error instanceof Error ? error.message : "import_staging_failed",
+    });
+  }
+});
+
+app.post("/v1/offline/staging/from-ai", async (request, reply) => {
+  const schema = z.object({
+    proposal: z.record(z.unknown()),
+    includeTitle: z.boolean().default(false),
+    includeBrand: z.boolean().default(false),
+    selectedImageUrl: z.string().url().optional(),
+  });
+  const parsed = schema.safeParse(request.body);
+  if (!parsed.success) {
+    return reply.code(400).send({
+      error: "Invalid AI staging request",
+      details: parsed.error.flatten(),
+    });
+  }
+
+  try {
+    return {
+      proposed: aiProposalToStagingPatch(parsed.data.proposal, {
+        includeTitle: parsed.data.includeTitle,
+        includeBrand: parsed.data.includeBrand,
+        selectedImageUrl: parsed.data.selectedImageUrl,
+      }),
+    };
+  } catch (error) {
+    return reply.code(400).send({
+      error: error instanceof Error ? error.message : "ai_staging_failed",
+    });
+  }
+});
+
 app.post("/v1/offline/staging/diff", async (request, reply) => {
   const parsed = stagingDiffRequestSchema.safeParse(request.body);
   if (!parsed.success) {
@@ -424,7 +477,10 @@ app.post("/v1/staging/changesets/:id/approve", async (request, reply) => {
         "barcode",
         "title",
         "brand",
+        "shortDescription",
         "description",
+        "application",
+        "ingredients",
         "categoryKey",
         "attributes",
         "images",
