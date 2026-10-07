@@ -136,6 +136,7 @@ export function renderAdminPage() {
           </label>
           <div class="actions">
             <button id="catalogPreview">Проверить каталог</button>
+            <button id="importToStaging" class="secondary">Первый товар → staging</button>
           </div>
           <div class="hint">Импорт выполняется только в режиме предпросмотра и не меняет каталог автоматически.</div>
         </div>
@@ -225,6 +226,7 @@ export function renderAdminPage() {
           </label>
           <div class="actions">
             <button id="aiEnrich">Подготовить предложение</button>
+            <button id="aiToStaging" class="secondary">Предложение → staging</button>
           </div>
           <div class="hint">
             Если OPENAI_API_KEY не настроен, можно указать явный URL разрешённого источника:
@@ -319,14 +321,21 @@ export function renderAdminPage() {
 
 <script>
   const tabs = document.querySelectorAll("[data-tab]");
-  tabs.forEach((button) => {
-    button.addEventListener("click", () => {
-      tabs.forEach((item) => item.classList.remove("active"));
-      document.querySelectorAll(".tab").forEach((item) => item.classList.remove("active"));
-      button.classList.add("active");
-      document.getElementById("tab-" + button.dataset.tab).classList.add("active");
+
+  function activateTab(name) {
+    tabs.forEach((item) => {
+      item.classList.toggle("active", item.dataset.tab === name);
     });
+    document.querySelectorAll(".tab").forEach((item) => item.classList.remove("active"));
+    document.getElementById("tab-" + name).classList.add("active");
+  }
+
+  tabs.forEach((button) => {
+    button.addEventListener("click", () => activateTab(button.dataset.tab));
   });
+
+  let lastImportPreview = null;
+  let lastAiProposal = null;
 
   function mapping() {
     const out = {
@@ -394,6 +403,7 @@ export function renderAdminPage() {
 
     try {
       const value = await postJson("/v1/offline/import/preview", payload);
+      lastImportPreview = value;
       show("importResult", value);
     } catch (error) {
       show("importResult", String(error));
@@ -481,6 +491,7 @@ export function renderAdminPage() {
         })),
       });
 
+      lastAiProposal = value;
       show("aiResult", value);
       const preview = document.getElementById("aiImagePreview");
       const firstImage = value.imageCandidates?.[0]?.url;
@@ -491,6 +502,43 @@ export function renderAdminPage() {
         preview.hidden = true;
         preview.removeAttribute("src");
       }
+    } catch (error) {
+      show("aiResult", String(error));
+    }
+  };
+
+  document.getElementById("importToStaging").onclick = async () => {
+    const first = lastImportPreview?.data?.find((row) => row.valid)?.product;
+    if (!first) {
+      return show("importResult", "Сначала выполните импорт и убедитесь, что есть валидный товар.");
+    }
+
+    try {
+      const value = await postJson("/v1/offline/staging/from-import", {
+        product: first,
+      });
+      document.getElementById("stagingProposed").value =
+        JSON.stringify(value.proposed, null, 2);
+      activateTab("staging");
+      document.getElementById("stagingDiff").click();
+    } catch (error) {
+      show("importResult", String(error));
+    }
+  };
+
+  document.getElementById("aiToStaging").onclick = async () => {
+    if (!lastAiProposal) {
+      return show("aiResult", "Сначала подготовьте AI-предложение.");
+    }
+
+    try {
+      const value = await postJson("/v1/offline/staging/from-ai", {
+        proposal: lastAiProposal,
+      });
+      document.getElementById("stagingProposed").value =
+        JSON.stringify(value.proposed, null, 2);
+      activateTab("staging");
+      document.getElementById("stagingDiff").click();
     } catch (error) {
       show("aiResult", String(error));
     }
