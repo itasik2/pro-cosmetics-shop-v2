@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import ProductCard from "@/components/ProductCard";
 import { getPublicBaseUrl, SITE_BRAND } from "@/lib/siteConfig";
 import { collapseRepresentedProductCards } from "@/lib/publicProductCards";
+import { overlayCatalogHubProducts } from "@/lib/catalogHubOverlay";
 
 export const dynamic = "force-dynamic";
 
@@ -43,7 +44,9 @@ export default async function CategoryPage(props: Props) {
     include: { brand: true },
     orderBy: { createdAt: "desc" },
   });
-  const products = collapseRepresentedProductCards(productRows);
+  const products = collapseRepresentedProductCards(
+    await overlayCatalogHubProducts(productRows),
+  );
 
   if (!products.length) notFound();
 
