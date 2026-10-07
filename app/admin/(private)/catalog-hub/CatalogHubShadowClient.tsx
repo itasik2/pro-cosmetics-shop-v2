@@ -6,9 +6,11 @@ type StatusResponse = {
   ok: boolean;
   config: {
     enabled: boolean;
+    writeEnabled: boolean;
     configured: boolean;
     baseUrl: string | null;
     organizationId: string | null;
+    warehouseId: string | null;
     hasApiKey: boolean;
     timeoutMs: number;
   };
@@ -41,6 +43,8 @@ export default function CatalogHubShadowClient() {
   const [data, setData] = useState<StatusResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [limit, setLimit] = useState(20);
+  const [seedLoading, setSeedLoading] = useState(false);
+  const [seedResult, setSeedResult] = useState<unknown>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -59,6 +63,23 @@ export default function CatalogHubShadowClient() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const runSeed = async (dryRun: boolean) => {
+    setSeedLoading(true);
+    try {
+      const response = await fetch("/api/admin/catalog-hub/seed", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ dryRun, limit: Math.min(limit, 30) }),
+      });
+      const body = await response.json();
+      setSeedResult(body);
+      if (!response.ok) return;
+      if (!dryRun) await load();
+    } finally {
+      setSeedLoading(false);
+    }
+  };
 
   return (
     <div className="space-y-5">
@@ -106,6 +127,14 @@ export default function CatalogHubShadowClient() {
         <Metric
           label="Организация"
           value={data?.config.organizationId || "не указана"}
+        />
+        <Metric
+          label="Запись"
+          value={data?.config.writeEnabled ? "разрешена" : "выключена"}
+        />
+        <Metric
+          label="Склад"
+          value={data?.config.warehouseId || "не указан"}
         />
       </div>
 
@@ -175,6 +204,48 @@ export default function CatalogHubShadowClient() {
             )}
           </tbody>
         </table>
+      </div>
+
+      <div className="rounded-xl border bg-white p-4 space-y-3">
+        <div>
+          <h2 className="font-semibold">Первичная миграция</h2>
+          <p className="mt-1 text-sm text-gray-500">
+            Импортируются только опубликованные товары с supplierSku. Существующие SKU не перезаписываются.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="rounded-lg border px-4 py-2 text-sm disabled:opacity-50"
+            onClick={() => void runSeed(true)}
+            disabled={seedLoading || !data?.config.configured}
+          >
+            Dry-run первых {Math.min(limit, 30)}
+          </button>
+          <button
+            type="button"
+            className="rounded-lg bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
+            onClick={() => void runSeed(false)}
+            disabled={
+              seedLoading ||
+              !data?.config.configured ||
+              !data?.config.writeEnabled ||
+              !data?.config.warehouseId
+            }
+          >
+            Импортировать в Catalog Hub
+          </button>
+        </div>
+        {!data?.config.writeEnabled && (
+          <p className="text-xs text-amber-700">
+            Запись заблокирована: CATALOG_HUB_WRITE_ENABLED=false.
+          </p>
+        )}
+        {seedResult !== null && (
+          <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-gray-50 p-3 text-xs">
+            {JSON.stringify(seedResult, null, 2)}
+          </pre>
+        )}
       </div>
 
       <details className="rounded-xl border bg-white p-4 text-sm">
