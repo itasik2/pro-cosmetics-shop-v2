@@ -7,6 +7,7 @@ import { getCspNonce } from "@/lib/csp";
 import { SITE_BRAND, getPublicBaseUrl } from "@/lib/siteConfig";
 import { collapseRepresentedProductCards } from "@/lib/publicProductCards";
 import { stringifyJsonLd } from "@/lib/structuredData";
+import { overlayCatalogHubProducts } from "@/lib/catalogHubOverlay";
 
 export const dynamic = "force-dynamic";
 
@@ -94,7 +95,9 @@ export default async function BrandPage(props: Props) {
     include: { brand: true },
     orderBy: { createdAt: "desc" },
   });
-  const products = collapseRepresentedProductCards(productRows);
+  const products = collapseRepresentedProductCards(
+    await overlayCatalogHubProducts(productRows),
+  );
 
   const baseUrl = getPublicBaseUrl();
   const schema = {
