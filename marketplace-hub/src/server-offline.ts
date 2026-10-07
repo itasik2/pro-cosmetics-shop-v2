@@ -52,10 +52,41 @@ import {
   aiProposalToStagingPatch,
   importRowToStagingPatch,
 } from "./offline/staging-sources.js";
+import {
+  catalogDatabaseConfigured,
+  createCatalogProduct,
+  databaseReady,
+  getCatalogProduct,
+  getCatalogProductBySku,
+  listCatalogProducts,
+} from "./offline/catalog-store.js";
+import {
+  getCatalogHubAuthConfig,
+  isCatalogHubRequestAuthorized,
+} from "./runtime/auth.js";
+import { prisma } from "./offline/staging-store.js";
 
 const app = Fastify({
   logger: true,
   bodyLimit: 25 * 1024 * 1024,
+});
+
+const authConfig = getCatalogHubAuthConfig();
+
+app.addHook("onRequest", async (request, reply) => {
+  if (!request.url.startsWith("/v1/")) return;
+
+  if (authConfig.required && !authConfig.configured) {
+    return reply.code(503).send({ error: "catalog_hub_api_key_not_configured" });
+  }
+
+  if (!isCatalogHubRequestAuthorized(request, authConfig)) {
+    return reply.code(401).send({ error: "unauthorized" });
+  }
+});
+
+app.addHook("onClose", async () => {
+  await prisma.$disconnect();
 });
 
 app.get("/", async (_request, reply) =>
@@ -65,9 +96,30 @@ app.get("/", async (_request, reply) =>
 app.get("/health", async () => ({
   ok: true,
   service: "marketplace-hub",
-  version: "0.7.0",
-  mode: "offline",
+  version: "0.8.0",
+  mode: "service",
+  auth: {
+    required: authConfig.required,
+    configured: authConfig.configured,
+  },
+  databaseConfigured: catalogDatabaseConfigured(),
 }));
+
+app.get("/ready", async (_request, reply) => {
+  const database = await databaseReady();
+  const ready =
+    database &&
+    (!authConfig.required || authConfig.configured);
+
+  return reply.code(ready ? 200 : 503).send({
+    ready,
+    database,
+    auth: {
+      required: authConfig.required,
+      configured: authConfig.configured,
+    },
+  });
+});
 
 app.get("/v1/offline/capabilities", async () => ({
   mode: "offline",
@@ -91,6 +143,8 @@ app.get("/v1/offline/capabilities", async () => ({
     selectiveApproval: true,
     persistentChangeSets: stagingDatabaseConfigured(),
     revisionSnapshots: stagingDatabaseConfigured(),
+    persistentCatalog: catalogDatabaseConfigured(),
+    internalApiAuth: authConfig.required,
     columnMapping: true,
     nestedFieldMapping: true,
     pricingRules: true,
@@ -99,6 +153,88 @@ app.get("/v1/offline/capabilities", async () => ({
     directMarketplaceSync: false,
   },
 }));
+
+app.get("/v1/catalog/products", async (request, reply) => {
+  if (!catalogDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  try {
+    return await listCatalogProducts(request.query);
+  } catch (error) {
+    return reply.code(400).send({
+      error: error instanceof Error ? error.message : "catalog_list_failed",
+    });
+  }
+});
+
+app.post("/v1/catalog/products", async (request, reply) => {
+  if (!catalogDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  try {
+    const created = await createCatalogProduct(request.body);
+    return reply.code(201).send(created);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "catalog_create_failed";
+    const status = message.includes("Unique constraint") ? 409 : 400;
+    return reply.code(status).send({ error: message });
+  }
+});
+
+app.get("/v1/catalog/products/:id", async (request, reply) => {
+  if (!catalogDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  const params = request.params as { id: string };
+  const query = z
+    .object({ organizationId: z.string().min(1) })
+    .safeParse(request.query);
+
+  if (!query.success) {
+    return reply.code(400).send({
+      error: "organizationId_required",
+      details: query.error.flatten(),
+    });
+  }
+
+  const product = await getCatalogProduct({
+    organizationId: query.data.organizationId,
+    id: params.id,
+  });
+
+  if (!product) return reply.code(404).send({ error: "product_not_found" });
+  return product;
+});
+
+app.get("/v1/catalog/by-sku/:sku", async (request, reply) => {
+  if (!catalogDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  const params = request.params as { sku: string };
+  const query = z
+    .object({ organizationId: z.string().min(1) })
+    .safeParse(request.query);
+
+  if (!query.success) {
+    return reply.code(400).send({
+      error: "organizationId_required",
+      details: query.error.flatten(),
+    });
+  }
+
+  const product = await getCatalogProductBySku({
+    organizationId: query.data.organizationId,
+    sku: params.sku,
+  });
+
+  if (!product) return reply.code(404).send({ error: "product_not_found" });
+  return product;
+});
 
 app.post("/v1/offline/import/preview", async (request, reply) => {
   const parsed = universalImportSchema.safeParse(request.body);
