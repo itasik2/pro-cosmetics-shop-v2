@@ -58,6 +58,34 @@ enum CatalogEnrichmentProposalStatus {
   REJECTED
 }
 
+enum ChangeSetStatus {
+  PREVIEW
+  APPROVED
+  PARTIALLY_APPLIED
+  APPLIED
+  REJECTED
+}
+
+enum FieldChangeStatus {
+  PROPOSED
+  APPROVED
+  APPLIED
+  REJECTED
+}
+
+enum ChangeSetSourceType {
+  IMPORT
+  AI_ENRICHMENT
+  MANUAL
+  SYSTEM
+}
+
+enum FieldChangeRisk {
+  LOW
+  MEDIUM
+  HIGH
+}
+
 model Organization {
   id        String   @id @default(cuid())
   name      String
@@ -69,6 +97,7 @@ model Organization {
   warehouses     Warehouse[]
   suppliers      Supplier[]
   pricingRules   PricingRule[]
+  changeSets     CatalogChangeSet[]
 }
 
 model MarketplaceAccount {
@@ -114,6 +143,8 @@ model Product {
   sourceSnapshots     ProductSourceSnapshot[]
   enrichmentJobs      CatalogEnrichmentJob[]
   enrichmentProposals CatalogEnrichmentProposal[]
+  changeSets          CatalogChangeSet[]
+  revisions           ProductRevision[]
 
   @@unique([organizationId, sku])
   @@index([barcode])
@@ -453,4 +484,75 @@ model CatalogEnrichmentProposal {
 
   @@index([productId, status, createdAt])
   @@index([confidence])
+}
+
+
+model CatalogChangeSet {
+  id             String              @id @default(cuid())
+  organizationId String
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  productId      String?
+  product        Product?            @relation(fields: [productId], references: [id], onDelete: SetNull)
+  sku            String
+  sourceType     ChangeSetSourceType
+  sourceRef      String?
+  status         ChangeSetStatus     @default(PREVIEW)
+  current        Json
+  proposed       Json
+  summary        Json
+  approvedFields Json?
+  appliedFields  Json?
+  rejectedFields Json?
+  createdBy      String?
+  approvedBy     String?
+  appliedBy      String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  approvedAt     DateTime?
+  appliedAt      DateTime?
+  rejectedAt     DateTime?
+
+  fields    CatalogFieldChange[]
+  revisions ProductRevision[]
+
+  @@index([organizationId, status, createdAt])
+  @@index([productId, createdAt])
+  @@index([sku, createdAt])
+  @@index([sourceType, sourceRef])
+}
+
+model CatalogFieldChange {
+  id          String            @id @default(cuid())
+  changeSetId String
+  changeSet   CatalogChangeSet  @relation(fields: [changeSetId], references: [id], onDelete: Cascade)
+  field       String
+  risk        FieldChangeRisk
+  beforeValue Json?
+  afterValue  Json?
+  status      FieldChangeStatus @default(PROPOSED)
+  approvedBy  String?
+  appliedBy   String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  approvedAt  DateTime?
+  appliedAt   DateTime?
+  rejectedAt  DateTime?
+
+  @@unique([changeSetId, field])
+  @@index([status, risk])
+}
+
+model ProductRevision {
+  id          String            @id @default(cuid())
+  productId   String
+  product     Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+  changeSetId String?
+  changeSet   CatalogChangeSet? @relation(fields: [changeSetId], references: [id], onDelete: SetNull)
+  reason      String
+  snapshot    Json
+  createdBy   String?
+  createdAt   DateTime          @default(now())
+
+  @@index([productId, createdAt])
+  @@index([changeSetId])
 }
