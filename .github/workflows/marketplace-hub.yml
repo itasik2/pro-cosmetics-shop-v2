@@ -33,8 +33,17 @@ jobs:
       - name: Install
         run: npm install
 
+      - name: Validate Prisma
+        run: npm run db:validate
+
+      - name: Generate Prisma
+        run: npm run prisma:generate
+
       - name: Typecheck
         run: npm run typecheck
 
       - name: Tests
         run: npm test
+
+      - name: Build service
+        run: npm run build
