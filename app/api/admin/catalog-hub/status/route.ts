@@ -5,15 +5,15 @@ import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/adminGuard";
 import { prisma } from "@/lib/prisma";
 import {
-  compareLegacyProductToHub,
+  compareLegacyProductToSnapshot,
   getCatalogHubHealth,
-  getCatalogHubProductBySku,
   getCatalogHubShadowConfig,
+  getCatalogHubSnapshot,
 } from "@/lib/catalogHubClient";
 
 function readLimit(request: Request) {
   const raw = Number(new URL(request.url).searchParams.get("limit") || 20);
-  return Number.isFinite(raw) ? Math.max(1, Math.min(30, Math.trunc(raw))) : 20;
+  return Number.isFinite(raw) ? Math.max(1, Math.min(200, Math.trunc(raw))) : 50;
 }
 
 function shortError(error: unknown) {
@@ -30,6 +30,8 @@ export async function GET(request: Request) {
   const publicConfig = {
     enabled: config.enabled,
     writeEnabled: config.writeEnabled,
+    readEnabled: config.readEnabled,
+    readStrict: config.readStrict,
     configured: config.configured,
     baseUrl: config.baseUrl || null,
     organizationId: config.organizationId || null,
@@ -90,63 +92,51 @@ export async function GET(request: Request) {
     },
   });
 
+  const snapshot = await getCatalogHubSnapshot();
+  const bySku = new Map(snapshot.items.map((item) => [item.sku, item]));
   const comparisons: Array<Record<string, unknown>> = [];
 
-  for (let offset = 0; offset < products.length; offset += 5) {
-    const batch = products.slice(offset, offset + 5);
-    const results = await Promise.all(
-      batch.map(async (product) => {
-        const sku = product.supplierSku?.trim() || "";
-        if (!sku) {
-          return {
-            status: "SKIPPED",
-            localProductId: product.id,
-            sku: null,
-            reason: "supplier_sku_empty",
-          };
-        }
+  for (const product of products) {
+    const sku = product.supplierSku?.trim() || "";
+    if (!sku) {
+      comparisons.push({
+        status: "SKIPPED",
+        localProductId: product.id,
+        sku: null,
+        reason: "supplier_sku_empty",
+      });
+      continue;
+    }
 
-        try {
-          const hub = await getCatalogHubProductBySku(sku);
-          if (!hub) {
-            return {
-              status: "NOT_FOUND",
-              localProductId: product.id,
-              sku,
-            };
-          }
+    const hub = bySku.get(sku);
+    if (!hub) {
+      comparisons.push({
+        status: "NOT_FOUND",
+        localProductId: product.id,
+        sku,
+      });
+      continue;
+    }
 
-          const comparison = compareLegacyProductToHub(
-            {
-              id: product.id,
-              supplierSku: sku,
-              name: product.name,
-              brandName: product.brand?.name || null,
-              shortDescription: product.shortDescription,
-              description: product.description,
-              price: product.price,
-              sourcePrice: product.sourcePrice,
-              stock: product.stock,
-            },
-            hub,
-          );
-
-          return {
-            status: comparison.matched ? "MATCH" : "DIFF",
-            ...comparison,
-          };
-        } catch (error) {
-          return {
-            status: "ERROR",
-            localProductId: product.id,
-            sku,
-            error: shortError(error),
-          };
-        }
-      }),
+    const comparison = compareLegacyProductToSnapshot(
+      {
+        id: product.id,
+        supplierSku: sku,
+        name: product.name,
+        brandName: product.brand?.name || null,
+        shortDescription: product.shortDescription,
+        description: product.description,
+        price: product.price,
+        sourcePrice: product.sourcePrice,
+        stock: product.stock,
+      },
+      hub,
     );
 
-    comparisons.push(...results);
+    comparisons.push({
+      status: comparison.matched ? "MATCH" : "DIFF",
+      ...comparison,
+    });
   }
 
   const count = (status: string) =>
@@ -166,7 +156,10 @@ export async function GET(request: Request) {
       ok: health.health.ok && health.ready.ok,
       config: publicConfig,
       health,
-      summary,
+      summary: {
+        ...summary,
+        hubTotal: snapshot.total,
+      },
       comparisons,
     },
     { headers: { "Cache-Control": "no-store" } },
