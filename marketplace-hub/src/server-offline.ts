@@ -95,7 +95,7 @@ import {
 } from "./runtime/auth.js";
 import { prisma } from "./offline/staging-store.js";
 
-const app = Fastify({
+export const app = Fastify({
   logger: true,
   bodyLimit: 25 * 1024 * 1024,
 });
@@ -1254,9 +1254,14 @@ app.post("/v1/kaspi/price-feed/preview", async (request, reply) => {
   return reply.type("application/xml; charset=utf-8").send(xml);
 });
 
-const port = Number(process.env.PORT ?? 4100);
+export async function startCatalogHubServer() {
+  const port = Number(process.env.PORT ?? 4100);
+  await app.listen({ port, host: "0.0.0.0" });
+}
 
-app.listen({ port, host: "0.0.0.0" }).catch((error) => {
-  app.log.error(error);
-  process.exit(1);
-});
+if (process.env.VERCEL !== "1") {
+  startCatalogHubServer().catch((error) => {
+    app.log.error(error);
+    process.exit(1);
+  });
+}
