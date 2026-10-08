@@ -103,3 +103,12 @@ tr:last-child td { border-bottom:0; }
   .page-head { align-items:flex-start; flex-direction:column; }
   .grid.metrics, .profile-grid { grid-template-columns:1fr; }
 }
+
+.logout { margin-top:12px; width:100%; border:1px solid #334155; background:#182235; color:#cbd5e1; border-radius:8px; padding:8px 10px; cursor:pointer; }
+.login-page { min-height:100vh; display:grid; place-items:center; padding:24px; background:radial-gradient(circle at 30% 20%,#eef4ff 0,#f4f6f9 40%,#eef1f6 100%); }
+.login-card { width:min(420px,100%); background:white; border:1px solid var(--line); border-radius:18px; padding:30px; box-shadow:0 24px 70px rgba(15,23,42,.09); }
+.login-card h1 { margin:14px 0 4px; font-size:28px; }
+.login-card p { color:var(--muted); margin:0 0 24px; font-size:13px; }
+.login-card label span { display:block; font-size:12px; color:var(--muted); margin-bottom:7px; }
+.login-mark { margin-bottom:16px; color:white; }
+.login-button { width:100%; margin-top:14px; }
