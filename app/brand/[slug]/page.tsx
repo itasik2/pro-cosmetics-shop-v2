@@ -88,15 +88,19 @@ export default async function BrandPage(props: Props) {
 
   const productRows = await prisma.product.findMany({
     where: {
-      brandId: brand.id,
       isPublished: true,
       enrichmentStatus: { not: "MERGED" },
     },
     include: { brand: true },
     orderBy: { createdAt: "desc" },
   });
+  const overlaidProducts = await overlayCatalogHubProducts(productRows);
   const products = collapseRepresentedProductCards(
-    await overlayCatalogHubProducts(productRows),
+    overlaidProducts.filter(
+      (product) =>
+        product.brand?.name?.toLocaleLowerCase("ru-RU") ===
+        brand.name.toLocaleLowerCase("ru-RU"),
+    ),
   );
 
   const baseUrl = getPublicBaseUrl();
