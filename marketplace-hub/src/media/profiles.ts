@@ -147,3 +147,84 @@ export function mediaProfileToTransform(profile: {
     trim: profile.trim,
   };
 }
+
+
+export const DEFAULT_MEDIA_PROFILES: MediaProfileInput[] = [
+  {
+    organizationId: "",
+    code: "master",
+    name: "Master original derivative",
+    target: "MASTER",
+    width: 2400,
+    height: 2400,
+    mode: "BOUND",
+    format: "webp",
+    quality: 92,
+    background: "#ffffff",
+    allowUpscale: false,
+    removeBackground: false,
+    trim: false,
+    isActive: true,
+  },
+  {
+    organizationId: "",
+    code: "storefront",
+    name: "Storefront",
+    target: "STOREFRONT",
+    width: 1600,
+    height: 1600,
+    mode: "BOUND",
+    format: "webp",
+    quality: 86,
+    background: "#ffffff",
+    allowUpscale: false,
+    removeBackground: false,
+    trim: false,
+    isActive: true,
+  },
+  {
+    organizationId: "",
+    code: "marketplace-square",
+    name: "Marketplace square",
+    target: "MARKETPLACE",
+    width: 1600,
+    height: 1600,
+    mode: "PAD",
+    format: "jpeg",
+    quality: 90,
+    background: "#ffffff",
+    allowUpscale: false,
+    removeBackground: false,
+    trim: false,
+    isActive: true,
+  },
+  {
+    organizationId: "",
+    code: "thumbnail",
+    name: "Thumbnail",
+    target: "THUMBNAIL",
+    width: 360,
+    height: 360,
+    mode: "PAD",
+    format: "webp",
+    quality: 80,
+    background: "#ffffff",
+    allowUpscale: false,
+    removeBackground: false,
+    trim: false,
+    isActive: true,
+  },
+];
+
+export async function ensureDefaultMediaProfiles(organizationId: string) {
+  const results = [];
+  for (const profile of DEFAULT_MEDIA_PROFILES) {
+    results.push(
+      await upsertMediaProfile({
+        ...profile,
+        organizationId,
+      }),
+    );
+  }
+  return results;
+}
