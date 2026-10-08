@@ -56,6 +56,13 @@ import {
   stageCatalogEnrichmentProposal,
 } from "./ai/store.js";
 import {
+  linkProductSupplier,
+  listSourcePolicies,
+  listSuppliers,
+  upsertSourcePolicy,
+  upsertSupplier,
+} from "./ai/source-store.js";
+import {
   applyApprovedChanges,
   buildCardDiff,
   stagingApplyRequestSchema,
@@ -541,6 +548,87 @@ app.post("/v1/media/variants/:id/stage", async (request, reply) => {
   } catch (error) {
     return reply.code(400).send({
       error: error instanceof Error ? error.message : "media_staging_failed",
+    });
+  }
+});
+
+app.get("/v1/suppliers", async (request, reply) => {
+  if (!stagingDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  const query = z.object({
+    organizationId: z.string().min(1),
+    activeOnly: z.coerce.boolean().optional(),
+  }).safeParse(request.query);
+  if (!query.success) {
+    return reply.code(400).send({
+      error: "Invalid supplier query",
+      details: query.error.flatten(),
+    });
+  }
+
+  return listSuppliers(query.data);
+});
+
+app.post("/v1/suppliers", async (request, reply) => {
+  if (!stagingDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  try {
+    return reply.code(201).send(await upsertSupplier(request.body));
+  } catch (error) {
+    return reply.code(400).send({
+      error: error instanceof Error ? error.message : "supplier_upsert_failed",
+    });
+  }
+});
+
+app.post("/v1/suppliers/link-product", async (request, reply) => {
+  if (!stagingDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  try {
+    return reply.code(201).send(await linkProductSupplier(request.body));
+  } catch (error) {
+    return reply.code(400).send({
+      error: error instanceof Error ? error.message : "supplier_product_link_failed",
+    });
+  }
+});
+
+app.get("/v1/source-policies", async (request, reply) => {
+  if (!stagingDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  const query = z.object({
+    organizationId: z.string().min(1),
+    supplierCode: z.string().trim().optional(),
+    enabledOnly: z.coerce.boolean().optional(),
+  }).safeParse(request.query);
+  if (!query.success) {
+    return reply.code(400).send({
+      error: "Invalid source policy query",
+      details: query.error.flatten(),
+    });
+  }
+
+  return listSourcePolicies(query.data);
+});
+
+app.post("/v1/source-policies", async (request, reply) => {
+  if (!stagingDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  try {
+    return reply.code(201).send(await upsertSourcePolicy(request.body));
+  } catch (error) {
+    return reply.code(400).send({
+      error: error instanceof Error ? error.message : "source_policy_upsert_failed",
     });
   }
 });
