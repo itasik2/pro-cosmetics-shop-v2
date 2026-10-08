@@ -122,3 +122,28 @@ export async function updateMediaProfile(input: {
     },
   });
 }
+
+
+export function mediaProfileToTransform(profile: {
+  width: number;
+  height: number;
+  mode: string;
+  format: string;
+  quality: number;
+  background: string;
+  allowUpscale: boolean;
+  trim: boolean;
+}) {
+  return {
+    width: profile.width,
+    height: profile.height,
+    maxWidth: profile.width,
+    maxHeight: profile.height,
+    mode: mediaProfileModeSchema.parse(profile.mode),
+    format: mediaProfileFormatSchema.parse(profile.format),
+    quality: profile.quality,
+    background: profile.background,
+    allowUpscale: profile.allowUpscale,
+    trim: profile.trim,
+  };
+}
