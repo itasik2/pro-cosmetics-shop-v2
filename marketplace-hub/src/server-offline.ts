@@ -74,6 +74,7 @@ import {
   approveChangeSet,
   createChangeSet,
   getChangeSet,
+  listChangeSets,
   rejectChangeSet,
   stagingDatabaseConfigured,
 } from "./offline/staging-store.js";
@@ -1037,6 +1038,27 @@ app.post("/v1/staging/changesets", async (request, reply) => {
       error: error instanceof Error ? error.message : "changeset_create_failed",
     });
   }
+});
+
+app.get("/v1/staging/changesets", async (request, reply) => {
+  if (!stagingDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  const query = z.object({
+    organizationId: z.string().min(1),
+    status: z.enum(["PREVIEW", "APPROVED", "PARTIALLY_APPLIED", "APPLIED", "REJECTED"]).optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+  }).safeParse(request.query);
+
+  if (!query.success) {
+    return reply.code(400).send({
+      error: "Invalid changeset query",
+      details: query.error.flatten(),
+    });
+  }
+
+  return listChangeSets(query.data);
 });
 
 app.get("/v1/staging/changesets/:id", async (request, reply) => {
