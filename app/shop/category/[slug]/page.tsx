@@ -36,16 +36,16 @@ export default async function CategoryPage(props: Props) {
     where: {
       isPublished: true,
       enrichmentStatus: { not: "MERGED" },
-      category: {
-        contains: categoryName,
-        mode: "insensitive",
-      },
     },
     include: { brand: true },
     orderBy: { createdAt: "desc" },
   });
+  const normalizedCategory = categoryName.toLocaleLowerCase("ru-RU");
+  const overlaidProducts = await overlayCatalogHubProducts(productRows);
   const products = collapseRepresentedProductCards(
-    await overlayCatalogHubProducts(productRows),
+    overlaidProducts.filter((product) =>
+      product.category.toLocaleLowerCase("ru-RU").includes(normalizedCategory),
+    ),
   );
 
   if (!products.length) notFound();
