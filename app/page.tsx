@@ -165,7 +165,6 @@ const getHomeRows = unstable_cache(
           where: {
             id: { in: salesIds },
             isPublished: true,
-            stock: { gt: 0 },
             enrichmentStatus: { not: "MERGED" },
           },
           select: PRODUCT_CARD_SELECT,
