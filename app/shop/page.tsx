@@ -269,9 +269,6 @@ export default async function ShopPage(props: Props) {
   const where: Prisma.ProductWhereInput = {
     isPublished: true,
     enrichmentStatus: { not: "MERGED" },
-    ...(selectedBrands.length
-      ? { brandId: { in: selectedBrands.map((brand) => brand.id) } }
-      : {}),
     ...(andConditions.length ? { AND: andConditions } : {}),
   };
 
@@ -304,7 +301,18 @@ export default async function ShopPage(props: Props) {
 
   const products = await overlayCatalogHubProducts(legacyProducts);
 
+  const selectedBrandNames = new Set(
+    selectedBrands.map((brand) => brand.name.toLocaleLowerCase("ru-RU")),
+  );
+
   const productsForClient = collapseRepresentedProductCards(products)
+    .filter(
+      (product) =>
+        selectedBrandNames.size === 0 ||
+        (product.brand?.name
+          ? selectedBrandNames.has(product.brand.name.toLocaleLowerCase("ru-RU"))
+          : false),
+    )
     .filter(
       (product) =>
         selectedCategories.length === 0 ||
