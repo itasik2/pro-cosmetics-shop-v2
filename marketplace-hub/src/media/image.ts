@@ -4,12 +4,16 @@ import { z } from "zod";
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 
 export const mediaTransformSchema = z.object({
+  width: z.number().int().min(64).max(6000).optional(),
+  height: z.number().int().min(64).max(6000).optional(),
   maxWidth: z.number().int().min(64).max(6000).default(1600),
   maxHeight: z.number().int().min(64).max(6000).default(1600),
+  mode: z.enum(["BOUND", "PAD", "COVER"]).default("BOUND"),
   format: z.enum(["jpeg", "png", "webp", "avif"]).default("webp"),
   quality: z.number().int().min(40).max(100).default(86),
   allowUpscale: z.boolean().default(false),
   background: z.string().default("#ffffff"),
+  trim: z.boolean().default(false),
 });
 
 export type MediaTransform = z.infer<typeof mediaTransformSchema>;
@@ -111,15 +115,36 @@ export async function transformImage(
 ) {
   const input = await analyzeImage(bytes);
   const transform = mediaTransformSchema.parse(rawTransform);
+  const width = transform.width ?? transform.maxWidth;
+  const height = transform.height ?? transform.maxHeight;
 
-  let pipeline = sharp(bytes, { animated: false })
-    .rotate()
-    .resize({
-      width: transform.maxWidth,
-      height: transform.maxHeight,
+  let pipeline = sharp(bytes, { animated: false }).rotate();
+  if (transform.trim) pipeline = pipeline.trim();
+
+  if (transform.mode === "PAD") {
+    pipeline = pipeline.resize({
+      width,
+      height,
+      fit: "contain",
+      withoutEnlargement: !transform.allowUpscale,
+      background: transform.background,
+    });
+  } else if (transform.mode === "COVER") {
+    pipeline = pipeline.resize({
+      width,
+      height,
+      fit: "cover",
+      withoutEnlargement: !transform.allowUpscale,
+      position: "centre",
+    });
+  } else {
+    pipeline = pipeline.resize({
+      width,
+      height,
       fit: "inside",
       withoutEnlargement: !transform.allowUpscale,
     });
+  }
 
   if (transform.format === "jpeg") {
     pipeline = pipeline
