@@ -1,9 +1,17 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={<LoginShell loading />}>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const [password, setPassword] = useState("");
@@ -23,7 +31,11 @@ export default function LoginPage() {
 
     if (!response.ok) {
       const body = await response.json().catch(() => null);
-      setError(body?.error === "invalid_password" ? "Неверный пароль" : "Вход не настроен");
+      setError(
+        body?.error === "invalid_password"
+          ? "Неверный пароль"
+          : "Вход не настроен",
+      );
       setLoading(false);
       return;
     }
@@ -33,8 +45,35 @@ export default function LoginPage() {
   }
 
   return (
+    <LoginShell
+      password={password}
+      error={error}
+      loading={loading}
+      configError={params.get("error") === "session_not_configured"}
+      onPassword={setPassword}
+      onSubmit={submit}
+    />
+  );
+}
+
+function LoginShell({
+  password = "",
+  error = "",
+  loading = false,
+  configError = false,
+  onPassword,
+  onSubmit,
+}: {
+  password?: string;
+  error?: string;
+  loading?: boolean;
+  configError?: boolean;
+  onPassword?: (value: string) => void;
+  onSubmit?: (event: FormEvent) => void;
+}) {
+  return (
     <main className="login-page">
-      <form className="login-card" onSubmit={submit}>
+      <form className="login-card" onSubmit={onSubmit}>
         <div className="brand-mark login-mark">CH</div>
         <span className="eyebrow">CATALOG OPERATIONS</span>
         <h1>Catalog Hub</h1>
@@ -47,17 +86,23 @@ export default function LoginPage() {
             type="password"
             autoComplete="current-password"
             value={password}
-            onChange={(event) => setPassword(event.target.value)}
+            onChange={(event) => onPassword?.(event.target.value)}
             autoFocus
+            disabled={!onPassword}
           />
         </label>
 
         {error && <div className="error">{error}</div>}
-        {params.get("error") === "session_not_configured" && (
-          <div className="error">CATALOG_HUB_UI_SESSION_TOKEN не настроен.</div>
+        {configError && (
+          <div className="error">
+            CATALOG_HUB_UI_SESSION_TOKEN не настроен.
+          </div>
         )}
 
-        <button className="button primary login-button" disabled={loading || !password}>
+        <button
+          className="button primary login-button"
+          disabled={loading || !password || !onSubmit}
+        >
           {loading ? "Вход…" : "Войти"}
         </button>
       </form>
