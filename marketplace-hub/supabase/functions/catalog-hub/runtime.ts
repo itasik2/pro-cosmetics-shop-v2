@@ -391,6 +391,160 @@ async function catalogSnapshot(url: URL) {
   };
 }
 
+function requiredOrganizationId(url: URL) {
+  const organizationId = (url.searchParams.get("organizationId") || "").trim();
+  if (!organizationId) throw new Error("organizationId_required");
+  return organizationId;
+}
+
+async function getProductById(url: URL, id: string) {
+  const organizationId = requiredOrganizationId(url);
+  const rows = await sql<ProductRow[]>`
+    SELECT *
+    FROM public."Product"
+    WHERE "id" = ${id}
+      AND "organizationId" = ${organizationId}
+    LIMIT 1
+  `;
+  return rows[0] ? serializeProduct(rows[0]) : null;
+}
+
+async function listSuppliersForUi(url: URL) {
+  const organizationId = requiredOrganizationId(url);
+  return sql`
+    SELECT
+      s."id", s."code", s."name", s."isActive",
+      s."createdAt", s."updatedAt",
+      json_build_object(
+        'products', count(DISTINCT sp."id")::int,
+        'sourcePolicies', count(DISTINCT csp."id")::int
+      ) AS "_count"
+    FROM public."Supplier" s
+    LEFT JOIN public."SupplierProduct" sp ON sp."supplierId" = s."id"
+    LEFT JOIN public."CatalogSourcePolicy" csp ON csp."supplierId" = s."id"
+    WHERE s."organizationId" = ${organizationId}
+    GROUP BY s."id"
+    ORDER BY s."name" ASC, s."code" ASC
+  `;
+}
+
+async function listSourcePoliciesForUi(url: URL) {
+  const organizationId = requiredOrganizationId(url);
+  return sql`
+    SELECT
+      csp.*,
+      json_build_object(
+        'id', s."id",
+        'code', s."code",
+        'name', s."name"
+      ) AS "supplier"
+    FROM public."CatalogSourcePolicy" csp
+    JOIN public."Supplier" s ON s."id" = csp."supplierId"
+    WHERE s."organizationId" = ${organizationId}
+      AND csp."isEnabled" = true
+    ORDER BY csp."priority" DESC, csp."domain" ASC
+  `;
+}
+
+async function listMediaProfilesForUi(url: URL) {
+  const organizationId = requiredOrganizationId(url);
+  return sql`
+    SELECT *
+    FROM public."MediaProfile"
+    WHERE "organizationId" = ${organizationId}
+      AND "isActive" = true
+    ORDER BY COALESCE("target", ''), "code"
+  `;
+}
+
+async function listEnrichmentProposalsForUi(url: URL) {
+  const organizationId = requiredOrganizationId(url);
+  const limit = Math.max(
+    1,
+    Math.min(100, Math.trunc(Number(url.searchParams.get("limit") || 50))),
+  );
+  const status = (url.searchParams.get("status") || "").trim();
+
+  return sql`
+    SELECT
+      cep."id",
+      cep."confidence",
+      cep."status",
+      cep."sourceUrl",
+      cep."title",
+      cep."shortDescription",
+      cep."description",
+      cep."application",
+      cep."ingredients",
+      cep."images",
+      cep."warnings",
+      cep."evaluation",
+      cep."createdAt",
+      json_build_object(
+        'id', p."id",
+        'sku', p."sku",
+        'title', p."title",
+        'brand', p."brand"
+      ) AS "product"
+    FROM public."CatalogEnrichmentProposal" cep
+    JOIN public."Product" p ON p."id" = cep."productId"
+    WHERE p."organizationId" = ${organizationId}
+      AND (${status} = '' OR cep."status"::text = ${status})
+    ORDER BY cep."createdAt" DESC
+    LIMIT ${limit}
+  `;
+}
+
+async function listChangeSetsForUi(url: URL) {
+  const organizationId = requiredOrganizationId(url);
+  const limit = Math.max(
+    1,
+    Math.min(100, Math.trunc(Number(url.searchParams.get("limit") || 50))),
+  );
+  const status = (url.searchParams.get("status") || "").trim();
+
+  return sql`
+    SELECT
+      cs."id",
+      cs."sku",
+      cs."sourceType",
+      cs."sourceRef",
+      cs."status",
+      cs."summary",
+      cs."createdAt",
+      CASE WHEN p."id" IS NULL THEN NULL ELSE
+        json_build_object(
+          'id', p."id",
+          'sku', p."sku",
+          'title', p."title",
+          'brand', p."brand"
+        )
+      END AS "product",
+      COALESCE(
+        json_agg(
+          json_build_object(
+            'id', f."id",
+            'field', f."field",
+            'risk', f."risk",
+            'status', f."status",
+            'beforeValue', f."beforeValue",
+            'afterValue', f."afterValue"
+          )
+          ORDER BY f."createdAt" ASC
+        ) FILTER (WHERE f."id" IS NOT NULL),
+        '[]'::json
+      ) AS "fields"
+    FROM public."CatalogChangeSet" cs
+    LEFT JOIN public."Product" p ON p."id" = cs."productId"
+    LEFT JOIN public."CatalogFieldChange" f ON f."changeSetId" = cs."id"
+    WHERE cs."organizationId" = ${organizationId}
+      AND (${status} = '' OR cs."status"::text = ${status})
+    GROUP BY cs."id", p."id"
+    ORDER BY cs."createdAt" DESC
+    LIMIT ${limit}
+  `;
+}
+
 async function listProducts(url: URL) {
   const organizationId = (url.searchParams.get("organizationId") || "").trim();
   if (!organizationId) throw new Error("organizationId_required");
@@ -454,7 +608,7 @@ Deno.serve(async (req: Request) => {
       return json({
         ok: true,
         service: "catalog-hub",
-        version: "0.8.2-edge",
+        version: "0.9.0-edge",
         mode: "supabase-edge",
       });
     }
@@ -476,6 +630,34 @@ Deno.serve(async (req: Request) => {
 
     if (!(await authorize(req))) {
       return json({ error: "unauthorized" }, 401);
+    }
+
+    const productById = route.match(/^\/v1\/catalog\/products\/([^/]+)$/);
+    if (req.method === "GET" && productById) {
+      const product = await getProductById(url, decodeURIComponent(productById[1]));
+      return product
+        ? json(product)
+        : json({ error: "product_not_found" }, 404);
+    }
+
+    if (route === "/v1/suppliers" && req.method === "GET") {
+      return json(await listSuppliersForUi(url));
+    }
+
+    if (route === "/v1/source-policies" && req.method === "GET") {
+      return json(await listSourcePoliciesForUi(url));
+    }
+
+    if (route === "/v1/media/profiles" && req.method === "GET") {
+      return json(await listMediaProfilesForUi(url));
+    }
+
+    if (route === "/v1/ai/enrichment/proposals" && req.method === "GET") {
+      return json(await listEnrichmentProposalsForUi(url));
+    }
+
+    if (route === "/v1/staging/changesets" && req.method === "GET") {
+      return json(await listChangeSetsForUi(url));
     }
 
     const bySku = route.match(/^\/v1\/catalog\/by-sku\/(.+)$/);
