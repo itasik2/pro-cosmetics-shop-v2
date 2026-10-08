@@ -9,6 +9,7 @@ import {
   SITE_WHATSAPP_URL,
 } from "@/lib/siteConfig";
 import { getPublicExternalLinks } from "@/lib/externalLinks";
+import { getStorePolicy } from "@/lib/storePolicy";
 
 const FOOTER_LINKS = [
   { href: "/shop", label: "Каталог" },
@@ -17,11 +18,13 @@ const FOOTER_LINKS = [
   { href: "/blog", label: "Полезные материалы" },
   { href: "/about", label: "О магазине" },
   { href: "/contacts", label: "Контакты" },
+  { href: "/requisites", label: "Реквизиты" },
   { href: "/ask", label: "Задать вопрос" },
 ] as const;
 
 export default async function Footer() {
   const externalLinks = await getPublicExternalLinks();
+  const policy = getStorePolicy();
   const socialLinks = externalLinks.filter((link) => link.kind === "SOCIAL");
   const marketplaceLinks = externalLinks.filter(
     (link) => link.kind === "MARKETPLACE",
@@ -45,6 +48,11 @@ export default async function Footer() {
             Помогаем понять назначение средства, подобрать его под потребности кожи
             и правильно включить в ежедневную схему.
           </p>
+          {policy.sellerName ? (
+            <p className="mt-4 text-xs leading-5 text-gray-500">
+              Владелец сайта и продавец: <strong className="font-semibold text-gray-700">{policy.sellerName}</strong>, Республика Казахстан.
+            </p>
+          ) : null}
           <div className="mt-4 flex flex-wrap gap-2">
             <span className="accent-badge rounded-full px-3 py-1 text-xs font-semibold">
               Доставка по Казахстану

@@ -1,4 +1,8 @@
-import { getScopedEnv } from "./siteConfig";
+import { getScopedEnv, SITE_KEY } from "./siteConfig";
+
+const DEFAULT_SELLER_NAME_BY_SITE: Record<string, string> = {
+  procosmetics: 'ИП "Мир услуг"',
+};
 
 export function configuredDeliveryPrice(value: string) {
   if (!/^\d+$/.test(value.trim())) return null;
@@ -8,7 +12,10 @@ export function configuredDeliveryPrice(value: string) {
 
 export function getStorePolicy() {
   return {
-    sellerName: getScopedEnv("STORE_SELLER_NAME").trim(),
+    sellerName:
+      getScopedEnv("STORE_SELLER_NAME").trim() ||
+      DEFAULT_SELLER_NAME_BY_SITE[SITE_KEY] ||
+      "",
     sellerId: getScopedEnv("STORE_SELLER_ID").trim(),
     sellerAddress: getScopedEnv("STORE_SELLER_ADDRESS").trim(),
     deliveryPrice: configuredDeliveryPrice(getScopedEnv("STORE_DELIVERY_PRICE")),

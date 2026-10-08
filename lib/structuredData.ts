@@ -9,6 +9,7 @@ import {
   SITE_TIKTOK_URL,
   SITE_TITLE,
 } from "@/lib/siteConfig";
+import { getStorePolicy } from "@/lib/storePolicy";
 
 export type BreadcrumbItem = {
   name: string;
@@ -33,12 +34,14 @@ export function buildOrganizationJsonLd() {
   const sameAs = [SITE_INSTAGRAM_URL, SITE_TELEGRAM_URL, SITE_TIKTOK_URL].filter(
     Boolean,
   );
+  const policy = getStorePolicy();
 
   return {
     "@context": "https://schema.org",
     "@type": "Organization",
     "@id": `${baseUrl}/#organization`,
     name: SITE_BRAND,
+    ...(policy.sellerName ? { legalName: policy.sellerName } : {}),
     url: baseUrl,
     logo: absolutePublicUrl("/brand/header-logo.svg"),
     description: SITE_DESCRIPTION,
