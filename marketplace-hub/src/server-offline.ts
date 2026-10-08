@@ -34,6 +34,7 @@ import {
   normalizeCatalogImageWithCloudinary,
 } from "./media/cloudinary.js";
 import {
+  ensureDefaultMediaProfiles,
   getMediaProfile,
   listMediaProfiles,
   mediaProfileToTransform,
@@ -41,6 +42,12 @@ import {
   updateMediaProfile,
   upsertMediaProfile,
 } from "./media/profiles.js";
+import {
+  importProductMedia,
+  listProductMedia,
+  mediaStoreConfigured,
+  stageProductMediaVariant,
+} from "./media/store.js";
 import {
   createCatalogEnrichmentJob,
   getCatalogEnrichmentJob,
@@ -313,6 +320,27 @@ app.post("/v1/offline/import/pdf/preview", async (request, reply) => {
   }
 });
 
+app.post("/v1/media/profiles/bootstrap", async (request, reply) => {
+  if (!mediaProfilesDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  const body = z.object({ organizationId: z.string().min(1) }).safeParse(request.body);
+  if (!body.success) {
+    return reply.code(400).send({ error: "organizationId_required" });
+  }
+
+  try {
+    return {
+      profiles: await ensureDefaultMediaProfiles(body.data.organizationId),
+    };
+  } catch (error) {
+    return reply.code(400).send({
+      error: error instanceof Error ? error.message : "media_profile_bootstrap_failed",
+    });
+  }
+});
+
 app.get("/v1/media/profiles", async (request, reply) => {
   if (!mediaProfilesDatabaseConfigured()) {
     return reply.code(503).send({ error: "database_not_configured" });
@@ -419,6 +447,100 @@ app.post("/v1/media/transform", async (request, reply) => {
   } catch (error) {
     return reply.code(400).send({
       error: error instanceof Error ? error.message : "media_transform_failed",
+    });
+  }
+});
+
+app.post("/v1/media/products/:id/import", async (request, reply) => {
+  if (!mediaStoreConfigured()) {
+    return reply.code(503).send({
+      error: cloudinaryMediaConfigured()
+        ? "database_not_configured"
+        : "cloudinary_not_configured",
+    });
+  }
+
+  const params = request.params as { id: string };
+  const body = z.object({
+    organizationId: z.string().min(1),
+    sourceUrl: z.string().url(),
+    profileCodes: z.array(z.string().trim().min(1)).min(1).max(12),
+    makePrimary: z.boolean().optional(),
+  }).safeParse(request.body);
+
+  if (!body.success) {
+    return reply.code(400).send({
+      error: "Invalid product media import",
+      details: body.error.flatten(),
+    });
+  }
+
+  try {
+    return reply.code(201).send(
+      await importProductMedia({
+        ...body.data,
+        productId: params.id,
+      }),
+    );
+  } catch (error) {
+    return reply.code(400).send({
+      error: error instanceof Error ? error.message : "product_media_import_failed",
+    });
+  }
+});
+
+app.get("/v1/media/products/:id", async (request, reply) => {
+  if (!mediaProfilesDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  const params = request.params as { id: string };
+  const query = z.object({ organizationId: z.string().min(1) }).safeParse(request.query);
+  if (!query.success) {
+    return reply.code(400).send({ error: "organizationId_required" });
+  }
+
+  try {
+    return await listProductMedia({
+      organizationId: query.data.organizationId,
+      productId: params.id,
+    });
+  } catch (error) {
+    return reply.code(404).send({
+      error: error instanceof Error ? error.message : "product_media_list_failed",
+    });
+  }
+});
+
+app.post("/v1/media/variants/:id/stage", async (request, reply) => {
+  if (!mediaProfilesDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  const params = request.params as { id: string };
+  const body = z.object({
+    organizationId: z.string().min(1),
+    replaceAllImages: z.boolean().optional(),
+    createdBy: z.string().optional(),
+  }).safeParse(request.body);
+
+  if (!body.success) {
+    return reply.code(400).send({
+      error: "Invalid media staging request",
+      details: body.error.flatten(),
+    });
+  }
+
+  try {
+    return reply.code(201).send(
+      await stageProductMediaVariant({
+        ...body.data,
+        variantId: params.id,
+      }),
+    );
+  } catch (error) {
+    return reply.code(400).send({
+      error: error instanceof Error ? error.message : "media_staging_failed",
     });
   }
 });
