@@ -207,10 +207,8 @@ export async function runCatalogEnrichmentJob(input: {
   });
   if (!job) throw new Error("enrichment_job_not_found");
   if (
-    ![
-      CatalogEnrichmentJobStatus.PENDING,
-      CatalogEnrichmentJobStatus.FAILED,
-    ].includes(job.status)
+    job.status !== CatalogEnrichmentJobStatus.PENDING &&
+    job.status !== CatalogEnrichmentJobStatus.FAILED
   ) {
     throw new Error("enrichment_job_not_runnable");
   }
