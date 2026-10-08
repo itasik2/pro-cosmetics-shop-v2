@@ -16,7 +16,7 @@ export const mediaTransformSchema = z.object({
   trim: z.boolean().default(false),
 });
 
-export type MediaTransform = z.infer<typeof mediaTransformSchema>;
+export type MediaTransform = z.input<typeof mediaTransformSchema>;
 
 export const MEDIA_PRESETS = {
   master: {
