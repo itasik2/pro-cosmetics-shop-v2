@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { LogoutButton } from "@/components/LogoutButton";
 
 const items = [
   ["/", "Обзор", "⌂"],
@@ -42,6 +43,7 @@ export function Sidebar() {
         <span className="status-dot" />
         ProCosmetics
         <small>org_procosmetics</small>
+        <LogoutButton />
       </div>
     </aside>
   );
