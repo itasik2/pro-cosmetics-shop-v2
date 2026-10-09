@@ -2,6 +2,7 @@ import "server-only";
 
 const baseUrl = String(process.env.CATALOG_HUB_API_URL || "").replace(/\/$/, "");
 const apiKey = String(process.env.CATALOG_HUB_API_KEY || "");
+const oidcToken = String(process.env.VERCEL_OIDC_TOKEN || "");
 export const organizationId =
   String(process.env.CATALOG_HUB_ORGANIZATION_ID || "") || "org_procosmetics";
 export const warehouseId =
@@ -48,8 +49,8 @@ export async function hubFetch<T>(
   init?: RequestInit,
 ): Promise<T> {
   if (!baseUrl) throw new Error("CATALOG_HUB_API_URL not configured");
-  if (!apiKey && path.startsWith("/v1/")) {
-    throw new Error("CATALOG_HUB_API_KEY not configured");
+  if (!oidcToken && !apiKey && path.startsWith("/v1/")) {
+    throw new Error("catalog_hub_server_auth_not_configured");
   }
 
   const response = await fetch(baseUrl + path, {
@@ -58,7 +59,11 @@ export async function hubFetch<T>(
     headers: {
       accept: "application/json",
       ...(init?.body ? { "content-type": "application/json" } : {}),
-      ...(apiKey ? { "x-catalog-hub-key": apiKey } : {}),
+      ...(oidcToken
+        ? { authorization: `Bearer ${oidcToken}` }
+        : apiKey
+          ? { "x-catalog-hub-key": apiKey }
+          : {}),
       ...(init?.headers || {}),
     },
   });
