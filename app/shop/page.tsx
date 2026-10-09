@@ -11,6 +11,7 @@ import { SITE_BRAND, getPublicBaseUrl } from "@/lib/siteConfig";
 import { buildBrandIntentKeywords } from "@/lib/seo";
 import { collapseRepresentedProductCards } from "@/lib/publicProductCards";
 import { CATEGORY_OPTIONS, CARE_OPTIONS, productMatchesCategory, productMatchesCare, productMatchesBudget, parseBudget } from "@/lib/catalogFilters";
+import { overlayCatalogHubProducts } from "@/lib/catalogHubOverlay";
 
 export const dynamic = "force-dynamic";
 
@@ -268,15 +269,12 @@ export default async function ShopPage(props: Props) {
   const where: Prisma.ProductWhereInput = {
     isPublished: true,
     enrichmentStatus: { not: "MERGED" },
-    ...(selectedBrands.length
-      ? { brandId: { in: selectedBrands.map((brand) => brand.id) } }
-      : {}),
     ...(andConditions.length ? { AND: andConditions } : {}),
   };
 
   const orderBy: Prisma.ProductOrderByWithRelationInput[] = [{ createdAt: "desc" }];
 
-  const products = await prisma.product.findMany({
+  const legacyProducts = await prisma.product.findMany({
     where,
     orderBy,
     select: {
@@ -301,7 +299,20 @@ export default async function ShopPage(props: Props) {
     },
   });
 
+  const products = await overlayCatalogHubProducts(legacyProducts);
+
+  const selectedBrandNames = new Set(
+    selectedBrands.map((brand) => brand.name.toLocaleLowerCase("ru-RU")),
+  );
+
   const productsForClient = collapseRepresentedProductCards(products)
+    .filter(
+      (product) =>
+        selectedBrandNames.size === 0 ||
+        (product.brand?.name
+          ? selectedBrandNames.has(product.brand.name.toLocaleLowerCase("ru-RU"))
+          : false),
+    )
     .filter(
       (product) =>
         selectedCategories.length === 0 ||

@@ -6,6 +6,7 @@ import { parseConsultantCriteria, rankConsultantProducts, recommendationFromProd
 import { askCatalogAi, ConsultantProviderError, DEFAULT_CONSULTANT_MODEL } from "@/lib/consultantAi";
 import { getScopedEnv, SITE_KEY } from "@/lib/siteConfig";
 import { getStorePolicy } from "@/lib/storePolicy";
+import { overlayCatalogHubProducts } from "@/lib/catalogHubOverlay";
 
 export const runtime = "nodejs";
 export const maxDuration = 40;
@@ -47,12 +48,13 @@ export async function POST(req: Request) {
       where: { isPublished: true, enrichmentStatus: { not: "MERGED" }, ...(productId ? { id: productId } : {}) },
       select: { id: true, slug: true, name: true, image: true, description: true, shortDescription: true,
         category: true, productLineName: true, price: true, stock: true, variants: true,
-        supplierId: true, volumeValue: true, volumeUnit: true, brand: { select: { name: true } },
+        supplierId: true, supplierSku: true, volumeValue: true, volumeUnit: true, brand: { select: { name: true } },
         enrichmentProposals: { where: { status: "APPLIED" }, orderBy: { appliedAt: "desc" }, take: 1, select: { ingredients: true, sourceUrl: true } },
       },
     });
     if (productId && !rows.length) return json({ answer: "Этот товар недоступен. Выберите средство из каталога.", recommendations: [] }, 404);
-    const candidates = rankConsultantProducts(collapseRepresentedProductCards(rows), criteria, productId).map((item) => item.product);
+    const catalogRows = await overlayCatalogHubProducts(rows);
+    const candidates = rankConsultantProducts(collapseRepresentedProductCards(catalogRows), criteria, productId).map((item) => item.product);
     const fallbackCards = candidates.flatMap((product) => {
       const card = recommendationFromProduct(product, criteria, "Соответствует выбранным фильтрам каталога. Назначение и применение уточните в карточке.");
       return card ? [card] : [];
