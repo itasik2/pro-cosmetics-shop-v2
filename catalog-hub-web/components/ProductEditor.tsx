@@ -38,7 +38,7 @@ function formatAttributes(value: unknown): string {
     try {
       decoded = JSON.parse(decoded);
     } catch {
-      return decoded;
+      return String(decoded);
     }
   }
   if (decoded && typeof decoded === "object" && !Array.isArray(decoded)) {
