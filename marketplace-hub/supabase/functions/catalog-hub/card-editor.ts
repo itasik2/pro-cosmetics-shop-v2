@@ -117,9 +117,9 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
       const productId = requiredId(body.productId, "productId");
       const proposed = normalizePatch(body.proposed);
       const result = await sql.begin(async (tx) => {
-        const products = await tx<Product[]>\`SELECT *, "updatedAt"::text AS "snapshotVersion"
-          FROM public."Product" WHERE "id" = \${productId}
-            AND "organizationId" = \${organizationId} FOR UPDATE\`;
+        const products = await tx<Product[]>`SELECT *, "updatedAt"::text AS "snapshotVersion"
+          FROM public."Product" WHERE "id" = ${productId}
+            AND "organizationId" = ${organizationId} FOR UPDATE`;
         if (!products.length) fail("product_not_found", 404);
         const current = card(products[0]);
         const changed = fields.filter((field) =>
@@ -134,21 +134,21 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
           changedFields: changed,
         };
         const id = crypto.randomUUID();
-        await tx\`INSERT INTO public."CatalogChangeSet"
+        await tx`INSERT INTO public."CatalogChangeSet"
           ("id","organizationId","productId","sku","sourceType","sourceRef",
            "status","current","proposed","summary","createdBy","createdAt","updatedAt")
-          VALUES (\${id},\${organizationId},\${productId},\${current.sku},'MANUAL',
-                  'catalog-hub-web','PREVIEW',\${JSON.stringify(current)}::jsonb,
-                  \${JSON.stringify(proposed)}::jsonb,\${JSON.stringify(summary)}::jsonb,
-                  'catalog-hub-ui',now(),now())\`;
+          VALUES (${id},${organizationId},${productId},${current.sku},'MANUAL',
+                  'catalog-hub-web','PREVIEW',${JSON.stringify(current)}::jsonb,
+                  ${JSON.stringify(proposed)}::jsonb,${JSON.stringify(summary)}::jsonb,
+                  'catalog-hub-ui',now(),now())`;
         for (const field of changed) {
-          await tx\`INSERT INTO public."CatalogFieldChange"
+          await tx`INSERT INTO public."CatalogFieldChange"
             ("id","changeSetId","field","risk","beforeValue","afterValue",
              "status","createdAt","updatedAt")
-            VALUES (\${crypto.randomUUID()},\${id},\${field},\${risk(field)},
-                    \${JSON.stringify(current[field] ?? null)}::jsonb,
-                    \${JSON.stringify(proposed[field] ?? null)}::jsonb,
-                    'PROPOSED',now(),now())\`;
+            VALUES (${crypto.randomUUID()},${id},${field},${risk(field)},
+                    ${JSON.stringify(current[field] ?? null)}::jsonb,
+                    ${JSON.stringify(proposed[field] ?? null)}::jsonb,
+                    'PROPOSED',now(),now())`;
         }
         return { id, status: "PREVIEW", summary };
       });
@@ -157,14 +157,14 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
 
     if (detail && req.method === "GET") {
       const organizationId = requiredId(url.searchParams.get("organizationId"), "organizationId");
-      const rows = await sql\`SELECT cs.*, json_build_object('id',p."id",'title',p."title",'sku',p."sku") AS "product"
+      const rows = await sql`SELECT cs.*, json_build_object('id',p."id",'title',p."title",'sku',p."sku") AS "product"
         FROM public."CatalogChangeSet" cs JOIN public."Product" p
           ON p."id" = cs."productId" AND p."organizationId" = cs."organizationId"
-        WHERE cs."id" = \${detail[1]} AND cs."organizationId" = \${organizationId} LIMIT 1\`;
+        WHERE cs."id" = ${detail[1]} AND cs."organizationId" = ${organizationId} LIMIT 1`;
       if (!rows.length) return json({ error: "changeset_not_found" }, 404);
-      const audit = await sql\`SELECT "field","risk","status","beforeValue","afterValue"
+      const audit = await sql`SELECT "field","risk","status","beforeValue","afterValue"
         FROM public."CatalogFieldChange"
-        WHERE "changeSetId" = \${detail[1]} ORDER BY "createdAt" ASC, "field" ASC\`;
+        WHERE "changeSetId" = ${detail[1]} ORDER BY "createdAt" ASC, "field" ASC`;
       return json({ ...rows[0], fields: audit });
     }
 
@@ -174,19 +174,19 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
       const id = action[1];
       const operation = action[2];
       const result = await sql.begin(async (tx) => {
-        const entries = await tx\`SELECT * FROM public."CatalogChangeSet"
-          WHERE "id" = \${id} AND "organizationId" = \${organizationId} FOR UPDATE\`;
+        const entries = await tx`SELECT * FROM public."CatalogChangeSet"
+          WHERE "id" = ${id} AND "organizationId" = ${organizationId} FOR UPDATE`;
         if (!entries.length) fail("changeset_not_found", 404);
         const cs = entries[0];
-        const audit = await tx\`SELECT "field","status" FROM public."CatalogFieldChange"
-          WHERE "changeSetId" = \${id} ORDER BY "createdAt"\`;
+        const audit = await tx`SELECT "field","status" FROM public."CatalogFieldChange"
+          WHERE "changeSetId" = ${id} ORDER BY "createdAt"`;
         if (operation === "reject") {
           if (cs.status !== "PREVIEW" && cs.status !== "APPROVED") fail("changeset_closed", 409);
-          await tx\`UPDATE public."CatalogFieldChange" SET "status"='REJECTED',"rejectedAt"=now(),"updatedAt"=now()
-            WHERE "changeSetId"=\${id} AND "status" IN ('PROPOSED','APPROVED')\`;
-          await tx\`UPDATE public."CatalogChangeSet" SET "status"='REJECTED',"rejectedAt"=now(),
-            "rejectedFields"=\${JSON.stringify(audit.map((f) => f.field))}::jsonb,"updatedAt"=now()
-            WHERE "id"=\${id}\`;
+          await tx`UPDATE public."CatalogFieldChange" SET "status"='REJECTED',"rejectedAt"=now(),"updatedAt"=now()
+            WHERE "changeSetId"=${id} AND "status" IN ('PROPOSED','APPROVED')`;
+          await tx`UPDATE public."CatalogChangeSet" SET "status"='REJECTED',"rejectedAt"=now(),
+            "rejectedFields"=${JSON.stringify(audit.map((f) => f.field))}::jsonb,"updatedAt"=now()
+            WHERE "id"=${id}`;
           return { id, status: "REJECTED" };
         }
         if (operation === "approve") {
@@ -197,22 +197,22 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
                 !audit.some((a) => a.field === f))) fail("approved_fields_invalid");
           const approved = [...new Set(body.approvedFields as string[])];
           for (const field of approved) {
-            await tx\`UPDATE public."CatalogFieldChange" SET "status"='APPROVED',
+            await tx`UPDATE public."CatalogFieldChange" SET "status"='APPROVED',
               "approvedBy"='catalog-hub-ui',"approvedAt"=now(),"updatedAt"=now()
-              WHERE "changeSetId"=\${id} AND "field"=\${field}\`;
+              WHERE "changeSetId"=${id} AND "field"=${field}`;
           }
-          await tx\`UPDATE public."CatalogChangeSet" SET "status"='APPROVED',
-            "approvedFields"=\${JSON.stringify(approved)}::jsonb,
+          await tx`UPDATE public."CatalogChangeSet" SET "status"='APPROVED',
+            "approvedFields"=${JSON.stringify(approved)}::jsonb,
             "approvedBy"='catalog-hub-ui',"approvedAt"=now(),"updatedAt"=now()
-            WHERE "id"=\${id}\`;
+            WHERE "id"=${id}`;
           return { id, status: "APPROVED" };
         }
         if (cs.status !== "APPROVED") fail("changeset_not_approved", 409);
         const approved = audit.filter((f) => f.status === "APPROVED").map((f) => f.field as Field);
         if (!approved.length) fail("approved_fields_empty");
-        const products = await tx<Product[]>\`SELECT *, "updatedAt"::text AS "snapshotVersion"
-          FROM public."Product" WHERE "id" = \${cs.productId}
-          AND "organizationId" = \${organizationId} FOR UPDATE\`;
+        const products = await tx<Product[]>`SELECT *, "updatedAt"::text AS "snapshotVersion"
+          FROM public."Product" WHERE "id" = ${cs.productId}
+          AND "organizationId" = ${organizationId} FOR UPDATE`;
         if (!products.length) fail("product_not_found", 404);
         const before = cs.current as Record<string, unknown>;
         if (currentChanged(before, products[0])) fail("changeset_stale", 409);
@@ -220,34 +220,34 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
         const proposed = cs.proposed as Record<string, unknown>;
         for (const field of approved) after[field] = proposed[field];
         if (!after.title || typeof after.title !== "string") fail("invalid_title");
-        await tx\`INSERT INTO public."ProductRevision"
+        await tx`INSERT INTO public."ProductRevision"
           ("id","productId","changeSetId","reason","snapshot","createdBy","createdAt")
-          VALUES (\${crypto.randomUUID()},\${cs.productId},\${id},'CHANGESET_APPLY',
-            \${JSON.stringify(before)}::jsonb,'catalog-hub-ui',now())\`;
-        await tx\`UPDATE public."Product" SET
-          "title"=CASE WHEN \${approved.includes("title")} THEN \${after.title} ELSE "title" END,
-          "barcode"=CASE WHEN \${approved.includes("barcode")} THEN \${after.barcode as string|null} ELSE "barcode" END,
-          "brand"=CASE WHEN \${approved.includes("brand")} THEN \${after.brand as string|null} ELSE "brand" END,
-          "categoryKey"=CASE WHEN \${approved.includes("categoryKey")} THEN \${after.categoryKey as string|null} ELSE "categoryKey" END,
-          "shortDescription"=CASE WHEN \${approved.includes("shortDescription")} THEN \${after.shortDescription as string|null} ELSE "shortDescription" END,
-          "description"=CASE WHEN \${approved.includes("description")} THEN \${after.description as string|null} ELSE "description" END,
-          "application"=CASE WHEN \${approved.includes("application")} THEN \${after.application as string|null} ELSE "application" END,
-          "ingredients"=CASE WHEN \${approved.includes("ingredients")} THEN \${after.ingredients as string|null} ELSE "ingredients" END,
-          "purchasePrice"=CASE WHEN \${approved.includes("purchasePrice")} THEN \${after.purchasePrice as number|null} ELSE "purchasePrice" END,
-          "basePrice"=CASE WHEN \${approved.includes("price")} THEN \${after.price as number|null} ELSE "basePrice" END,
-          "attributes"=CASE WHEN \${approved.includes("attributes")} THEN \${JSON.stringify(after.attributes)}::jsonb ELSE "attributes" END,
-          "images"=CASE WHEN \${approved.includes("images")} THEN \${JSON.stringify(after.images)}::jsonb ELSE "images" END,
+          VALUES (${crypto.randomUUID()},${cs.productId},${id},'CHANGESET_APPLY',
+            ${JSON.stringify(before)}::jsonb,'catalog-hub-ui',now())`;
+        await tx`UPDATE public."Product" SET
+          "title"=CASE WHEN ${approved.includes("title")} THEN ${after.title} ELSE "title" END,
+          "barcode"=CASE WHEN ${approved.includes("barcode")} THEN ${after.barcode as string|null} ELSE "barcode" END,
+          "brand"=CASE WHEN ${approved.includes("brand")} THEN ${after.brand as string|null} ELSE "brand" END,
+          "categoryKey"=CASE WHEN ${approved.includes("categoryKey")} THEN ${after.categoryKey as string|null} ELSE "categoryKey" END,
+          "shortDescription"=CASE WHEN ${approved.includes("shortDescription")} THEN ${after.shortDescription as string|null} ELSE "shortDescription" END,
+          "description"=CASE WHEN ${approved.includes("description")} THEN ${after.description as string|null} ELSE "description" END,
+          "application"=CASE WHEN ${approved.includes("application")} THEN ${after.application as string|null} ELSE "application" END,
+          "ingredients"=CASE WHEN ${approved.includes("ingredients")} THEN ${after.ingredients as string|null} ELSE "ingredients" END,
+          "purchasePrice"=CASE WHEN ${approved.includes("purchasePrice")} THEN ${after.purchasePrice as number|null} ELSE "purchasePrice" END,
+          "basePrice"=CASE WHEN ${approved.includes("price")} THEN ${after.price as number|null} ELSE "basePrice" END,
+          "attributes"=CASE WHEN ${approved.includes("attributes")} THEN ${JSON.stringify(after.attributes)}::jsonb ELSE "attributes" END,
+          "images"=CASE WHEN ${approved.includes("images")} THEN ${JSON.stringify(after.images)}::jsonb ELSE "images" END,
           "updatedAt"=now()
-          WHERE "id"=\${cs.productId} AND "organizationId"=\${organizationId}\`;
+          WHERE "id"=${cs.productId} AND "organizationId"=${organizationId}`;
         for (const field of approved) {
-          await tx\`UPDATE public."CatalogFieldChange" SET "status"='APPLIED',
+          await tx`UPDATE public."CatalogFieldChange" SET "status"='APPLIED',
             "appliedBy"='catalog-hub-ui',"appliedAt"=now(),"updatedAt"=now()
-            WHERE "changeSetId"=\${id} AND "field"=\${field} AND "status"='APPROVED'\`;
+            WHERE "changeSetId"=${id} AND "field"=${field} AND "status"='APPROVED'`;
         }
         const status = approved.length === audit.length ? "APPLIED" : "PARTIALLY_APPLIED";
-        await tx\`UPDATE public."CatalogChangeSet" SET "status"=\${status}::public."ChangeSetStatus",
-          "appliedFields"=\${JSON.stringify(approved)}::jsonb,"appliedBy"='catalog-hub-ui',
-          "appliedAt"=now(),"updatedAt"=now() WHERE "id"=\${id}\`;
+        await tx`UPDATE public."CatalogChangeSet" SET "status"=${status}::public."ChangeSetStatus",
+          "appliedFields"=${JSON.stringify(approved)}::jsonb,"appliedBy"='catalog-hub-ui',
+          "appliedAt"=now(),"updatedAt"=now() WHERE "id"=${id}`;
         return { id, status, productId: cs.productId };
       });
       return json(result);
