@@ -73,6 +73,9 @@ export function calculateRepricing(input: {
   const floorPrice = Math.max(rule.minPrice, costFloor);
   if (floorPrice > rule.maxPrice) return blocked("MARGIN_EXCEEDS_MAXIMUM", mode,
     { floorPrice });
+  if (input.currentPrice < floorPrice || input.currentPrice > rule.maxPrice) {
+    return blocked("CURRENT_PRICE_OUTSIDE_BOUNDS", mode, { floorPrice });
+  }
 
   const nowMs = input.now ? Date.parse(input.now) : Date.now();
   if (!Number.isFinite(nowMs)) return blocked("INVALID_CLOCK", mode, { floorPrice });
