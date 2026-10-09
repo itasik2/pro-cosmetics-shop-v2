@@ -157,8 +157,19 @@ function readImages(value: unknown): string[] {
     : [];
 }
 
-async function serializeProduct(product: ProductRow) {
-  const inventory = await sql<
+type InventoryRow = {
+  warehouseId: string;
+  onHand: number;
+  reserved: number;
+  safetyStock: number;
+  code: string;
+  name: string;
+};
+
+async function serializeProduct(product: ProductRow & { __inventory?: InventoryRow[] }) {
+  // List endpoints include inventory in the product query. Single-card lookups
+  // retain the existing fallback for backwards compatibility.
+  const inventory = product.__inventory ?? await sql<
     {
       warehouseId: string;
       onHand: number;
@@ -633,6 +644,51 @@ async function listChangeSetsForUi(url: URL) {
   `;
 }
 
+async function listProductOptions(url: URL) {
+  const organizationId = requiredOrganizationId(url);
+  return sql`
+    SELECT "id", "sku", "title", "purchasePrice", "basePrice" AS "price"
+    FROM public."Product"
+    WHERE "organizationId" = ${organizationId}
+    ORDER BY "sku" ASC
+    LIMIT 500
+  `;
+}
+
+// Dashboard reads a single database result instead of fetching six separate APIs.
+async function getDashboardSummary(url: URL) {
+  const organizationId = requiredOrganizationId(url);
+  const rows = await sql`
+    SELECT
+      (SELECT count(*)::int FROM public."Product"
+       WHERE "organizationId"=${organizationId}) AS "productCount",
+      (SELECT COALESCE(sum(i."onHand"),0)::int
+       FROM public."Inventory" i JOIN public."Product" p ON p."id"=i."productId"
+       WHERE p."organizationId"=${organizationId}) AS "stockTotal",
+      (SELECT COALESCE(avg("basePrice"),0)::int FROM public."Product"
+       WHERE "organizationId"=${organizationId}) AS "averagePrice",
+      (SELECT count(*)::int FROM public."CatalogEnrichmentProposal" e
+       JOIN public."Product" p ON p."id"=e."productId"
+       WHERE p."organizationId"=${organizationId} AND e."status"='PENDING') AS "proposalCount",
+      (SELECT count(*)::int FROM public."CatalogChangeSet"
+       WHERE "organizationId"=${organizationId} AND "status" IN ('PREVIEW','APPROVED')) AS "changeCount",
+      (SELECT count(*)::int FROM public."MediaProfile"
+       WHERE "organizationId"=${organizationId} AND "isActive"=true) AS "profileCount",
+      (SELECT COALESCE(json_agg(recent ORDER BY recent."updatedAt" DESC), '[]'::json)
+       FROM (
+         SELECT p."id",p."sku",p."title",p."brand",p."basePrice" AS "price",p."updatedAt",
+         COALESCE((
+           SELECT sum(greatest(0,i."onHand"-i."reserved"-i."safetyStock"))::int
+           FROM public."Inventory" i WHERE i."productId"=p."id"
+         ),0) AS "available"
+         FROM public."Product" p
+         WHERE p."organizationId"=${organizationId}
+         ORDER BY p."updatedAt" DESC,p."id" ASC LIMIT 6
+       ) AS recent) AS "recentProducts"
+  `;
+  return rows[0];
+}
+
 async function listProducts(url: URL) {
   const organizationId = (url.searchParams.get("organizationId") || "").trim();
   if (!organizationId) throw new Error("organizationId_required");
@@ -648,9 +704,22 @@ async function listProducts(url: URL) {
   );
   const pattern = `%${q}%`;
 
-  const items = await sql<ProductRow[]>`
-    SELECT *
-    FROM public."Product"
+  const items = await sql<(ProductRow & { __inventory: InventoryRow[] })[]>`
+    SELECT p.*,
+      COALESCE((
+        SELECT json_agg(json_build_object(
+          'warehouseId', i."warehouseId",
+          'onHand', i."onHand",
+          'reserved', i."reserved",
+          'safetyStock', i."safetyStock",
+          'code', w."code",
+          'name', w."name"
+        ) ORDER BY w."code")
+        FROM public."Inventory" i
+        JOIN public."Warehouse" w ON w."id" = i."warehouseId"
+        WHERE i."productId" = p."id"
+      ), '[]'::json) AS "__inventory"
+    FROM public."Product" p
     WHERE "organizationId" = ${organizationId}
       AND (
         ${q} = ''
@@ -659,7 +728,7 @@ async function listProducts(url: URL) {
         OR COALESCE("brand",'') ILIKE ${pattern}
         OR COALESCE("barcode",'') ILIKE ${pattern}
       )
-    ORDER BY "updatedAt" DESC, "id" ASC
+    ORDER BY p."updatedAt" DESC, p."id" ASC
     LIMIT ${limit} OFFSET ${offset}
   `;
 
@@ -725,6 +794,14 @@ Deno.serve(async (req: Request) => {
 
     const cardEditor = await handleCardEditor(req, route, url, sql);
     if (cardEditor) return cardEditor;
+
+    if (route === "/v1/catalog/product-options" && req.method === "GET") {
+      return json(await listProductOptions(url));
+    }
+
+    if (route === "/v1/ui/dashboard" && req.method === "GET") {
+      return json(await getDashboardSummary(url));
+    }
 
     const productById = route.match(/^\/v1\/catalog\/products\/([^/]+)$/);
     if (req.method === "GET" && productById) {

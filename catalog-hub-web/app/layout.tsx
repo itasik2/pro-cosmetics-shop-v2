@@ -21,8 +21,7 @@ export default function RootLayout({
                 <span className="eyebrow">PROСOSMETICS · CATALOG OPERATIONS</span>
               </div>
               <div className="topbar-state">
-                <span className="status-dot" />
-                API подключён
+                Состояние API — в разделе «Обзор»
               </div>
             </header>
             {children}

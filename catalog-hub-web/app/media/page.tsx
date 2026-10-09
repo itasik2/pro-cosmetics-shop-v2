@@ -9,7 +9,8 @@ type Profile = {
 export default async function MediaPage() {
   const profiles = await safeHub(hubFetch<Profile[]>("/v1/media/profiles?organizationId="+organizationId+"&activeOnly=true"));
   return <div className="page">
-    <div className="page-head"><div><h1>Медиа</h1><p>Оригиналы и независимые варианты для сайта и маркетплейсов.</p></div><span className="badge blue">Original-first</span></div>
+    <div className="page-head"><div><h1>Медиа</h1><p>Оригиналы и независимые варианты для сайта и маркетплейсов.</p></div><span className="badge warn">Пока только просмотр</span></div>
+    <p className="subtle">Профили доступны для просмотра. Загрузка и преобразование изображений через этот экран ещё не подключены.</p>
     {!profiles.ok ? <div className="error">{profiles.error}</div> :
       <div className="profile-grid">{profiles.data.map(p => <article className="profile-card" key={p.id}><div className="kpi-row"><span className="badge blue">{p.target || "CUSTOM"}</span><span className="badge">{p.format.toUpperCase()}</span></div><h2 style={{fontSize:16,marginBottom:0}}>{p.name}</h2><div className="profile-size">{p.width} × {p.height}</div><div className="subtle">Режим: {p.mode} · качество {p.quality}%</div><div className="subtle">Upscale: {p.allowUpscale ? "да" : "нет"} · trim: {p.trim ? "да" : "нет"}</div><div className="subtle">Удаление фона: {p.removeBackground ? "да" : "нет"}</div></article>)}</div>}
     <section className="panel" style={{marginTop:14}}>
