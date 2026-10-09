@@ -31,7 +31,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
   } catch (error) {
     const message = error instanceof Error ? error.message : "changeset_action_failed";
     const code = message === "changeset_not_found" ? 404 :
-      ["changeset_stale","changeset_not_approved","changeset_closed","changeset_not_preview"].includes(message) ? 409 : 400;
+      ["changeset_stale","changeset_payload_invalid","changeset_not_approved","changeset_closed","changeset_not_preview"].includes(message) ? 409 : 400;
     return NextResponse.json({ error: message }, { status: code });
   }
 }
