@@ -22,10 +22,10 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
         <section className="panel">
           <h2>Карточка</h2>
           <div className="list">
-            <Info label="Краткое описание" value={item.shortDescription} />
-            <Info label="Описание" value={item.description} />
-            <Info label="Применение" value={item.application} />
-            <Info label="Состав" value={item.ingredients} />
+            <TextInfo label="Краткое описание" value={item.shortDescription} />
+            <TextInfo label="Описание" value={item.description} />
+            <TextInfo label="Применение" value={item.application} />
+            <TextInfo label="Состав" value={item.ingredients} />
             <Info label="Штрихкод" value={item.barcode} />
           </div>
         </section>
@@ -47,6 +47,15 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
           {item.images?.length ? item.images.map((url) => <img key={url} src={url} alt="" style={{width:160,height:160,objectFit:"contain",border:"1px solid var(--line)",borderRadius:12}} />) : <div className="empty">Изображений нет</div>}
         </div>
       </section>
+    </div>
+  );
+}
+
+function TextInfo({ label, value }: { label: string; value: string | null | undefined }) {
+  return (
+    <div className="product-detail-block">
+      <div className="product-detail-label">{label}</div>
+      <p className="product-detail-body">{value?.trim() || "—"}</p>
     </div>
   );
 }
