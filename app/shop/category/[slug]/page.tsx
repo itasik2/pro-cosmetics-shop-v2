@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import ProductCard from "@/components/ProductCard";
 import { getPublicBaseUrl, SITE_BRAND } from "@/lib/siteConfig";
 import { collapseRepresentedProductCards } from "@/lib/publicProductCards";
+import { overlayCatalogHubProducts } from "@/lib/catalogHubOverlay";
 
 export const dynamic = "force-dynamic";
 
@@ -35,15 +36,17 @@ export default async function CategoryPage(props: Props) {
     where: {
       isPublished: true,
       enrichmentStatus: { not: "MERGED" },
-      category: {
-        contains: categoryName,
-        mode: "insensitive",
-      },
     },
     include: { brand: true },
     orderBy: { createdAt: "desc" },
   });
-  const products = collapseRepresentedProductCards(productRows);
+  const normalizedCategory = categoryName.toLocaleLowerCase("ru-RU");
+  const overlaidProducts = await overlayCatalogHubProducts(productRows);
+  const products = collapseRepresentedProductCards(
+    overlaidProducts.filter((product) =>
+      product.category.toLocaleLowerCase("ru-RU").includes(normalizedCategory),
+    ),
+  );
 
   if (!products.length) notFound();
 

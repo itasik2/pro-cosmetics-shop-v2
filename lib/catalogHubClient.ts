@@ -28,9 +28,13 @@ export type CatalogHubProduct = {
 
 export type CatalogHubShadowConfig = {
   enabled: boolean;
+  writeEnabled: boolean;
+  readEnabled: boolean;
+  readStrict: boolean;
   configured: boolean;
   baseUrl: string;
   organizationId: string;
+  warehouseId: string;
   hasApiKey: boolean;
   timeoutMs: number;
 };
@@ -83,13 +87,30 @@ export function getCatalogHubShadowConfig(): CatalogHubShadowConfig {
 
   const organizationId = getScopedEnv("CATALOG_HUB_ORGANIZATION_ID").trim();
   const apiKey = getScopedEnv("CATALOG_HUB_API_KEY").trim();
+  const warehouseId = getScopedEnv("CATALOG_HUB_WAREHOUSE_ID").trim();
   const enabled = boolEnv(getScopedEnv("CATALOG_HUB_SHADOW_ENABLED"), false);
+  const writeEnabled = boolEnv(
+    getScopedEnv("CATALOG_HUB_WRITE_ENABLED"),
+    false,
+  );
+  const readEnabled = boolEnv(
+    getScopedEnv("CATALOG_HUB_READ_ENABLED"),
+    false,
+  );
+  const readStrict = boolEnv(
+    getScopedEnv("CATALOG_HUB_READ_STRICT"),
+    false,
+  );
 
   return {
     enabled,
+    writeEnabled,
+    readEnabled,
+    readStrict,
     configured: Boolean(baseUrl && organizationId && apiKey),
     baseUrl,
     organizationId,
+    warehouseId,
     hasApiKey: Boolean(apiKey),
     timeoutMs: intEnv(
       getScopedEnv("CATALOG_HUB_TIMEOUT_MS"),
@@ -104,6 +125,8 @@ async function catalogHubFetch<T>(
   path: string,
   options?: {
     authenticated?: boolean;
+    method?: "GET" | "POST";
+    body?: unknown;
   },
 ): Promise<T> {
   const config = getCatalogHubShadowConfig();
@@ -121,15 +144,20 @@ async function catalogHubFetch<T>(
 
   try {
     const response = await fetch(`${config.baseUrl}${path}`, {
-      method: "GET",
+      method: options?.method || "GET",
       cache: "no-store",
       signal: controller.signal,
       headers: authenticated
         ? {
             "x-catalog-hub-key": apiKey,
             accept: "application/json",
+            ...(options?.body ? { "content-type": "application/json" } : {}),
           }
-        : { accept: "application/json" },
+        : {
+            accept: "application/json",
+            ...(options?.body ? { "content-type": "application/json" } : {}),
+          },
+      body: options?.body ? JSON.stringify(options.body) : undefined,
     });
 
     const text = await response.text();
@@ -183,6 +211,44 @@ export async function getCatalogHubHealth() {
   };
 }
 
+export type CatalogHubSnapshotItem = {
+  id: string;
+  sku: string;
+  barcode: string | null;
+  title: string;
+  brand: string | null;
+  shortDescription: string | null;
+  description: string | null;
+  application: string | null;
+  ingredients: string | null;
+  categoryKey: string | null;
+  attributes: unknown;
+  images: string[];
+  purchasePrice: number | null;
+  price: number | null;
+  stock: number;
+  available: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CatalogHubSnapshot = {
+  items: CatalogHubSnapshotItem[];
+  total: number;
+};
+
+export async function getCatalogHubSnapshot() {
+  const config = getCatalogHubShadowConfig();
+  if (!config.organizationId) {
+    throw new Error("catalog_hub_organization_not_configured");
+  }
+
+  return catalogHubFetch<CatalogHubSnapshot>(
+    "/v1/catalog/snapshot?organizationId=" +
+      encodeURIComponent(config.organizationId),
+  );
+}
+
 export async function getCatalogHubProductBySku(sku: string) {
   const config = getCatalogHubShadowConfig();
   if (!config.organizationId) {
@@ -200,6 +266,43 @@ export async function getCatalogHubProductBySku(sku: string) {
     if (message.startsWith("catalog_hub_http_404:")) return null;
     throw error;
   }
+}
+
+export type CatalogHubCreateCard = {
+  sku: string;
+  barcode?: string;
+  title: string;
+  brand?: string;
+  shortDescription?: string;
+  description?: string;
+  categoryKey?: string;
+  attributes?: Record<string, unknown>;
+  images?: string[];
+  purchasePrice?: number;
+  price?: number;
+  stock?: number;
+};
+
+export async function createCatalogHubProduct(card: CatalogHubCreateCard) {
+  const config = getCatalogHubShadowConfig();
+  if (!config.writeEnabled) {
+    throw new Error("catalog_hub_write_disabled");
+  }
+  if (!config.organizationId) {
+    throw new Error("catalog_hub_organization_not_configured");
+  }
+  if (card.stock !== undefined && !config.warehouseId) {
+    throw new Error("catalog_hub_warehouse_not_configured");
+  }
+
+  return catalogHubFetch<CatalogHubProduct>("/v1/catalog/products", {
+    method: "POST",
+    body: {
+      organizationId: config.organizationId,
+      warehouseId: config.warehouseId || undefined,
+      card,
+    },
+  });
 }
 
 function normalizedText(value: unknown) {
@@ -220,9 +323,20 @@ export type LegacyProductComparable = {
   stock: number;
 };
 
-export function compareLegacyProductToHub(
+type CatalogHubComparable = {
+  id: string;
+  title: string;
+  brand: string | null;
+  shortDescription: string | null;
+  description: string | null;
+  price: number | null;
+  purchasePrice: number | null;
+  stock: number;
+};
+
+function compareLegacyProductToHubValues(
   legacy: LegacyProductComparable,
-  hub: CatalogHubProduct,
+  hub: CatalogHubComparable,
 ) {
   const comparisons = [
     {
@@ -269,8 +383,8 @@ export function compareLegacyProductToHub(
     {
       field: "stock",
       legacy: legacy.stock,
-      hub: hub.totals.stock,
-      equal: legacy.stock === hub.totals.stock,
+      hub: hub.stock,
+      equal: legacy.stock === hub.stock,
     },
   ];
 
@@ -283,4 +397,36 @@ export function compareLegacyProductToHub(
     matched: differences.length === 0,
     differences,
   };
+}
+
+export function compareLegacyProductToHub(
+  legacy: LegacyProductComparable,
+  hub: CatalogHubProduct,
+) {
+  return compareLegacyProductToHubValues(legacy, {
+    id: hub.id,
+    title: hub.title,
+    brand: hub.brand,
+    shortDescription: hub.shortDescription,
+    description: hub.description,
+    price: hub.price,
+    purchasePrice: hub.purchasePrice,
+    stock: hub.totals.stock,
+  });
+}
+
+export function compareLegacyProductToSnapshot(
+  legacy: LegacyProductComparable,
+  hub: CatalogHubSnapshotItem,
+) {
+  return compareLegacyProductToHubValues(legacy, {
+    id: hub.id,
+    title: hub.title,
+    brand: hub.brand,
+    shortDescription: hub.shortDescription,
+    description: hub.description,
+    price: hub.price,
+    purchasePrice: hub.purchasePrice,
+    stock: hub.stock,
+  });
 }
