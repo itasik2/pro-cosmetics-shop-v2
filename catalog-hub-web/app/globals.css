@@ -146,3 +146,28 @@ tr:last-child td { border-bottom:0; }
 @media (prefers-reduced-motion:reduce) {
  .loading-heading,.loading-card,.loading-panel {animation:none;}
 }
+
+/* Product descriptions: label above the full-width, left-aligned readable text. */
+.product-detail-block {
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+.product-detail-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.product-detail-body {
+  margin: 9px 0 0;
+  width: 100%;
+  max-width: 80ch;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  text-align: left;
+  line-height: 1.65;
+  font-size: 14px;
+  color: var(--ink);
+}
