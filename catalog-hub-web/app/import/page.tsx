@@ -1,11 +1,17 @@
+import Link from "next/link";
 export default function ImportPage() {
   return <div className="page">
     <div className="page-head"><div><h1>Импорт</h1><p>Универсальный вход для прайсов и каталогов поставщиков.</p></div></div>
+    <section className="panel" style={{marginBottom:14}}>
+      <span className="badge warn">Предварительный экран</span>
+      <p className="subtle">Загрузка и применение файлов ещё не подключены. Эта страница описывает будущий процесс импорта, а не подтверждает его работоспособность.</p>
+      <div className="actions"><Link className="button primary" href="/catalog">Открыть каталог товаров →</Link></div>
+    </section>
     <div className="grid metrics">
-      <Metric label="XLS/XLSX" value="✓" />
-      <Metric label="CSV/TSV" value="✓" />
-      <Metric label="XML/YML/JSON" value="✓" />
-      <Metric label="PDF" value="✓" />
+      <Metric label="XLS/XLSX" value="План" />
+      <Metric label="CSV/TSV" value="План" />
+      <Metric label="XML/YML/JSON" value="План" />
+      <Metric label="PDF" value="План" />
     </div>
     <div className="two-col">
       <section className="panel">
