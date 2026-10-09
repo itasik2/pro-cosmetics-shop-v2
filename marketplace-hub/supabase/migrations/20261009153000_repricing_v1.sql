@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS public."ChannelRepricingPolicy" (
  "mode" text NOT NULL DEFAULT 'DRY_RUN' CHECK ("mode" IN ('DRY_RUN','AUTO_PROPOSE')),
  "enabled" boolean NOT NULL DEFAULT false,
  "emergencyStop" boolean NOT NULL DEFAULT true,
+ "currentOfferPrice" integer CHECK ("currentOfferPrice" > 0),
  "minPrice" integer NOT NULL CHECK ("minPrice" > 0),
  "maxPrice" integer NOT NULL CHECK ("maxPrice" >= "minPrice"),
  "minMarginPercent" numeric(5,2) NOT NULL DEFAULT 10 CHECK ("minMarginPercent" >= 0 AND "minMarginPercent" < 100),
