@@ -243,3 +243,132 @@ POST /v1/offline/media/background-normalize
 
 Применение предложения к Master Card будет отдельной операцией после сохранения
 предложений в БД и проверки diff.
+
+
+## Staging / Diff / Approve / Apply
+
+Ветка:
+`feature/catalog-hub-staging-approval`.
+
+Добавлено:
+
+- field-level diff Master Card;
+- уровни риска LOW / MEDIUM / HIGH;
+- SKU исключён из обычного staging и не может быть случайно переименован;
+- отдельные группы:
+  - текстовые данные;
+  - медиа/атрибуты;
+  - коммерческие данные;
+- selective approve;
+- apply-preview без записи в БД;
+- persistent CatalogChangeSet при настроенной DATABASE_URL;
+- CatalogFieldChange для аудита каждого поля;
+- ProductRevision со снимком карточки до применения;
+- stale-check перед применением;
+- транзакционное применение;
+- остаток применяется только при явно указанном warehouseId;
+- partial apply поддерживается отдельно от полного apply;
+- reject changeset;
+- browser UI с checkbox по каждому полю.
+
+Offline endpoints:
+
+```
+POST /v1/offline/staging/diff
+POST /v1/offline/staging/apply-preview
+```
+
+Persistent endpoints:
+
+```
+POST /v1/staging/changesets
+GET  /v1/staging/changesets/:id
+POST /v1/staging/changesets/:id/approve
+POST /v1/staging/changesets/:id/apply
+POST /v1/staging/changesets/:id/reject
+```
+
+Persistent endpoints возвращают `database_not_configured`, пока Catalog Hub
+не подключён к собственной PostgreSQL базе.
+
+
+## Standalone service runtime
+
+Ветка:
+`feature/catalog-hub-service-runtime`.
+
+Catalog Hub теперь можно запускать как отдельный сервис, независимо от
+Next.js-магазина ProCosmetics.
+
+### Сервисный API
+
+```
+GET  /health
+GET  /ready
+
+GET  /v1/catalog/products
+POST /v1/catalog/products
+GET  /v1/catalog/products/:id
+GET  /v1/catalog/by-sku/:sku
+```
+
+Создание Master Card разрешено напрямую. Изменение существующей карточки
+намеренно не имеет прямого PATCH endpoint: изменения проходят через
+`CatalogChangeSet`, approve и apply.
+
+### Внутренняя авторизация
+
+В production защита `/v1/*` включена по умолчанию.
+
+```env
+CATALOG_HUB_AUTH_REQUIRED=true
+CATALOG_HUB_API_KEY=<long-random-secret>
+```
+
+Клиент передаёт:
+
+```
+X-Catalog-Hub-Key: <secret>
+```
+
+или Bearer token с тем же значением.
+
+Админ-страница позволяет ввести ключ; он хранится только в sessionStorage
+текущей вкладки.
+
+### База
+
+Для первого MVP схема может быть применена:
+
+```bash
+npm run prisma:generate
+npm run db:validate
+npm run db:bootstrap
+```
+
+`db:bootstrap` использует Prisma db push. Перед production-релизом после
+стабилизации схемы нужно зафиксировать обычные Prisma migrations и перейти
+на `prisma migrate deploy`.
+
+### Docker
+
+```bash
+docker build -t catalog-hub .
+docker run --rm -p 4100:4100 --env-file .env catalog-hub
+```
+
+### Railway
+
+В каталоге есть `railway.toml` и Dockerfile. Для отдельного Railway service
+Root Directory должен быть `marketplace-hub`.
+
+Минимальные переменные:
+
+```
+PORT=4100
+DATABASE_URL=...
+CATALOG_HUB_AUTH_REQUIRED=true
+CATALOG_HUB_API_KEY=...
+```
+
+OpenAI, Cloudinary и marketplace API остаются опциональными.
