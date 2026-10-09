@@ -97,6 +97,9 @@ model Organization {
   warehouses     Warehouse[]
   suppliers      Supplier[]
   pricingRules   PricingRule[]
+  repricingPolicies ChannelRepricingPolicy[]
+  competitorQuotes CompetitorPriceObservation[]
+  repricingDecisions RepricingDecision[]
   changeSets     CatalogChangeSet[]
   mediaProfiles  MediaProfile[]
 }
@@ -140,6 +143,9 @@ model Product {
   updatedAt      DateTime     @updatedAt
 
   listings       MarketplaceListing[]
+  repricingPolicies ChannelRepricingPolicy[]
+  competitorQuotes CompetitorPriceObservation[]
+  repricingDecisions RepricingDecision[]
   inventory      Inventory[]
   supplierLinks  SupplierProduct[]
   importRows     PriceImportRow[]
@@ -583,4 +589,70 @@ model ProductRevision {
 
   @@index([productId, createdAt])
   @@index([changeSetId])
+}
+
+model ChannelRepricingPolicy {
+  id               String @id @default(uuid())
+  organizationId   String
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  productId        String
+  product          Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  channel          String
+  strategy         String @default("UNDERCUT")
+  mode             String @default("DRY_RUN")
+  enabled          Boolean @default(false)
+  emergencyStop    Boolean @default(true)
+  minPrice         Int
+  maxPrice         Int
+  minMarginPercent Decimal @default(10) @db.Decimal(5,2)
+  feePercent       Decimal @default(10) @db.Decimal(5,2)
+  shippingCost     Int @default(0)
+  targetProfit     Int @default(0)
+  step             Int @default(10)
+  adjustment       Int @default(10)
+  maxChangePercent Decimal @default(5) @db.Decimal(5,2)
+  maxAgeMinutes    Int @default(60)
+  cooldownMinutes  Int @default(60)
+  createdAt        DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime @default(now()) @db.Timestamptz(6)
+  decisions        RepricingDecision[]
+  @@unique([organizationId, productId, channel], map: "channel_repricing_unique")
+  @@index([organizationId, enabled, mode], map: "repricing_policy_active")
+}
+model CompetitorPriceObservation {
+  id             String @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  productId      String
+  product        Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  channel        String
+  seller         String
+  price          Int
+  sourceType     String @default("MANUAL")
+  sourceRef      String?
+  observedAt     DateTime @db.Timestamptz(6)
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+  @@index([organizationId, productId, channel, observedAt(sort: Desc)], map: "competitor_observation_lookup")
+}
+model RepricingDecision {
+  id              String @id @default(uuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  policyId        String
+  policy          ChannelRepricingPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  productId       String
+  product         Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  channel         String
+  mode            String
+  status          String
+  reason          String
+  currentPrice    Int?
+  competitorPrice Int?
+  candidate       Int?
+  floorPrice      Int?
+  targetPrice     Int?
+  observationIds  Json @default("[]")
+  ruleSnapshot    Json
+  createdAt       DateTime @default(now()) @db.Timestamptz(6)
+  @@index([organizationId, productId, channel, createdAt(sort: Desc)], map: "repricing_decision_lookup")
 }
