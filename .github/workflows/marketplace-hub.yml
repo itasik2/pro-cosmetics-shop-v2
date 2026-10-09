@@ -41,6 +41,9 @@ jobs:
       - name: Generate Prisma
         run: npm run prisma:generate
 
+      - name: Verify Edge and Node repricer are identical
+        run: cmp -s src/pricing/repricing-engine.ts supabase/functions/catalog-hub/repricing-engine.ts
+
       - name: Typecheck
         run: npm run typecheck
 
