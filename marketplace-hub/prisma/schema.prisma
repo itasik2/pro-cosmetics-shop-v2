@@ -602,6 +602,7 @@ model ChannelRepricingPolicy {
   mode             String @default("DRY_RUN")
   enabled          Boolean @default(false)
   emergencyStop    Boolean @default(true)
+  currentOfferPrice Int?
   minPrice         Int
   maxPrice         Int
   minMarginPercent Decimal @default(10) @db.Decimal(5,2)
