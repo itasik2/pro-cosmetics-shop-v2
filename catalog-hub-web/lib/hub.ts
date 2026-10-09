@@ -1,8 +1,18 @@
 import "server-only";
+import { headers } from "next/headers";
 
 const baseUrl = String(process.env.CATALOG_HUB_API_URL || "").replace(/\/$/, "");
 const apiKey = String(process.env.CATALOG_HUB_API_KEY || "");
-const oidcToken = String(process.env.VERCEL_OIDC_TOKEN || "");
+async function getRequestOidcToken() {
+  try {
+    // Vercel supplies its short-lived runtime token in the request headers.
+    const requestHeaders = await headers();
+    return requestHeaders.get("x-vercel-oidc-token") || "";
+  } catch {
+    // Outside a request (e.g. local tooling), use the optional dev token.
+    return "";
+  }
+}
 export const organizationId =
   String(process.env.CATALOG_HUB_ORGANIZATION_ID || "") || "org_procosmetics";
 export const warehouseId =
@@ -49,6 +59,7 @@ export async function hubFetch<T>(
   init?: RequestInit,
 ): Promise<T> {
   if (!baseUrl) throw new Error("CATALOG_HUB_API_URL not configured");
+  const oidcToken = (await getRequestOidcToken()) || String(process.env.VERCEL_OIDC_TOKEN || "");
   if (!oidcToken && !apiKey && path.startsWith("/v1/")) {
     throw new Error("catalog_hub_server_auth_not_configured");
   }
