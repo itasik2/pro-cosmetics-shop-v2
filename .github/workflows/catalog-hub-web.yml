@@ -1,0 +1,38 @@
+name: Catalog Hub Web
+
+on:
+  push:
+    branches:
+      - "feature/catalog-hub-web-app"
+    paths:
+      - "catalog-hub-web/**"
+      - ".github/workflows/catalog-hub-web.yml"
+  pull_request:
+    paths:
+      - "catalog-hub-web/**"
+      - ".github/workflows/catalog-hub-web.yml"
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: catalog-hub-web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: catalog-hub-web/package.json
+      - name: Install
+        run: npm install
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        env:
+          CATALOG_HUB_API_URL: https://example.invalid
+          CATALOG_HUB_API_KEY: ci-placeholder
+          CATALOG_HUB_ORGANIZATION_ID: org_ci
+          CATALOG_HUB_WAREHOUSE_ID: wh_ci
+        run: npm run build
