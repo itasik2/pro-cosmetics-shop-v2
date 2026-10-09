@@ -48,6 +48,13 @@ export function renderAdminPage() {
     .tab.active { display:block; }
     .hint { font-size:13px; line-height:1.5; color:#6f7787; margin-top:8px; }
     .preview-image { display:block; max-width:360px; max-height:360px; margin-top:14px; border-radius:14px; border:1px solid #e1e5ea; background:#fff; }
+    .diff-table { width:100%; border-collapse:collapse; margin-top:14px; }
+    .diff-table th, .diff-table td { text-align:left; vertical-align:top; border-bottom:1px solid #e7eaf0; padding:10px 8px; font-size:13px; }
+    .diff-table code { white-space:pre-wrap; word-break:break-word; }
+    .risk { display:inline-flex; padding:3px 7px; border-radius:999px; font-size:11px; font-weight:800; }
+    .risk-LOW { background:#eaf8ef; color:#237443; }
+    .risk-MEDIUM { background:#fff6df; color:#8a6200; }
+    .risk-HIGH { background:#ffebea; color:#a33a34; }
     @media (max-width: 900px) {
       .shell { grid-template-columns:1fr; }
       .side { display:none; }
@@ -77,7 +84,10 @@ export function renderAdminPage() {
         <h1>Catalog Hub</h1>
         <div class="muted" style="margin-top:5px">Отдельное управление каталогом ProCosmetics и маркетплейсами</div>
       </div>
-      <span class="badge">Без API маркетплейсов</span>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <input id="hubApiKey" type="password" placeholder="Catalog Hub API key" style="width:240px" autocomplete="off" />
+        <span class="badge">Без API маркетплейсов</span>
+      </div>
     </div>
 
     <div class="grid">
@@ -91,6 +101,8 @@ export function renderAdminPage() {
       <button class="active" data-tab="import">Импорт прайса</button>
       <button data-tab="document">PDF-каталог</button>
       <button data-tab="media">Фото</button>
+      <button data-tab="ai">AI-карточка</button>
+      <button data-tab="staging">Изменения</button>
       <button data-tab="pricing">Расчёт цены</button>
       <button data-tab="card">Проверка карточки</button>
       <button data-tab="xml">Kaspi XML</button>
@@ -127,6 +139,7 @@ export function renderAdminPage() {
           </label>
           <div class="actions">
             <button id="catalogPreview">Проверить каталог</button>
+            <button id="importToStaging" class="secondary">Первый товар → staging</button>
           </div>
           <div class="hint">Импорт выполняется только в режиме предпросмотра и не меняет каталог автоматически.</div>
         </div>
@@ -180,6 +193,7 @@ export function renderAdminPage() {
           <div class="actions">
             <button id="mediaAnalyze">Проверить фото</button>
             <button id="mediaTransform">Создать вариант</button>
+            <button id="mediaBackground">Очистить фон</button>
           </div>
           <div class="hint">
             Оригинал не изменяется. Производная версия создаётся отдельно с нормализацией ориентации,
@@ -191,6 +205,75 @@ export function renderAdminPage() {
         </div>
       </div>
       <pre id="mediaResult">Метаданные изображения появятся здесь.</pre>
+    </section>
+
+    <section id="tab-ai" class="panel tab">
+      <h2>Catalog AI — предложение для карточки</h2>
+      <div class="two">
+        <div>
+          <div class="fields">
+            <label>SKU<input id="aiSku" value="TEST001" /></label>
+            <label>Название<input id="aiTitle" value="Тестовый товар" /></label>
+            <label>Бренд<input id="aiBrand" /></label>
+            <label>Штрихкод<input id="aiBarcode" /></label>
+          </div>
+          <label style="margin-top:14px">Явный URL источника (необязательно)
+            <input id="aiSourceUrl" placeholder="https://manufacturer.example/product" />
+          </label>
+          <label style="margin-top:14px">Разрешённые официальные домены
+            <textarea id="aiDomains" placeholder="brand.com&#10;brand.kz"></textarea>
+          </label>
+          <label style="margin-top:12px;display:flex;grid-template-columns:auto 1fr;align-items:center;gap:8px">
+            <input id="aiExternal" type="checkbox" style="width:auto" />
+            Разрешить поиск у проверяемого внешнего дистрибьютора, если официальная карточка не найдена
+          </label>
+          <div class="actions">
+            <button id="aiEnrich">Подготовить предложение</button>
+            <button id="aiToStaging" class="secondary">Предложение → staging</button>
+          </div>
+          <div class="hint">
+            Если OPENAI_API_KEY не настроен, можно указать явный URL разрешённого источника:
+            HTML всё равно будет извлечён и проверен, но поиск в сети и генерация текста не выполняются.
+          </div>
+        </div>
+        <div>
+          <img id="aiImagePreview" class="preview-image" alt="Первый найденный кандидат фото" hidden />
+        </div>
+      </div>
+      <pre id="aiResult">Предложение AI появится здесь. Карточка автоматически не изменяется.</pre>
+    </section>
+
+    <section id="tab-staging" class="panel tab">
+      <h2>Staging: Preview → Approve → Apply</h2>
+      <div class="two">
+        <label>Текущая Master Card
+          <textarea id="stagingCurrent">{
+  "sku": "A001",
+  "title": "Крем 50 мл",
+  "brand": "Brand",
+  "description": "Старое описание",
+  "attributes": {},
+  "images": [],
+  "purchasePrice": 6500,
+  "price": 9490,
+  "stock": 7
+}</textarea>
+        </label>
+        <label>Предлагаемые изменения
+          <textarea id="stagingProposed">{
+  "description": "Новое описание",
+  "purchasePrice": 6900,
+  "price": 9990,
+  "stock": 12
+}</textarea>
+        </label>
+      </div>
+      <div class="actions">
+        <button id="stagingDiff">Показать изменения</button>
+        <button id="stagingApply" class="secondary">Применить выбранное в предпросмотре</button>
+      </div>
+      <div id="stagingTable"></div>
+      <pre id="stagingResult">Сначала сформируйте diff. SKU через staging не изменяется.</pre>
     </section>
 
     <section id="tab-pricing" class="panel tab">
@@ -241,14 +324,21 @@ export function renderAdminPage() {
 
 <script>
   const tabs = document.querySelectorAll("[data-tab]");
-  tabs.forEach((button) => {
-    button.addEventListener("click", () => {
-      tabs.forEach((item) => item.classList.remove("active"));
-      document.querySelectorAll(".tab").forEach((item) => item.classList.remove("active"));
-      button.classList.add("active");
-      document.getElementById("tab-" + button.dataset.tab).classList.add("active");
+
+  function activateTab(name) {
+    tabs.forEach((item) => {
+      item.classList.toggle("active", item.dataset.tab === name);
     });
+    document.querySelectorAll(".tab").forEach((item) => item.classList.remove("active"));
+    document.getElementById("tab-" + name).classList.add("active");
+  }
+
+  tabs.forEach((button) => {
+    button.addEventListener("click", () => activateTab(button.dataset.tab));
   });
+
+  let lastImportPreview = null;
+  let lastAiProposal = null;
 
   function mapping() {
     const out = {
@@ -268,10 +358,25 @@ export function renderAdminPage() {
     return out;
   }
 
+  const hubApiKeyInput = document.getElementById("hubApiKey");
+  hubApiKeyInput.value = sessionStorage.getItem("catalogHubApiKey") || "";
+  hubApiKeyInput.addEventListener("input", () => {
+    const value = hubApiKeyInput.value.trim();
+    if (value) sessionStorage.setItem("catalogHubApiKey", value);
+    else sessionStorage.removeItem("catalogHubApiKey");
+  });
+
+  function apiHeaders() {
+    const headers = { "content-type": "application/json" };
+    const key = hubApiKeyInput.value.trim();
+    if (key) headers["x-catalog-hub-key"] = key;
+    return headers;
+  }
+
   async function postJson(url, body) {
     const response = await fetch(url, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: apiHeaders(),
       body: JSON.stringify(body),
     });
     const text = await response.text();
@@ -316,6 +421,7 @@ export function renderAdminPage() {
 
     try {
       const value = await postJson("/v1/offline/import/preview", payload);
+      lastImportPreview = value;
       show("importResult", value);
     } catch (error) {
       show("importResult", String(error));
@@ -374,6 +480,197 @@ export function renderAdminPage() {
       show("mediaResult", safe);
     } catch (error) {
       show("mediaResult", String(error));
+    }
+  };
+
+  document.getElementById("aiEnrich").onclick = async () => {
+    const domains = document.getElementById("aiDomains").value
+      .split(/[\n,;]+/)
+      .map((value) => value.trim())
+      .filter(Boolean);
+
+    const sourceUrl = document.getElementById("aiSourceUrl").value.trim();
+
+    try {
+      const value = await postJson("/v1/offline/ai/enrich", {
+        product: {
+          sku: document.getElementById("aiSku").value,
+          title: document.getElementById("aiTitle").value,
+          brand: document.getElementById("aiBrand").value || undefined,
+          barcode: document.getElementById("aiBarcode").value || undefined,
+        },
+        sourceUrl: sourceUrl || undefined,
+        discoverIfMissing: true,
+        allowExternalSearch: document.getElementById("aiExternal").checked,
+        sources: domains.map((domain) => ({
+          domain,
+          allowSubdomains: true,
+          sourceType: "OFFICIAL_SITE",
+        })),
+      });
+
+      lastAiProposal = value;
+      show("aiResult", value);
+      const preview = document.getElementById("aiImagePreview");
+      const firstImage = value.imageCandidates?.[0]?.url;
+      if (firstImage) {
+        preview.src = firstImage;
+        preview.hidden = false;
+      } else {
+        preview.hidden = true;
+        preview.removeAttribute("src");
+      }
+    } catch (error) {
+      show("aiResult", String(error));
+    }
+  };
+
+  document.getElementById("importToStaging").onclick = async () => {
+    const first = lastImportPreview?.data?.find((row) => row.valid)?.product;
+    if (!first) {
+      return show("importResult", "Сначала выполните импорт и убедитесь, что есть валидный товар.");
+    }
+
+    try {
+      const value = await postJson("/v1/offline/staging/from-import", {
+        product: first,
+      });
+      document.getElementById("stagingProposed").value =
+        JSON.stringify(value.proposed, null, 2);
+      activateTab("staging");
+      document.getElementById("stagingDiff").click();
+    } catch (error) {
+      show("importResult", String(error));
+    }
+  };
+
+  document.getElementById("aiToStaging").onclick = async () => {
+    if (!lastAiProposal) {
+      return show("aiResult", "Сначала подготовьте AI-предложение.");
+    }
+
+    try {
+      const value = await postJson("/v1/offline/staging/from-ai", {
+        proposal: lastAiProposal,
+      });
+      document.getElementById("stagingProposed").value =
+        JSON.stringify(value.proposed, null, 2);
+      activateTab("staging");
+      document.getElementById("stagingDiff").click();
+    } catch (error) {
+      show("aiResult", String(error));
+    }
+  };
+
+  document.getElementById("mediaBackground").onclick = async () => {
+    const file = document.getElementById("mediaFile").files[0];
+    if (!file) return show("mediaResult", "Выберите изображение.");
+
+    try {
+      const value = await postJson("/v1/offline/media/background-normalize", {
+        base64: await fileToBase64(file),
+      });
+
+      const preview = document.getElementById("mediaPreviewImage");
+      preview.src = value.url;
+      preview.hidden = false;
+      show("mediaResult", value);
+    } catch (error) {
+      show("mediaResult", String(error));
+    }
+  };
+
+  let stagingDiffValue = null;
+
+  function parseTextareaJson(id) {
+    return JSON.parse(document.getElementById(id).value);
+  }
+
+  function renderStagingDiff(value) {
+    stagingDiffValue = value;
+    const host = document.getElementById("stagingTable");
+
+    if (!value.changes?.length) {
+      host.innerHTML = "<p class='hint'>Изменений нет.</p>";
+      return;
+    }
+
+    const rows = value.changes.map((change) => {
+      const checked = change.risk === "LOW" ? "checked" : "";
+      const before = JSON.stringify(change.before, null, 2) ?? "null";
+      const after = JSON.stringify(change.after, null, 2) ?? "null";
+      return (
+        "<tr>" +
+          "<td><input type='checkbox' data-staging-field='" + escapeHtml(change.field) + "' " + checked + " /></td>" +
+          "<td><b>" + escapeHtml(change.field) + "</b></td>" +
+          "<td><span class='risk risk-" + escapeHtml(change.risk) + "'>" + escapeHtml(change.risk) + "</span></td>" +
+          "<td><code>" + escapeHtml(before) + "</code></td>" +
+          "<td><code>" + escapeHtml(after) + "</code></td>" +
+        "</tr>"
+      );
+    }).join("");
+
+    host.innerHTML =
+      "<table class='diff-table'>" +
+        "<thead><tr><th>✓</th><th>Поле</th><th>Риск</th><th>Было</th><th>Стало</th></tr></thead>" +
+        "<tbody>" + rows + "</tbody>" +
+      "</table>" +
+      "<p class='hint'>LOW отмечены автоматически только для предпросмотра. MEDIUM/HIGH требуют явного выбора.</p>";
+  }
+
+  function escapeHtml(value) {
+    return String(value)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;");
+  }
+
+  document.getElementById("stagingDiff").onclick = async () => {
+    try {
+      const value = await postJson("/v1/offline/staging/diff", {
+        current: parseTextareaJson("stagingCurrent"),
+        proposed: parseTextareaJson("stagingProposed"),
+      });
+      renderStagingDiff(value);
+      show("stagingResult", {
+        summary: value.summary,
+        approvalGroups: value.approvalGroups,
+      });
+    } catch (error) {
+      show("stagingResult", String(error));
+    }
+  };
+
+  document.getElementById("stagingApply").onclick = async () => {
+    if (!stagingDiffValue) {
+      return show("stagingResult", "Сначала сформируйте diff.");
+    }
+
+    const approvedFields = Array.from(
+      document.querySelectorAll("[data-staging-field]:checked"),
+    ).map((item) => item.dataset.stagingField);
+
+    if (!approvedFields.length) {
+      return show("stagingResult", "Выберите хотя бы одно поле.");
+    }
+
+    try {
+      const value = await postJson("/v1/offline/staging/apply-preview", {
+        current: parseTextareaJson("stagingCurrent"),
+        proposed: parseTextareaJson("stagingProposed"),
+        approvedFields,
+      });
+      show("stagingResult", value);
+      document.getElementById("stagingCurrent").value =
+        JSON.stringify(value.revised, null, 2);
+      renderStagingDiff({
+        changes: value.remainingChanges,
+        summary: {
+          total: value.remainingChanges.length,
+        },
+      });
+    } catch (error) {
+      show("stagingResult", String(error));
     }
   };
 

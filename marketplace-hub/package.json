@@ -1,6 +1,6 @@
 {
   "name": "marketplace-hub",
-  "version": "0.5.0",
+  "version": "0.8.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,7 +12,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --import tsx --test src/**/*.test.ts",
     "prisma:generate": "prisma generate",
-    "prisma:push": "prisma db push"
+    "prisma:push": "prisma db push",
+    "db:validate": "prisma validate",
+    "db:bootstrap": "prisma db push",
+    "service:check": "npm run prisma:generate && npm run typecheck && npm test"
   },
   "dependencies": {
     "@prisma/client": "^6.19.1",
@@ -22,11 +25,13 @@
     "yaml": "^2.8.1",
     "zod": "^3.23.8",
     "pdfjs-dist": "4.10.38",
-    "sharp": "^0.35.5"
+    "sharp": "^0.35.5",
+    "cheerio": "1.2.0",
+    "cloudinary": "^2.8.0",
+    "prisma": "^6.19.1"
   },
   "devDependencies": {
     "@types/node": "^20.19.23",
-    "prisma": "^6.19.1",
     "tsx": "^4.23.15",
     "typescript": "^5.6.2"
   }
