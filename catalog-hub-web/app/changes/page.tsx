@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { hubFetch, organizationId, safeHub } from "@/lib/hub";
 import { dateTime } from "@/lib/format";
 
@@ -13,7 +14,7 @@ export default async function ChangesPage() {
         {result.data.map(cs => {
           const high=cs.fields.filter(f=>f.risk==="HIGH").length;
           const med=cs.fields.filter(f=>f.risk==="MEDIUM").length;
-          return <tr key={cs.id}><td><strong>{cs.product?.title || cs.sku}</strong><div className="mono">{cs.sku}</div></td><td>{cs.sourceType}</td><td>{cs.fields.length}</td><td>{high ? <span className="badge bad">HIGH {high}</span> : med ? <span className="badge warn">MEDIUM {med}</span> : <span className="badge good">LOW</span>}</td><td><span className="badge blue">{cs.status}</span></td><td>{dateTime(cs.createdAt)}</td></tr>
+          return <tr key={cs.id}><td><Link href={"/changes/" + encodeURIComponent(cs.id)}><strong>{cs.product?.title || cs.sku}</strong><div className="mono">{cs.sku}</div><span className="subtle">Открыть проверку →</span></Link></td><td>{cs.sourceType}</td><td>{cs.fields.length}</td><td>{high ? <span className="badge bad">HIGH {high}</span> : med ? <span className="badge warn">MEDIUM {med}</span> : <span className="badge good">LOW</span>}</td><td><span className="badge blue">{cs.status}</span></td><td>{dateTime(cs.createdAt)}</td></tr>
         })}</tbody></table></div>}
   </div>;
 }
