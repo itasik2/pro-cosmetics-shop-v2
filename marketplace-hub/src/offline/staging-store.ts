@@ -375,3 +375,30 @@ export async function getChangeSet(id: string) {
     },
   });
 }
+
+
+export async function listChangeSets(input: {
+  organizationId: string;
+  status?: "PREVIEW" | "APPROVED" | "PARTIALLY_APPLIED" | "APPLIED" | "REJECTED";
+  limit?: number;
+}) {
+  return prisma.catalogChangeSet.findMany({
+    where: {
+      organizationId: input.organizationId,
+      ...(input.status ? { status: input.status } : {}),
+    },
+    orderBy: { createdAt: "desc" },
+    take: Math.max(1, Math.min(100, input.limit ?? 50)),
+    include: {
+      fields: { orderBy: [{ risk: "desc" }, { createdAt: "asc" }] },
+      product: {
+        select: {
+          id: true,
+          sku: true,
+          title: true,
+          brand: true,
+        },
+      },
+    },
+  });
+}
