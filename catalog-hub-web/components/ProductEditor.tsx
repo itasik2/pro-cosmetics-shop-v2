@@ -29,6 +29,24 @@ const textInputs = [
   ["ingredients", "Состав"],
 ] as const;
 
+
+function formatAttributes(value: unknown): string {
+  // Imported legacy cards store a serialized JSON object inside a jsonb string.
+  // Unwrap a bounded number of JSON string layers for display without rewriting data.
+  let decoded = value;
+  for (let layer = 0; layer < 2 && typeof decoded === "string"; layer++) {
+    try {
+      decoded = JSON.parse(decoded);
+    } catch {
+      return decoded;
+    }
+  }
+  if (decoded && typeof decoded === "object" && !Array.isArray(decoded)) {
+    return JSON.stringify(decoded, null, 2);
+  }
+  return typeof decoded === "string" ? decoded : "{}";
+}
+
 export function ProductEditor({ product }: { product: HubProduct }) {
   const [form, setForm] = useState<Values>({
     title: product.title || "",
@@ -41,54 +59,70 @@ export function ProductEditor({ product }: { product: HubProduct }) {
     ingredients: product.ingredients || "",
     purchasePrice: product.purchasePrice == null ? "" : String(product.purchasePrice),
     price: product.price == null ? "" : String(product.price),
-    attributes: JSON.stringify(product.attributes || {}, null, 2),
+    attributes: formatAttributes(product.attributes),
     images: (product.images || []).join("\n"),
   });
+  const [dirty, setDirty] = useState<Set<keyof Values>>(() => new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   function update(key: keyof Values, value: string) {
     setForm((prev) => ({ ...prev, [key]: value }));
+    setDirty((prev) => new Set(prev).add(key));
     setError("");
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
-    if (!form.title.trim()) {
-      setError("Укажите название товара.");
+    // Only submit fields the operator actually edited. Imported legacy data in
+    // unrelated fields must never be silently normalized or erased by price edits.
+    if (dirty.size === 0) {
+      setError("Нет изменений для сохранения.");
       return;
     }
-    let attributes: Record<string, unknown>;
-    try {
-      const parsed: unknown = JSON.parse(form.attributes);
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error();
-      attributes = parsed as Record<string, unknown>;
-    } catch {
-      setError("Характеристики должны быть JSON-объектом.");
-      return;
+    const proposed: Record<string, unknown> = {};
+    for (const [key] of textInputs) {
+      if (!dirty.has(key)) continue;
+      const value = form[key].trim();
+      if (key === "title" && !value) {
+        setError("Укажите название товара.");
+        return;
+      }
+      proposed[key] = value || null;
     }
-    const prices: Record<string, number | null> = {};
     for (const key of ["purchasePrice", "price"] as const) {
+      if (!dirty.has(key)) continue;
       const raw = form[key].trim();
-      const num = raw === "" ? null : Number(raw);
-      if (num !== null && (!Number.isSafeInteger(num) || num < (key === "price" ? 1 : 0))) {
+      const value = raw === "" ? null : Number(raw);
+      if (value !== null && (!Number.isSafeInteger(value) ||
+        value < (key === "price" ? 1 : 0))) {
         setError("Проверьте цену: нужны целые неотрицательные значения, розничная цена — больше нуля.");
         return;
       }
-      prices[key] = num;
+      proposed[key] = value;
     }
-    const images = form.images.split(/\r?\n/).map((url) => url.trim()).filter(Boolean);
-    if (images.some((src) => !/^https?:\/\/[^ ]+$/i.test(src))) {
-      setError("Ссылки на фотографии должны начинаться с http:// или https://.");
-      return;
+    if (dirty.has("attributes")) {
+      try {
+        let parsed: unknown = JSON.parse(form.attributes);
+        for (let layer = 0; layer < 2 && typeof parsed === "string"; layer++) {
+          parsed = JSON.parse(parsed);
+        }
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error();
+        proposed.attributes = parsed;
+      } catch {
+        setError("Характеристики должны быть JSON-объектом.");
+        return;
+      }
     }
-    const proposed = {
-      ...Object.fromEntries(textInputs.map(([key]) => [key, form[key].trim() || null])),
-      ...prices,
-      attributes,
-      images,
-    };
+    if (dirty.has("images")) {
+      const images = form.images.split(/\r?\n/).map((url) => url.trim()).filter(Boolean);
+      if (images.some((src) => !/^https?:\/\/[^ ]+$/i.test(src))) {
+        setError("Ссылки на фотографии должны начинаться с http:// или https://.");
+        return;
+      }
+      proposed.images = images;
+    }
     setBusy(true);
     try {
       const response = await fetch("/api/catalog/changes", {
@@ -149,9 +183,9 @@ export function ProductEditor({ product }: { product: HubProduct }) {
           <textarea className="editor-json" rows={5} value={form.attributes} onChange={(event) => update("attributes", event.target.value)} />
         </label>
       </div>
-      <p className="subtle">SKU и складские остатки защищены от прямого редактирования. Для них предусмотрены отдельные операции.</p>
+      <p className="subtle">SKU и складские остатки защищены от прямого редактирования. Для них предусмотрены отдельные операции. Изменённых полей: {dirty.size}.</p>
       {error && <div role="alert" className="error">{error}</div>}
-      <div className="actions"><button type="submit" className="button primary" disabled={busy}>{busy ? "Сохранение…" : "Сохранить на проверку →"}</button></div>
+      <div className="actions"><button type="submit" className="button primary" disabled={busy || dirty.size === 0}>{busy ? "Сохранение…" : "Сохранить на проверку →"}</button></div>
     </form>
   );
 }
