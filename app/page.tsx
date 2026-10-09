@@ -8,6 +8,7 @@ import { formatProductName } from "@/lib/productNames";
 import { collapseRepresentedProductCards } from "@/lib/publicProductCards";
 import { productIdentityKey } from "@/lib/price-import/productVariants";
 import { buildBrandIntentKeywords } from "@/lib/seo";
+import { overlayCatalogHubProducts } from "@/lib/catalogHubOverlay";
 import {
   getPublicBaseUrl,
   SITE_BRAND,
@@ -82,6 +83,7 @@ const PRODUCT_CARD_SELECT = {
   createdAt: true,
   category: true,
   supplierId: true,
+  supplierSku: true,
   volumeValue: true,
   volumeUnit: true,
   variants: true,
@@ -163,7 +165,6 @@ const getHomeRows = unstable_cache(
           where: {
             id: { in: salesIds },
             isPublished: true,
-            stock: { gt: 0 },
             enrichmentStatus: { not: "MERGED" },
           },
           select: PRODUCT_CARD_SELECT,
@@ -215,9 +216,34 @@ export async function generateMetadata() {
 
 export default async function Home() {
   const [
-    { popularRows, salesIds, salesProductRows, newArrivalRows, reviews },
+    {
+      popularRows: legacyPopularRows,
+      salesIds,
+      salesProductRows: legacySalesProductRows,
+      newArrivalRows: legacyNewArrivalRows,
+      reviews,
+    },
     externalLinks,
   ] = await Promise.all([getHomeRows(), getPublicExternalLinks()]);
+
+  const overlaidHomeRows = await overlayCatalogHubProducts([
+    ...legacyPopularRows,
+    ...legacySalesProductRows,
+    ...legacyNewArrivalRows,
+  ]);
+  const overlaidById = new Map(
+    overlaidHomeRows.map((product) => [product.id, product]),
+  );
+  const popularRows = legacyPopularRows.map(
+    (product) => overlaidById.get(product.id) ?? product,
+  );
+  const salesProductRows = legacySalesProductRows.map(
+    (product) => overlaidById.get(product.id) ?? product,
+  );
+  const newArrivalRows = legacyNewArrivalRows.map(
+    (product) => overlaidById.get(product.id) ?? product,
+  );
+
   const marketplaceLinks = externalLinks.filter(
     (link) => link.kind === "MARKETPLACE",
   );
