@@ -98,6 +98,7 @@ model Organization {
   suppliers      Supplier[]
   pricingRules   PricingRule[]
   changeSets     CatalogChangeSet[]
+  mediaProfiles  MediaProfile[]
 }
 
 model MarketplaceAccount {
@@ -353,6 +354,30 @@ model DocumentImport {
   createdAt      DateTime  @default(now())
 
   @@index([supplierId, createdAt])
+}
+
+model MediaProfile {
+  id               String       @id @default(cuid())
+  organizationId   String
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  code             String
+  name             String
+  target           String?
+  width            Int
+  height           Int
+  mode             String       @default("BOUND")
+  format           String       @default("webp")
+  quality          Int          @default(86)
+  background       String       @default("#ffffff")
+  allowUpscale     Boolean      @default(false)
+  removeBackground Boolean      @default(false)
+  trim             Boolean      @default(false)
+  isActive         Boolean      @default(true)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@unique([organizationId, code])
+  @@index([organizationId, isActive, target])
 }
 
 model ProductMedia {

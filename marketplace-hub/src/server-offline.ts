@@ -34,6 +34,35 @@ import {
   normalizeCatalogImageWithCloudinary,
 } from "./media/cloudinary.js";
 import {
+  ensureDefaultMediaProfiles,
+  getMediaProfile,
+  listMediaProfiles,
+  mediaProfileToTransform,
+  mediaProfilesDatabaseConfigured,
+  updateMediaProfile,
+  upsertMediaProfile,
+} from "./media/profiles.js";
+import {
+  importProductMedia,
+  listProductMedia,
+  mediaStoreConfigured,
+  stageProductMediaVariant,
+} from "./media/store.js";
+import {
+  createCatalogEnrichmentJob,
+  getCatalogEnrichmentJob,
+  listCatalogEnrichmentProposals,
+  runCatalogEnrichmentJob,
+  stageCatalogEnrichmentProposal,
+} from "./ai/store.js";
+import {
+  linkProductSupplier,
+  listSourcePolicies,
+  listSuppliers,
+  upsertSourcePolicy,
+  upsertSupplier,
+} from "./ai/source-store.js";
+import {
   applyApprovedChanges,
   buildCardDiff,
   stagingApplyRequestSchema,
@@ -45,6 +74,7 @@ import {
   approveChangeSet,
   createChangeSet,
   getChangeSet,
+  listChangeSets,
   rejectChangeSet,
   stagingDatabaseConfigured,
 } from "./offline/staging-store.js";
@@ -52,10 +82,41 @@ import {
   aiProposalToStagingPatch,
   importRowToStagingPatch,
 } from "./offline/staging-sources.js";
+import {
+  catalogDatabaseConfigured,
+  createCatalogProduct,
+  databaseReady,
+  getCatalogProduct,
+  getCatalogProductBySku,
+  listCatalogProducts,
+} from "./offline/catalog-store.js";
+import {
+  getCatalogHubAuthConfig,
+  isCatalogHubRequestAuthorized,
+} from "./runtime/auth.js";
+import { prisma } from "./offline/staging-store.js";
 
-const app = Fastify({
+export const app = Fastify({
   logger: true,
   bodyLimit: 25 * 1024 * 1024,
+});
+
+const authConfig = getCatalogHubAuthConfig();
+
+app.addHook("onRequest", async (request, reply) => {
+  if (!request.url.startsWith("/v1/")) return;
+
+  if (authConfig.required && !authConfig.configured) {
+    return reply.code(503).send({ error: "catalog_hub_api_key_not_configured" });
+  }
+
+  if (!isCatalogHubRequestAuthorized(request, authConfig)) {
+    return reply.code(401).send({ error: "unauthorized" });
+  }
+});
+
+app.addHook("onClose", async () => {
+  await prisma.$disconnect();
 });
 
 app.get("/", async (_request, reply) =>
@@ -65,9 +126,30 @@ app.get("/", async (_request, reply) =>
 app.get("/health", async () => ({
   ok: true,
   service: "marketplace-hub",
-  version: "0.7.0",
-  mode: "offline",
+  version: "0.8.0",
+  mode: "service",
+  auth: {
+    required: authConfig.required,
+    configured: authConfig.configured,
+  },
+  databaseConfigured: catalogDatabaseConfigured(),
 }));
+
+app.get("/ready", async (_request, reply) => {
+  const database = await databaseReady();
+  const ready =
+    database &&
+    (!authConfig.required || authConfig.configured);
+
+  return reply.code(ready ? 200 : 503).send({
+    ready,
+    database,
+    auth: {
+      required: authConfig.required,
+      configured: authConfig.configured,
+    },
+  });
+});
 
 app.get("/v1/offline/capabilities", async () => ({
   mode: "offline",
@@ -91,6 +173,8 @@ app.get("/v1/offline/capabilities", async () => ({
     selectiveApproval: true,
     persistentChangeSets: stagingDatabaseConfigured(),
     revisionSnapshots: stagingDatabaseConfigured(),
+    persistentCatalog: catalogDatabaseConfigured(),
+    internalApiAuth: authConfig.required,
     columnMapping: true,
     nestedFieldMapping: true,
     pricingRules: true,
@@ -99,6 +183,88 @@ app.get("/v1/offline/capabilities", async () => ({
     directMarketplaceSync: false,
   },
 }));
+
+app.get("/v1/catalog/products", async (request, reply) => {
+  if (!catalogDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  try {
+    return await listCatalogProducts(request.query);
+  } catch (error) {
+    return reply.code(400).send({
+      error: error instanceof Error ? error.message : "catalog_list_failed",
+    });
+  }
+});
+
+app.post("/v1/catalog/products", async (request, reply) => {
+  if (!catalogDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  try {
+    const created = await createCatalogProduct(request.body);
+    return reply.code(201).send(created);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "catalog_create_failed";
+    const status = message.includes("Unique constraint") ? 409 : 400;
+    return reply.code(status).send({ error: message });
+  }
+});
+
+app.get("/v1/catalog/products/:id", async (request, reply) => {
+  if (!catalogDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  const params = request.params as { id: string };
+  const query = z
+    .object({ organizationId: z.string().min(1) })
+    .safeParse(request.query);
+
+  if (!query.success) {
+    return reply.code(400).send({
+      error: "organizationId_required",
+      details: query.error.flatten(),
+    });
+  }
+
+  const product = await getCatalogProduct({
+    organizationId: query.data.organizationId,
+    id: params.id,
+  });
+
+  if (!product) return reply.code(404).send({ error: "product_not_found" });
+  return product;
+});
+
+app.get("/v1/catalog/by-sku/:sku", async (request, reply) => {
+  if (!catalogDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  const params = request.params as { sku: string };
+  const query = z
+    .object({ organizationId: z.string().min(1) })
+    .safeParse(request.query);
+
+  if (!query.success) {
+    return reply.code(400).send({
+      error: "organizationId_required",
+      details: query.error.flatten(),
+    });
+  }
+
+  const product = await getCatalogProductBySku({
+    organizationId: query.data.organizationId,
+    sku: params.sku,
+  });
+
+  if (!product) return reply.code(404).send({ error: "product_not_found" });
+  return product;
+});
 
 app.post("/v1/offline/import/preview", async (request, reply) => {
   const parsed = universalImportSchema.safeParse(request.body);
@@ -158,6 +324,426 @@ app.post("/v1/offline/import/pdf/preview", async (request, reply) => {
   } catch (error) {
     return reply.code(400).send({
       error: error instanceof Error ? error.message : "PDF parsing failed",
+    });
+  }
+});
+
+app.post("/v1/media/profiles/bootstrap", async (request, reply) => {
+  if (!mediaProfilesDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  const body = z.object({ organizationId: z.string().min(1) }).safeParse(request.body);
+  if (!body.success) {
+    return reply.code(400).send({ error: "organizationId_required" });
+  }
+
+  try {
+    return {
+      profiles: await ensureDefaultMediaProfiles(body.data.organizationId),
+    };
+  } catch (error) {
+    return reply.code(400).send({
+      error: error instanceof Error ? error.message : "media_profile_bootstrap_failed",
+    });
+  }
+});
+
+app.get("/v1/media/profiles", async (request, reply) => {
+  if (!mediaProfilesDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  const query = z.object({
+    organizationId: z.string().min(1),
+    activeOnly: z.coerce.boolean().optional(),
+    target: z.string().trim().optional(),
+  }).safeParse(request.query);
+
+  if (!query.success) {
+    return reply.code(400).send({
+      error: "Invalid media profile query",
+      details: query.error.flatten(),
+    });
+  }
+
+  return listMediaProfiles(query.data);
+});
+
+app.post("/v1/media/profiles", async (request, reply) => {
+  if (!mediaProfilesDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  try {
+    const profile = await upsertMediaProfile(request.body);
+    return reply.code(201).send(profile);
+  } catch (error) {
+    return reply.code(400).send({
+      error: error instanceof Error ? error.message : "media_profile_upsert_failed",
+    });
+  }
+});
+
+app.patch("/v1/media/profiles/:code", async (request, reply) => {
+  if (!mediaProfilesDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  const params = request.params as { code: string };
+  const body = z.object({
+    organizationId: z.string().min(1),
+    patch: z.record(z.unknown()),
+  }).safeParse(request.body);
+
+  if (!body.success) {
+    return reply.code(400).send({
+      error: "Invalid media profile update",
+      details: body.error.flatten(),
+    });
+  }
+
+  try {
+    return await updateMediaProfile({
+      organizationId: body.data.organizationId,
+      code: params.code,
+      patch: body.data.patch,
+    });
+  } catch (error) {
+    return reply.code(400).send({
+      error: error instanceof Error ? error.message : "media_profile_update_failed",
+    });
+  }
+});
+
+app.post("/v1/media/transform", async (request, reply) => {
+  if (!mediaProfilesDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  const body = z.object({
+    organizationId: z.string().min(1),
+    profileCode: z.string().trim().min(1),
+    base64: z.string().min(1),
+  }).safeParse(request.body);
+
+  if (!body.success) {
+    return reply.code(400).send({
+      error: "Invalid media profile transform",
+      details: body.error.flatten(),
+    });
+  }
+
+  const profile = await getMediaProfile({
+    organizationId: body.data.organizationId,
+    code: body.data.profileCode,
+  });
+  if (!profile || !profile.isActive) {
+    return reply.code(404).send({ error: "media_profile_not_found" });
+  }
+
+  try {
+    return {
+      profile,
+      result: await transformImage(
+        Buffer.from(body.data.base64, "base64"),
+        mediaProfileToTransform(profile),
+      ),
+      backgroundRemovalRequested: profile.removeBackground,
+      backgroundRemovalApplied: false,
+    };
+  } catch (error) {
+    return reply.code(400).send({
+      error: error instanceof Error ? error.message : "media_transform_failed",
+    });
+  }
+});
+
+app.post("/v1/media/products/:id/import", async (request, reply) => {
+  if (!mediaStoreConfigured()) {
+    return reply.code(503).send({
+      error: cloudinaryMediaConfigured()
+        ? "database_not_configured"
+        : "cloudinary_not_configured",
+    });
+  }
+
+  const params = request.params as { id: string };
+  const body = z.object({
+    organizationId: z.string().min(1),
+    sourceUrl: z.string().url(),
+    profileCodes: z.array(z.string().trim().min(1)).min(1).max(12),
+    makePrimary: z.boolean().optional(),
+  }).safeParse(request.body);
+
+  if (!body.success) {
+    return reply.code(400).send({
+      error: "Invalid product media import",
+      details: body.error.flatten(),
+    });
+  }
+
+  try {
+    return reply.code(201).send(
+      await importProductMedia({
+        ...body.data,
+        productId: params.id,
+      }),
+    );
+  } catch (error) {
+    return reply.code(400).send({
+      error: error instanceof Error ? error.message : "product_media_import_failed",
+    });
+  }
+});
+
+app.get("/v1/media/products/:id", async (request, reply) => {
+  if (!mediaProfilesDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  const params = request.params as { id: string };
+  const query = z.object({ organizationId: z.string().min(1) }).safeParse(request.query);
+  if (!query.success) {
+    return reply.code(400).send({ error: "organizationId_required" });
+  }
+
+  try {
+    return await listProductMedia({
+      organizationId: query.data.organizationId,
+      productId: params.id,
+    });
+  } catch (error) {
+    return reply.code(404).send({
+      error: error instanceof Error ? error.message : "product_media_list_failed",
+    });
+  }
+});
+
+app.post("/v1/media/variants/:id/stage", async (request, reply) => {
+  if (!mediaProfilesDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  const params = request.params as { id: string };
+  const body = z.object({
+    organizationId: z.string().min(1),
+    replaceAllImages: z.boolean().optional(),
+    createdBy: z.string().optional(),
+  }).safeParse(request.body);
+
+  if (!body.success) {
+    return reply.code(400).send({
+      error: "Invalid media staging request",
+      details: body.error.flatten(),
+    });
+  }
+
+  try {
+    return reply.code(201).send(
+      await stageProductMediaVariant({
+        ...body.data,
+        variantId: params.id,
+      }),
+    );
+  } catch (error) {
+    return reply.code(400).send({
+      error: error instanceof Error ? error.message : "media_staging_failed",
+    });
+  }
+});
+
+app.get("/v1/suppliers", async (request, reply) => {
+  if (!stagingDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  const query = z.object({
+    organizationId: z.string().min(1),
+    activeOnly: z.coerce.boolean().optional(),
+  }).safeParse(request.query);
+  if (!query.success) {
+    return reply.code(400).send({
+      error: "Invalid supplier query",
+      details: query.error.flatten(),
+    });
+  }
+
+  return listSuppliers(query.data);
+});
+
+app.post("/v1/suppliers", async (request, reply) => {
+  if (!stagingDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  try {
+    return reply.code(201).send(await upsertSupplier(request.body));
+  } catch (error) {
+    return reply.code(400).send({
+      error: error instanceof Error ? error.message : "supplier_upsert_failed",
+    });
+  }
+});
+
+app.post("/v1/suppliers/link-product", async (request, reply) => {
+  if (!stagingDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  try {
+    return reply.code(201).send(await linkProductSupplier(request.body));
+  } catch (error) {
+    return reply.code(400).send({
+      error: error instanceof Error ? error.message : "supplier_product_link_failed",
+    });
+  }
+});
+
+app.get("/v1/source-policies", async (request, reply) => {
+  if (!stagingDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  const query = z.object({
+    organizationId: z.string().min(1),
+    supplierCode: z.string().trim().optional(),
+    enabledOnly: z.coerce.boolean().optional(),
+  }).safeParse(request.query);
+  if (!query.success) {
+    return reply.code(400).send({
+      error: "Invalid source policy query",
+      details: query.error.flatten(),
+    });
+  }
+
+  return listSourcePolicies(query.data);
+});
+
+app.post("/v1/source-policies", async (request, reply) => {
+  if (!stagingDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  try {
+    return reply.code(201).send(await upsertSourcePolicy(request.body));
+  } catch (error) {
+    return reply.code(400).send({
+      error: error instanceof Error ? error.message : "source_policy_upsert_failed",
+    });
+  }
+});
+
+app.post("/v1/ai/enrichment/jobs", async (request, reply) => {
+  if (!stagingDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  try {
+    const job = await createCatalogEnrichmentJob(request.body);
+    return reply.code(201).send(job);
+  } catch (error) {
+    return reply.code(400).send({
+      error: error instanceof Error ? error.message : "enrichment_job_create_failed",
+    });
+  }
+});
+
+app.post("/v1/ai/enrichment/jobs/:id/run", async (request, reply) => {
+  if (!stagingDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  const params = request.params as { id: string };
+  const body = z.object({ organizationId: z.string().min(1) }).safeParse(request.body);
+  if (!body.success) {
+    return reply.code(400).send({
+      error: "organizationId_required",
+      details: body.error.flatten(),
+    });
+  }
+
+  try {
+    return await runCatalogEnrichmentJob({
+      organizationId: body.data.organizationId,
+      jobId: params.id,
+    });
+  } catch (error) {
+    return reply.code(422).send({
+      error: error instanceof Error ? error.message : "enrichment_job_run_failed",
+    });
+  }
+});
+
+app.get("/v1/ai/enrichment/jobs/:id", async (request, reply) => {
+  if (!stagingDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  const params = request.params as { id: string };
+  const query = z.object({ organizationId: z.string().min(1) }).safeParse(request.query);
+  if (!query.success) {
+    return reply.code(400).send({ error: "organizationId_required" });
+  }
+
+  const job = await getCatalogEnrichmentJob({
+    organizationId: query.data.organizationId,
+    jobId: params.id,
+  });
+  return job ? job : reply.code(404).send({ error: "enrichment_job_not_found" });
+});
+
+app.get("/v1/ai/enrichment/proposals", async (request, reply) => {
+  if (!stagingDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  const query = z.object({
+    organizationId: z.string().min(1),
+    status: z.enum(["PENDING", "APPLIED", "REJECTED"]).optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+  }).safeParse(request.query);
+  if (!query.success) {
+    return reply.code(400).send({
+      error: "Invalid enrichment proposal query",
+      details: query.error.flatten(),
+    });
+  }
+
+  return listCatalogEnrichmentProposals(query.data);
+});
+
+app.post("/v1/ai/enrichment/proposals/:id/stage", async (request, reply) => {
+  if (!stagingDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  const params = request.params as { id: string };
+  const body = z.object({
+    organizationId: z.string().min(1),
+    includeTitle: z.boolean().optional(),
+    includeBrand: z.boolean().optional(),
+    selectedImageUrl: z.string().url().optional(),
+    createdBy: z.string().optional(),
+  }).safeParse(request.body);
+
+  if (!body.success) {
+    return reply.code(400).send({
+      error: "Invalid enrichment staging request",
+      details: body.error.flatten(),
+    });
+  }
+
+  try {
+    return reply.code(201).send(
+      await stageCatalogEnrichmentProposal({
+        ...body.data,
+        proposalId: params.id,
+      }),
+    );
+  } catch (error) {
+    return reply.code(400).send({
+      error: error instanceof Error ? error.message : "enrichment_staging_failed",
     });
   }
 });
@@ -454,6 +1040,27 @@ app.post("/v1/staging/changesets", async (request, reply) => {
   }
 });
 
+app.get("/v1/staging/changesets", async (request, reply) => {
+  if (!stagingDatabaseConfigured()) {
+    return reply.code(503).send({ error: "database_not_configured" });
+  }
+
+  const query = z.object({
+    organizationId: z.string().min(1),
+    status: z.enum(["PREVIEW", "APPROVED", "PARTIALLY_APPLIED", "APPLIED", "REJECTED"]).optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+  }).safeParse(request.query);
+
+  if (!query.success) {
+    return reply.code(400).send({
+      error: "Invalid changeset query",
+      details: query.error.flatten(),
+    });
+  }
+
+  return listChangeSets(query.data);
+});
+
 app.get("/v1/staging/changesets/:id", async (request, reply) => {
   if (!stagingDatabaseConfigured()) {
     return reply.code(503).send({ error: "database_not_configured" });
@@ -669,9 +1276,14 @@ app.post("/v1/kaspi/price-feed/preview", async (request, reply) => {
   return reply.type("application/xml; charset=utf-8").send(xml);
 });
 
-const port = Number(process.env.PORT ?? 4100);
+export async function startCatalogHubServer() {
+  const port = Number(process.env.PORT ?? 4100);
+  await app.listen({ port, host: "0.0.0.0" });
+}
 
-app.listen({ port, host: "0.0.0.0" }).catch((error) => {
-  app.log.error(error);
-  process.exit(1);
-});
+if (process.env.VERCEL !== "1") {
+  startCatalogHubServer().catch((error) => {
+    app.log.error(error);
+    process.exit(1);
+  });
+}
