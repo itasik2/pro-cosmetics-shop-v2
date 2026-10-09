@@ -1,5 +1,7 @@
 import { hubFetch, organizationId, safeHub, type HubProduct } from "@/lib/hub";
 import { dateTime, money } from "@/lib/format";
+import { ProductEditor } from "@/components/ProductEditor";
+import Link from "next/link";
 
 export default async function ProductPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -14,7 +16,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
     <div className="page">
       <div className="page-head">
         <div><span className="eyebrow">{item.sku}</span><h1>{item.title}</h1><p>{item.brand || "Без бренда"} · {item.categoryKey || "Без категории"}</p></div>
-        <div className="actions"><span className="badge good">Master Card</span></div>
+        <div className="actions"><Link className="button" href="/catalog">← Каталог</Link><span className="badge good">Master Card</span></div>
       </div>
       <div className="two-col">
         <section className="panel">
@@ -38,6 +40,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
           </div>
         </section>
       </div>
+      <div style={{marginTop:14}}><ProductEditor product={item} /></div>
       <section className="panel" style={{marginTop:14}}>
         <h2>Изображения</h2>
         <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
