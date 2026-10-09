@@ -146,3 +146,117 @@ export async function normalizeCatalogImageWithCloudinary(
     };
   }
 }
+
+
+type CloudinaryMediaProfile = {
+  code: string;
+  width: number;
+  height: number;
+  mode: string;
+  format: string;
+  quality: number;
+  background: string;
+  allowUpscale: boolean;
+  removeBackground: boolean;
+  trim: boolean;
+};
+
+function profileTransformation(profile: CloudinaryMediaProfile) {
+  const chain: Array<Record<string, unknown>> = [];
+
+  if (profile.removeBackground) {
+    chain.push({ effect: "background_removal" });
+  }
+  if (profile.trim) {
+    chain.push({ effect: "trim:10" });
+  }
+
+  if (profile.mode === "COVER") {
+    chain.push({
+      width: profile.width,
+      height: profile.height,
+      crop: "fill",
+      gravity: "auto",
+    });
+  } else if (profile.mode === "PAD") {
+    chain.push({
+      width: profile.width,
+      height: profile.height,
+      crop: profile.allowUpscale ? "fit" : "limit",
+    });
+    chain.push({
+      width: profile.width,
+      height: profile.height,
+      crop: "pad",
+      gravity: "center",
+      background: profile.background.replace(/^#/, "") || "white",
+    });
+  } else {
+    chain.push({
+      width: profile.width,
+      height: profile.height,
+      crop: profile.allowUpscale ? "fit" : "limit",
+    });
+  }
+
+  chain.push({ quality: profile.quality });
+  return chain;
+}
+
+export async function uploadCatalogImageProfiles(
+  buffer: Buffer,
+  profiles: CloudinaryMediaProfile[],
+  options?: { folder?: string },
+) {
+  configure();
+  if (!profiles.length) throw new Error("media_profiles_required");
+
+  const folder = options?.folder || "catalog-hub/products/originals";
+  const uploaded = await uploadBuffer(buffer, folder);
+  const originalUrl = String(uploaded.secure_url || "").trim();
+  const publicId = String(uploaded.public_id || "").trim();
+
+  if (!originalUrl || !publicId) {
+    throw new Error("cloudinary_original_missing");
+  }
+
+  const eager = profiles.map((profile) => ({
+    transformation: profileTransformation(profile),
+    format: profile.format,
+  }));
+
+  const explicit = (await cloudinary.uploader.explicit(publicId, {
+    type: "upload",
+    resource_type: "image",
+    eager,
+    eager_async: false,
+  })) as Record<string, any>;
+
+  const generated = Array.isArray(explicit?.eager) ? explicit.eager : [];
+  const variants = profiles.map((profile, index) => {
+    const output = generated[index] || {};
+    const url = String(output.secure_url || "").trim();
+    return {
+      profileCode: profile.code,
+      format: profile.format,
+      width:
+        typeof output.width === "number" ? output.width : profile.width,
+      height:
+        typeof output.height === "number" ? output.height : profile.height,
+      bytes: typeof output.bytes === "number" ? output.bytes : null,
+      url: url || null,
+      status: url ? ("PROCESSED" as const) : ("FAILED" as const),
+    };
+  });
+
+  return {
+    publicId,
+    originalUrl,
+    originalFormat:
+      typeof uploaded.format === "string" ? uploaded.format : null,
+    width: typeof uploaded.width === "number" ? uploaded.width : null,
+    height: typeof uploaded.height === "number" ? uploaded.height : null,
+    bytes: typeof uploaded.bytes === "number" ? uploaded.bytes : null,
+    variants,
+  };
+}
