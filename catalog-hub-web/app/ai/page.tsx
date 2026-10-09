@@ -19,7 +19,8 @@ export default async function AiPage() {
   ]);
 
   return <div className="page">
-    <div className="page-head"><div><h1>AI-обогащение</h1><p>Поиск фактов, описаний и изображений с review перед применением.</p></div><span className="badge blue">Review-first</span></div>
+    <div className="page-head"><div><h1>AI-обогащение</h1><p>Поиск фактов, описаний и изображений с review перед применением.</p></div><span className="badge warn">Пока только просмотр</span></div>
+    <p className="subtle">Автоматический запуск поиска и обработка предложений через этот экран ещё не подключены.</p>
     <div className="grid metrics">
       <Metric label="Предложения" value={proposals.ok ? proposals.data.length : "—"} />
       <Metric label="Поставщики" value={suppliers.ok ? suppliers.data.length : "—"} />
