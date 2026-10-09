@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { calculateRepricing, profitFloor, type RepricingPolicyInput } from "../../supabase/functions/catalog-hub/repricing-engine.js";
+import { calculateRepricing, profitFloor, type RepricingPolicyInput } from "./repricing-engine.js";
 
 const rule: RepricingPolicyInput = {
   strategy:"UNDERCUT", minPrice:12000, maxPrice:25000,
