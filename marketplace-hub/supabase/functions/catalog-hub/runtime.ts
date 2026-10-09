@@ -1,4 +1,5 @@
 import postgres from "npm:postgres@3.4.7";
+import * as jose from "npm:jose@6.1.0";
 
 const databaseUrl = Deno.env.get("SUPABASE_DB_URL")!;
 const sql = postgres(databaseUrl, { prepare: false, max: 1 });
@@ -30,7 +31,51 @@ async function sha256Hex(value: string) {
     .join("");
 }
 
-async function authorize(req: Request) {
+const VERCEL_OIDC_ISSUER =
+  "https://oidc.vercel.com/vitaliys-projects-13789f27";
+const VERCEL_OIDC_AUDIENCE =
+  "https://vercel.com/vitaliys-projects-13789f27";
+const VERCEL_OWNER_ID = "team_YWKSvspAA13TCOqdPiW95pzB";
+const VERCEL_PROJECT_ID = "prj_wOZAjfZrBuo3AK5mHW9FSdD7VAf1";
+const VERCEL_PROJECT_NAME = "catalog-hub-web";
+const VERCEL_JWKS = jose.createRemoteJWKSet(
+  new URL("https://oidc.vercel.com/.well-known/jwks"),
+);
+
+async function authorizeVercelOidc(req: Request) {
+  const authorization = (req.headers.get("authorization") || "").trim();
+  if (!authorization.toLowerCase().startsWith("bearer ")) return false;
+
+  const token = authorization.slice(7).trim();
+  if (!token) return false;
+
+  try {
+    const { payload } = await jose.jwtVerify(token, VERCEL_JWKS, {
+      issuer: VERCEL_OIDC_ISSUER,
+      audience: VERCEL_OIDC_AUDIENCE,
+    });
+
+    const environment =
+      typeof payload.environment === "string" ? payload.environment : "";
+    const project =
+      typeof payload.project === "string" ? payload.project : "";
+    const projectId =
+      typeof payload.project_id === "string" ? payload.project_id : "";
+    const ownerId =
+      typeof payload.owner_id === "string" ? payload.owner_id : "";
+
+    return (
+      ownerId === VERCEL_OWNER_ID &&
+      projectId === VERCEL_PROJECT_ID &&
+      project === VERCEL_PROJECT_NAME &&
+      (environment === "production" || environment === "preview")
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function authorizeApiKey(req: Request) {
   const value = (req.headers.get("x-catalog-hub-key") || "").trim();
   if (!value) return false;
 
@@ -47,6 +92,11 @@ async function authorize(req: Request) {
            SET "lastUsedAt" = now()
            WHERE "id" = ${rows[0].id}`.catch(() => {});
   return true;
+}
+
+async function authorize(req: Request) {
+  if (await authorizeVercelOidc(req)) return true;
+  return authorizeApiKey(req);
 }
 
 type ProductRow = {
@@ -608,7 +658,7 @@ Deno.serve(async (req: Request) => {
       return json({
         ok: true,
         service: "catalog-hub",
-        version: "0.9.0-edge",
+        version: "0.9.1-edge",
         mode: "supabase-edge",
       });
     }
