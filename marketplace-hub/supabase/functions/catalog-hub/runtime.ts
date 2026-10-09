@@ -133,6 +133,29 @@ type ProductRow = {
   updatedAt: string | Date;
 };
 
+// Old catalog imports stored JSON objects and arrays as serialized strings
+// inside jsonb columns. Decode them when reading; never modify the source row.
+function decodeLegacyJson(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+function readAttributes(value: unknown): unknown {
+  const parsed = decodeLegacyJson(value);
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? parsed
+    : value ?? {};
+}
+function readImages(value: unknown): string[] {
+  const parsed = decodeLegacyJson(value);
+  return Array.isArray(parsed)
+    ? parsed.filter((src): src is string => typeof src === "string")
+    : [];
+}
+
 async function serializeProduct(product: ProductRow) {
   const inventory = await sql<
     {
@@ -176,8 +199,8 @@ async function serializeProduct(product: ProductRow) {
     application: product.application,
     ingredients: product.ingredients,
     categoryKey: product.categoryKey,
-    attributes: product.attributes ?? {},
-    images: Array.isArray(product.images) ? product.images : [],
+    attributes: readAttributes(product.attributes),
+    images: readImages(product.images),
     purchasePrice: product.purchasePrice,
     price: product.basePrice,
     inventory: inventory.map((item) => ({
@@ -446,8 +469,8 @@ async function catalogSnapshot(url: URL) {
   return {
     items: rows.map((row) => ({
       ...row,
-      attributes: row.attributes ?? {},
-      images: Array.isArray(row.images) ? row.images : [],
+      attributes: readAttributes(row.attributes),
+      images: readImages(row.images),
       createdAt: new Date(row.createdAt).toISOString(),
       updatedAt: new Date(row.updatedAt).toISOString(),
     })),
