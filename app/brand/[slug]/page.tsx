@@ -7,6 +7,7 @@ import { getCspNonce } from "@/lib/csp";
 import { SITE_BRAND, getPublicBaseUrl } from "@/lib/siteConfig";
 import { collapseRepresentedProductCards } from "@/lib/publicProductCards";
 import { stringifyJsonLd } from "@/lib/structuredData";
+import { overlayCatalogHubProducts } from "@/lib/catalogHubOverlay";
 
 export const dynamic = "force-dynamic";
 
@@ -87,14 +88,20 @@ export default async function BrandPage(props: Props) {
 
   const productRows = await prisma.product.findMany({
     where: {
-      brandId: brand.id,
       isPublished: true,
       enrichmentStatus: { not: "MERGED" },
     },
     include: { brand: true },
     orderBy: { createdAt: "desc" },
   });
-  const products = collapseRepresentedProductCards(productRows);
+  const overlaidProducts = await overlayCatalogHubProducts(productRows);
+  const products = collapseRepresentedProductCards(
+    overlaidProducts.filter(
+      (product) =>
+        product.brand?.name?.toLocaleLowerCase("ru-RU") ===
+        brand.name.toLocaleLowerCase("ru-RU"),
+    ),
+  );
 
   const baseUrl = getPublicBaseUrl();
   const schema = {

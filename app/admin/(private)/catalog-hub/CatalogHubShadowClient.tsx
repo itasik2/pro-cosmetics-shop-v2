@@ -7,6 +7,8 @@ type StatusResponse = {
   config: {
     enabled: boolean;
     writeEnabled: boolean;
+    readEnabled: boolean;
+    readStrict: boolean;
     configured: boolean;
     baseUrl: string | null;
     organizationId: string | null;
@@ -22,6 +24,7 @@ type StatusResponse = {
     notFound: number;
     errors: number;
     skipped: number;
+    hubTotal?: number;
   } | null;
   comparisons: Array<{
     status: string;
@@ -42,7 +45,7 @@ type StatusResponse = {
 export default function CatalogHubShadowClient() {
   const [data, setData] = useState<StatusResponse | null>(null);
   const [loading, setLoading] = useState(false);
-  const [limit, setLimit] = useState(20);
+  const [limit, setLimit] = useState(200);
   const [seedLoading, setSeedLoading] = useState(false);
   const [seedResult, setSeedResult] = useState<unknown>(null);
 
@@ -98,9 +101,10 @@ export default function CatalogHubShadowClient() {
               value={limit}
               onChange={(event) => setLimit(Number(event.target.value))}
             >
-              <option value={10}>10</option>
               <option value={20}>20</option>
-              <option value={30}>30</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+              <option value={200}>Все / до 200</option>
             </select>
           </label>
           <button
@@ -129,6 +133,14 @@ export default function CatalogHubShadowClient() {
           value={data?.config.organizationId || "не указана"}
         />
         <Metric
+          label="Read overlay"
+          value={data?.config.readEnabled ? "включён" : "выключен"}
+        />
+        <Metric
+          label="Read strict"
+          value={data?.config.readStrict ? "включён" : "fallback"}
+        />
+        <Metric
           label="Запись"
           value={data?.config.writeEnabled ? "разрешена" : "выключена"}
         />
@@ -146,6 +158,7 @@ export default function CatalogHubShadowClient() {
           <Metric label="Нет в Hub" value={data.summary.notFound} />
           <Metric label="Ошибки" value={data.summary.errors} />
           <Metric label="Пропущено" value={data.summary.skipped} />
+          <Metric label="Всего в Hub" value={data.summary.hubTotal ?? "—"} />
         </div>
       )}
 
