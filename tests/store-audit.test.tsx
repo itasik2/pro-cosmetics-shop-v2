@@ -43,7 +43,7 @@ test("unknown delivery is distinct from explicitly free delivery", () => {
   assert.equal(configuredDeliveryPrice("1.5"), null);
   assert.equal(configuredDeliveryPrice("0"), 0);
   assert.equal(configuredDeliveryPrice("1500"), 1500);
-  assert.equal(getStorePolicy().sellerName, "");
+  assert.equal(getStorePolicy().deliveryPrice, null);
 });
 
 test("editorial notes are removed from sales copy and missing use instructions stay explicit", () => {
