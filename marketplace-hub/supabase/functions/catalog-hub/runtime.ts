@@ -31,15 +31,22 @@ async function sha256Hex(value: string) {
     .join("");
 }
 
-const VERCEL_OIDC_ISSUER =
-  "https://oidc.vercel.com/vitaliys-projects-13789f27";
+const VERCEL_OIDC_ISSUERS = [
+  "https://oidc.vercel.com/vitaliys-projects-13789f27",
+  "https://oidc.vercel.com",
+] as const;
 const VERCEL_OIDC_AUDIENCE =
   "https://vercel.com/vitaliys-projects-13789f27";
 const VERCEL_OWNER_ID = "team_YWKSvspAA13TCOqdPiW95pzB";
 const VERCEL_PROJECT_ID = "prj_wOZAjfZrBuo3AK5mHW9FSdD7VAf1";
 const VERCEL_PROJECT_NAME = "catalog-hub-web";
-const VERCEL_JWKS = jose.createRemoteJWKSet(
-  new URL("https://oidc.vercel.com/.well-known/jwks"),
+// Match the JWKS URL to the verified issuer mode (team or global).
+// Never fetch a URL supplied by a caller: only these two issuers are trusted.
+const VERCEL_JWKS_BY_ISSUER = new Map(
+  VERCEL_OIDC_ISSUERS.map((issuer) => [
+    issuer,
+    jose.createRemoteJWKSet(new URL(issuer + "/.well-known/jwks")),
+  ] as const),
 );
 
 async function authorizeVercelOidc(req: Request) {
@@ -50,8 +57,14 @@ async function authorizeVercelOidc(req: Request) {
   if (!token) return false;
 
   try {
-    const { payload } = await jose.jwtVerify(token, VERCEL_JWKS, {
-      issuer: VERCEL_OIDC_ISSUER,
+    // Unverified claims select a hardcoded trusted issuer only; jwtVerify
+    // validates the signature, issuer, audience, and expiration afterwards.
+    const issuer = jose.decodeJwt(token).iss;
+    if (typeof issuer !== "string") return false;
+    const jwks = VERCEL_JWKS_BY_ISSUER.get(issuer);
+    if (!jwks) return false;
+    const { payload } = await jose.jwtVerify(token, jwks, {
+      issuer,
       audience: VERCEL_OIDC_AUDIENCE,
     });
 
