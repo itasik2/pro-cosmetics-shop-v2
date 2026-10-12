@@ -1,13 +1,17 @@
 import { hubFetch, organizationId, safeHub, type HubProduct } from "@/lib/hub";
 import { dateTime, money } from "@/lib/format";
 import { ProductEditor } from "@/components/ProductEditor";
+import { StockAdjustment } from "@/components/StockAdjustment";
 import Link from "next/link";
 
 export default async function ProductPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const result = await safeHub(
+  const [result, warehouses] = await Promise.all([
+    safeHub(
     hubFetch<HubProduct>("/v1/catalog/products/" + encodeURIComponent(id) + "?organizationId=" + organizationId),
-  );
+  ),
+    safeHub(hubFetch<Array<{id:string;code:string;name:string;isActive:boolean}>>("/v1/inventory/warehouses?organizationId=" + organizationId)),
+  ]);
 
   if (!result.ok) return <div className="page"><div className="error">{result.error}</div></div>;
   const item = result.data;
@@ -40,6 +44,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
           </div>
         </section>
       </div>
+      <div style={{marginTop:14}}>{warehouses.ok && <StockAdjustment product={item} warehouses={warehouses.data} />}</div>
       <div style={{marginTop:14}}><ProductEditor product={item} /></div>
       <section className="panel" style={{marginTop:14}}>
         <h2>Изображения</h2>
