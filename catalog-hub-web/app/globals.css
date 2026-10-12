@@ -190,3 +190,13 @@ tr:last-child td { border-bottom:0; }
 .import-table td{vertical-align:top;}
 .import-change{max-width:450px;white-space:normal;overflow-wrap:anywhere;margin:4px 0;}
 .import-warning{color:#b42318;margin:4px 0;}
+
+/* Local development safety banner (never shown in production). */
+.local-dev-status {
+  display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;
+  margin:10px 22px;padding:10px 14px;
+  background:#fff5e5;border:1px solid #e6c68b;border-radius:9px;
+  color:#5b421e;font-size:13px;line-height:1.55;
+}
+.local-dev-status strong {font-weight:700;}
+@media(max-width:720px){.local-dev-status{margin:10px 12px;}}
