@@ -10,7 +10,8 @@
     "test": "node --import tsx --test lib/*.test.ts",
     "local:init": "node scripts/local-init.mjs",
     "local:check": "node scripts/local-check.mjs",
-    "local:dev": "next dev --hostname 127.0.0.1 --port 3001"
+    "local:dev": "next dev --hostname 127.0.0.1 --port 3001",
+    "local:keygen": "node scripts/local-keygen.mjs"
   },
   "dependencies": {
     "next": "15.5.24",
