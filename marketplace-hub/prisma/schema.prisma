@@ -95,6 +95,7 @@ model Organization {
   accounts       MarketplaceAccount[]
   products       Product[]
   warehouses     Warehouse[]
+  inventoryAdjustments InventoryAdjustment[]
   suppliers      Supplier[]
   pricingRules   PricingRule[]
   repricingPolicies ChannelRepricingPolicy[]
@@ -147,6 +148,7 @@ model Product {
   competitorQuotes CompetitorPriceObservation[]
   repricingDecisions RepricingDecision[]
   inventory      Inventory[]
+  inventoryAdjustments InventoryAdjustment[]
   supplierLinks  SupplierProduct[]
   importRows     PriceImportRow[]
   media               ProductMedia[]
@@ -309,6 +311,7 @@ model Warehouse {
   updatedAt      DateTime     @updatedAt
 
   inventory Inventory[]
+  adjustments InventoryAdjustment[]
 
   @@unique([organizationId, code])
 }
@@ -656,4 +659,25 @@ model RepricingDecision {
   ruleSnapshot    Json
   createdAt       DateTime @default(now()) @db.Timestamptz(6)
   @@index([organizationId, productId, channel, createdAt(sort: Desc)], map: "repricing_decision_lookup")
+}
+
+model InventoryAdjustment {
+  id             String @id @default(uuid())
+  requestId      String
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  productId      String
+  product        Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  warehouseId    String
+  warehouse      Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  delta          Int
+  beforeOnHand   Int
+  afterOnHand    Int
+  reservedAtTime Int
+  reason         String
+  actor          String
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([organizationId, requestId], map: "inventory_adjustment_idempotency")
+  @@index([organizationId, productId, createdAt(sort: Desc)], map: "inventory_adjustment_product_history")
 }

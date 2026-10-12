@@ -40,6 +40,15 @@ export type HubProduct = {
     safetyStock: number;
     available: number;
   };
+  inventory?: {
+    warehouseId: string;
+    warehouseCode: string;
+    warehouseName: string;
+    onHand: number;
+    reserved: number;
+    safetyStock: number;
+    available: number;
+  }[];
   createdAt: string;
   updatedAt: string;
 };
