@@ -1,5 +1,6 @@
 import "server-only";
 import { headers } from "next/headers";
+import { isLocalReadOnly, isMutation } from "./local-mode";
 
 const baseUrl = String(process.env.CATALOG_HUB_API_URL || "").replace(/\/$/, "");
 const apiKey = String(process.env.CATALOG_HUB_API_KEY || "");
@@ -67,6 +68,9 @@ export async function hubFetch<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
+  if (isLocalReadOnly() && isMutation(init?.method)) {
+    throw new Error("local_read_only_mode: изменение данных отключено. Используйте тестовый проект Supabase и осознанно включите CATALOG_HUB_LOCAL_WRITE_ENABLED=true.");
+  }
   if (!baseUrl) throw new Error("CATALOG_HUB_API_URL not configured");
   const oidcToken = (await getRequestOidcToken()) || String(process.env.VERCEL_OIDC_TOKEN || "");
   if (!oidcToken && !apiKey && path.startsWith("/v1/")) {
