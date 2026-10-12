@@ -1,5 +1,5 @@
 import "server-only";
-import ExcelJS from "exceljs";
+import { readSheet } from "read-excel-file/node";
 import { XMLParser, XMLValidator } from "fast-xml-parser";
 
 import {type Field,type Mapping} from "./import-types";
@@ -79,23 +79,10 @@ export async function parseTable(file:File):Promise<Table>{
  if(file.size<1||file.size>MAX_BYTES)throw new Error("file_size_limit_2mb");
  const name=file.name.toLowerCase();
  if(name.endsWith(".xlsx")){
-   const workbook=new ExcelJS.Workbook();
-   await workbook.xlsx.load(Buffer.from(await file.arrayBuffer()) as unknown as Parameters<typeof workbook.xlsx.load>[0]);
-   const sheet=workbook.worksheets[0];
-   if(!sheet)throw new Error("xlsx_sheet_missing");
-   if(sheet.columnCount>MAX_COLS||sheet.rowCount>MAX_ROWS+2)throw new Error("xlsx_size_limit");
-   const raw:unknown[][]=[];
-   sheet.eachRow({includeEmpty:false},row=>{
-     raw.push(Array.from({length:Math.min(sheet.columnCount,MAX_COLS)},(_,i)=>{
-       const v=row.getCell(i+1).value;
-       if(v&&typeof v==="object"&&"result" in v)return (v as {result:unknown}).result;
-       if(v&&typeof v==="object"&&"text" in v)return (v as {text:unknown}).text;
-       if(v&&typeof v==="object"&&"richText" in v)return (v as {richText:{text:string}[]}).richText.map(x=>x.text).join("");
-       return v;
-     }));
-   });
-   if(!raw.length)throw new Error("xlsx_empty");
-   return tabular(raw[0].map(stringify),raw.slice(1),"XLSX");
+   const rows=await readSheet(Buffer.from(await file.arrayBuffer()) as Parameters<typeof readSheet>[0]);
+   if(rows.length<2)throw new Error("xlsx_empty");
+   if(rows.length>MAX_ROWS+1)throw new Error("too_many_rows_max_200");
+   return tabular(rows[0].map(stringify),rows.slice(1),"XLSX");
  }
  const text=await file.text();
  if(name.endsWith(".csv")||name.endsWith(".tsv")){
