@@ -5,7 +5,7 @@ import {FIELD_LABELS,type Field,type Mapping} from "@/lib/import-types";
 import type {Reviewed} from "@/lib/import-review";
 type Preview={
  format:string;headers:string[];mapping:Mapping;review:Reviewed[];
- counts:Record<string,number>;fingerprint:string;note:string;
+ counts:Record<string,number>;fingerprint:string;note:string;canApply:boolean;
 };
 type ItemResult={rowNumber:number;sku:string;status:string;id?:string;error?:string};
 type Applied={results:ItemResult[];partial:boolean;reminder:string};
@@ -248,13 +248,17 @@ export function ImportConsole(){
        <p className="subtle">Новые товары создаются сразу, но с нулевым остатком.
          Изменения существующих карточек попадают в очередь на согласование.
          Максимум 20 строк за операцию. В случае ошибки уже выполненные строки не откатываются.</p>
+       {!preview.canApply&&<p className="error" role="status">
+         Локальный режим только чтения: сохранение отключено. Можно проверить прайс, сопоставление и профили поставщиков.
+         Для операций записи необходимо сначала подключить отдельную тестовую базу.
+       </p>}
        <label className="review-check">
          <input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>
          Подтверждаю создание новых товаров и передачу изменений на проверку
        </label>
        <div className="actions" style={{marginTop:12}}>
          <button className="button primary" type="button"
-           disabled={!confirmed||!selected.length||selected.length>20||busy}
+           disabled={!preview.canApply||!confirmed||!selected.length||selected.length>20||busy}
            onClick={()=>invoke("apply")}>
            {busy?"Применение…":"Подтвердить выбранные строки"}
          </button>
