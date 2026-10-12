@@ -176,3 +176,7 @@ tr:last-child td { border-bottom:0; }
 .stock-confirm {margin:12px 0;}
 .stock-history-heading {margin-top:24px;}
 .stock-success {color:var(--good);}
+
+/* Explicit category suggestions (operator must still save and approve). */
+.category-suggestions {display:flex; flex-wrap:wrap; gap:10px; margin:8px 0;}
+.category-suggestions .button {white-space:normal; text-align:left;}
