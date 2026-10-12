@@ -1,4 +1,3 @@
-import "server-only";
 import type {ImportItem} from "./import-parser";
 
 export type Existing = {
