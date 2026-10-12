@@ -133,11 +133,24 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
       const organizationId = requiredId(body.organizationId, "organizationId");
       const productId = requiredId(body.productId, "productId");
       const proposed = normalizePatch(body.proposed);
+      const isImport = body.sourceType === "IMPORT";
+      const sourceRef = isImport ? requiredId(body.sourceRef, "sourceRef") : "catalog-hub-web";
+      if (isImport && (!/^supplierfile:[a-f0-9]{32}:[0-9]{1,3}$/.test(sourceRef))) {
+        fail("invalid_import_source_ref");
+      }
       const result = await sql.begin(async (tx) => {
         const products = await tx<Product[]>`SELECT *, "updatedAt"::text AS "snapshotVersion"
           FROM public."Product" WHERE "id" = ${productId}
             AND "organizationId" = ${organizationId} FOR UPDATE`;
         if (!products.length) fail("product_not_found", 404);
+        if (isImport) {
+          // The Product row lock serializes attempts for the same file row
+          // and prevents repeated changesets on an HTTP retry.
+          const previous = await tx`SELECT "id","status" FROM public."CatalogChangeSet"
+            WHERE "organizationId"=${organizationId} AND "sourceType"='IMPORT'
+            AND "sourceRef"=${sourceRef} LIMIT 1`;
+          if (previous.length) return {id:previous[0].id,status:previous[0].status,alreadyExists:true};
+        }
         if (typeof proposed.categoryKey === "string") {
           const cat = await tx`SELECT "key" FROM public."CatalogCategory" WHERE "organizationId"=${organizationId}
             AND "key"=${proposed.categoryKey} AND "isActive"=true LIMIT 1`;
@@ -159,8 +172,8 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
         await tx`INSERT INTO public."CatalogChangeSet"
           ("id","organizationId","productId","sku","sourceType","sourceRef",
            "status","current","proposed","summary","createdBy","createdAt","updatedAt")
-          VALUES (${id},${organizationId},${productId},${current.sku},'MANUAL',
-                  'catalog-hub-web','PREVIEW',${tx.json(current)}::jsonb,
+          VALUES (${id},${organizationId},${productId},${current.sku},${isImport ? "IMPORT" : "MANUAL"}::public."ChangeSetSourceType",
+                  ${sourceRef},'PREVIEW',${tx.json(current)}::jsonb,
                   ${tx.json(proposed)}::jsonb,${tx.json(summary)}::jsonb,
                   'catalog-hub-ui',now(),now())`;
         for (const field of changed) {
