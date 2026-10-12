@@ -66,7 +66,9 @@ async function prepare(request:NextRequest){
    hubFetch<Categories>("/v1/categories?organizationId="+encodeURIComponent(organizationId)),
  ]);
  const review=evaluateImport(items,snapshot.items,categories.categories.filter(c=>c.isActive).map(c=>c.key));
- return {data,file,table,mapping,review,fingerprint:digest(await fileHash(file),mapping,review)};
+ const hash=await fileHash(file);
+ const sourceBase=createHash("sha256").update(hash+JSON.stringify(mapping)).digest("hex").slice(0,32);
+ return {data,file,table,mapping,review,sourceBase,fingerprint:digest(hash,mapping,review)};
 }
 export async function POST(request:NextRequest) {
  if(request.headers.get("origin")!==request.nextUrl.origin)return responseError("invalid_origin",403);
@@ -101,6 +103,7 @@ export async function POST(request:NextRequest) {
      const staged=await hubFetch<{id:string;status:string}>("/v1/staging/changesets",{
        method:"POST",body:JSON.stringify({
          organizationId,productId:item.productId,
+         sourceType:"IMPORT",sourceRef:"supplierfile:"+state.sourceBase+":"+item.index,
          proposed:Object.fromEntries(item.changes.map(c=>[c.field,c.after])),
        }),
      });
