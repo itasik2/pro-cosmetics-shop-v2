@@ -75,7 +75,7 @@ export async function hubFetch<T>(
   // Local requests cannot obtain a Vercel-signed runtime identity.
   // Prefer the explicitly configured Catalog Hub key, even if an old
   // VERCEL_OIDC_TOKEN leaked into the local shell environment.
-  const oidcToken = process.env.NODE_ENV === "development"
+  const oidcToken = (process.env.NODE_ENV === "development" || process.env.CATALOG_HUB_LOCAL_MODE === "true")
     ? ""
     : (await getRequestOidcToken()) || String(process.env.VERCEL_OIDC_TOKEN || "");
   if (!oidcToken && !apiKey && path.startsWith("/v1/")) {
