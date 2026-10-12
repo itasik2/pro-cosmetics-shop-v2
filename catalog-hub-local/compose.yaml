@@ -1,0 +1,33 @@
+name: catalog-hub-test
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: catalog_test
+      POSTGRES_PASSWORD: catalog_test_only
+      POSTGRES_DB: catalog_test
+    ports:
+      - "127.0.0.1:55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U catalog_test -d catalog_test"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - catalog_test_postgres:/var/lib/postgresql/data
+  api:
+    image: denoland/deno:alpine
+    working_dir: /app
+    command: ["run", "--allow-all", "index.ts"]
+    environment:
+      SUPABASE_DB_URL: postgresql://catalog_test:catalog_test_only@db:5432/catalog_test
+      DENO_NO_UPDATE_CHECK: "1"
+    volumes:
+      - ../marketplace-hub/supabase/functions/catalog-hub:/app:ro
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+volumes:
+  catalog_test_postgres:
