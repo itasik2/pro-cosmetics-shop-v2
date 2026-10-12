@@ -47,12 +47,14 @@ function formatAttributes(value: unknown): string {
   return typeof decoded === "string" ? decoded : "{}";
 }
 
-export function ProductEditor({ product }: { product: HubProduct }) {
+type Category = {key:string;name:string;isActive:boolean;productCount:number};
+type Suggestion = { key:string;score:number;reason:string };
+export function ProductEditor({ product, categories }: { product: HubProduct; categories: Category[] }) {
   const [form, setForm] = useState<Values>({
     title: product.title || "",
     barcode: product.barcode || "",
     brand: product.brand || "",
-    categoryKey: product.categoryKey || "",
+    categoryKey: product.categoryKey === "Без категории" ? "" : product.categoryKey || "",
     shortDescription: product.shortDescription || "",
     description: product.description || "",
     application: product.application || "",
@@ -63,6 +65,9 @@ export function ProductEditor({ product }: { product: HubProduct }) {
     images: (product.images || []).join("\n"),
   });
   const [dirty, setDirty] = useState<Set<keyof Values>>(() => new Set());
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [suggestStatus, setSuggestStatus] = useState("");
+  const [suggestBusy, setSuggestBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -70,6 +75,22 @@ export function ProductEditor({ product }: { product: HubProduct }) {
     setForm((prev) => ({ ...prev, [key]: value }));
     setDirty((prev) => new Set(prev).add(key));
     setError("");
+  }
+
+  async function suggestCategory() {
+    setSuggestBusy(true);
+    setSuggestStatus("");
+    setSuggestions([]);
+    try {
+      const response = await fetch("/api/categories/suggest?productId=" + encodeURIComponent(product.id), { cache:"no-store" });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(String(body?.error || "category_suggestions_failed"));
+      const list = Array.isArray(body?.suggestions) ? body.suggestions : [];
+      setSuggestions(list);
+      if (!list.length) setSuggestStatus("Для этого товара нет достаточно надёжной подсказки. Выберите категорию вручную.");
+    } catch (error) {
+      setSuggestStatus(error instanceof Error ? error.message : "Не удалось получить подсказку");
+    } finally { setSuggestBusy(false); }
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -153,7 +174,14 @@ export function ProductEditor({ product }: { product: HubProduct }) {
         {textInputs.map(([key, label]) => (
           <label className={["description","application","ingredients","shortDescription"].includes(key) ? "editor-field wide" : "editor-field"} key={key}>
             <span>{label}</span>
-            {["description","application","ingredients","shortDescription"].includes(key) ? (
+            {key === "categoryKey" ? (
+              <select className="input" value={form.categoryKey}
+                onChange={(event) => update("categoryKey", event.target.value)}>
+                <option value="">Без категории — требуется проверка</option>
+                {categories.filter((cat) => cat.isActive).map(cat =>
+                  <option key={cat.key} value={cat.key}>{cat.name}</option>)}
+              </select>
+            ) : ["description","application","ingredients","shortDescription"].includes(key) ? (
               <textarea
                 rows={key === "description" ? 6 : 3}
                 maxLength={key === "shortDescription" ? 280 : undefined}
@@ -166,6 +194,21 @@ export function ProductEditor({ product }: { product: HubProduct }) {
             )}
           </label>
         ))}
+        <div className="editor-field wide">
+          <div className="actions">
+            <button type="button" className="button" onClick={suggestCategory} disabled={suggestBusy}>
+              {suggestBusy ? "Определение…" : "Предложить категорию"}
+            </button>
+          </div>
+          <p className="subtle">Подбор по правилам и тексту товара — это подсказка, не автоматическая классификация и не категория Kaspi.</p>
+          {suggestStatus && <p className="subtle" role="status">{suggestStatus}</p>}
+          {suggestions.length > 0 && <div className="category-suggestions">
+            {suggestions.map(s => <button className="button" type="button" key={s.key}
+              onClick={() => update("categoryKey",s.key)}>
+              {s.key} <span className="subtle">({s.reason})</span>
+            </button>)}
+          </div>}
+        </div>
         <label className="editor-field">
           <span>Закупочная цена, ₸</span>
           <input className="input" type="number" min="0" step="1" value={form.purchasePrice} onChange={(event) => update("purchasePrice", event.target.value)} />
