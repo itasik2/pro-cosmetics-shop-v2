@@ -171,3 +171,8 @@ tr:last-child td { border-bottom:0; }
   font-size: 14px;
   color: var(--ink);
 }
+
+.stock-current {padding:10px; background:#f8fafc; border-radius:8px;}
+.stock-confirm {margin:12px 0;}
+.stock-history-heading {margin-top:24px;}
+.stock-success {color:var(--good);}
