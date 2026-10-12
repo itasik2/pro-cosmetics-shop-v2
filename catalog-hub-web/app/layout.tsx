@@ -24,7 +24,7 @@ export default function RootLayout({
                 Состояние API — в разделе «Обзор»
               </div>
             </header>
-            {process.env.NODE_ENV === "development" && (
+            {(process.env.NODE_ENV === "development" || process.env.CATALOG_HUB_LOCAL_MODE === "true") && (
               <div role="status" className="local-dev-status">
                 <strong>Локальная разработка</strong>
                 {process.env.CATALOG_HUB_LOCAL_WRITE_ENABLED === "true"
