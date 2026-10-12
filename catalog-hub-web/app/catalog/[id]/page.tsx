@@ -6,11 +6,12 @@ import Link from "next/link";
 
 export default async function ProductPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [result, warehouses] = await Promise.all([
+  const [result, warehouses, categories] = await Promise.all([
     safeHub(
     hubFetch<HubProduct>("/v1/catalog/products/" + encodeURIComponent(id) + "?organizationId=" + organizationId),
   ),
     safeHub(hubFetch<Array<{id:string;code:string;name:string;isActive:boolean}>>("/v1/inventory/warehouses?organizationId=" + organizationId)),
+    safeHub(hubFetch<{categories:Array<{key:string;name:string;isActive:boolean;productCount:number}>;uncategorized:number}>("/v1/categories?organizationId=" + encodeURIComponent(organizationId))),
   ]);
 
   if (!result.ok) return <div className="page"><div className="error">{result.error}</div></div>;
@@ -45,7 +46,10 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
         </section>
       </div>
       <div style={{marginTop:14}}>{warehouses.ok && <StockAdjustment product={item} warehouses={warehouses.data} />}</div>
-      <div style={{marginTop:14}}><ProductEditor product={item} /></div>
+      <div style={{marginTop:14}}>
+        {!categories.ok && <p className="error">Справочник категорий недоступен: {categories.error}</p>}
+        <ProductEditor product={item} categories={categories.ok ? categories.data.categories : []} />
+      </div>
       <section className="panel" style={{marginTop:14}}>
         <h2>Изображения</h2>
         <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
