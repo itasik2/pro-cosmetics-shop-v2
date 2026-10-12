@@ -1,5 +1,5 @@
 "use client";
-import {useState} from "react";
+import {useEffect,useState} from "react";
 import Link from "next/link";
 import {FIELD_LABELS,type Field,type Mapping} from "@/lib/import-types";
 import type {Reviewed} from "@/lib/import-review";
@@ -9,6 +9,10 @@ type Preview={
 };
 type ItemResult={rowNumber:number;sku:string;status:string;id?:string;error?:string};
 type Applied={results:ItemResult[];partial:boolean;reminder:string};
+type SupplierProfile = {id:string;name:string;notes:string;mapping:Mapping;updatedAt:string};
+type ImportLog = {id:string;profileId:string|null;fileName:string;format:string;
+ action:"PREVIEW"|"APPLY";result:string;totalRows:number;selectedRows:number;createdAt:string};
+
 const fields=Object.keys(FIELD_LABELS) as Field[];
 const statusLabel:Record<string,string>={
  CREATE:"Новый товар",UPDATE:"Изменение",SAME:"Без изменений",
@@ -24,12 +28,81 @@ export function ImportConsole(){
  const [busy,setBusy]=useState(false);
  const [error,setError]=useState("");
  const [applied,setApplied]=useState<Applied|null>(null);
+ const [profiles,setProfiles]=useState<SupplierProfile[]>([]);
+ const [history,setHistory]=useState<ImportLog[]>([]);
+ const [profileId,setProfileId]=useState("");
+ const [profileName,setProfileName]=useState("");
+ const [profileNotes,setProfileNotes]=useState("");
+ const [profileError,setProfileError]=useState("");
+ const [profileMessage,setProfileMessage]=useState("");
+ const [profileBusy,setProfileBusy]=useState(false);
+
+ async function refreshLocal(){
+   try{
+     const response=await fetch("/api/import/local-profiles",{cache:"no-store"});
+     if(!response.ok)return;
+     const data=await response.json();
+     if(Array.isArray(data.profiles))setProfiles(data.profiles);
+     if(Array.isArray(data.history))setHistory(data.history);
+   }catch{ /* Profiles remain optional when not running on Ubuntu. */ }
+ }
+ useEffect(()=>{void refreshLocal()},[]);
+
+ function loadProfile(id:string){
+   const profile=profiles.find(p=>p.id===id);
+   setProfileId(profile?.id||"");
+   setProfileName(profile?.name||"");
+   setProfileNotes(profile?.notes||"");
+   if(profile)setMapping(profile.mapping);
+   setPreview(null);
+   setSelected([]);
+   setConfirmed(false);
+   setProfileError("");
+   setProfileMessage(profile?"Загружены настройки колонок поставщика. Проверьте файл и обновите предпросмотр.":"");
+ }
+ async function saveProfile(){
+   if(!profileName.trim()||Object.keys(mapping).filter(key=>Boolean(mapping[key as Field])).length===0){
+     setProfileError("Введите название поставщика и сначала проверьте файл с сопоставленными колонками.");
+     return;
+   }
+   setProfileBusy(true);setProfileError("");setProfileMessage("");
+   try{
+     const response=await fetch("/api/import/local-profiles",{
+       method:"POST",headers:{"content-type":"application/json"},
+       body:JSON.stringify({id:profileId||undefined,name:profileName,notes:profileNotes,mapping}),
+     });
+     const data=await response.json().catch(()=>null);
+     if(!response.ok)throw new Error(String(data?.error||"supplier_profile_save_failed"));
+     setProfileId(data.profile.id);
+     setProfileMessage("Профиль сохранён на Ubuntu. Рабочая Supabase не изменялась.");
+     await refreshLocal();
+   }catch(e){setProfileError(e instanceof Error?e.message:String(e));}
+   finally{setProfileBusy(false);}
+ }
+ async function deleteProfile(){
+   if(!profileId)return;
+   if(!window.confirm("Удалить локальный профиль поставщика? История импорта останется."))return;
+   setProfileBusy(true);setProfileError("");
+   try{
+     const response=await fetch("/api/import/local-profiles",{
+       method:"DELETE",headers:{"content-type":"application/json"},
+       body:JSON.stringify({id:profileId}),
+     });
+     if(!response.ok)throw new Error("supplier_profile_delete_failed");
+     setProfileId("");setProfileName("");setProfileNotes("");
+     setProfileMessage("Профиль удалён с Ubuntu.");
+     await refreshLocal();
+   }catch(e){setProfileError(e instanceof Error?e.message:String(e));}
+   finally{setProfileBusy(false);}
+ }
+
 
  async function invoke(action:"preview"|"apply") {
   if(!file)return;
   setBusy(true);setError("");setApplied(null);
   const data=new FormData();data.set("file",file);data.set("action",action);
-  if(headers.length)data.set("mapping",JSON.stringify(mapping));
+  if(headers.length||Object.values(mapping).some(Boolean))data.set("mapping",JSON.stringify(mapping));
+  if(profileId)data.set("profileId",profileId);
   if(action==="apply"){
     if(!preview){setBusy(false);return;}
     data.set("fingerprint",preview.fingerprint);
@@ -46,10 +119,12 @@ export function ImportConsole(){
       setMapping((result as Preview).mapping);
       setSelected([]);
       setConfirmed(false);
+      await refreshLocal();
     }else{
       setApplied(result as Applied);setSelected([]);setConfirmed(false);
       // Never permit a second application from a stale preview.
       setPreview(null);
+      await refreshLocal();
     }
   }catch(e){setError(e instanceof Error?e.message:"Не удалось обработать файл");}
   finally{setBusy(false);}
@@ -61,6 +136,38 @@ export function ImportConsole(){
    <div className="page-head"><div><h1>Импорт каталогов поставщиков</h1>
      <p>Excel (XLSX), CSV, TSV, XML/YML и JSON. Сопоставление и сравнение до применения.</p></div></div>
    <section className="panel">
+     <h2>Локальные профили поставщиков</h2>
+     <p className="subtle">Сохраняйте названия поставщиков и соответствие колонок на этом компьютере.
+       Профили и история находятся только в папке <code>.local-data</code> на Ubuntu.
+       Цены и товары в Supabase здесь не меняются.</p>
+     <div className="editor-grid">
+       <label className="editor-field"><span>Загрузить профиль</span>
+         <select className="input" value={profileId} onChange={e=>loadProfile(e.target.value)}>
+           <option value="">Новый профиль</option>
+           {profiles.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+         </select>
+       </label>
+       <label className="editor-field"><span>Название поставщика</span>
+         <input className="input" value={profileName} maxLength={120}
+           placeholder="Например: Основной поставщик"
+           onChange={e=>setProfileName(e.target.value)}/>
+       </label>
+       <label className="editor-field wide"><span>Примечание</span>
+         <input className="input" value={profileNotes} maxLength={400}
+           placeholder="Условия прайса и особенности формата"
+           onChange={e=>setProfileNotes(e.target.value)}/>
+       </label>
+     </div>
+     <div className="actions" style={{marginTop:14}}>
+       <button type="button" className="button" disabled={profileBusy}
+         onClick={saveProfile}>{profileBusy?"Сохранение…":"Сохранить профиль с текущими колонками"}</button>
+       {profileId&&<button type="button" className="button" disabled={profileBusy}
+         onClick={deleteProfile}>Удалить профиль</button>}
+     </div>
+     {profileMessage&&<p role="status" className="subtle">{profileMessage}</p>}
+     {profileError&&<div className="error" role="alert">{profileError}</div>}
+   </section>
+   <section className="panel" style={{marginTop:14}}>
      <h2>1. Выберите файл</h2>
      <p className="subtle">До 2 МБ, максимум 200 строк. Поддерживается XLSX (не устаревший XLS).
        Исходный файл не сохраняется на сервере. Остатки из прайса отображаются только для справки.</p>
@@ -68,7 +175,7 @@ export function ImportConsole(){
        <input className="input" type="file" accept=".xlsx,.csv,.tsv,.xml,.yml,.json"
          onChange={e=>{
            setFile(e.target.files?.[0]||null);setPreview(null);setHeaders([]);
-           setMapping({});setSelected([]);setConfirmed(false);setApplied(null);setError("");
+           setMapping(profileId?mapping:{});setSelected([]);setConfirmed(false);setApplied(null);setError("");
          }}/>
      </label>
      {headers.length>0&&<div style={{marginTop:15}}>
@@ -154,6 +261,16 @@ export function ImportConsole(){
        </div>
      </section>
    </>}
+   {history.length>0&&<section className="panel" style={{marginTop:14}}>
+     <h2>Локальная история загрузок</h2>
+     <p className="subtle">История хранит только имена файлов, результаты сопоставления и даты. Сами файлы не сохраняются.</p>
+     <div className="list">{history.slice(0,10).map(entry=><div key={entry.id} className="list-row">
+       <div><strong>{entry.fileName}</strong> · {entry.action==="PREVIEW"?"Предпросмотр":"Применение"}
+         <div className="subtle">{entry.format} · {entry.totalRows} строк ·
+           {new Date(entry.createdAt).toLocaleString("ru-RU")}</div>
+       </div><span className="badge">{entry.result}</span>
+     </div>)}</div>
+   </section>}
    {applied&&<section className="panel" style={{marginTop:14}}>
      <h2>Результат применения</h2>
      <p className="subtle">{applied.reminder}</p>
