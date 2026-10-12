@@ -23,6 +23,7 @@ const config=[
  "CATALOG_HUB_ORGANIZATION_ID=org_procosmetics",
  "CATALOG_HUB_WAREHOUSE_ID=wh_pav_01",
  "NEXT_PUBLIC_CATALOG_HUB_NAME=Catalog Hub (локально)",
+ "CATALOG_HUB_LOCAL_MODE=true",
  "CATALOG_HUB_UI_PASSWORD="+password,
  "CATALOG_HUB_UI_SESSION_TOKEN="+token,
  "",
