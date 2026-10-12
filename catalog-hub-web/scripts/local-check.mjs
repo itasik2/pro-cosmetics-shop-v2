@@ -39,6 +39,7 @@ if(url.protocol!=="https:"&&!["localhost","127.0.0.1"].includes(url.hostname)){
   process.exit(1);
 }
 const base=url.toString().replace(/\/$/,"");
+if(config.CATALOG_HUB_LOCAL_MODE!=="true") console.warn("ВНИМАНИЕ: CATALOG_HUB_LOCAL_MODE не включён. Проверьте .env.local.");
 console.log("Режим: "+(config.CATALOG_HUB_LOCAL_WRITE_ENABLED==="true"?"ЗАПИСЬ ВКЛЮЧЕНА — проверяйте тестовую БД":"только чтение (безопасно)"));
 console.log("Проверка адреса API:",url.hostname);
 async function probe(path,headers={}){
