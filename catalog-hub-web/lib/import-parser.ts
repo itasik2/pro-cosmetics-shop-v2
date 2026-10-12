@@ -76,7 +76,7 @@ export async function parseTable(file:File):Promise<Table>{
  const name=file.name.toLowerCase();
  if(name.endsWith(".xlsx")){
    const workbook=new ExcelJS.Workbook();
-   await workbook.xlsx.load(Buffer.from(await file.arrayBuffer()) as Buffer);
+   await workbook.xlsx.load(Buffer.from(await file.arrayBuffer()) as unknown as Parameters<typeof workbook.xlsx.load>[0]);
    const sheet=workbook.worksheets[0];
    if(!sheet)throw new Error("xlsx_sheet_missing");
    if(sheet.columnCount>MAX_COLS||sheet.rowCount>MAX_ROWS+2)throw new Error("xlsx_size_limit");
