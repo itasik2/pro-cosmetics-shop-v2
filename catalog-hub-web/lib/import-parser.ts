@@ -82,7 +82,7 @@ export async function parseTable(file:File):Promise<Table>{
  const name=file.name.toLowerCase();
  if(name.endsWith(".xlsx")){
    const workbook=new ExcelJS.Workbook();
-   await workbook.xlsx.load(Buffer.from(await file.arrayBuffer()) as ExcelJS.Buffer);
+   await workbook.xlsx.load(Buffer.from(await file.arrayBuffer()) as Buffer);
    const sheet=workbook.worksheets[0];
    if(!sheet)throw new Error("xlsx_sheet_missing");
    if(sheet.columnCount>MAX_COLS||sheet.rowCount>MAX_ROWS+2)throw new Error("xlsx_size_limit");
@@ -160,7 +160,6 @@ export function mapImport(table:Table,mapping:Mapping):ImportItem[]{
    const sku=field("sku").slice(0,120),barcode=field("barcode").slice(0,120),
     title=field("title").slice(0,500);
    if(!sku&&!barcode)errors.push("Нужен SKU или штрихкод");
-   if(!title)errors.push("Нет названия: новые товары будут заблокированы");
    if(sku.length>100)errors.push("Слишком длинный SKU");
    const purchasePrice=parseMoney(field("purchasePrice"),"закупочная цена",errors);
    const price=parseMoney(field("price"),"розничная цена",errors);
