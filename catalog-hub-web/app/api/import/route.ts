@@ -1,0 +1,135 @@
+import { NextRequest,NextResponse } from "next/server";
+import {createHmac,createHash,timingSafeEqual} from "node:crypto";
+import {hubFetch,organizationId} from "@/lib/hub";
+import {parseTable,mapImport,autoMapping,type Mapping,type Field} from "@/lib/import-parser";
+import {evaluateImport,type Existing} from "@/lib/import-review";
+
+export const dynamic="force-dynamic";
+export const runtime="nodejs";
+export const maxDuration=60;
+
+type Catalog={items:Existing[];total:number};
+type Categories={categories:Array<{key:string;isActive:boolean}>};
+const MAPPED_FIELDS=new Set<Field>([
+ "sku","barcode","title","brand","purchasePrice","price","description","categoryKey","stock"
+]);
+
+function responseError(message:string,status=400){
+ return NextResponse.json({error:message},{status,headers:{"cache-control":"no-store"}});
+}
+function secret(){
+ const s=process.env.CATALOG_HUB_UI_SESSION_TOKEN||"";
+ if(s.length<24)throw new Error("import_session_secret_not_configured");
+ return s;
+}
+function fileHash(file:File) {
+ return file.arrayBuffer().then(buffer=>createHash("sha256").update(Buffer.from(buffer)).digest("hex"));
+}
+function digest(fileDigest:string,mapping:Mapping,review:ReturnType<typeof evaluateImport>){
+ const data=JSON.stringify({
+   org:organizationId,fileDigest,mapping,
+   rows:review.map(x=>[x.rowNumber,x.sku,x.barcode,x.productId,x.status,x.currentUpdatedAt,x.proposed,x.changes])
+ });
+ return createHmac("sha256",secret()).update(data).digest("hex");
+}
+function equalSignature(a:string,b:string){
+ return /^[a-f0-9]{64}$/.test(a)&&timingSafeEqual(Buffer.from(a,"hex"),Buffer.from(b,"hex"));
+}
+function mappingFrom(raw:FormDataEntryValue|null,headers:string[]):Mapping{
+ if(typeof raw!=="string"||!raw.trim())return autoMapping(headers);
+ let obj:unknown;
+ try{obj=JSON.parse(raw)}catch{throw new Error("invalid_mapping");}
+ if(!obj||typeof obj!=="object"||Array.isArray(obj))throw new Error("invalid_mapping");
+ const output:Mapping={};
+ const selectedCols=new Set<string>();
+ for(const [key,column] of Object.entries(obj)){
+  if(!MAPPED_FIELDS.has(key as Field)||typeof column!=="string")throw new Error("invalid_mapping_field");
+  if(!column)continue;
+  if(!headers.includes(column))throw new Error("invalid_mapping_column");
+  if(selectedCols.has(column))throw new Error("same_column_mapped_twice");
+  selectedCols.add(column);
+  output[key as Field]=column;
+ }
+ return output;
+}
+async function prepare(request:NextRequest){
+ if(Number(request.headers.get("content-length")||0)>3*1024*1024)throw new Error("upload_too_large");
+ const data=await request.formData();
+ const file=data.get("file");
+ if(!(file instanceof File))throw new Error("file_required");
+ const table=await parseTable(file);
+ const mapping=mappingFrom(data.get("mapping"),table.headers);
+ const items=mapImport(table,mapping);
+ const [snapshot,categories]=await Promise.all([
+   hubFetch<Catalog>("/v1/catalog/snapshot?organizationId="+encodeURIComponent(organizationId)),
+   hubFetch<Categories>("/v1/categories?organizationId="+encodeURIComponent(organizationId)),
+ ]);
+ const review=evaluateImport(items,snapshot.items,categories.categories.filter(c=>c.isActive).map(c=>c.key));
+ return {data,file,table,mapping,review,fingerprint:digest(await fileHash(file),mapping,review)};
+}
+export async function POST(request:NextRequest) {
+ if(request.headers.get("origin")!==request.nextUrl.origin)return responseError("invalid_origin",403);
+ let state:Awaited<ReturnType<typeof prepare>>;
+ try{state=await prepare(request);}
+ catch(e){const msg=e instanceof Error?e.message:"import_preview_failed";
+   return responseError(msg,/too_large|size_limit|too_many/.test(msg)?413:400);}
+ const {data,table,mapping,review,fingerprint}=state;
+ const action=data.get("action")==="apply"?"apply":"preview";
+ const counts=Object.fromEntries(["CREATE","UPDATE","SAME","INVALID","CONFLICT","DUPLICATE"].map(s=>
+    [s,review.filter(r=>r.status===s).length]));
+ if(action==="preview")return NextResponse.json({
+  format:table.format,headers:table.headers,mapping,review,counts,fingerprint,
+  note:"Stock fields are informational; source files are not stored. Existing products are staged for review, new products require explicit confirmation."
+ },{headers:{"cache-control":"no-store"}});
+ if(data.get("confirmed")!=="yes")return responseError("confirmation_required");
+ const signature=data.get("fingerprint");
+ if(typeof signature!=="string"||!equalSignature(signature,fingerprint))
+   return responseError("preview_expired_or_catalog_changed",409);
+ let selected:unknown;
+ try{selected=JSON.parse(String(data.get("selected")||"[]"));}
+ catch{return responseError("invalid_selection");}
+ if(!Array.isArray(selected)||selected.length<1||selected.length>20||
+    selected.some(v=>!Number.isInteger(v)||v<0||v>=review.length)||
+    new Set(selected).size!==selected.length)return responseError("select_up_to_20_rows");
+ const candidates=selected.map(i=>review[i as number]);
+ if(candidates.some(r=>!["CREATE","UPDATE"].includes(r.status)))return responseError("selection_has_conflicts",409);
+ const results:Array<{rowNumber:number;sku:string;status:string;id?:string;error?:string}>=[];
+ for(const item of candidates){
+  try{
+   if(item.status==="UPDATE"){
+     const staged=await hubFetch<{id:string;status:string}>("/v1/staging/changesets",{
+       method:"POST",body:JSON.stringify({
+         organizationId,productId:item.productId,
+         proposed:Object.fromEntries(item.changes.map(c=>[c.field,c.after])),
+       }),
+     });
+     results.push({rowNumber:item.rowNumber,sku:item.sku,status:"STAGED",id:staged.id});
+   }else{
+     // No stock is created, even when the supplier file contains a quantity.
+     const created=await hubFetch<{id:string}>("/v1/catalog/products",{
+       method:"POST",body:JSON.stringify({
+         organizationId,card:{
+           sku:item.sku,title:item.title,
+           ...(item.proposed.barcode?{barcode:item.proposed.barcode}:{}),
+           ...(item.proposed.brand?{brand:item.proposed.brand}:{}),
+           ...(item.proposed.description?{description:item.proposed.description}:{}),
+           ...(item.proposed.categoryKey?{categoryKey:item.proposed.categoryKey}:{}),
+           ...(item.proposed.purchasePrice!==undefined?{purchasePrice:item.proposed.purchasePrice}:{}),
+           ...(item.proposed.price!==undefined?{price:item.proposed.price}:{}),
+         },
+       }),
+     });
+     results.push({rowNumber:item.rowNumber,sku:item.sku,status:"CREATED",id:created.id});
+   }
+  }catch(e){
+   results.push({rowNumber:item.rowNumber,sku:item.sku,status:"ERROR",
+     error:e instanceof Error?e.message:"operation_failed"});
+   // Stop after first failure to avoid further partial batch writes.
+   break;
+  }
+ }
+ return NextResponse.json({
+   results,partial:results.some(r=>r.status==="ERROR"),
+   reminder:"STAGED means saved to Changes for manual approval. CREATED means a new product was created with zero stock."
+ },{headers:{"cache-control":"no-store"}});
+}
