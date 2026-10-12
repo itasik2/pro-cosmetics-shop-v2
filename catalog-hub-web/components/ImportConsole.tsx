@@ -1,7 +1,7 @@
 "use client";
 import {useState} from "react";
 import Link from "next/link";
-import {FIELD_LABELS,type Field,type Mapping} from "@/lib/import-parser";
+import {FIELD_LABELS,type Field,type Mapping} from "@/lib/import-types";
 import type {Reviewed} from "@/lib/import-review";
 type Preview={
  format:string;headers:string[];mapping:Mapping;review:Reviewed[];
