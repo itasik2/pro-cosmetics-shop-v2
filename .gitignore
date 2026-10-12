@@ -5,3 +5,6 @@ node_modules
 prisma/dev.db
 .DS_Store
 *.tsbuildinfo
+
+# Catalog Hub local-only supplier profiles and import summaries
+.local-data/
