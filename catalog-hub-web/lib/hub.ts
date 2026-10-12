@@ -72,7 +72,12 @@ export async function hubFetch<T>(
     throw new Error("local_read_only_mode: изменение данных отключено. Используйте тестовый проект Supabase и осознанно включите CATALOG_HUB_LOCAL_WRITE_ENABLED=true.");
   }
   if (!baseUrl) throw new Error("CATALOG_HUB_API_URL not configured");
-  const oidcToken = (await getRequestOidcToken()) || String(process.env.VERCEL_OIDC_TOKEN || "");
+  // Local requests cannot obtain a Vercel-signed runtime identity.
+  // Prefer the explicitly configured Catalog Hub key, even if an old
+  // VERCEL_OIDC_TOKEN leaked into the local shell environment.
+  const oidcToken = process.env.NODE_ENV === "development"
+    ? ""
+    : (await getRequestOidcToken()) || String(process.env.VERCEL_OIDC_TOKEN || "");
   if (!oidcToken && !apiKey && path.startsWith("/v1/")) {
     throw new Error("catalog_hub_server_auth_not_configured");
   }
