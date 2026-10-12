@@ -28,6 +28,14 @@ export async function handleCategories(req:Request,route:string,url:URL,sql:Sql)
    ]);
    return reply({categories,uncategorized:Number(summary[0]?.uncategorized||0)});
  }
+ if(route==="/v1/categories/unassigned") {
+    const rows=await sql`SELECT "id","sku","title","brand","categoryKey"
+      FROM public."Product"
+      WHERE "organizationId"=${org}
+        AND ("categoryKey" IS NULL OR "categoryKey"='' OR "categoryKey"='Без категории')
+      ORDER BY "title" ASC LIMIT 100`;
+    return reply(rows);
+ }
  if(route==="/v1/categories/suggest") {
    let productId:string;
    try {productId=required(url.searchParams.get("productId"),"productId");}
