@@ -55,6 +55,10 @@ function findEntries(root:unknown,depth=0):Array<Record<string,unknown>>|null {
    return null;
  }
  const obj=root as Record<string,unknown>;
+ // A supplier XML feed may contain one <offer> instead of an array of offers.
+ if(["sku","vendorCode","barcode","name","title","@_id"].some(key=>key in obj)) {
+   return [obj];
+ }
  for(const key of ["items","products","offers","offer","product","item","rows","row","goods","catalog"]){
    if(key in obj){const candidate=findEntries(obj[key],depth+1);if(candidate)return candidate;}
  }
