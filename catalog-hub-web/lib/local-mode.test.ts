@@ -12,6 +12,8 @@ test("write opt-in must be explicit and lowercase",()=>{
 });
 test("production sessions are unaffected by local-only guard",()=>{
   assert.equal(isLocalReadOnly({NODE_ENV:"production",CATALOG_HUB_LOCAL_WRITE_ENABLED:undefined}),false);
+  assert.equal(isLocalReadOnly({NODE_ENV:"production",CATALOG_HUB_LOCAL_MODE:"true",CATALOG_HUB_LOCAL_WRITE_ENABLED:undefined}),true);
+  assert.equal(isLocalReadOnly({NODE_ENV:"production",CATALOG_HUB_LOCAL_MODE:"true",CATALOG_HUB_LOCAL_WRITE_ENABLED:"true"}),false);
 });
 test("all mutating HTTP methods are rejected in local safe mode",()=>{
   for(const method of ["POST","PUT","PATCH","DELETE"]) assert.equal(isMutation(method),true);
