@@ -1,4 +1,5 @@
 import { handleCardEditor } from "./card-editor.ts";
+import { handleInventory } from "./inventory-api.ts";
 import { handleRepricing } from "./repricing-api.ts";
 import postgres from "npm:postgres@3.4.7";
 import * as jose from "npm:jose@6.1.0";
@@ -791,6 +792,9 @@ Deno.serve(async (req: Request) => {
 
     const repricingResponse = await handleRepricing(req, route, url, sql);
     if (repricingResponse) return repricingResponse;
+
+    const inventoryReply = await handleInventory(req, route, url, sql);
+    if (inventoryReply) return inventoryReply;
 
     const cardEditor = await handleCardEditor(req, route, url, sql);
     if (cardEditor) return cardEditor;
