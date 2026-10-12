@@ -4,6 +4,8 @@ import {hubFetch,organizationId} from "@/lib/hub";
 import {parseTable,mapImport,autoMapping} from "@/lib/import-parser";
 import {type Mapping,type Field} from "@/lib/import-types";
 import {evaluateImport,type Existing} from "@/lib/import-review";
+import {isLocalReadOnly} from "@/lib/local-mode";
+import {listSupplierProfiles,recordLocalImportEvent} from "@/lib/local-supplier-store";
 
 export const dynamic="force-dynamic";
 export const runtime="nodejs";
@@ -68,7 +70,16 @@ async function prepare(request:NextRequest){
  const review=evaluateImport(items,snapshot.items,categories.categories.filter(c=>c.isActive).map(c=>c.key));
  const hash=await fileHash(file);
  const sourceBase=createHash("sha256").update(hash+JSON.stringify(mapping)).digest("hex").slice(0,32);
- return {data,file,table,mapping,review,sourceBase,fingerprint:digest(hash,mapping,review)};
+ let profileId:string|null=null;
+ if(process.env.CATALOG_HUB_LOCAL_MODE==="true"){
+   const requested=data.get("profileId");
+   if(typeof requested==="string"&&requested){
+     const profiles=await listSupplierProfiles(organizationId);
+     if(!profiles.some(p=>p.id===requested))throw new Error("supplier_profile_not_found");
+     profileId=requested;
+   }
+ }
+ return {data,file,table,mapping,review,sourceBase,profileId,fingerprint:digest(hash,mapping,review)};
 }
 export async function POST(request:NextRequest) {
  if(request.headers.get("origin")!==request.nextUrl.origin)return responseError("invalid_origin",403);
@@ -80,11 +91,25 @@ export async function POST(request:NextRequest) {
  const action=data.get("action")==="apply"?"apply":"preview";
  const counts=Object.fromEntries(["CREATE","UPDATE","SAME","INVALID","CONFLICT","DUPLICATE"].map(s=>
     [s,review.filter(r=>r.status===s).length]));
- if(action==="preview")return NextResponse.json({
-  format:table.format,headers:table.headers,mapping,review,counts,fingerprint,
-  note:"Stock fields are informational; source files are not stored. Existing products are staged for review, new products require explicit confirmation."
- },{headers:{"cache-control":"no-store"}});
+ if(action==="preview"){
+   if(process.env.CATALOG_HUB_LOCAL_MODE==="true"){
+     try{
+       await recordLocalImportEvent({
+         organizationId,profileId:state.profileId,
+         fileName:state.file.name,format:table.format,action:"PREVIEW",
+         result:"PREVIEWED",totalRows:review.length,countByStatus:counts,
+         selectedRows:0,
+       });
+     }catch(e){console.error("local_import_history_failed",e);}
+   }
+   return NextResponse.json({
+     format:table.format,headers:table.headers,mapping,review,counts,fingerprint,
+     canApply:!isLocalReadOnly(),
+     note:"Stock fields are informational; source files are not stored. Existing products are staged for review, new products require explicit confirmation."
+   },{headers:{"cache-control":"no-store"}});
+ }
  if(data.get("confirmed")!=="yes")return responseError("confirmation_required");
+ if(isLocalReadOnly())return responseError("local_read_only_mode: сохранение товаров отключено до подключения тестовой базы.",403);
  const signature=data.get("fingerprint");
  if(typeof signature!=="string"||!equalSignature(signature,fingerprint))
    return responseError("preview_expired_or_catalog_changed",409);
@@ -131,6 +156,17 @@ export async function POST(request:NextRequest) {
    // Stop after first failure to avoid further partial batch writes.
    break;
   }
+ }
+ if(process.env.CATALOG_HUB_LOCAL_MODE==="true"){
+   try{
+     await recordLocalImportEvent({
+       organizationId,profileId:state.profileId,
+       fileName:state.file.name,format:table.format,action:"APPLY",
+       result:results.some(r=>r.status==="ERROR")?"PARTIAL":"COMPLETED",
+       totalRows:review.length,countByStatus:counts,
+       selectedRows:candidates.length,
+     });
+   }catch(e){console.error("local_import_history_failed",e);}
  }
  return NextResponse.json({
    results,partial:results.some(r=>r.status==="ERROR"),
