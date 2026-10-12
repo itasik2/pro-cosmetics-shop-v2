@@ -44,6 +44,9 @@ jobs:
       - name: Verify Edge and Node repricer are identical
         run: cmp -s src/pricing/repricing-engine.ts supabase/functions/catalog-hub/repricing-engine.ts
 
+      - name: Verify Edge and Node category classifier are identical
+        run: cmp -s src/categories/suggest.ts supabase/functions/catalog-hub/category-suggest.ts
+
       - name: Typecheck
         run: npm run typecheck
 

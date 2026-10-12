@@ -8,6 +8,7 @@ import { LogoutButton } from "@/components/LogoutButton";
 const items = [
   ["/", "Обзор", "⌂"],
   ["/catalog", "Каталог", "▦"],
+  ["/categories", "Категории", "▤"],
   ["/import", "Импорт", "⇩"],
   ["/ai", "AI", "✦"],
   ["/media", "Медиа", "◫"],

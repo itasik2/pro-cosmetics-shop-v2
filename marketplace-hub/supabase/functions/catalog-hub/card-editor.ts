@@ -138,6 +138,11 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
           FROM public."Product" WHERE "id" = ${productId}
             AND "organizationId" = ${organizationId} FOR UPDATE`;
         if (!products.length) fail("product_not_found", 404);
+        if (typeof proposed.categoryKey === "string") {
+          const cat = await tx`SELECT "key" FROM public."CatalogCategory" WHERE "organizationId"=${organizationId}
+            AND "key"=${proposed.categoryKey} AND "isActive"=true LIMIT 1`;
+          if (!cat.length) fail("category_not_in_dictionary", 400);
+        }
         const current = card(products[0]);
         const changed = fields.filter((field) =>
           Object.prototype.hasOwnProperty.call(proposed, field) &&
@@ -233,6 +238,14 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
         if (!products.length) fail("product_not_found", 404);
         const before = readJsonObject(cs.current);
         if (currentChanged(before, products[0])) fail("changeset_stale", 409);
+        if (approved.includes("categoryKey")) {
+          const selected = readJsonObject(cs.proposed).categoryKey;
+          if (selected != null) {
+            const matches=await tx`SELECT "key" FROM public."CatalogCategory" WHERE "organizationId"=${organizationId}
+              AND "key"=${selected as string} AND "isActive"=true LIMIT 1`;
+            if (!matches.length) fail("category_not_in_dictionary",409);
+          }
+        }
         const after = { ...before };
         const proposed = readJsonObject(cs.proposed);
         for (const field of approved) after[field] = proposed[field];
