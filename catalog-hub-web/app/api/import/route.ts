@@ -1,7 +1,8 @@
 import { NextRequest,NextResponse } from "next/server";
 import {createHmac,createHash,timingSafeEqual} from "node:crypto";
 import {hubFetch,organizationId} from "@/lib/hub";
-import {parseTable,mapImport,autoMapping,type Mapping,type Field} from "@/lib/import-parser";
+import {parseTable,mapImport,autoMapping} from "@/lib/import-parser";
+import {type Mapping,type Field} from "@/lib/import-types";
 import {evaluateImport,type Existing} from "@/lib/import-review";
 
 export const dynamic="force-dynamic";
