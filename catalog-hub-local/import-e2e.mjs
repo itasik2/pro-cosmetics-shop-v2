@@ -93,7 +93,7 @@ const after=await snapshot();
 const created=after.items.find(p=>p.sku===sku);
 assert.ok(created,"New test product not created");
 assert.equal(created.price,1500);
-assert.equal(created.totals.stock,0,"Supplier stock must not be copied");
+assert.equal(created.stock,0,"Supplier stock must not be copied");
 assert.equal(after.items.find(p=>p.sku==="TEST-LOCAL-001")?.price,old.price,
   "Staged change must not edit product immediately");
 const history=(await request(ui+"/api/import/local-profiles",{headers:{cookie}})).data.history;
