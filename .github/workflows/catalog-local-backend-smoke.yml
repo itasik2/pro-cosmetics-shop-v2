@@ -22,9 +22,23 @@ jobs:
         run: npm run testdb:setup
       - name: Read/write smoke against localhost-only backend
         run: node catalog-hub-local/smoke.mjs
+      - name: Install local Next.js console
+        working-directory: catalog-hub-web
+        run: npm install
+      - name: Activate isolated test backend and launch Next.js
+        working-directory: catalog-hub-web
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: |
+          npm run testdb:use
+          nohup npm run local:dev > ../catalog-hub-local/next-test.log 2>&1 &
+      - name: Run local supplier import end-to-end test
+        working-directory: catalog-hub-web
+        run: npm run testdb:import-e2e
       - name: Report errors and stop containers
         if: always()
         run: |
           docker compose -f catalog-hub-local/compose.yaml ps || true
+          if [ -f catalog-hub-local/next-test.log ]; then tail -n 60 catalog-hub-local/next-test.log; fi
           docker compose -f catalog-hub-local/compose.yaml logs --tail 60 api || true
           docker compose -f catalog-hub-local/compose.yaml down || true

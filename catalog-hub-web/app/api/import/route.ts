@@ -5,6 +5,7 @@ import {parseTable,mapImport,autoMapping} from "@/lib/import-parser";
 import {type Mapping,type Field} from "@/lib/import-types";
 import {evaluateImport,type Existing} from "@/lib/import-review";
 import {isLocalReadOnly} from "@/lib/local-mode";
+import {isSameOrigin} from "@/lib/same-origin";
 import {listSupplierProfiles,recordLocalImportEvent} from "@/lib/local-supplier-store";
 
 export const dynamic="force-dynamic";
@@ -82,7 +83,7 @@ async function prepare(request:NextRequest){
  return {data,file,table,mapping,review,sourceBase,profileId,fingerprint:digest(hash,mapping,review)};
 }
 export async function POST(request:NextRequest) {
- if(request.headers.get("origin")!==request.nextUrl.origin)return responseError("invalid_origin",403);
+ if(!isSameOrigin(request))return responseError("invalid_origin",403);
  let state:Awaited<ReturnType<typeof prepare>>;
  try{state=await prepare(request);}
  catch(e){const msg=e instanceof Error?e.message:"import_preview_failed";
