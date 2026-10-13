@@ -208,7 +208,7 @@ export async function parsePdfSupplier(bytes:Uint8Array,options:{fileName?:strin
      fragments.push({text:value,x:item.transform[4],y:viewport.height-item.transform[5]});
    }
    if(fragments.reduce((sum,x)=>sum+x.text.length,0)<30)emptyTextPages++;
-   totalPriceAnchors+=fragments.filter(x=>/^цена\s*[:：]/iu.test(x.text)).length;
+   totalPriceAnchors+=fragments.filter(x=>/цена\s*[:：]/iu.test(x.text)).length;
    result.push(...(specialized
      ?extractJeudermCardPage(fragments,pageNum,viewport.width,viewport.height)
      :extractPdfCardPage(fragments,pageNum,viewport.width,viewport.height)));
