@@ -57,7 +57,7 @@ function mappingFrom(raw:FormDataEntryValue|null,headers:string[]):Mapping{
  return output;
 }
 async function prepare(request:NextRequest){
- if(Number(request.headers.get("content-length")||0)>3*1024*1024)throw new Error("upload_too_large");
+ if(Number(request.headers.get("content-length")||0)>10*1024*1024)throw new Error("upload_too_large");
  const data=await request.formData();
  const file=data.get("file");
  if(!(file instanceof File))throw new Error("file_required");
