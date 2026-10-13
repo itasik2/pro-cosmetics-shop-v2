@@ -122,7 +122,9 @@ export function extractJeudermCardPage(
 ):PdfSupplierRow[]{
  const columns:PdfTextFragment[][]=Array.from({length:3},()=>[]);
  for(const fragment of fragments){
-   if(fragment.y<height*0.16||fragment.y>height*0.965)continue;
+   // Booklet header at y≈140 (A4) is not a product title.
+   // Last page's single card begins around y≈180, so keep >=19.5%.
+   if(fragment.y<height*0.195||fragment.y>height*0.965)continue;
    // JeuDerm's right column can start at x=395 on an A4 (595pt) page:
    // plain width/3 would misclassify its price as part of the middle column.
    const col=fragment.x<width*0.32?0:fragment.x<width*0.64?1:2;
@@ -136,17 +138,30 @@ export function extractJeudermCardPage(
      const current=lines[i];
      if(!/цена\s*[:：]/iu.test(current.text)){
        if(!/^г\.\s*(астана|алматы)/iu.test(current.text)&&
-          !/^\+?7[\d\s()-]{7,}$/u.test(current.text))before.push(current);
+          !/^\+?7[\d\s()-]{7,}$/u.test(current.text)&&
+          !/^биотехнологиях из кореи\.?$/iu.test(current.text)&&
+          !/^профессиональный медицинский уход/u.test(current.text.toLowerCase()))
+         before.push(current);
        continue;
      }
      let priceText=current.text.slice(current.text.search(/цена\s*[:：]/iu));
      const next=lines[i+1];
-     // Some prices wrap after "/" onto their own numeric line.
-     if(next&&current.text.includes("/")&&/^\s*[\d\s]{3,14}\s*$/u.test(next.text)){
-       priceText+=" "+next.text;
+     let supplemental="";
+     // JeuDerm page 7 splits the price across a line with pack volume,
+     // e.g. "Цена: 15 700/" followed by "Объем:110 мл 22 700".
+     // Some layouts keep the volume *inside* the price line.
+     const withoutVolume=(text:string)=>text.replace(
+       /об[ъь]?[её][мm]\s*:\s*\d{1,4}\s*(?:млг|мл|шт|уп|гр?|г)?/giu," "
+     );
+     let [price1,price2]=amounts(withoutVolume(priceText));
+     if(!price2&&priceText.includes("/")&&next&&
+        (/^\s*[\d\s]{3,14}\s*$/u.test(next.text)||
+         /^об[ъь]?[её][мm]\s*:/iu.test(next.text))){
+       supplemental=next.text;
+       priceText+=" "+supplemental;
+       [price1,price2]=amounts(withoutVolume(priceText));
        i++;
      }
-     const [price1,price2]=amounts(priceText);
      const candidate=before.filter(l=>l.text.length>=2&&
        !/^[-+()\d\s]{10,}$/.test(l.text)&&
        !/^(каталог|jeuderm|оглавление)$/iu.test(l.text));
@@ -161,7 +176,7 @@ export function extractJeudermCardPage(
      const title=normalized(titleParts.join(" ")).slice(0,220);
      if(title.length<4||/^(цена|объем|каталог|г\.)/iu.test(title))continue;
      const body=candidate.slice(end+1).map(row=>row.text).join(" ");
-     const volume=volumeOf(body);
+     const volume=volumeOf([body,current.text,supplemental].join(" "));
      const variantTitle=volume&&!title.toLowerCase().includes(volume.toLowerCase())
        ?title+" ("+volume+")":title;
      const desc=normalized(body.replace(/об[ъь]?[её][мm]\s*:\s*\d{1,4}\s*(?:мл|шт|уп|г)(?=$|[\s.,;])/giu,""))
@@ -208,10 +223,16 @@ export async function parsePdfSupplier(bytes:Uint8Array,options:{fileName?:strin
      fragments.push({text:value,x:item.transform[4],y:viewport.height-item.transform[5]});
    }
    if(fragments.reduce((sum,x)=>sum+x.text.length,0)<30)emptyTextPages++;
-   totalPriceAnchors+=fragments.filter(x=>/цена\s*[:：]/iu.test(x.text)).length;
-   result.push(...(specialized
-     ?extractJeudermCardPage(fragments,pageNum,viewport.width,viewport.height)
-     :extractPdfCardPage(fragments,pageNum,viewport.width,viewport.height)));
+   const priceCount=fragments.filter(x=>/цена\s*[:：]/iu.test(x.text)).length;
+   totalPriceAnchors+=priceCount;
+   const rows=specialized
+      ?extractJeudermCardPage(fragments,pageNum,viewport.width,viewport.height)
+      :extractPdfCardPage(fragments,pageNum,viewport.width,viewport.height);
+   if(priceCount>rows.length)warnings.push(
+     "Страница "+pageNum+": обнаружено цен "+priceCount+", карточек "+rows.length+
+     ". Проверьте пропущенный товар на этой странице."
+   );
+   result.push(...rows);
    page.cleanup();
    if(result.length>MAX_ROWS)throw new Error("pdf_too_many_cards_max_200");
   }
