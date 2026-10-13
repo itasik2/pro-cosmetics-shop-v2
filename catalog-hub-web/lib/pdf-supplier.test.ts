@@ -21,12 +21,12 @@ test("extracts two separate prices from a three-column product booklet without g
  const rows=extractPdfCardPage(fragments,1,595,843);
  assert.equal(rows.length,3);
  assert.deepEqual(rows.map(x=>x["Артикул"]),["","",""]);
- assert.equal(rows[0]["Наименование"],"My Ato Intensive Cream");
+ assert.equal(rows[0]["Наименование"],"My Ato Intensive Cream (50 мл)");
  assert.equal(rows[0]["Цена 1"],"18700");
  assert.equal(rows[0]["Цена 2"],"28000");
  assert.match(rows[0]["Описание"],/Объем: 50 мл/);
  assert.equal(rows[1]["Цена 2"],"20250");
- assert.equal(rows[2]["Наименование"],"AcnoCell Treatment Emulsion");
+ assert.equal(rows[2]["Наименование"],"AcnoCell Treatment Emulsion (150 мл)");
 });
 test("extracts a second row and single-price products without inventing retail values",()=>{
  const rows=extractPdfCardPage([
@@ -38,6 +38,18 @@ test("extracts a second row and single-price products without inventing retail v
  assert.equal(rows[0]["Цена 1"],"16800");
  assert.equal(rows[0]["Цена 2"],"");
  assert.equal(rows[0]["Наименование"],"Reform Age Micro Touch");
+});
+test("parses lower-page card prices at 94% page height",()=>{
+ const rows=extractPdfCardPage([
+  a("Bottom Row Serum",23,585),
+  a("Уход за кожей",23,625),
+  a("Объем: 120 мл",23,660),
+  a("Цена: 25 700 / 37 500",23,791)
+ ],10,595,843);
+ assert.equal(rows.length,1);
+ assert.equal(rows[0]["Цена 1"],"25700");
+ assert.equal(rows[0]["Цена 2"],"37500");
+ assert.equal(rows[0]["Наименование"],"Bottom Row Serum (120 мл)");
 });
 test("ignores headers and unrelated text when no price anchor is found",()=>{
  const rows=extractPdfCardPage([

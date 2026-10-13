@@ -62,7 +62,9 @@ export function extractPdfCardPage(
 ):PdfSupplierRow[]{
  const bands:PdfTextFragment[][]=Array.from({length:6},()=>[]);
  for(const fragment of fragments){
-  if(fragment.y<height*0.17||fragment.y>height*0.91)continue;
+  // Some supplier booklets place bottom-row prices as low as 94% of page height.
+  // Page footers are ignored because we stop each card at its first price anchor.
+  if(fragment.y<height*0.17||fragment.y>height*0.965)continue;
   const col=Math.max(0,Math.min(2,Math.floor(fragment.x/(width/3))));
   const row=fragment.y<height*0.60?0:1;
   bands[row*3+col].push(fragment);
@@ -86,16 +88,20 @@ export function extractPdfCardPage(
     isTitleContinuation(before[0].text,before[1].text)){
     titleParts.push(before[1].text);titleEnd=1;
   }
-  const title=normalized(titleParts.join(" ")).slice(0,240);
+  const title=normalized(titleParts.join(" ")).slice(0,220);
   // Cards without credible product titles should not become import rows.
   if(title.length<4||/^(цена|объем|каталог|г\.)/iu.test(title))continue;
   const body=before.slice(titleEnd+1).map(line=>line.text).join(" ");
   const volume=volumeOf(body);
+  // Packaging size is part of a sellable variant, not merely a description.
+  // Never combine "ReformAge O2 Fluid 50 мл" with "110 мл" into one card.
+  const variantTitle=volume&&!title.toLowerCase().includes(volume.toLowerCase())
+    ?title+" ("+volume+")":title;
   const desc=normalized(body.replace(/об[ъь]?е[мm]\s*:\s*\d{1,4}\s*(?:мл|шт|уп|г)(?=$|[\s.,;])/giu,""))
     .slice(0,2800);
   found.push({
    "Артикул":"",
-   "Наименование":title,
+   "Наименование":variantTitle,
    "Описание":normalized((volume?"Объем: "+volume+". ":"")+desc),
    "Объем":volume,
    "Цена 1":price1,
