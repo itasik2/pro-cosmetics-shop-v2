@@ -66,3 +66,37 @@ test("JeuDerm specialist ignores document title and still reads final single car
  assert.equal(rows[0]["Цена 1"],"9200");
  assert.equal(rows[0]["Страница"],"11");
 });
+
+test("publisher header fragments never become a product title",()=>{
+ const rows=extractJeudermCardPage([
+  a("биотехнологиях из Кореи.",246,138),
+  a("My Ato Clean Gel",220,300),
+  a("Объем: 250 мл",222,380),
+  a("Цена: 13 500 / 20 250",221,448),
+ ],1,595,843);
+ assert.equal(rows.length,1);
+ assert.equal(rows[0]["Наименование"],"My Ato Clean Gel (250 мл)");
+ assert.equal(rows[0]["Цена 2"],"20250");
+});
+test("JeuDerm volume embedded BETWEEN prices is not interpreted as part of retail amount",()=>{
+ const rows=extractJeudermCardPage([
+  a("Ala Factor Energo Emulsion",403,273),
+  a("Описание эмульсии",403,374),
+  a("Цена: 15 700/ Объем:110 мл 22 700",403,435),
+ ],7,595,843);
+ assert.equal(rows.length,1);
+ assert.equal(rows[0]["Цена 1"],"15700");
+ assert.equal(rows[0]["Цена 2"],"22700");
+ assert.equal(rows[0]["Объем"],"110 мл");
+});
+test("JeuDerm volume in next line is preserved and second price parsed",()=>{
+ const rows=extractJeudermCardPage([
+  a("Ala Factor Energo Emulsion",403,273),
+  a("Описание эмульсии",403,374),
+  a("Цена: 15 700/",403,435),
+  a("Объем:110 мл 22 700",403,453),
+ ],7,595,843);
+ assert.equal(rows.length,1);
+ assert.equal(rows[0]["Цена 2"],"22700");
+ assert.equal(rows[0]["Объем"],"110 мл");
+});
