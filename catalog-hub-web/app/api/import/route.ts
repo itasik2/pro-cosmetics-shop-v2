@@ -81,6 +81,14 @@ async function prepare(request:NextRequest){
  }
  const mapping=mappingFrom(data.get("mapping"),table.headers);
  const items=mapImport(table,mapping);
+ // PDF booklets have two unlabeled commercial amounts. Require an explicit
+ // retail-price column choice; never create an unpriced or guessed-price card.
+ if(table.format==="PDF"){
+   for(const item of items){
+     if(!mapping.price)item.errors.push("PDF: выберите розничную цену (Цена 1 или Цена 2) в сопоставлении колонок");
+     else if(item.price===undefined)item.errors.push("PDF: выбранная колонка розничной цены пуста");
+   }
+ }
  const [snapshot,categories]=await Promise.all([
    hubFetch<Catalog>("/v1/catalog/snapshot?organizationId="+encodeURIComponent(organizationId)),
    hubFetch<Categories>("/v1/categories?organizationId="+encodeURIComponent(organizationId)),
