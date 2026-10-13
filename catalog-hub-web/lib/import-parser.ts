@@ -80,7 +80,7 @@ function parseObjects(items:Array<Record<string,unknown>>,format:string):Table {
 export async function parseTable(file:File):Promise<Table>{
  const name=file.name.toLowerCase();
  if(name.endsWith(".pdf")){
-   const parsed=await parsePdfSupplier(new Uint8Array(await file.arrayBuffer()));
+   const parsed=await parsePdfSupplier(new Uint8Array(await file.arrayBuffer()),{fileName:file.name});
    return parsed;
  }
  if(file.size<1||file.size>MAX_BYTES)throw new Error("file_size_limit_2mb");
