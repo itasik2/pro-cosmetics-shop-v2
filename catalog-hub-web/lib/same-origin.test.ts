@@ -12,7 +12,7 @@ test("Ubuntu browser localhost and 127.0.0.1 requests pass same-origin",()=>{
  assert.equal(isSameOrigin(req("http://localhost:3001","localhost:3001")),true);
 });
 test("cross-site requests, protocol downgrade, forged host and absent origin fail",()=>{
- for(const [origin,host,proto] of [
+ const cases: Array<[string|undefined,string,string]> = [
   ["http://evil.invalid:3001","127.0.0.1:3001","http"],
   ["http://localhost:3002","localhost:3001","http"],
   ["http://localhost:3001","127.0.0.1:3001","http"],
@@ -20,7 +20,9 @@ test("cross-site requests, protocol downgrade, forged host and absent origin fai
   ["http://localhost:3001","localhost:3001","https"],
   [undefined,"localhost:3001","http"],
   ["http://localhost:3001/path","localhost:3001","http"],
- ])assert.equal(isSameOrigin(req(origin,host,proto)),false,origin||"missing origin");
+ ];
+ for(const [origin,host,proto] of cases)
+  assert.equal(isSameOrigin(req(origin,host,proto)),false,origin||"missing origin");
 });
 test("reverse proxy external HTTPS is respected",()=>{
  const headers=new Headers({
