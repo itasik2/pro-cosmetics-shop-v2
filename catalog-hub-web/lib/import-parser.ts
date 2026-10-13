@@ -3,7 +3,9 @@ import { readSheet } from "read-excel-file/node";
 import { XMLParser, XMLValidator } from "fast-xml-parser";
 
 import {type Field,type Mapping} from "./import-types";
-export type Table = { headers:string[];rows:Array<Record<string,string>>;format:string };
+import {parsePdfSupplier} from "./pdf-supplier";
+export type Table = { headers:string[];rows:Array<Record<string,string>>;format:string;
+  warnings?:string[];pageCount?:number;needsManualSku?:boolean };
 export type ImportItem = {
  rowNumber:number;sku:string;barcode:string;title:string;brand?:string;
  purchasePrice?:number;price?:number;description?:string;categoryKey?:string;
@@ -76,8 +78,12 @@ function parseObjects(items:Array<Record<string,unknown>>,format:string):Table {
  return tabular(headers,normalized.map(o=>headers.map(h=>o[h]??"")),format);
 }
 export async function parseTable(file:File):Promise<Table>{
- if(file.size<1||file.size>MAX_BYTES)throw new Error("file_size_limit_2mb");
  const name=file.name.toLowerCase();
+ if(name.endsWith(".pdf")){
+   const parsed=await parsePdfSupplier(new Uint8Array(await file.arrayBuffer()));
+   return parsed;
+ }
+ if(file.size<1||file.size>MAX_BYTES)throw new Error("file_size_limit_2mb");
  if(name.endsWith(".xlsx")){
    const rows=await readSheet(Buffer.from(await file.arrayBuffer()) as Parameters<typeof readSheet>[0]);
    if(rows.length<2)throw new Error("xlsx_empty");
@@ -107,7 +113,7 @@ export async function parseTable(file:File):Promise<Table>{
    if(!rows)throw new Error("xml_products_not_found");
    return parseObjects(rows,"XML");
  }
- throw new Error("unsupported_format_use_xlsx_csv_tsv_xml_yml_json");
+ throw new Error("unsupported_format_use_pdf_xlsx_csv_tsv_xml_yml_json");
 }
 
 const aliases:Record<Field,string[]>={

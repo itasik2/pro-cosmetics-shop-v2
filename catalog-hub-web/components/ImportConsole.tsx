@@ -6,6 +6,7 @@ import type {Reviewed} from "@/lib/import-review";
 type Preview={
  format:string;headers:string[];mapping:Mapping;review:Reviewed[];
  counts:Record<string,number>;fingerprint:string;note:string;canApply:boolean;
+ warnings?:string[];pageCount?:number|null;needsManualSku?:boolean;
 };
 type ItemResult={rowNumber:number;sku:string;status:string;id?:string;error?:string};
 type Applied={results:ItemResult[];partial:boolean;reminder:string};
@@ -36,6 +37,8 @@ export function ImportConsole(){
  const [profileError,setProfileError]=useState("");
  const [profileMessage,setProfileMessage]=useState("");
  const [profileBusy,setProfileBusy]=useState(false);
+ const [pdfSkus,setPdfSkus]=useState<Record<number,string>>({});
+ const [pdfNeedsRefresh,setPdfNeedsRefresh]=useState(false);
 
  async function refreshLocal(){
    try{
@@ -103,6 +106,7 @@ export function ImportConsole(){
   const data=new FormData();data.set("file",file);data.set("action",action);
   if(headers.length||Object.values(mapping).some(Boolean))data.set("mapping",JSON.stringify(mapping));
   if(profileId)data.set("profileId",profileId);
+  if(file.name.toLowerCase().endsWith(".pdf"))data.set("skuOverrides",JSON.stringify(pdfSkus));
   if(action==="apply"){
     if(!preview){setBusy(false);return;}
     data.set("fingerprint",preview.fingerprint);
@@ -119,6 +123,7 @@ export function ImportConsole(){
       setMapping((result as Preview).mapping);
       setSelected([]);
       setConfirmed(false);
+      setPdfNeedsRefresh(false);
       await refreshLocal();
     }else{
       setApplied(result as Applied);setSelected([]);setConfirmed(false);
@@ -134,7 +139,7 @@ export function ImportConsole(){
  const newChosen=chosen.filter(r=>r.status==="CREATE").length;
  return <div className="page">
    <div className="page-head"><div><h1>Импорт каталогов поставщиков</h1>
-     <p>Excel (XLSX), CSV, TSV, XML/YML и JSON. Сопоставление и сравнение до применения.</p></div></div>
+     <p>PDF-каталоги с карточками товаров, Excel (XLSX), CSV, TSV, XML/YML и JSON. Сопоставление и проверка перед применением.</p></div></div>
    <section className="panel">
      <h2>Локальные профили поставщиков</h2>
      <p className="subtle">Сохраняйте названия поставщиков и соответствие колонок на этом компьютере.
@@ -169,13 +174,14 @@ export function ImportConsole(){
    </section>
    <section className="panel" style={{marginTop:14}}>
      <h2>1. Выберите файл</h2>
-     <p className="subtle">До 2 МБ, максимум 200 строк. Поддерживается XLSX (не устаревший XLS).
-       Исходный файл не сохраняется на сервере. Остатки из прайса отображаются только для справки.</p>
+     <p className="subtle">XLSX/CSV/XML/JSON — до 2 МБ; PDF с текстовым слоем — до 8 МБ и 30 страниц. Максимум 200 карточек.
+       Сканированные PDF пока требуют OCR. Оригиналы не сохраняются, складские остатки не обновляются автоматически.</p>
      <label className="editor-field"><span>Файл поставщика</span>
-       <input className="input" type="file" accept=".xlsx,.csv,.tsv,.xml,.yml,.json"
+       <input className="input" type="file" accept=".pdf,.xlsx,.csv,.tsv,.xml,.yml,.json"
          onChange={e=>{
            setFile(e.target.files?.[0]||null);setPreview(null);setHeaders([]);
            setMapping(profileId?mapping:{});setSelected([]);setConfirmed(false);setApplied(null);setError("");
+           setPdfSkus({});setPdfNeedsRefresh(false);
          }}/>
      </label>
      {headers.length>0&&<div style={{marginTop:15}}>
@@ -196,7 +202,7 @@ export function ImportConsole(){
      <div className="actions" style={{marginTop:14}}>
        <button type="button" className="button primary" disabled={!file||busy}
          onClick={()=>invoke("preview")}>
-         {busy?"Обработка…":preview?"Обновить предпросмотр":"Проверить и показать изменения"}
+         {busy?"Обработка…":preview||pdfNeedsRefresh?"Обновить предпросмотр":"Проверить и показать изменения"}
        </button>
      </div>
    </section>
@@ -204,8 +210,17 @@ export function ImportConsole(){
    {preview&&<>
      <section className="panel" style={{marginTop:14}}>
        <h2>2. Результат сопоставления</h2>
-       <p className="subtle">Формат: {preview.format}. Всего строк: {preview.review.length}.
+       <p className="subtle">Формат: {preview.format}.
+         {preview.pageCount?" Страниц: "+preview.pageCount+".":""}
+         Всего строк: {preview.review.length}.
          Обновление существующих карточек не выполняется сразу — создаётся черновик в разделе «Изменения».</p>
+       {preview.format==="PDF"&&<div className="import-warning" role="status">
+         PDF содержит карточки, а не таблицу: система не придумывает артикулы и не назначает цену 1 или 2 автоматически.
+         Укажите внутренний SKU для новых товаров и выберите нужную колонку цены выше.
+         После ручных изменений нажмите «Обновить предпросмотр».
+       </div>}
+       {preview.warnings?.map((w,i)=><p className="subtle" key={i}>{w}</p>)}
+       {pdfNeedsRefresh&&<p className="error" role="status">SKU изменены: обновите предпросмотр перед подтверждением.</p>}
        <div className="import-summary">
          {Object.entries(statusLabel).map(([key,value])=>
            <span className="badge" key={key}>{value}: {preview.counts[key]||0}</span>)}
@@ -217,10 +232,20 @@ export function ImportConsole(){
              const allowed=row.status==="UPDATE"||row.status==="CREATE";
              return <tr key={row.index}>
                <td><input aria-label={"Выбрать строку "+row.rowNumber} type="checkbox"
-                 disabled={!allowed||busy}
+                 disabled={!allowed||busy||pdfNeedsRefresh}
                  checked={selected.includes(row.index)}
                  onChange={e=>setSelected(prev=>e.target.checked?[...prev,row.index]:prev.filter(x=>x!==row.index))}/></td>
-               <td><strong>№ {row.rowNumber}</strong><div className="mono subtle">{row.sku||"—"}</div></td>
+               <td><strong>№ {row.rowNumber}</strong><div className="mono subtle">{row.sku||"—"}</div>
+                 {preview.format==="PDF"&&<label className="editor-field" style={{marginTop:6}}>
+                   <span>Внутренний SKU</span>
+                   <input className="input" type="text" maxLength={100}
+                     value={pdfSkus[row.index]??row.sku}
+                     placeholder="Введите свой SKU"
+                     onChange={e=>{
+                       setPdfSkus(prev=>({...prev,[row.index]:e.target.value}));
+                       setPdfNeedsRefresh(true);setSelected([]);setConfirmed(false);
+                     }}/>
+                 </label>}</td>
                <td>{row.title||"—"}<div className="subtle">{row.barcode||""}</div></td>
                <td><strong>{statusLabel[row.status]}</strong>
                  <div className="subtle">{row.matchedBy? "Совпадение: "+row.matchedBy:""}</div></td>
@@ -235,7 +260,7 @@ export function ImportConsole(){
            })}</tbody></table>
        </div>
        <div className="actions" style={{marginTop:14}}>
-         <button className="button" type="button" disabled={!valid.length||busy}
+         <button className="button" type="button" disabled={!valid.length||busy||pdfNeedsRefresh}
            onClick={()=>setSelected(valid.slice(0,20).map(r=>r.index))}>Выбрать до 20 подходящих</button>
          <button className="button" type="button" disabled={!selected.length||busy}
            onClick={()=>setSelected([])}>Снять выделение</button>
@@ -258,7 +283,7 @@ export function ImportConsole(){
        </label>
        <div className="actions" style={{marginTop:12}}>
          <button className="button primary" type="button"
-           disabled={!preview.canApply||!confirmed||!selected.length||selected.length>20||busy}
+           disabled={!preview.canApply||pdfNeedsRefresh||!confirmed||!selected.length||selected.length>20||busy}
            onClick={()=>invoke("apply")}>
            {busy?"Применение…":"Подтвердить выбранные строки"}
          </button>
