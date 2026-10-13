@@ -123,6 +123,12 @@ export async function POST(request:NextRequest) {
    return NextResponse.json({
      format:table.format,headers:table.headers,mapping,review,counts,fingerprint,
      warnings:table.warnings||[],pageCount:table.pageCount||null,
+     pdfSource:table.format==="PDF"?table.rows.map((x,index)=>({
+       index,page:x["Страница"]||"",
+       volume:x["Объем"]||"",
+       price1:x["Цена 1"]||"",
+       price2:x["Цена 2"]||"",
+     })):[],
      needsManualSku:table.needsManualSku||false,
      canApply:!isLocalReadOnly(),
      note:"Stock fields are informational; source files are not stored. Existing products are staged for review, new products require explicit confirmation."
