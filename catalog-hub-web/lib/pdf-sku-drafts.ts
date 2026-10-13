@@ -43,3 +43,17 @@ export function countDuplicateSkuDrafts(skus:Record<number,string>):number{
  const values=Object.values(skus).filter(s=>s.trim()).map(s=>s.toUpperCase());
  return values.length-new Set(values).size;
 }
+
+
+export function duplicatePdfSkuGroups(rows:PdfDraftRow[],skus:Record<number,string>){
+ const candidates=new Map<string,Array<{index:number;title:string}>>();
+ for(const row of rows){
+   const sku=(skus[row.index]||row.sku||"").trim().toUpperCase();
+   if(!sku)continue;
+   const previous=candidates.get(sku)||[];
+   previous.push({index:row.index,title:row.title});
+   candidates.set(sku,previous);
+ }
+ return [...candidates.entries()].filter(([,duplicates])=>duplicates.length>1)
+   .map(([sku,items])=>({sku,items}));
+}

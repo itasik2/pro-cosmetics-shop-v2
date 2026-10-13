@@ -3,7 +3,7 @@ import {useEffect,useState} from "react";
 import Link from "next/link";
 import {FIELD_LABELS,type Field,type Mapping} from "@/lib/import-types";
 import type {Reviewed} from "@/lib/import-review";
-import {draftPdfSkuOverrides,countDuplicateSkuDrafts,validPrefix} from "@/lib/pdf-sku-drafts";
+import {draftPdfSkuOverrides,duplicatePdfSkuGroups,validPrefix} from "@/lib/pdf-sku-drafts";
 type Preview={
  format:string;headers:string[];mapping:Mapping;review:Reviewed[];
  counts:Record<string,number>;fingerprint:string;note:string;canApply:boolean;
@@ -311,10 +311,16 @@ export function ImportConsole(){
            </button>
          </div>
          {pdfSkuMessage&&<p className="subtle" role="status">{pdfSkuMessage}</p>}
-         {countDuplicateSkuDrafts(pdfSkus)>0&&<p className="error" role="alert">
-           Совпадений внутренних SKU: {countDuplicateSkuDrafts(pdfSkus)}.
-           Возможны дубли товара или ошибочно распознанный объём — уточните перед импортом.
-         </p>}
+         {duplicatePdfSkuGroups(preview.review.map(row=>({
+           index:row.index,title:row.title,sku:row.sku,
+         })),pdfSkus).map(group=><div className="error" role="alert" key={group.sku}>
+           <strong>Совпадающий внутренний SKU: {group.sku}</strong>
+           <div>Проверьте, не потерян ли объём или название товара. Совпадение не устраняется автоматически.</div>
+           {group.items.map(item=><div key={item.index}>
+             Строка №{item.index+2} · Страница {preview.pdfSource?.[item.index]?.page||"—"}
+             {" — "}{item.title}
+           </div>)}
+         </div>)}
          <p className="subtle">Исходные цены: «Цена 1» и «Цена 2» не назначаются автоматически.
            Выберите их значения в блоке «Сопоставление колонок» выше и снова проверьте строки.</p>
        </div>}
