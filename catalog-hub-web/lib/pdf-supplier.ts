@@ -47,7 +47,7 @@ function amounts(text:string):[string,string]{
   return [valid(parts[0]||""),valid(parts[1]||"")];
 }
 function volumeOf(text:string){
- const matched=text.match(/об[ъь]?е[мm]\s*:\s*(\d{1,4})\s*(мл|шт|уп|г)\b/iu);
+ const matched=text.match(/об[ъь]?е[мm]\s*:\s*(\d{1,4})\s*(мл|шт|уп|г)(?=$|[\s.,;])/iu);
  return matched?matched[1]+" "+matched[2]:"";
 }
 function isTitleContinuation(first:string,candidate:string){
@@ -61,7 +61,6 @@ export function extractPdfCardPage(
  fragments:PdfTextFragment[],pageNo:number,width:number,height:number,
 ):PdfSupplierRow[]{
  const bands:PdfTextFragment[][]=Array.from({length:6},()=>[]);
- const rows=pageNo===1?2:2;
  for(const fragment of fragments){
   if(fragment.y<height*0.17||fragment.y>height*0.91)continue;
   const col=Math.max(0,Math.min(2,Math.floor(fragment.x/(width/3))));
@@ -92,12 +91,12 @@ export function extractPdfCardPage(
   if(title.length<4||/^(цена|объем|каталог|г\.)/iu.test(title))continue;
   const body=before.slice(titleEnd+1).map(line=>line.text).join(" ");
   const volume=volumeOf(body);
-  const desc=normalized(body.replace(/об[ъь]?е[мm]\s*:\s*\d{1,4}\s*(?:мл|шт|уп|г)\b/giu,""))
+  const desc=normalized(body.replace(/об[ъь]?е[мm]\s*:\s*\d{1,4}\s*(?:мл|шт|уп|г)(?=$|[\s.,;])/giu,""))
     .slice(0,2800);
   found.push({
    "Артикул":"",
    "Наименование":title,
-   "Описание":desc,
+   "Описание":normalized((volume?"Объем: "+volume+". ":"")+desc),
    "Объем":volume,
    "Цена 1":price1,
    "Цена 2":price2,
