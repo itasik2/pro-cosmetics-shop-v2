@@ -43,6 +43,26 @@ export function ImportConsole(){
  const [pdfNeedsRefresh,setPdfNeedsRefresh]=useState(false);
  const [pdfSkuPrefix,setPdfSkuPrefix]=useState("JDR");
  const [pdfSkuMessage,setPdfSkuMessage]=useState("");
+ const [imagePage,setImagePage]=useState(1);
+ const [pageImages,setPageImages]=useState<Array<{visualIndex:number;url:string;width:number;height:number}>>([]);
+ const [imagesFound,setImagesFound]=useState(0);
+ const [imagesBusy,setImagesBusy]=useState(false);
+ const [imagesError,setImagesError]=useState("");
+ async function viewPdfImages(){
+   if(!file||!preview||preview.format!=="PDF")return;
+   setImagesBusy(true);setImagesError("");setPageImages([]);setImagesFound(0);
+   try{
+     const form=new FormData();
+     form.set("file",file);form.set("page",String(imagePage));
+     const response=await fetch("/api/import/pdf-images",{method:"POST",body:form,cache:"no-store"});
+     const parsed=await response.json().catch(()=>null);
+     if(!response.ok)throw new Error(String(parsed?.error||"pdf_images_preview_failed"));
+     if(!Array.isArray(parsed?.images))throw new Error("pdf_images_invalid_response");
+     setPageImages(parsed.images);setImagesFound(Number(parsed.totalFound)||0);
+   }catch(e){setImagesError(e instanceof Error?e.message:"pdf_images_preview_failed");}
+   finally{setImagesBusy(false);}
+ }
+
 
  async function refreshLocal(){
    try{
@@ -186,6 +206,7 @@ export function ImportConsole(){
            setFile(e.target.files?.[0]||null);setPreview(null);setHeaders([]);
            setMapping(profileId?mapping:{});setSelected([]);setConfirmed(false);setApplied(null);setError("");
            setPdfSkus({});setPdfNeedsRefresh(false);setPdfSkuMessage("");
+           setPageImages([]);setImagesFound(0);setImagesError("");setImagePage(1);
          }}/>
      </label>
      {headers.length>0&&<div style={{marginTop:15}}>
@@ -224,6 +245,49 @@ export function ImportConsole(){
          После ручных изменений нажмите «Обновить предпросмотр».
        </div>}
        {preview.warnings?.map((w,i)=><p className="subtle" key={i}>{w}</p>)}
+       {preview.format==="PDF"&&<div className="panel" style={{padding:15,marginTop:12,marginBottom:12}}>
+         <h3>Фотографии товаров из PDF — просмотр</h3>
+         <p className="subtle">
+           Используется извлечение встроенных фотографий из ProCosmetics.
+           Изображения загружаются только для выбранной страницы и показываются здесь.
+           Фотографии не сохраняются и не прикрепляются к товарам автоматически.
+         </p>
+         <div className="actions" style={{alignItems:"end"}}>
+           <label className="editor-field" style={{maxWidth:190}}>
+             <span>Страница PDF</span>
+             <select className="input" value={imagePage}
+               onChange={e=>{
+                 setImagePage(Number(e.target.value));setPageImages([]);
+                 setImagesFound(0);setImagesError("");
+               }}>
+               {Array.from({length:Math.min(preview.pageCount||1,30)},(_,i)=>
+                 <option key={i+1} value={i+1}>Страница {i+1}</option>)}
+             </select>
+           </label>
+           <button className="button" type="button" onClick={()=>void viewPdfImages()} disabled={imagesBusy}>
+             {imagesBusy?"Читаем фотографии…":"Показать фотографии страницы"}
+           </button>
+         </div>
+         {imagesError&&<div className="error" role="alert">{imagesError}</div>}
+         {imagesFound>0&&<p className="subtle">
+           На странице {imagePage}: показано {pageImages.length} из {imagesFound} встроенных изображений.
+           В предпросмотре товаров на странице: {preview.pdfSource?.filter(row=>row.page===String(imagePage)).length||0}.
+           Количество и порядок картинок не гарантируют соответствие карточкам.
+         </p>}
+         {pageImages.length>0&&<div className="profile-grid" style={{marginTop:12}}>
+           {pageImages.map(img=><figure className="profile-card" key={img.visualIndex}>
+             {/* A PDF data URI is temporary; there is no CDN URL for next/image. */}
+             {/* eslint-disable-next-line @next/next/no-img-element */}
+             <img alt={"Встроенное изображение PDF № "+(img.visualIndex+1)}
+               src={img.url} loading="lazy"
+               style={{maxWidth:"100%",maxHeight:210,objectFit:"contain",display:"block",margin:"auto"}}/>
+             <figcaption className="subtle" style={{marginTop:8}}>
+               Изображение № {img.visualIndex+1} · {img.width} × {img.height}
+             </figcaption>
+           </figure>)}
+         </div>}
+       </div>}
+
        {preview.format==="PDF"&&<div className="panel" style={{padding:15,marginTop:12,marginBottom:12}}>
          <h3>Предложения внутренних SKU для PDF</h3>
          <p className="subtle">Это ваши ВНУТРЕННИЕ идентификаторы, не артикулы производителя.
