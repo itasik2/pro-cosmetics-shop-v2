@@ -1,5 +1,6 @@
 import {NextRequest,NextResponse} from "next/server";
 import {organizationId} from "@/lib/hub";
+import {isSameOrigin} from "@/lib/same-origin";
 import {
   deleteSupplierProfile,listLocalImportHistory,listSupplierProfiles,saveSupplierProfile
 } from "@/lib/local-supplier-store";
@@ -16,7 +17,7 @@ function errorMessage(e:unknown){
   return e instanceof Error?e.message:"local_profile_operation_failed";
 }
 function validOrigin(request:NextRequest){
-  return request.headers.get("origin")===request.nextUrl.origin;
+  return isSameOrigin(request);
 }
 export async function GET(){
   if(!enabled())return send({error:"local_mode_required"},403);
