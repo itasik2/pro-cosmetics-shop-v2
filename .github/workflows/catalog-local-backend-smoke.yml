@@ -4,6 +4,9 @@ on:
     paths:
       - "catalog-hub-local/**"
       - "marketplace-hub/prisma/schema.prisma"
+      - "catalog-hub-web/lib/pdf-supplier.ts"
+      - "catalog-hub-web/lib/import-parser.ts"
+      - "catalog-hub-web/next.config.mjs"
       - "marketplace-hub/supabase/functions/catalog-hub/**"
       - ".github/workflows/catalog-local-backend-smoke.yml"
 jobs:
@@ -35,6 +38,8 @@ jobs:
       - name: Run local supplier import end-to-end test
         working-directory: catalog-hub-web
         run: npm run testdb:import-e2e
+      - name: Validate PDF.js worker in Next.js API (synthetic PDF)
+        run: node catalog-hub-local/pdf-worker-smoke.mjs
       - name: Report errors and stop containers
         if: always()
         run: |
