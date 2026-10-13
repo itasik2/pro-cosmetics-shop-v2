@@ -62,6 +62,23 @@ async function prepare(request:NextRequest){
  const file=data.get("file");
  if(!(file instanceof File))throw new Error("file_required");
  const table=await parseTable(file);
+ const skuOverrideRaw=data.get("skuOverrides");
+ if(skuOverrideRaw){
+   if(table.format!=="PDF"||typeof skuOverrideRaw!=="string"||skuOverrideRaw.length>25000)
+     throw new Error("invalid_pdf_sku_overrides");
+   let overrides:unknown;
+   try{overrides=JSON.parse(skuOverrideRaw)}catch{throw new Error("invalid_pdf_sku_overrides");}
+   if(!overrides||typeof overrides!=="object"||Array.isArray(overrides)||
+       Object.keys(overrides).length>table.rows.length)throw new Error("invalid_pdf_sku_overrides");
+   for(const [index,value] of Object.entries(overrides)){
+     const number=Number(index);
+     if(!/^\d+$/.test(index)||!Number.isSafeInteger(number)||number>=table.rows.length||
+         typeof value!=="string"||value.length>100||
+         (value.trim()!==""&&!/^[\p{L}\p{N}][\p{L}\p{N}_.\/-]*$/u.test(value.trim())))
+       throw new Error("invalid_pdf_sku_overrides");
+     table.rows[number]["Артикул"]=value.trim();
+   }
+ }
  const mapping=mappingFrom(data.get("mapping"),table.headers);
  const items=mapImport(table,mapping);
  const [snapshot,categories]=await Promise.all([
@@ -105,6 +122,8 @@ export async function POST(request:NextRequest) {
    }
    return NextResponse.json({
      format:table.format,headers:table.headers,mapping,review,counts,fingerprint,
+     warnings:table.warnings||[],pageCount:table.pageCount||null,
+     needsManualSku:table.needsManualSku||false,
      canApply:!isLocalReadOnly(),
      note:"Stock fields are informational; source files are not stored. Existing products are staged for review, new products require explicit confirmation."
    },{headers:{"cache-control":"no-store"}});
