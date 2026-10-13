@@ -16,7 +16,8 @@
     "testdb:use": "node ../catalog-hub-local/switch.mjs test",
     "testdb:remote": "node ../catalog-hub-local/switch.mjs remote",
     "testdb:stop": "docker compose -f ../catalog-hub-local/compose.yaml down",
-    "testdb:status": "docker compose -f ../catalog-hub-local/compose.yaml ps"
+    "testdb:status": "docker compose -f ../catalog-hub-local/compose.yaml ps",
+    "testdb:import-e2e": "node ../catalog-hub-local/import-e2e.mjs"
   },
   "dependencies": {
     "next": "15.5.24",
