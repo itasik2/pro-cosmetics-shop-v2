@@ -47,11 +47,11 @@ function amounts(text:string):[string,string]{
   return [valid(parts[0]||""),valid(parts[1]||"")];
 }
 function volumeOf(text:string){
- const matched=text.match(/об[ъь]?е[мm]\s*:\s*(\d{1,4})\s*(мл|шт|уп|г)(?=$|[\s.,;])/iu);
+ const matched=text.match(/об[ъь]?[её][мm]\s*:\s*(\d{1,4})\s*(мл|шт|уп|г)(?=$|[\s.,;])/iu);
  return matched?matched[1]+" "+matched[2]:"";
 }
 function isTitleContinuation(first:string,candidate:string){
- if(candidate.length>55||/^(?:об[ъь]?е[мm]|цена)/iu.test(candidate))return false;
+ if(candidate.length>55||/^(?:об[ъь]?[её][мm]|цена)/iu.test(candidate))return false;
  // For cards headed "AcnoCell Treatment" and the next bold line "Emulsion".
  if(!/[\p{Script=Latin}]/u.test(first))return false;
  if(/[\p{Script=Cyrillic}]/u.test(candidate))return false;
@@ -97,7 +97,7 @@ export function extractPdfCardPage(
   // Never combine "ReformAge O2 Fluid 50 мл" with "110 мл" into one card.
   const variantTitle=volume&&!title.toLowerCase().includes(volume.toLowerCase())
     ?title+" ("+volume+")":title;
-  const desc=normalized(body.replace(/об[ъь]?е[мm]\s*:\s*\d{1,4}\s*(?:мл|шт|уп|г)(?=$|[\s.,;])/giu,""))
+  const desc=normalized(body.replace(/об[ъь]?[её][мm]\s*:\s*\d{1,4}\s*(?:мл|шт|уп|г)(?=$|[\s.,;])/giu,""))
     .slice(0,2800);
   found.push({
    "Артикул":"",
@@ -162,7 +162,7 @@ export function extractJeudermCardPage(
      const volume=volumeOf(body);
      const variantTitle=volume&&!title.toLowerCase().includes(volume.toLowerCase())
        ?title+" ("+volume+")":title;
-     const desc=normalized(body.replace(/об[ъь]?е[мm]\s*:\s*\d{1,4}\s*(?:мл|шт|уп|г)(?=$|[\s.,;])/giu,""))
+     const desc=normalized(body.replace(/об[ъь]?[её][мm]\s*:\s*\d{1,4}\s*(?:мл|шт|уп|г)(?=$|[\s.,;])/giu,""))
        .slice(0,2800);
      found.push({col,top:candidate[0].y,row:{
        "Артикул":"","Наименование":variantTitle,
