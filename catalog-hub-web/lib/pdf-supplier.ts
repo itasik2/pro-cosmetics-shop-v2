@@ -123,7 +123,9 @@ export function extractJeudermCardPage(
  const columns:PdfTextFragment[][]=Array.from({length:3},()=>[]);
  for(const fragment of fragments){
    if(fragment.y<height*0.16||fragment.y>height*0.965)continue;
-   const col=Math.max(0,Math.min(2,Math.floor(fragment.x/(width/3))));
+   // JeuDerm's right column can start at x=395 on an A4 (595pt) page:
+   // plain width/3 would misclassify its price as part of the middle column.
+   const col=fragment.x<width*0.32?0:fragment.x<width*0.64?1:2;
    columns[col].push(fragment);
  }
  const found:Array<{col:number;top:number;row:PdfSupplierRow}>=[];
@@ -132,12 +134,12 @@ export function extractJeudermCardPage(
    let before:Array<{y:number;text:string}>=[];
    for(let i=0;i<lines.length;i++){
      const current=lines[i];
-     if(!/^цена\s*[:：]/iu.test(current.text)){
+     if(!/цена\s*[:：]/iu.test(current.text)){
        if(!/^г\.\s*(астана|алматы)/iu.test(current.text)&&
           !/^\+?7[\d\s()-]{7,}$/u.test(current.text))before.push(current);
        continue;
      }
-     let priceText=current.text;
+     let priceText=current.text.slice(current.text.search(/цена\s*[:：]/iu));
      const next=lines[i+1];
      // Some prices wrap after "/" onto their own numeric line.
      if(next&&current.text.includes("/")&&/^\s*[\d\s]{3,14}\s*$/u.test(next.text)){
