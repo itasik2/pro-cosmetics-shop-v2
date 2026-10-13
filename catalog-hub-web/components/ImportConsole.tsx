@@ -3,10 +3,12 @@ import {useEffect,useState} from "react";
 import Link from "next/link";
 import {FIELD_LABELS,type Field,type Mapping} from "@/lib/import-types";
 import type {Reviewed} from "@/lib/import-review";
+import {draftPdfSkuOverrides,countDuplicateSkuDrafts,validPrefix} from "@/lib/pdf-sku-drafts";
 type Preview={
  format:string;headers:string[];mapping:Mapping;review:Reviewed[];
  counts:Record<string,number>;fingerprint:string;note:string;canApply:boolean;
  warnings?:string[];pageCount?:number|null;needsManualSku?:boolean;
+ pdfSource?:Array<{index:number;page:string;volume:string;price1:string;price2:string}>;
 };
 type ItemResult={rowNumber:number;sku:string;status:string;id?:string;error?:string};
 type Applied={results:ItemResult[];partial:boolean;reminder:string};
@@ -39,6 +41,8 @@ export function ImportConsole(){
  const [profileBusy,setProfileBusy]=useState(false);
  const [pdfSkus,setPdfSkus]=useState<Record<number,string>>({});
  const [pdfNeedsRefresh,setPdfNeedsRefresh]=useState(false);
+ const [pdfSkuPrefix,setPdfSkuPrefix]=useState("JDR");
+ const [pdfSkuMessage,setPdfSkuMessage]=useState("");
 
  async function refreshLocal(){
    try{
@@ -181,7 +185,7 @@ export function ImportConsole(){
          onChange={e=>{
            setFile(e.target.files?.[0]||null);setPreview(null);setHeaders([]);
            setMapping(profileId?mapping:{});setSelected([]);setConfirmed(false);setApplied(null);setError("");
-           setPdfSkus({});setPdfNeedsRefresh(false);
+           setPdfSkus({});setPdfNeedsRefresh(false);setPdfSkuMessage("");
          }}/>
      </label>
      {headers.length>0&&<div style={{marginTop:15}}>
@@ -220,6 +224,36 @@ export function ImportConsole(){
          После ручных изменений нажмите «Обновить предпросмотр».
        </div>}
        {preview.warnings?.map((w,i)=><p className="subtle" key={i}>{w}</p>)}
+       {preview.format==="PDF"&&<div className="panel" style={{padding:15,marginTop:12,marginBottom:12}}>
+         <h3>Предложения внутренних SKU для PDF</h3>
+         <p className="subtle">Это ваши ВНУТРЕННИЕ идентификаторы, не артикулы производителя.
+           Они формируются из названия и объёма. Повторные карточки получают одинаковый код
+           и будут отмечены как дубликаты — проверьте вручную.</p>
+         <div className="actions" style={{alignItems:"end"}}>
+           <label className="editor-field" style={{maxWidth:170}}>
+             <span>Префикс производителя</span>
+             <input className="input" maxLength={12} value={pdfSkuPrefix}
+               onChange={e=>setPdfSkuPrefix(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,""))}/>
+           </label>
+           <button className="button" type="button" disabled={busy||!validPrefix(pdfSkuPrefix)}
+             onClick={()=>{
+               const generated=draftPdfSkuOverrides(preview.review.map(row=>({
+                 index:row.index,title:row.title,sku:row.sku,
+               })),pdfSkuPrefix,pdfSkus);
+               setPdfSkus(generated);setPdfNeedsRefresh(true);setSelected([]);setConfirmed(false);
+               setPdfSkuMessage("Сформированы предварительные внутренние SKU. Проверьте их и обновите предпросмотр.");
+             }}>
+             Предложить SKU для всех пустых строк
+           </button>
+         </div>
+         {pdfSkuMessage&&<p className="subtle" role="status">{pdfSkuMessage}</p>}
+         {countDuplicateSkuDrafts(pdfSkus)>0&&<p className="error" role="alert">
+           Совпадений внутренних SKU: {countDuplicateSkuDrafts(pdfSkus)}.
+           Возможны дубли товара или ошибочно распознанный объём — уточните перед импортом.
+         </p>}
+         <p className="subtle">Исходные цены: «Цена 1» и «Цена 2» не назначаются автоматически.
+           Выберите их значения в блоке «Сопоставление колонок» выше и снова проверьте строки.</p>
+       </div>}
        {pdfNeedsRefresh&&<p className="error" role="status">SKU изменены: обновите предпросмотр перед подтверждением.</p>}
        <div className="import-summary">
          {Object.entries(statusLabel).map(([key,value])=>
@@ -246,7 +280,16 @@ export function ImportConsole(){
                        setPdfNeedsRefresh(true);setSelected([]);setConfirmed(false);
                      }}/>
                  </label>}</td>
-               <td>{row.title||"—"}<div className="subtle">{row.barcode||""}</div></td>
+               <td>{row.title||"—"}<div className="subtle">{row.barcode||""}</div>
+                 {preview.format==="PDF"&&(()=>{
+                   const source=preview.pdfSource?.[row.index];
+                   if(!source)return null;
+                   return <div className="subtle">
+                     <div>Стр. {source.page}{source.volume?" · Объём: "+source.volume:" · Объём не найден"}</div>
+                     <div>Цена 1: {source.price1?Number(source.price1).toLocaleString("ru-RU")+" ₸":"—"}</div>
+                     <div>Цена 2: {source.price2?Number(source.price2).toLocaleString("ru-RU")+" ₸":"—"}</div>
+                   </div>;
+                 })()}</td>
                <td><strong>{statusLabel[row.status]}</strong>
                  <div className="subtle">{row.matchedBy? "Совпадение: "+row.matchedBy:""}</div></td>
                <td>
