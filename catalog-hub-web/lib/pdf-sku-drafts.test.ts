@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {draftInternalSku,draftPdfSkuOverrides,countDuplicateSkuDrafts,validPrefix} from "./pdf-sku-drafts";
+import {draftInternalSku,draftPdfSkuOverrides,countDuplicateSkuDrafts,duplicatePdfSkuGroups,validPrefix} from "./pdf-sku-drafts";
 
 test("internal draft IDs are reproducible and distinguish pack volumes",()=>{
  const a=draftInternalSku("JDR","ReformAge O2 Fluid (50 мл)");
@@ -32,4 +32,17 @@ test("draft SKU prefix validation is strict",()=>{
  for(const x of ["JDR","SUPPLIER09"])assert.equal(validPrefix(x),true);
  assert.throws(()=>draftInternalSku("X","My Ato Intensive Cream"),/sku_prefix_invalid/);
  assert.throws(()=>draftInternalSku("JDR","  "),/sku_title_missing/);
+});
+
+test("duplicate SKU diagnostics pinpoint both catalogue rows without inventing new identifiers",()=>{
+ const rows=[
+  {index:0,sku:"",title:"Wrong header title"},
+  {index:5,sku:"",title:"Wrong header title"},
+  {index:6,sku:"EXPLICIT-6",title:"Different product"},
+ ];
+ const drafts=draftPdfSkuOverrides(rows,"JDR",{});
+ const groups=duplicatePdfSkuGroups(rows,drafts);
+ assert.equal(groups.length,1);
+ assert.equal(groups[0].sku,drafts[0]);
+ assert.deepEqual(groups[0].items.map(x=>x.index),[0,5]);
 });
