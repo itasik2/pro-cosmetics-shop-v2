@@ -1,11 +1,12 @@
 /**
- * PDF supplier booklet import (text layer only). Conservative extraction:
- * six cards per A4 page, three columns, up to two rows.
+ * PDF supplier import (text layer only). Product booklets use price-anchored
+ * cards; Angiopharm uses a name / package / price table.
  *
  * Every PDF has an unknown commercial interpretation. Prices remain "Цена 1"
  * and "Цена 2"; there is never a guessed SKU, barcode, margin or stock value.
  * No OCR, network calls, or PDF image rendering occur.
  */
+import {extractAngiopharmTablePage,isAngiopharmTable} from "./pdf-angiopharm";
 export type PdfTextFragment = {text:string;x:number;y:number};
 export type PdfSupplierRow = {
   "Артикул":string;
@@ -26,7 +27,7 @@ export type PdfSupplierResult = {
 };
 const HEADERS=["Артикул","Наименование","Описание","Объем","Цена 1","Цена 2","Страница"];
 const MAX_PDF_SIZE=8*1024*1024;
-const MAX_PAGES=30,MAX_ROWS=200;
+const MAX_PAGES=30,MAX_ROWS=400;
 function normalized(text:string){return text.replace(/\s+/g," ").replace(/\u0000/g,"").trim();}
 function sortLines(fragments:PdfTextFragment[]){
   const lines:Array<{y:number;parts:PdfTextFragment[]}>= [];
@@ -210,6 +211,7 @@ export async function parsePdfSupplier(bytes:Uint8Array,options:{fileName?:strin
   let emptyTextPages=0;
   const warnings:string[]=[];
   const specialized=/jeu\s*d[eé]rm|жеудерм/i.test(options.fileName||"");
+  let angiopharm=/ангиофарм|angiopharm/i.test(options.fileName||"");
   let totalPriceAnchors=0;
   for(let pageNum=1;pageNum<=pdf.numPages;pageNum++){
    const page=await pdf.getPage(pageNum);
@@ -223,33 +225,42 @@ export async function parsePdfSupplier(bytes:Uint8Array,options:{fileName?:strin
      fragments.push({text:value,x:item.transform[4],y:viewport.height-item.transform[5]});
    }
    if(fragments.reduce((sum,x)=>sum+x.text.length,0)<30)emptyTextPages++;
+   if(pageNum===1&&!angiopharm)angiopharm=isAngiopharmTable(fragments);
    const priceCount=fragments.filter(x=>/цена\s*[:：]/iu.test(x.text)).length;
    totalPriceAnchors+=priceCount;
-   const rows=specialized
-      ?extractJeudermCardPage(fragments,pageNum,viewport.width,viewport.height)
+   const rows=angiopharm
+      ?extractAngiopharmTablePage(fragments,pageNum,viewport.width)
+      :specialized?extractJeudermCardPage(fragments,pageNum,viewport.width,viewport.height)
       :extractPdfCardPage(fragments,pageNum,viewport.width,viewport.height);
-   if(priceCount>rows.length)warnings.push(
+   if(!angiopharm&&priceCount>rows.length)warnings.push(
      "Страница "+pageNum+": обнаружено цен "+priceCount+", карточек "+rows.length+
      ". Проверьте пропущенный товар на этой странице."
    );
    result.push(...rows);
    page.cleanup();
-   if(result.length>MAX_ROWS)throw new Error("pdf_too_many_cards_max_200");
+   if(result.length>MAX_ROWS)throw new Error("pdf_too_many_cards_max_400");
   }
   if(result.length===0){
    if(emptyTextPages>=Math.ceil(pdf.numPages/2))throw new Error("pdf_scanned_or_image_only_ocr_required");
-   throw new Error("pdf_card_layout_not_detected: ожидаются карточки с названием и строкой «Цена:»");
+   throw new Error(angiopharm?"pdf_table_layout_not_detected: строки с названием, объёмом и ценой не найдены":
+     "pdf_card_layout_not_detected: ожидаются карточки с названием и строкой «Цена:»");
   }
   if(emptyTextPages>0)warnings.push("Без текстового слоя: "+emptyTextPages+" стр. Нужен OCR для полного результата.");
-  if(totalPriceAnchors>result.length)warnings.push(
+  if(!angiopharm&&totalPriceAnchors>result.length)warnings.push(
     "Не все цены связаны с карточками: найдено строк «Цена:» "+
     totalPriceAnchors+", распознано карточек "+result.length+
     ". Нужна ручная проверка пропущенных позиций."
   );
   if(specialized)warnings.push("Парсер: JeuDerm — анализ карточек по колонкам и строкам цен.");
-  warnings.push("PDF не содержит подтверждённых артикулов: введите SKU вручную перед созданием новых товаров.");
-  warnings.push("Цена 1 и Цена 2 оставлены без назначения: выберите нужную колонку для закупочной/розничной цены.");
+  if(angiopharm){
+   const missing=result.filter(row=>!row["Артикул"]).length;
+   if(missing)warnings.push("Без артикула: "+missing+" строк. Укажите внутренний SKU для новых товаров вручную.");
+   warnings.push("Колонка «Цена, тг.» сохранена как «Цена 1»: подтвердите её роль перед импортом.");
+  }else{
+   warnings.push("PDF не содержит подтверждённых артикулов: введите SKU вручную перед созданием новых товаров.");
+   warnings.push("Цена 1 и Цена 2 оставлены без назначения: выберите нужную колонку для закупочной/розничной цены.");
+  }
   warnings.push("Автоматическое изменение складских остатков из PDF отключено.");
-  return {format:"PDF",headers:HEADERS,rows:result,pageCount:pdf.numPages,warnings,needsManualSku:true};
+  return {format:"PDF",headers:angiopharm?[...HEADERS,"Бренд"]:HEADERS,rows:result,pageCount:pdf.numPages,warnings,needsManualSku:true};
  }finally{if(pdf)await pdf.destroy();else await task.destroy();}
 }
