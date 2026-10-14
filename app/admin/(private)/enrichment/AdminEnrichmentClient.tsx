@@ -1,5 +1,7 @@
 "use client";
 
+import { enrichmentFailureMessage } from "../../../../lib/enrichment/clientMessages";
+
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 type Tab = "products" | "proposals" | "sources";
@@ -251,7 +253,7 @@ function enrichmentErrorText(value: string) {
   if (value === "product_match_zero_confidence") {
     return "Найденная карточка не совпадает с товаром. Предложение с совпадением 0% не создано; укажите точный URL или повторите поиск.";
   }
-  return value;
+  return enrichmentFailureMessage(value);
 }
 
 function statusLabel(value: string) {

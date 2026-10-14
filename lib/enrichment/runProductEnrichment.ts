@@ -23,6 +23,7 @@ import {
   selectorsFromJson,
   toAllowedPolicies,
 } from "./sourcePolicies";
+import { discoverWithFallback, remainingTime } from "./timeBudget";
 
 type RunInput = {
   productId: string;
@@ -31,6 +32,7 @@ type RunInput = {
   excludedSourceUrls?: string[];
   autopilotRetryOf?: string | null;
   autopilotRetryCount?: number;
+  deadlineAt?: number;
 };
 
 function errorMessage(error: unknown) {
@@ -83,11 +85,14 @@ function recoverableAutomaticSourceError(message: string) {
 }
 
 export async function runProductEnrichment(input: RunInput) {
+  const deadlineAt = input.deadlineAt ?? Date.now() + 50_000;
   const staleBefore = new Date(Date.now() - 30 * 60 * 1000);
   await prisma.enrichmentJob.updateMany({
     where: {
       productId: input.productId,
-      status: { in: [EnrichmentJobStatus.PENDING, EnrichmentJobStatus.RUNNING] },
+      status: {
+        in: [EnrichmentJobStatus.PENDING, EnrichmentJobStatus.RUNNING],
+      },
       updatedAt: { lt: staleBefore },
     },
     data: {
@@ -100,7 +105,9 @@ export async function runProductEnrichment(input: RunInput) {
   const activeJob = await prisma.enrichmentJob.findFirst({
     where: {
       productId: input.productId,
-      status: { in: [EnrichmentJobStatus.PENDING, EnrichmentJobStatus.RUNNING] },
+      status: {
+        in: [EnrichmentJobStatus.PENDING, EnrichmentJobStatus.RUNNING],
+      },
     },
     select: { id: true },
   });
@@ -191,53 +198,42 @@ export async function runProductEnrichment(input: RunInput) {
       (product.sourceUrl && !excludedSourceUrlSet.has(product.sourceUrl.trim())
         ? product.sourceUrl.trim()
         : "") ||
-      product.sources.find((source) => !excludedSourceUrlSet.has(source.url))?.url ||
+      product.sources.find((source) => !excludedSourceUrlSet.has(source.url))
+        ?.url ||
       "";
     let searchResult: Record<string, unknown> | null = null;
 
     async function discoverSource(excludedUrls: string[] = []) {
-      const officialResult = officialDomains.length
-        ? await findOfficialProductUrl({
+      const discovered = await discoverWithFallback(
+        async () =>
+          officialDomains.length
+            ? findOfficialProductUrl({
+                product: searchableProduct,
+                allowedDomains: officialDomains,
+                excludedUrls,
+                timeoutMs: remainingTime(deadlineAt, 40_000),
+              })
+            : null,
+        () =>
+          findExternalProductUrl({
             product: searchableProduct,
-            allowedDomains: officialDomains,
+            officialDomainsTried: officialDomains,
             excludedUrls,
-          })
-        : null;
-
-      if (officialResult?.found && officialResult.url) {
-        return {
-          url: officialResult.url,
-          result: {
-            ...officialResult,
-            searchStage: "official",
-          } as Record<string, unknown>,
-        };
+            timeoutMs: remainingTime(deadlineAt, 40_000),
+          }),
+      );
+      if (discovered.url && discovered.result.searchStage === "external") {
+        const discoveredSource = await ensureDiscoveredSupplierSource({
+          supplierId: supplier.id,
+          url: discovered.url,
+        });
+        if (
+          !allowedSources.some((source) => source.id === discoveredSource.id)
+        ) {
+          allowedSources.push(discoveredSource);
+        }
       }
-
-      const externalResult = await findExternalProductUrl({
-        product: searchableProduct,
-        officialDomainsTried: officialDomains,
-        excludedUrls,
-      });
-      const result = {
-        ...externalResult,
-        searchStage: "external",
-        officialResult,
-      } as Record<string, unknown>;
-
-      if (!externalResult.found || !externalResult.url) {
-        return { url: null, result };
-      }
-
-      const discoveredSource = await ensureDiscoveredSupplierSource({
-        supplierId: supplier.id,
-        url: externalResult.url,
-      });
-      if (!allowedSources.some((source) => source.id === discoveredSource.id)) {
-        allowedSources.push(discoveredSource);
-      }
-
-      return { url: externalResult.url, result };
+      return discovered;
     }
 
     if (!sourceUrl && input.discoverIfMissing !== false) {
@@ -254,7 +250,11 @@ export async function runProductEnrichment(input: RunInput) {
 
     let fetched;
     try {
-      fetched = await safeFetchHtml(sourceUrl, toAllowedPolicies(allowedSources));
+      fetched = await safeFetchHtml(
+        sourceUrl,
+        toAllowedPolicies(allowedSources),
+        { timeoutMs: remainingTime(deadlineAt, 12_000) },
+      );
     } catch (error) {
       const message = errorMessage(error);
       const staleAutomaticSource =
@@ -290,6 +290,7 @@ export async function runProductEnrichment(input: RunInput) {
       fetched = await safeFetchHtml(
         sourceUrl,
         toAllowedPolicies(allowedSources),
+        { timeoutMs: remainingTime(deadlineAt, 12_000) },
       );
     }
 
@@ -329,6 +330,7 @@ export async function runProductEnrichment(input: RunInput) {
           fetched = await safeFetchHtml(
             sourceUrl,
             toAllowedPolicies(allowedSources),
+            { timeoutMs: remainingTime(deadlineAt, 12_000) },
           );
         } catch (error) {
           const message = errorMessage(error);
@@ -424,9 +426,12 @@ export async function runProductEnrichment(input: RunInput) {
           product,
           extracted,
           sourceUrl: fetched.finalUrl,
+          timeoutMs: remainingTime(deadlineAt, 20_000),
         });
       } catch (error) {
-        generationWarnings.push(`description_generation_failed:${errorMessage(error)}`);
+        generationWarnings.push(
+          `description_generation_failed:${errorMessage(error)}`,
+        );
       }
     }
 
@@ -473,7 +478,8 @@ export async function runProductEnrichment(input: RunInput) {
           priceImageUrl: priceImageUrl || null,
           imageCandidates: proposalImages.map((url) => ({
             url,
-            source: priceImageUrl && url === priceImageUrl ? "PRICE_LIST" : "WEB",
+            source:
+              priceImageUrl && url === priceImageUrl ? "PRICE_LIST" : "WEB",
           })),
           autopilotRetry: input.autopilotRetryOf
             ? {
@@ -537,20 +543,24 @@ export async function runProductEnrichment(input: RunInput) {
       "product_match_zero_confidence",
     ].includes(message);
 
-    await prisma.$transaction([
-      prisma.enrichmentJob.update({
-        where: { id: job.id },
-        data: {
-          status: EnrichmentJobStatus.FAILED,
-          finishedAt: new Date(),
-          error: message,
-        },
-      }),
-      prisma.product.update({
-        where: { id: input.productId },
-        data: { enrichmentStatus: sourceRequired ? "SOURCE_REQUIRED" : "FAILED" },
-      }),
-    ]).catch(() => undefined);
+    await prisma
+      .$transaction([
+        prisma.enrichmentJob.update({
+          where: { id: job.id },
+          data: {
+            status: EnrichmentJobStatus.FAILED,
+            finishedAt: new Date(),
+            error: message,
+          },
+        }),
+        prisma.product.update({
+          where: { id: input.productId },
+          data: {
+            enrichmentStatus: sourceRequired ? "SOURCE_REQUIRED" : "FAILED",
+          },
+        }),
+      ])
+      .catch(() => undefined);
 
     throw new Error(message);
   }

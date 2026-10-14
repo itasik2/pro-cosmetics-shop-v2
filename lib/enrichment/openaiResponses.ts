@@ -58,10 +58,7 @@ function normalizeDescriptionText(value: unknown) {
 
 export function removeInternalDescriptionMarkers(value: unknown) {
   return String(value || "")
-    .replace(
-      /(?:предупреждение:\s*)?skin_type_not_confirmed[.!]?/giu,
-      "",
-    )
+    .replace(/(?:предупреждение:\s*)?skin_type_not_confirmed[.!]?/giu, "")
     .replace(/[ \t]+([,.;:!?])/gu, "$1")
     .replace(/[ \t]{2,}/g, " ")
     .replace(/\n[ \t]+/g, "\n")
@@ -98,9 +95,10 @@ function truncateAtWord(value: string, maxLength: number) {
   const contentLimit = Math.max(1, maxLength - 1);
   const shortened = value.slice(0, contentLimit + 1);
   const wordBoundary = shortened.lastIndexOf(" ");
-  const result = (wordBoundary > contentLimit * 0.6
-    ? shortened.slice(0, wordBoundary)
-    : shortened.slice(0, contentLimit)
+  const result = (
+    wordBoundary > contentLimit * 0.6
+      ? shortened.slice(0, wordBoundary)
+      : shortened.slice(0, contentLimit)
   )
     .replace(/[,:;\s-]+$/u, "")
     .trim();
@@ -141,14 +139,18 @@ function getOutputText(data: unknown) {
   return "";
 }
 
-async function requestStructured(input: {
-  schemaName: string;
-  schema: Record<string, unknown>;
-  system: string;
-  user: string;
-  tools?: Record<string, unknown>[];
-  timeoutMs?: number;
-}) {
+export async function requestStructured(
+  input: {
+    schemaName: string;
+    schema: Record<string, unknown>;
+    system: string;
+    user: string;
+    tools?: Record<string, unknown>[];
+    timeoutMs?: number;
+    profile?: "search" | "copy";
+  },
+  fetcher: typeof fetch = fetch,
+) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("openai_not_configured");
 
@@ -159,7 +161,10 @@ async function requestStructured(input: {
   );
 
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
+    const model = process.env.OPENAI_ENRICHMENT_MODEL || "gpt-5.6-luna";
+    const search = input.profile === "search";
+    const bounded = Boolean(input.profile);
+    const response = await fetcher("https://api.openai.com/v1/responses", {
       method: "POST",
       signal: controller.signal,
       headers: {
@@ -167,7 +172,18 @@ async function requestStructured(input: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: process.env.OPENAI_ENRICHMENT_MODEL || "gpt-5.6-luna",
+        model,
+        ...(bounded
+          ? { store: false, max_output_tokens: search ? 3_000 : 2_500 }
+          : {}),
+        ...(bounded && /^gpt-(?:5|6)(?:[.-]|$)/.test(model)
+          ? {
+              reasoning: {
+                effort: !search && model === "gpt-5.6-luna" ? "none" : "low",
+              },
+            }
+          : {}),
+        ...(search ? { max_tool_calls: 3, tool_choice: "required" } : {}),
         input: [
           {
             role: "system",
@@ -191,6 +207,7 @@ async function requestStructured(input: {
     });
 
     const data = await response.json().catch(() => ({}));
+    if (controller.signal.aborted) throw new Error("openai_timeout");
     if (!response.ok) {
       const message =
         data && typeof data === "object"
@@ -199,6 +216,17 @@ async function requestStructured(input: {
       throw new Error(`openai_http_${response.status}:${message}`);
     }
 
+    if (data.status === "incomplete")
+      throw new Error("openai_incomplete_output");
+    if (
+      search &&
+      (!Array.isArray(data.output) ||
+        !data.output.some(
+          (item: { type?: string; status?: string }) =>
+            item?.type === "web_search_call" && item.status === "completed",
+        ))
+    )
+      throw new Error("openai_search_not_run");
     const text = getOutputText(data);
     if (!text) throw new Error("openai_empty_output");
 
@@ -220,7 +248,8 @@ function productLabel(product: MatchableProduct) {
     product.volumeValue && product.volumeUnit
       ? `${product.volumeValue} ${product.volumeUnit}`
       : "объём не указан";
-  const brand = product.brand?.name || product.supplier?.name || "бренд не указан";
+  const brand =
+    product.brand?.name || product.supplier?.name || "бренд не указан";
   const supplierSku = String(product.supplierSku || "").trim();
   const searchableSku = /^JD-[A-Z0-9]{6,}$/i.test(supplierSku)
     ? "не указан"
@@ -434,18 +463,22 @@ export async function findOfficialProductUrl(input: {
   product: MatchableProduct;
   allowedDomains: string[];
   excludedUrls?: string[];
+  timeoutMs?: number;
 }): Promise<SearchResult> {
-  const allowedDomains = [...new Set(input.allowedDomains.map(normalizeDomain))].filter(
-    Boolean,
-  );
+  const allowedDomains = [
+    ...new Set(input.allowedDomains.map(normalizeDomain)),
+  ].filter(Boolean);
   if (!allowedDomains.length) throw new Error("allowed_domains_required");
 
-  const excludedUrls = [...new Set((input.excludedUrls || []).map((value) => value.trim()))]
+  const excludedUrls = [
+    ...new Set((input.excludedUrls || []).map((value) => value.trim())),
+  ]
     .filter(Boolean)
     .slice(0, 10);
 
   const raw = await requestStructured({
     schemaName: "official_product_page",
+    profile: "search",
     schema: {
       type: "object",
       additionalProperties: false,
@@ -464,9 +497,10 @@ export async function findOfficialProductUrl(input: {
       {
         type: "web_search",
         search_context_size: "low",
+        filters: { allowed_domains: allowedDomains },
       },
     ],
-    timeoutMs: 14_000,
+    timeoutMs: input.timeoutMs ?? 40_000,
   });
 
   const result = SearchResultSchema.parse(raw);
@@ -500,6 +534,7 @@ export async function findExternalProductUrl(input: {
   product: MatchableProduct;
   officialDomainsTried?: string[];
   excludedUrls?: string[];
+  timeoutMs?: number;
 }): Promise<SearchResult> {
   const officialDomainsTried = [
     ...new Set((input.officialDomainsTried || []).map(normalizeDomain)),
@@ -512,6 +547,7 @@ export async function findExternalProductUrl(input: {
 
   const raw = await requestStructured({
     schemaName: "trusted_product_page",
+    profile: "search",
     schema: {
       type: "object",
       additionalProperties: false,
@@ -532,7 +568,7 @@ export async function findExternalProductUrl(input: {
         search_context_size: "medium",
       },
     ],
-    timeoutMs: 20_000,
+    timeoutMs: input.timeoutMs ?? 40_000,
   });
 
   const result = SearchResultSchema.parse(raw);
@@ -546,7 +582,8 @@ export async function findExternalProductUrl(input: {
       found: false,
       url: null,
       confidence: 0,
-      reason: "Найденный адрес не является разрешённой прямой страницей проверяемого продавца.",
+      reason:
+        "Найденный адрес не является разрешённой прямой страницей проверяемого продавца.",
     };
   }
 
@@ -570,6 +607,7 @@ export async function generateProductDescription(input: {
   product: MatchableProduct;
   extracted: ExtractedProductData;
   sourceUrl: string;
+  timeoutMs?: number;
 }): Promise<GeneratedDescription> {
   const facts = {
     product: productLabel(input.product),
@@ -586,6 +624,7 @@ export async function generateProductDescription(input: {
 
   const raw = await requestStructured({
     schemaName: "product_description_draft",
+    profile: "copy",
     schema: {
       type: "object",
       additionalProperties: false,
@@ -618,13 +657,11 @@ export async function generateProductDescription(input: {
       "Поля application и ingredients заполняй отдельно по источнику. Если подтверждённых данных для поля нет, верни пустую строку и добавь понятное предупреждение.",
     ].join("\n"),
     user: JSON.stringify(facts),
-    timeoutMs: 18_000,
+    timeoutMs: input.timeoutMs ?? 20_000,
   });
 
   const generated = DescriptionResultSchema.parse(raw);
-  const shortDescription = sanitizeShortDescription(
-    generated.shortDescription,
-  );
+  const shortDescription = sanitizeShortDescription(generated.shortDescription);
   const description = removePromotionalDescriptionSentences(
     generated.description,
   );
