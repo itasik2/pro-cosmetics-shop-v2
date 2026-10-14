@@ -8,6 +8,12 @@ export const ParsedImportRowSchema = z.object({
   originalName: z.string().min(2),
   normalizedName: z.string().min(2),
   description: z.string().nullable().optional(),
+  priceImageUrl: z
+    .string()
+    .url()
+    .refine((value) => /^https?:\/\//i.test(value))
+    .nullable()
+    .optional(),
   volumeValue: z.number().int().nonnegative().nullable(),
   volumeUnit: z.enum(["ml", "g", "pcs", "pack", "roll"]).nullable(),
   volumeLabel: z.string(),

@@ -1,4 +1,5 @@
 "use client";
+import { variantDisplayImage } from "../lib/enrichment/variantImages";
 
 import Link from "next/link";
 import { useState } from "react";
@@ -83,10 +84,7 @@ export default function ProductCard({ product }: ProductCardProps) {
   const priceToShow = Number(selectedVariant?.price ?? product.price) || 0;
   const stockToUse = Math.trunc(Number(selectedVariant?.stock ?? product.stock) || 0);
   const inStock = stockToUse > 0;
-  const imageToShow =
-    selectedVariant?.image && String(selectedVariant.image).trim().length > 0
-      ? String(selectedVariant.image).trim()
-      : product.image;
+  const imageToShow = variantDisplayImage(selectedVariant, product.image);
   const productHref = product.slug ? `/shop/${encodeURIComponent(product.slug)}` : `/api/products/by-id-redirect/${encodeURIComponent(product.id)}`;
   const stockAlertHref = `/shop/${encodeURIComponent(product.slug)}#stock-alert`;
   const brandHref = product.brand

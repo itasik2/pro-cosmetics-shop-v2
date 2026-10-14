@@ -1,5 +1,7 @@
 "use client";
 
+import { VariantPhotosReview } from "@/components/VariantPhotoPicker";
+import type { VariantImageSelection } from "@/lib/enrichment/variantImages";
 import { enrichmentFailureMessage } from "../../../../lib/enrichment/clientMessages";
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
@@ -394,6 +396,7 @@ export default function AdminEnrichmentClient() {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("ALL");
   const [sourceUrls, setSourceUrls] = useState<Record<string, string>>({});
+  const [variantImages, setVariantImages] = useState<Record<string, VariantImageSelection[]>>({});
   const [selectedImages, setSelectedImages] = useState<Record<string, string>>({});
   const [stockValues, setStockValues] = useState<Record<string, string>>({});
   const [variantStockValues, setVariantStockValues] = useState<Record<string, Record<string, string>>>({});
@@ -614,6 +617,7 @@ export default function AdminEnrichmentClient() {
           imageUrl: selectedImages[proposalId] || "",
           stock,
           variantStocks,
+          variantImages: variantImages[proposalId] || [],
         }),
       });
       await readResponse(response);
@@ -1006,7 +1010,7 @@ export default function AdminEnrichmentClient() {
 
                   <div className="space-y-3">
                     <div>
-                      <div className="mb-2 text-sm font-medium">Изображения источника</div>
+                      <div className="mb-2 text-sm font-medium">Общее фото товара</div>
                       {images.length ? (
                         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                           {images.map((image, index) => (
@@ -1038,6 +1042,9 @@ export default function AdminEnrichmentClient() {
                       )}
                     </div>
 
+                    <VariantPhotosReview product={proposal.product} proposalId={proposal.id} facts={proposal.facts}
+                      value={variantImages[proposal.id] || []} disabled={isBusy}
+                      onChange={value => setVariantImages(current => ({ ...current, [proposal.id]: value }))} />
                     {variants.length ? (
                       <div className="rounded-xl border p-3 text-sm">
                         <div className="mb-2 font-medium">Количество по вариантам</div>
@@ -1116,8 +1123,8 @@ export default function AdminEnrichmentClient() {
                   <button
                     type="button"
                     className="rounded-xl border px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
-                    disabled={isBusy || !selectedImage}
-                    title={!selectedImage ? "Сначала выберите доступное фото" : undefined}
+                    disabled={isBusy || (!selectedImage && !variantImages[proposal.id]?.length)}
+                    title={!selectedImage && !variantImages[proposal.id]?.length ? "Выберите общее фото или фото для SKU" : undefined}
                     onClick={() => void applyProposal(proposal.id, "ALL")}
                   >
                     Применить всё вручную
@@ -1125,8 +1132,8 @@ export default function AdminEnrichmentClient() {
                   <button
                     type="button"
                     className="rounded-xl border px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
-                    disabled={isBusy || !selectedImage}
-                    title={!selectedImage ? "Сначала выберите доступное фото" : undefined}
+                    disabled={isBusy || (!selectedImage && !variantImages[proposal.id]?.length)}
+                    title={!selectedImage && !variantImages[proposal.id]?.length ? "Выберите общее фото или фото для SKU" : undefined}
                     onClick={() => void applyProposal(proposal.id, "IMAGE")}
                   >
                     Только фото

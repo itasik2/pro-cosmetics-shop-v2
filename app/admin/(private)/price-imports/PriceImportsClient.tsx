@@ -23,6 +23,7 @@ type ParsedData = {
   brand?: string;
   normalizedName?: string;
   originalName?: string;
+  priceImageUrl?: string | null;
   volumeLabel?: string;
   sourcePrice?: number;
   salePrice?: number;
@@ -627,6 +628,10 @@ export default function PriceImportsClient({
                       <td className="p-3 align-top max-w-sm">
                         <div className="font-medium">{parsed.normalizedName || parsed.originalName || "—"}</div>
                         <div className="text-xs text-gray-500">{parsed.category || ""}</div>
+                        {parsed.priceImageUrl && <div className="mt-2 flex items-center gap-2">
+                          <img src={parsed.priceImageUrl} alt={"Фото SKU " + (row.supplierSku || "")} loading="lazy" className="h-16 w-16 rounded-lg border bg-white object-contain" />
+                          <span className="text-xs text-gray-500">Фото из прайса · SKU {row.supplierSku}</span>
+                        </div>}
                       </td>
                       <td className="p-3 align-top whitespace-nowrap">{parsed.volumeLabel || "—"}</td>
                       <td className="p-3 align-top whitespace-nowrap">{formatMoney(parsed.sourcePrice)}</td>

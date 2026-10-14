@@ -1,4 +1,5 @@
 "use client";
+import { variantDisplayImage } from "../lib/enrichment/variantImages";
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
@@ -64,7 +65,7 @@ export default function ProductDetailsClient({ product }: Props) {
   const priceToShow = selectedVariant?.price ?? product.price;
   const stockToUse = selectedVariant?.stock ?? product.stock;
   const inStock = stockToUse > 0;
-  const imageToShow = selectedVariant?.image || product.image;
+  const imageToShow = variantDisplayImage(selectedVariant, product.image);
   const brandName = product.brand?.name ?? "—";
   const shortDescription = publicShortDescription(product.shortDescription);
   const showShortDescription =
@@ -148,6 +149,7 @@ export default function ProductDetailsClient({ product }: Props) {
 
       <div className="space-y-4">
         <h1 className="text-3xl font-bold">{displayName}</h1>
+        {selectedVariant?.sku && <p className="text-xs text-gray-500">SKU {selectedVariant.sku}</p>}
 
         {showShortDescription && (
           <p className="text-base leading-7 text-gray-700">{shortDescription}</p>

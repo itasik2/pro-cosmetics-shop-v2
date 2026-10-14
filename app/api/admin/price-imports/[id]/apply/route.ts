@@ -146,6 +146,7 @@ async function updateExistingPrice(input: {
         normalizeSku(variant.sku) === normalizeSku(sku)
           ? {
               ...variant,
+              ...(!variant.image && input.parsed.priceImageUrl ? { image: input.parsed.priceImageUrl } : {}),
               price: input.sourceOnly ? variant.price : input.parsed.salePrice,
             }
           : variant,
@@ -157,6 +158,7 @@ async function updateExistingPrice(input: {
       variants.push(
         makeImportedVariant({
           sku,
+          image: input.parsed.priceImageUrl,
           label,
           price: input.sourceOnly ? input.parsed.sourcePrice : input.parsed.salePrice,
           stock: 0,
@@ -397,6 +399,7 @@ export async function POST(_req: Request, props: Params) {
                 ? [
                     makeImportedVariant({
                       sku: parsed.supplierSku,
+                      image: parsed.priceImageUrl,
                       label,
                       price: initialPrice,
                       stock: 0,

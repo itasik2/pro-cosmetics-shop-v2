@@ -4,8 +4,8 @@ import {
   type Prisma,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { normalizeStoredVariants } from "@/lib/price-import/productVariants";
-import { importProductImage } from "./productImages";
+import { applyProductEnrichmentProposalUniversal } from "./applyProposalUniversal";
+import type { VariantImageSelection } from "./variantImages";
 
 export type ProposalApplyMode = "ALL" | "DESCRIPTION" | "IMAGE";
 
@@ -36,7 +36,8 @@ function composeDescription(input: {
 
   if (description) sections.push(description);
   if (application) sections.push(`Способ применения\n${application}`);
-  if (ingredients) sections.push(`Состав и активные компоненты\n${ingredients}`);
+  if (ingredients)
+    sections.push(`Состав и активные компоненты\n${ingredients}`);
 
   return sections.join("\n\n").trim();
 }
@@ -62,175 +63,9 @@ export async function applyProductEnrichmentProposal(input: {
   imageUrl?: string | null;
   stock?: number;
   variantStocks?: Record<string, number>;
+  variantImages?: VariantImageSelection[];
 }) {
-  const proposal = await prisma.productEnrichmentProposal.findUnique({
-    where: { id: input.proposalId },
-    include: {
-      product: {
-        include: {
-          supplier: { select: { id: true } },
-        },
-      },
-      job: true,
-    },
-  });
-
-  if (!proposal) throw new Error("proposal_not_found");
-  if (proposal.status !== EnrichmentProposalStatus.PENDING) {
-    throw new Error("proposal_not_pending");
-  }
-  if (proposal.confidence === 0) {
-    throw new Error("proposal_match_confidence_zero");
-  }
-
-  const finalize = input.mode === "ALL";
-  const applyDescription = input.mode === "ALL" || input.mode === "DESCRIPTION";
-  const applyImage = input.mode === "ALL" || input.mode === "IMAGE";
-  const applyInventory = input.mode === "ALL" || input.mode === "IMAGE";
-
-  if (applyDescription) {
-    const description = composeDescription(proposal);
-    if (!description) throw new Error("proposal_description_empty");
-    if (finalize && !proposal.shortDescription?.trim()) {
-      throw new Error("proposal_short_description_empty");
-    }
-
-    await prisma.product.update({
-      where: { id: proposal.productId },
-      data: {
-        shortDescription: proposal.shortDescription?.trim() || null,
-        description,
-        descriptionSourceUrl: proposal.sourceUrl,
-      },
-    });
-  }
-
-  let importedImage = null;
-  if (applyImage) {
-    const images = stringArray(proposal.images);
-    const selectedImage = String(input.imageUrl || images[0] || "").trim();
-
-    if (!selectedImage) throw new Error("proposal_image_missing");
-    if (!images.includes(selectedImage)) {
-      throw new Error("proposal_image_not_allowed");
-    }
-    if (!proposal.product.supplier?.id) {
-      throw new Error("product_supplier_required");
-    }
-
-    importedImage = await importProductImage({
-      productId: proposal.productId,
-      supplierId: proposal.product.supplier.id,
-      sourceUrl: selectedImage,
-      makePrimary: true,
-    });
-  }
-
-  const result = await prisma.$transaction(async (tx) => {
-    const variants = applyInventory
-      ? normalizeStoredVariants(proposal.product.variants)
-      : [];
-
-    if (applyInventory && variants.length) {
-      const stocks = input.variantStocks || {};
-      const updatedVariants = variants.map((variant) => {
-        const nextStock = stocks[variant.id];
-        if (nextStock === undefined) return variant;
-        if (!Number.isInteger(nextStock) || nextStock < 0) {
-          throw new Error("variant_stock_invalid");
-        }
-        return { ...variant, stock: nextStock };
-      });
-      const totalStock = updatedVariants.reduce((sum, variant) => sum + variant.stock, 0);
-      await tx.product.update({
-        where: { id: proposal.productId },
-        data: {
-          variants: updatedVariants,
-          stock: totalStock,
-        },
-      });
-    } else if (applyInventory && input.stock !== undefined) {
-      await tx.product.update({
-        where: { id: proposal.productId },
-        data: { stock: input.stock },
-      });
-    }
-
-    const updatedProposal = await tx.productEnrichmentProposal.update({
-      where: { id: proposal.id },
-      data: finalize
-        ? {
-            status: EnrichmentProposalStatus.APPLIED,
-            appliedAt: new Date(),
-          }
-        : {
-            status: EnrichmentProposalStatus.PENDING,
-            appliedAt: null,
-          },
-      include: {
-        product: {
-          select: {
-            id: true,
-            name: true,
-            image: true,
-            shortDescription: true,
-            description: true,
-            stock: true,
-            variants: true,
-            isPublished: true,
-            enrichmentStatus: true,
-          },
-        },
-        source: true,
-        job: true,
-      },
-    });
-
-    if (proposal.jobId) {
-      await tx.enrichmentJob.update({
-        where: { id: proposal.jobId },
-        data: finalize
-          ? {
-              status: EnrichmentJobStatus.APPLIED,
-              finishedAt: new Date(),
-              error: null,
-            }
-          : {
-              status: EnrichmentJobStatus.REVIEW,
-              finishedAt: null,
-              error: null,
-            },
-      });
-    }
-
-    return updatedProposal;
-  });
-
-  await refreshProductEnrichmentStatus(proposal.productId);
-
-  return {
-    proposal: await prisma.productEnrichmentProposal.findUnique({
-      where: { id: result.id },
-      include: {
-        product: {
-          select: {
-            id: true,
-            name: true,
-            image: true,
-            shortDescription: true,
-            description: true,
-            stock: true,
-            variants: true,
-            isPublished: true,
-            enrichmentStatus: true,
-          },
-        },
-        source: true,
-        job: true,
-      },
-    }),
-    importedImage,
-  };
+  return applyProductEnrichmentProposalUniversal(input);
 }
 
 export async function finalizeProductEnrichmentText(input: {
@@ -395,7 +230,8 @@ export async function rollbackAutopilotDescription(proposalId: string) {
   const previous = jsonObject(audit.previous);
   const applied = jsonObject(audit.applied);
 
-  if (audit.appliedBy !== "AUTOPILOT") throw new Error("autopilot_audit_not_found");
+  if (audit.appliedBy !== "AUTOPILOT")
+    throw new Error("autopilot_audit_not_found");
   if (audit.rolledBackAt) throw new Error("autopilot_already_rolled_back");
 
   const currentMatchesApplied =

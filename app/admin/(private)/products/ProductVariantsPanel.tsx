@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import { variantDisplayImage } from "../../../../lib/enrichment/variantImages";
 import {
   adminStockSummary,
   variantStockChanges,
 } from "../../../../lib/adminProductVariants";
 
 type Props = {
-  product: { id: string; name: string; stock: number; variants?: unknown };
+  product: { id: string; name: string; stock: number; image?: string; variants?: unknown };
   onEdit: () => void;
   onSaved: () => void;
 };
@@ -118,7 +119,11 @@ export default function ProductVariantsPanel({
                   className="grid gap-2 rounded-xl bg-gray-50 p-3 sm:grid-cols-[minmax(0,1fr)_110px_140px] sm:items-center"
                 >
                   <div className="min-w-0">
-                    <div className="text-sm font-medium">{variant.label}</div>
+                    <div className="flex items-center gap-2">
+                      <img src={variantDisplayImage(variant, product.image || "/seed/cleanser.jpg")} alt={"Фото SKU " + variant.sku} loading="lazy" className="h-12 w-12 rounded-lg border bg-white object-contain" />
+                      <div><div className="text-sm font-medium">{variant.label}</div>
+                        <span className="text-xs text-gray-500">{variant.image ? "Фото варианта" : "Общее фото"}</span></div>
+                    </div>
                     {variant.sku && (
                       <div className="break-all text-xs text-gray-500">
                         SKU {variant.sku}
