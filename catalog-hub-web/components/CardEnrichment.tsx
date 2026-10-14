@@ -42,6 +42,8 @@ export function CardEnrichment({ product, jobs, proposals, canWrite }: {
   const [error, setError] = useState("");
   const [changeId, setChangeId] = useState("");
   const [selectedImages, setSelectedImages] = useState<Record<string,string>>({});
+  const [variants, setVariants] = useState<Record<string,Array<{id:string;url:string;preset:string}>>>({});
+  const [selectedVariant, setSelectedVariant] = useState<Record<string,string>>({});
   const missing = (Object.keys(labels) as Array<keyof typeof labels>)
     .filter(key => key === "images" ? !product.images?.length : !product[key]?.trim());
   const pending = proposals.filter(item => item.status === "PENDING");
@@ -70,11 +72,33 @@ export function CardEnrichment({ product, jobs, proposals, canWrite }: {
     } finally { setBusy(false); }
   }
 
+  async function processPhoto(id: string) {
+    const sourceUrl = selectedImages[id];
+    if (!sourceUrl) return;
+    setBusy(true); setError("");
+    try {
+      const response = await fetch("/api/catalog/media", {
+        method: "POST", headers: {"content-type":"application/json"},
+        body: JSON.stringify({productId:product.id,sourceUrl}),
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(String(result?.error || "Не удалось подготовить фото"));
+      const prepared = result?.media?.variants;
+      if (!Array.isArray(prepared) || !prepared.length) throw new Error("Варианты изображения не созданы");
+      setVariants(previous => ({...previous,[id]:prepared}));
+      setSelectedVariant(previous => ({...previous,[id]:prepared[0].id}));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Обработка фото не удалась");
+    } finally { setBusy(false); }
+  }
+
   async function stage(id: string) {
     setBusy(true); setError(""); setChangeId("");
     try {
       const response = await enrichmentAction({
-        action: "stage", id, selectedImageUrl: selectedImages[id] || undefined,
+        action: "stage", id,
+        selectedImageUrl: selectedVariant[id] ? undefined : selectedImages[id] || undefined,
+        selectedMediaVariantId: selectedVariant[id] || undefined,
         replaceFilledFields: false,
       });
       if (!response.id) throw new Error("Черновик изменений не создан");
@@ -113,15 +137,26 @@ export function CardEnrichment({ product, jobs, proposals, canWrite }: {
       </div>)}
     {pending.map(proposal => <Proposal key={proposal.id} proposal={proposal}
       product={product} selectedImage={selectedImages[proposal.id] || ""}
-      setImage={image => setSelectedImages(previous => ({...previous,[proposal.id]:image}))}
-      disabled={!canWrite || busy} onStage={() => void stage(proposal.id)} />)}
+      setImage={image => {
+        setSelectedImages(previous => ({...previous,[proposal.id]:image}));
+        setVariants(previous => ({...previous,[proposal.id]:[]}));
+        setSelectedVariant(previous => ({...previous,[proposal.id]:""}));
+      }}
+      variants={variants[proposal.id] || []}
+      selectedVariant={selectedVariant[proposal.id] || ""}
+      selectVariant={value => setSelectedVariant(previous => ({...previous,[proposal.id]:value}))}
+      disabled={!canWrite || busy} onProcess={() => void processPhoto(proposal.id)}
+      onStage={() => void stage(proposal.id)} />)}
     {!pending.length && <p className="subtle">Предложений для проверки пока нет.</p>}
   </section>;
 }
 
-function Proposal({ proposal, product, selectedImage, setImage, disabled, onStage }: {
+function Proposal({ proposal, product, selectedImage, setImage, variants, selectedVariant,
+  selectVariant, disabled, onProcess, onStage }: {
   proposal: CardProposal; product: HubProduct; selectedImage: string;
-  setImage: (url: string) => void; disabled: boolean; onStage: () => void;
+  setImage: (url: string) => void; variants: Array<{id:string;url:string;preset:string}>;
+  selectedVariant: string; selectVariant: (id:string) => void;
+  disabled: boolean; onProcess: () => void; onStage: () => void;
 }) {
   const fields = (["shortDescription", "description", "application", "ingredients"] as const)
     .filter(key => proposal[key] && !product[key]?.trim());
@@ -151,7 +186,21 @@ function Proposal({ proposal, product, selectedImage, setImage, disabled, onStag
         <a href={url} target="_blank" rel="noreferrer">Оригинал</a>
       </label>)}
     </div>}
-    <p className="subtle">Сначала выбирается оригинал. Обработка фото выполняется отдельно.</p>
+    {!product.images.length && selectedImage && <div className="actions" style={{marginTop:12}}>
+      <button type="button" className="button" disabled={disabled} onClick={onProcess}>
+        Подготовить фото для сайта и маркетплейса</button>
+      <span className="subtle">Оригинал сохранится отдельно; обработка использует профили Catalog Hub.</span>
+    </div>}
+    {variants.length > 0 && <div className="enrichment-images" style={{marginTop:12}}>
+      {variants.map(variant => <label key={variant.id}>
+        <input type="radio" name={"prepared-" + proposal.id} checked={selectedVariant === variant.id}
+          onChange={() => selectVariant(variant.id)} />
+        <img src={variant.url} alt={product.title + " — обработанное фото"} loading="lazy" />
+        <span>{variant.preset}</span>
+      </label>)}
+      <label><input type="radio" name={"prepared-" + proposal.id} checked={!selectedVariant}
+        onChange={() => selectVariant("")} />Использовать оригинал</label>
+    </div>}
     <button type="button" className="button"
       disabled={disabled || (!fields.length && !selectedImage && !suggestedBrand)}
       onClick={onStage}>Сохранить предложение для проверки</button>

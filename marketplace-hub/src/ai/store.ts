@@ -32,6 +32,7 @@ const stageInputSchema = z.object({
   includeBrand: z.boolean().default(false),
   replaceFilledFields: z.boolean().default(false),
   selectedImageUrl: z.string().url().optional(),
+  selectedMediaVariantId: z.string().min(1).max(128).optional(),
   createdBy: z.string().optional(),
 });
 
@@ -456,9 +457,21 @@ export async function stageCatalogEnrichmentProposal(raw: unknown) {
   if (!proposal) throw new Error("enrichment_proposal_not_found");
 
   const proposalImages = strings(proposal.images);
-  const selectedImage = input.selectedImageUrl?.trim();
+  let selectedImage = input.selectedImageUrl?.trim();
   if (selectedImage && !proposalImages.includes(selectedImage)) {
     throw new Error("selected_image_not_in_proposal");
+  }
+  if (input.selectedMediaVariantId) {
+    if (selectedImage) throw new Error("select_one_image");
+    const variant = await prisma.mediaVariant.findFirst({
+      where: { id: input.selectedMediaVariantId, media: { productId: proposal.productId } },
+      include: { media: { select: { sourceUrl: true, metadata: true } } },
+    });
+    const originalUrl = record(variant?.media.metadata).requestedSourceUrl;
+    if (!variant?.url || ![variant.media.sourceUrl, originalUrl].some(
+      url => typeof url === "string" && proposalImages.includes(url),
+    )) throw new Error("selected_image_not_in_proposal");
+    selectedImage = variant.url;
   }
 
   const stock = proposal.product.inventory.reduce(

@@ -31,6 +31,7 @@ export async function POST(request: NextRequest) {
       discoverIfMissing: true, allowExternalSearch: false,
     } : input.action === "stage" ? {
       organizationId, selectedImageUrl: input.selectedImageUrl,
+      selectedMediaVariantId: input.selectedMediaVariantId,
       replaceFilledFields: input.replaceFilledFields, includeBrand: true,
     } : { organizationId };
     return NextResponse.json(await hubFetch(root + path, { method: "POST", body: JSON.stringify(payload) }), { headers });
