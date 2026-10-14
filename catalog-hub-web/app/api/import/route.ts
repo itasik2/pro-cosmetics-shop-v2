@@ -1,12 +1,12 @@
 import { NextRequest,NextResponse } from "next/server";
 import {createHmac,createHash,timingSafeEqual} from "node:crypto";
 import {hubFetch,organizationId} from "@/lib/hub";
-import {parseTable,mapImport,autoMapping} from "@/lib/import-parser";
+import {parseTable,mapImport,autoMapping,type Table} from "@/lib/import-parser";
 import {type Mapping,type Field} from "@/lib/import-types";
 import {evaluateImport,type Existing} from "@/lib/import-review";
 import {isLocalReadOnly} from "@/lib/local-mode";
 import {isSameOrigin} from "@/lib/same-origin";
-import {listSupplierProfiles,recordLocalImportEvent} from "@/lib/local-supplier-store";
+import {listSupplierProfiles,loadLocalImportSnapshot,recordLocalImportEvent,type LocalImportSnapshot} from "@/lib/local-supplier-store";
 import {buildUniversalCatalog} from "@/lib/universal-catalog";
 
 export const dynamic="force-dynamic";
@@ -61,10 +61,26 @@ async function prepare(request:NextRequest){
  if(Number(request.headers.get("content-length")||0)>10*1024*1024)throw new Error("upload_too_large");
  const data=await request.formData();
  const file=data.get("file");
- if(!(file instanceof File))throw new Error("file_required");
- const table=await parseTable(file);
- const originalRows=table.rows.map(row=>({...row}));
- const skuOverrideRaw=data.get("skuOverrides");
+ let table:Table,originalRows:Array<Record<string,string>>,hash:string,fileName:string;
+ let storedMapping:Mapping|undefined,storedOverrides:Record<string,string>={};
+ let historyProfileId:string|null=null;
+ if(file instanceof File){
+   table=await parseTable(file);
+   originalRows=table.rows.map(row=>({...row}));
+   hash=await fileHash(file);fileName=file.name;
+ }else{
+   if(process.env.CATALOG_HUB_LOCAL_MODE!=="true")throw new Error("local_mode_required");
+   const id=data.get("historyId");
+   if(typeof id!=="string")throw new Error("file_required");
+   const saved=await loadLocalImportSnapshot(organizationId,id);
+   table={...saved.snapshot.table,rows:saved.snapshot.originalRows.map(row=>({...row}))};
+   originalRows=saved.snapshot.originalRows.map(row=>({...row}));
+   hash=saved.snapshot.fileSha256;fileName=saved.entry.fileName;
+   storedMapping=saved.snapshot.mapping;storedOverrides=saved.snapshot.skuOverrides;
+   historyProfileId=saved.entry.profileId;
+ }
+ const skuOverrideRaw=data.get("skuOverrides")??(table.format==="PDF"?JSON.stringify(storedOverrides):null);
+ let skuOverrides:Record<string,string>={};
  if(skuOverrideRaw){
    if(table.format!=="PDF"||typeof skuOverrideRaw!=="string"||skuOverrideRaw.length>25000)
      throw new Error("invalid_pdf_sku_overrides");
@@ -72,6 +88,7 @@ async function prepare(request:NextRequest){
    try{overrides=JSON.parse(skuOverrideRaw)}catch{throw new Error("invalid_pdf_sku_overrides");}
    if(!overrides||typeof overrides!=="object"||Array.isArray(overrides)||
        Object.keys(overrides).length>table.rows.length)throw new Error("invalid_pdf_sku_overrides");
+   skuOverrides=overrides as Record<string,string>;
    for(const [index,value] of Object.entries(overrides)){
      const number=Number(index);
      if(!/^\d+$/.test(index)||!Number.isSafeInteger(number)||number>=table.rows.length||
@@ -81,7 +98,7 @@ async function prepare(request:NextRequest){
      table.rows[number]["Артикул"]=value.trim();
    }
  }
- const mapping=mappingFrom(data.get("mapping"),table.headers);
+ const mapping=mappingFrom(data.get("mapping")??(storedMapping?JSON.stringify(storedMapping):null),table.headers);
  const items=mapImport(table,mapping);
  // PDF booklets have two unlabeled commercial amounts. Require an explicit
  // retail-price column choice; never create an unpriced or guessed-price card.
@@ -91,29 +108,31 @@ async function prepare(request:NextRequest){
      else if(item.price===undefined)item.errors.push("PDF: выбранная колонка розничной цены пуста");
    }
  }
- const [snapshot,categories]=await Promise.all([
+ const [currentCatalog,categories]=await Promise.all([
    hubFetch<Catalog>("/v1/catalog/snapshot?organizationId="+encodeURIComponent(organizationId)),
    hubFetch<Categories>("/v1/categories?organizationId="+encodeURIComponent(organizationId)),
  ]);
- const review=evaluateImport(items,snapshot.items,categories.categories.filter(c=>c.isActive).map(c=>c.key));
- const hash=await fileHash(file);
- const universalCatalog=buildUniversalCatalog({fileName:file.name,fileSha256:hash,table,mapping,items,review,originalRows});
+ const review=evaluateImport(items,currentCatalog.items,categories.categories.filter(c=>c.isActive).map(c=>c.key));
+ const universalCatalog=buildUniversalCatalog({fileName,fileSha256:hash,table,mapping,items,review,originalRows});
  for(const row of universalCatalog.products){
    if(row.identity.productId){
-     row.identity.internalSku=snapshot.items.find(p=>p.id===row.identity.productId)?.sku||row.identity.internalSku;
+     row.identity.internalSku=currentCatalog.items.find(p=>p.id===row.identity.productId)?.sku||row.identity.internalSku;
    }
  }
  const sourceBase=createHash("sha256").update(hash+JSON.stringify(mapping)).digest("hex").slice(0,32);
  let profileId:string|null=null;
  if(process.env.CATALOG_HUB_LOCAL_MODE==="true"){
-   const requested=data.get("profileId");
+   const requested=data.get("profileId")||historyProfileId;
    if(typeof requested==="string"&&requested){
      const profiles=await listSupplierProfiles(organizationId);
-     if(!profiles.some(p=>p.id===requested))throw new Error("supplier_profile_not_found");
-     profileId=requested;
+     if(profiles.some(p=>p.id===requested))profileId=requested;
+     else if(data.get("profileId"))throw new Error("supplier_profile_not_found");
    }
  }
- return {data,file,table,mapping,review,sourceBase,profileId,universalCatalog,fingerprint:digest(hash,mapping,review)};
+ const {rows:_parsedRows,...tableMetadata}=table;
+ const snapshot:LocalImportSnapshot={table:tableMetadata,originalRows,fileSha256:hash,mapping,skuOverrides};
+ return {data,fileName,table,mapping,review,sourceBase,profileId,universalCatalog,snapshot,
+   fingerprint:digest(hash,mapping,review)};
 }
 export async function POST(request:NextRequest) {
  if(!isSameOrigin(request))return responseError("invalid_origin",403);
@@ -126,18 +145,23 @@ export async function POST(request:NextRequest) {
  const counts=Object.fromEntries(["CREATE","UPDATE","SAME","INVALID","CONFLICT","DUPLICATE"].map(s=>
     [s,review.filter(r=>r.status===s).length]));
  if(action==="preview"){
+   let historyId:string|null=null;
+   let historyWarning:string|null=null;
    if(process.env.CATALOG_HUB_LOCAL_MODE==="true"){
      try{
-       await recordLocalImportEvent({
+       const entry=await recordLocalImportEvent({
          organizationId,profileId:state.profileId,
-         fileName:state.file.name,format:table.format,action:"PREVIEW",
+         fileName:state.fileName,format:table.format,action:"PREVIEW",
          result:"PREVIEWED",totalRows:review.length,countByStatus:counts,
-         selectedRows:0,
+         selectedRows:0,snapshot:state.snapshot,
        });
-     }catch(e){console.error("local_import_history_failed",e);}
+       historyId=entry.id;
+     }catch(e){console.error("local_import_history_failed",e);
+       historyWarning="Не удалось сохранить строки в локальной истории. Для повторной загрузки понадобится исходный файл.";}
    }
    return NextResponse.json({
-     format:table.format,headers:table.headers,mapping,review,counts,fingerprint,
+     format:table.format,fileName:state.fileName,headers:table.headers,mapping,review,counts,fingerprint,
+     historyId,historyWarning,pdfSkuOverrides:state.snapshot.skuOverrides,
      universalCatalog:state.universalCatalog,
      warnings:table.warnings||[],pageCount:table.pageCount||null,
      pdfSource:table.format==="PDF"?table.rows.map((x,index)=>({
@@ -148,7 +172,7 @@ export async function POST(request:NextRequest) {
      })):[],
      needsManualSku:table.needsManualSku||false,
      canApply:!isLocalReadOnly(),
-     note:"Stock fields are informational; source files are not stored. Existing products are staged for review, new products require explicit confirmation."
+     note:"Normalized rows are stored locally for history replay; source files are not stored. Stock remains informational."
    },{headers:{"cache-control":"no-store"}});
  }
  if(data.get("confirmed")!=="yes")return responseError("confirmation_required");
@@ -212,19 +236,21 @@ export async function POST(request:NextRequest) {
    break;
   }
  }
+ let historyWarning:string|null=null;
  if(process.env.CATALOG_HUB_LOCAL_MODE==="true"){
    try{
      await recordLocalImportEvent({
        organizationId,profileId:state.profileId,
-       fileName:state.file.name,format:table.format,action:"APPLY",
+       fileName:state.fileName,format:table.format,action:"APPLY",
        result:results.some(r=>r.status==="ERROR")?"PARTIAL":"COMPLETED",
        totalRows:review.length,countByStatus:counts,
-       selectedRows:candidates.length,
+       selectedRows:candidates.length,snapshot:state.snapshot,
      });
-   }catch(e){console.error("local_import_history_failed",e);}
+   }catch(e){console.error("local_import_history_failed",e);
+     historyWarning="Результат применения не сохранился в локальной истории.";}
  }
  return NextResponse.json({
-   results,partial:results.some(r=>r.status==="ERROR"),
+   results,partial:results.some(r=>r.status==="ERROR"),historyWarning,
    reminder:"STAGED means saved to Changes for manual approval. CREATED means a new product was created with zero stock."
  },{headers:{"cache-control":"no-store"}});
 }

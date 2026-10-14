@@ -44,6 +44,11 @@ function multipart(csv,action,extras={}){
  for(const [key,value] of Object.entries(extras))form.set(key,value);
  return form;
 }
+function historyMultipart(historyId,action,extras={}){
+ const form=new FormData();form.set("historyId",historyId);form.set("action",action);
+ for(const [key,value] of Object.entries(extras))form.set(key,value);
+ return form;
+}
 await waitForUi();
 const session=await request(ui+"/api/session",{
  method:"POST",headers:{"content-type":"application/json"},
@@ -71,6 +76,7 @@ const preview=(await request(ui+"/api/import",{
  method:"POST",headers:httpHeaders,body:multipart(csv,"preview")
 })).data;
 assert.equal(preview.canApply,true);
+assert.match(preview.historyId,/^[a-f0-9-]{36}$/);
 assert.equal(preview.review.length,2);
 assert.equal(preview.universalCatalog.schema,"catalog-hub/supplier-draft");
 assert.equal(preview.universalCatalog.products[1].prices.purchase,1000);
@@ -81,6 +87,11 @@ const newRow=preview.review.find(p=>p.sku===sku);
 assert.equal(matched?.status,"UPDATE",JSON.stringify(matched));
 assert.equal(newRow?.status,"CREATE",JSON.stringify(newRow));
 assert.equal(matched.changes.find(c=>c.field==="price")?.after,targetPrice);
+const reopened=(await request(ui+"/api/import",{
+ method:"POST",headers:httpHeaders,body:historyMultipart(preview.historyId,"preview")
+})).data;
+assert.equal(reopened.review.length,2);
+assert.equal(reopened.fingerprint,preview.fingerprint,"History must recompute the current review");
 const selected=JSON.stringify([matched.index,newRow.index]);
 await request(ui+"/api/import",{
  method:"POST",headers:httpHeaders,
@@ -89,7 +100,7 @@ await request(ui+"/api/import",{
 });
 const applied=(await request(ui+"/api/import",{
  method:"POST",headers:httpHeaders,
- body:multipart(csv,"apply",{confirmed:"yes",fingerprint:preview.fingerprint,selected})
+ body:historyMultipart(preview.historyId,"apply",{confirmed:"yes",fingerprint:reopened.fingerprint,selected})
 })).data;
 assert.equal(applied.partial,false,JSON.stringify(applied));
 assert.deepEqual(applied.results.map(x=>x.status),["STAGED","CREATED"],JSON.stringify(applied));
@@ -102,7 +113,20 @@ assert.equal(created.attributes.supplierImport.fileName,"integration-import.csv"
 assert.equal(after.items.find(p=>p.sku==="TEST-LOCAL-001")?.price,old.price,
   "Staged change must not edit product immediately");
 const history=(await request(ui+"/api/import/local-profiles",{headers:{cookie}})).data.history;
-assert.ok(history.some(h=>h.action==="PREVIEW"));
-assert.ok(history.some(h=>h.action==="APPLY"));
-console.log("PASS: preview, staged update, created new product, stock=0, safe approval, local history.");
+assert.ok(history.some(h=>h.id===preview.historyId&&h.hasSnapshot));
+assert.ok(history.some(h=>h.action==="APPLY"&&h.hasSnapshot));
+const updated=(await request(ui+"/api/import",{
+ method:"POST",headers:httpHeaders,body:historyMultipart(preview.historyId,"preview")
+})).data;
+assert.notEqual(updated.review.find(p=>p.sku===sku)?.status,"CREATE",
+ "Reopened history must compare with the latest catalog");
+const deleted=(await request(ui+"/api/import/history",{
+ method:"DELETE",headers:{...httpHeaders,"content-type":"application/json"},
+ body:JSON.stringify({ids:[preview.historyId]})
+})).data;
+assert.equal(deleted.deleted,1);
+await request(ui+"/api/import",{
+ method:"POST",headers:httpHeaders,body:historyMultipart(preview.historyId,"preview"),expected:400
+});
+console.log("PASS: preview, history replay with fresh catalog, staged update, created product, stock=0, selected history deletion.");
 console.log("Only localhost API used; no production Supabase writes.");
