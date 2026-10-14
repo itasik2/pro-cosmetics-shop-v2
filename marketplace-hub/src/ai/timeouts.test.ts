@@ -93,6 +93,19 @@ test("an official match skips external search and missing policies respect the o
   );
 });
 
+test("a brand-discovered official page is kept unverified for review", async () => {
+  const result = await discoverProductSource({
+    hasOfficialSources: false, allowExternalSearch: false,
+    official: async () => { assert.fail("no configured official domains"); },
+    unconfiguredOfficial: async () => ({ found: true,
+      url: "https://brand.example/product", domain: "brand.example",
+      confidence: 80, reason: "Brand site" }),
+    external: async () => { assert.fail("external search disabled"); },
+  });
+  assert.equal(result?.search.stage, "official_unverified");
+  assert.equal(result?.officialDomain, "brand.example");
+});
+
 test("search requires completed web search and limits reasoning, output and tool calls", async () => {
   const previous = process.env.OPENAI_API_KEY;
   const previousModel = process.env.OPENAI_ENRICHMENT_MODEL;

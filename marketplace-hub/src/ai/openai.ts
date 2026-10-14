@@ -168,7 +168,8 @@ function productLabel(product: CatalogProductInput) {
   return [
     `Бренд: ${product.brand || "не указан"}`,
     `Название: ${product.title}`,
-    `SKU: ${product.sku || "не указан"}`,
+    product.skuIsInternal ? `Внутренний SKU (не артикул производителя): ${product.sku}`
+      : `SKU: ${product.sku || "не указан"}`,
     `Штрихкод: ${product.barcode || "не указан"}`,
     `Категория: ${product.categoryKey || "не указана"}`,
     `Объём: ${product.volumeValue && product.volumeUnit ? `${product.volumeValue} ${product.volumeUnit}` : "не указан"}`,
@@ -256,7 +257,7 @@ export async function findOfficialProductUrl(input: {
       },
     },
     system:
-      "Найди прямую страницу конкретного товара только на разрешённых официальных доменах. Проверяй бренд, SKU, штрихкод, название и объём. Не возвращай категории, поиск, корзину или другой товар. Если точного совпадения нет, found=false.",
+      "Найди прямую страницу конкретного товара только на разрешённых доменах. Проверяй бренд, штрихкод, название и объём. Внутренний SKU магазина может отличаться от артикула производителя. Не возвращай категории, поиск, корзину или другой товар. Если точного совпадения нет, found=false.",
     user: `${productLabel(input.product)}\n\nРазрешённые домены: ${domains.join(", ")}`,
     tools: [
       {
@@ -284,6 +285,38 @@ export async function findOfficialProductUrl(input: {
   }
 
   return { ...result, url };
+}
+
+export async function findOfficialBrandSite(input: { product: CatalogProductInput }) {
+  const brand = input.product.brand?.trim();
+  if (!brand) return { found: false, url: null, domain: null, confidence: 0,
+    reason: "Бренд товара не указан." };
+
+  const raw = await requestStructured({
+    schemaName: "catalog_hub_brand_site",
+    schema: {
+      type: "object", additionalProperties: false,
+      required: ["found", "url", "confidence", "reason"],
+      properties: {
+        found: { type: "boolean" },
+        url: { type: ["string", "null"] },
+        confidence: { type: "integer", minimum: 0, maximum: 100 },
+        reason: { type: "string" },
+      },
+    },
+    system: "Найди официальный сайт производителя указанного бренда косметики. Не считай официальным сайтом магазин, дистрибьютора, маркетплейс, социальную сеть, страницу отзывов или одноимённую компанию другого профиля. Подтверди связь бренда с сайтом по поисковым результатам. Если связь неясна, found=false. Верни главную страницу официального сайта.",
+    user: `Бренд: ${brand}\nНазвание товара для контекста: ${input.product.title}`,
+    tools: [{ type: "web_search", search_context_size: "medium" }],
+    profile: "search", timeoutMs: 40_000,
+  });
+
+  const result = SearchResultSchema.parse(raw);
+  const url = result.found && result.url ? validatedExternalUrl(result.url) : null;
+  if (!url || result.confidence < 60) return {
+    found: false, url: null, domain: null, confidence: 0,
+    reason: "Официальный сайт бренда не удалось подтвердить.",
+  };
+  return { ...result, url, domain: new URL(url).hostname.replace(/^www\./, "") };
 }
 
 export async function findExternalProductUrl(input: {
