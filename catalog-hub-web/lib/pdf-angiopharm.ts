@@ -4,6 +4,12 @@ type Line = { y: number; parts: PdfTextFragment[] };
 const clean = (value: string) => value.replace(/\s+/g, " ").trim();
 const skuPattern = /\b([A-Z]{2,4}\d{2})\s*$/i;
 
+export function isAngiopharmTable(fragments: PdfTextFragment[]): boolean {
+  const content = clean(fragments.map(fragment => fragment.text).join(" ")).toLowerCase();
+  return /ангиофарм|angiopharm/u.test(content) && /наименование/u.test(content) &&
+    /об[ъь]?[её]м/u.test(content) && /цена\s*,?\s*тг/u.test(content);
+}
+
 /** The supplier's table has separate name, pack size and price columns. */
 export function extractAngiopharmTablePage(
   fragments: PdfTextFragment[], pageNo: number, width: number,
@@ -32,7 +38,7 @@ export function extractAngiopharmTablePage(
     // The pack column is numeric in most rows and is labelled "мл" in the
     // table header. Explicit g/шт/уп values keep their own units.
     const volume = /^\d{1,4}(?:[.,]\d+)?$/.test(pack) ? pack + " мл" :
-      /^\d{1,4}(?:[.,]\d+)?\s*(?:мл|г|шт\.?|уп\.?|рулон\w*)$/iu.test(pack) ? pack : "";
+      /^\d{1,4}(?:[.,]\d+)?\s*(?:мл|г|гр\.?|шт\.?|уп\.?|упак\.?|рулон\w*)$/iu.test(pack) ? pack : "";
     const variant = volume && !name.toLowerCase().includes(volume.toLowerCase())
       ? name + " (" + volume + ")" : name;
     rows.push({

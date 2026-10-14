@@ -6,7 +6,7 @@
  * and "Цена 2"; there is never a guessed SKU, barcode, margin or stock value.
  * No OCR, network calls, or PDF image rendering occur.
  */
-import {extractAngiopharmTablePage} from "./pdf-angiopharm";
+import {extractAngiopharmTablePage,isAngiopharmTable} from "./pdf-angiopharm";
 export type PdfTextFragment = {text:string;x:number;y:number};
 export type PdfSupplierRow = {
   "Артикул":string;
@@ -211,7 +211,7 @@ export async function parsePdfSupplier(bytes:Uint8Array,options:{fileName?:strin
   let emptyTextPages=0;
   const warnings:string[]=[];
   const specialized=/jeu\s*d[eé]rm|жеудерм/i.test(options.fileName||"");
-  const angiopharm=/ангиофарм|angiopharm/i.test(options.fileName||"");
+  let angiopharm=/ангиофарм|angiopharm/i.test(options.fileName||"");
   let totalPriceAnchors=0;
   for(let pageNum=1;pageNum<=pdf.numPages;pageNum++){
    const page=await pdf.getPage(pageNum);
@@ -225,6 +225,7 @@ export async function parsePdfSupplier(bytes:Uint8Array,options:{fileName?:strin
      fragments.push({text:value,x:item.transform[4],y:viewport.height-item.transform[5]});
    }
    if(fragments.reduce((sum,x)=>sum+x.text.length,0)<30)emptyTextPages++;
+   if(pageNum===1&&!angiopharm)angiopharm=isAngiopharmTable(fragments);
    const priceCount=fragments.filter(x=>/цена\s*[:：]/iu.test(x.text)).length;
    totalPriceAnchors+=priceCount;
    const rows=angiopharm

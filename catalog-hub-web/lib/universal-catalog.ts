@@ -18,9 +18,9 @@ export function missingEnrichmentFields(card: Record<string, unknown>): Enrichme
 
 // A variant is explicit data from the supplier, never inferred from an AI description.
 export function supplierVolume(raw: string) {
-  const match = raw.trim().match(/^(\d+(?:[.,]\d+)?)\s*(мл|ml|л|l|г|g|кг|kg)\.?$/i);
+  const match = raw.trim().match(/^(\d+(?:[.,]\d+)?)\s*(мл|ml|л|l|г|гр|g|кг|kg|шт|уп|упак|рулон)\.?$/i);
   if (!match) return null;
-  const units: Record<string, string> = { "мл": "ml", ml: "ml", "л": "l", l: "l", "г": "g", g: "g", "кг": "kg", kg: "kg" };
+  const units: Record<string, string> = { "мл": "ml", ml: "ml", "л": "l", l: "l", "г": "g", "гр": "g", g: "g", "кг": "kg", kg: "kg", "шт": "pcs", "уп": "pack", "упак": "pack", "рулон": "roll" };
   const value = Number(match[1].replace(",", "."));
   return value > 0 ? { value, unit: units[match[2].toLowerCase()], raw } : null;
 }
