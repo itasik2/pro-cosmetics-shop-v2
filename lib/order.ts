@@ -1,4 +1,5 @@
 // lib/order.ts
+import { variantDisplayImage } from "./enrichment/variantImages";
 import { prisma } from "@/lib/prisma";
 import { parseCartKey, type CartItem } from "@/lib/cartStorage";
 
@@ -8,6 +9,7 @@ type Variant = {
   price: number;
   stock: number;
   sku?: string;
+  image?: string;
 };
 
 type BuildOrderError = "empty_cart" | "nothing_to_order" | null;
@@ -17,13 +19,17 @@ export function normalizeVariants(value: unknown): Variant[] {
 
   return value
     .map((item) => {
-      const row = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+      const row =
+        item && typeof item === "object"
+          ? (item as Record<string, unknown>)
+          : {};
       return {
         id: String(row.id ?? ""),
         label: String(row.label ?? ""),
         price: Math.trunc(Number(row.price) || 0),
         stock: Math.trunc(Number(row.stock) || 0),
         sku: row.sku ? String(row.sku) : undefined,
+        image: typeof row.image === "string" ? row.image.trim() : undefined,
       };
     })
     .filter((variant) => variant.id && variant.label);
@@ -38,7 +44,7 @@ export function makeOrderNumber() {
   return `${year}${month}${day}-${random}`;
 }
 
-export async function buildOrderFromCart(cart: CartItem[]) {
+export async function buildOrderFromCart(cart: CartItem[], database = prisma) {
   const safeCart = (Array.isArray(cart) ? cart : [])
     .map((item) => ({
       id: String(item?.id ?? ""),
@@ -49,9 +55,7 @@ export async function buildOrderFromCart(cart: CartItem[]) {
 
   const productIds = Array.from(
     new Set(
-      safeCart
-        .map((item) => parseCartKey(item.id).productId)
-        .filter(Boolean),
+      safeCart.map((item) => parseCartKey(item.id).productId).filter(Boolean),
     ),
   ).slice(0, 100);
 
@@ -59,7 +63,7 @@ export async function buildOrderFromCart(cart: CartItem[]) {
     return { items: [], total: 0, error: "empty_cart" as const };
   }
 
-  const products = await prisma.product.findMany({
+  const products = await database.product.findMany({
     where: {
       id: { in: productIds },
       isPublished: true,
@@ -101,9 +105,7 @@ export async function buildOrderFromCart(cart: CartItem[]) {
     if (stock <= 0 || unitPrice <= 0) continue;
 
     const qty = Math.max(1, Math.min(cartItem.qty, stock));
-    const title = variant
-      ? `${product.name} (${variant.label})`
-      : product.name;
+    const title = variant ? `${product.name} (${variant.label})` : product.name;
 
     items.push({
       productId: product.id,
@@ -112,7 +114,7 @@ export async function buildOrderFromCart(cart: CartItem[]) {
       unitPrice,
       qty,
       lineTotal: unitPrice * qty,
-      image: product.image ?? null,
+      image: variantDisplayImage(variant, product.image),
       sku: variant?.sku ?? null,
     });
   }

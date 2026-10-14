@@ -1,6 +1,6 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -18,8 +18,20 @@ const BodySchema = z.object({
     .enum(["ALL", "DESCRIPTION", "DESCRIPTION_FINAL", "IMAGE", "INVENTORY"])
     .default("ALL"),
   imageUrl: z.string().url().max(3000).optional().or(z.literal("")),
+  variantImages: z
+    .array(
+      z.object({
+        variantId: z.string().min(1).max(150),
+        sku: z.string().min(1).max(150),
+        imageUrl: z.string().url().max(3000).nullable(),
+      }),
+    )
+    .max(30)
+    .optional(),
   stock: z.number().int().min(0).max(1_000_000).optional(),
-  variantStocks: z.record(z.string(), z.number().int().min(0).max(1_000_000)).optional(),
+  variantStocks: z
+    .record(z.string(), z.number().int().min(0).max(1_000_000))
+    .optional(),
 });
 
 function errorResponse(error: unknown) {
@@ -30,20 +42,47 @@ function errorResponse(error: unknown) {
   const status =
     message === "proposal_not_found"
       ? 404
-      : message === "proposal_not_pending"
+      : [
+            "variant_sku_changed",
+            "product_changed_refresh",
+            "proposal_changed_refresh",
+          ].includes(message)
         ? 409
-        : message === "proposal_description_empty" ||
-            message === "proposal_short_description_empty" ||
-            message === "proposal_match_confidence_zero" ||
-            message === "proposal_image_missing" ||
-            message === "proposal_image_not_allowed" ||
-            message === "product_supplier_required" ||
-            message === "variant_stock_invalid"
+        : [
+              "variant_image_target_invalid",
+              "variant_image_not_allowed",
+            ].includes(message)
           ? 422
-          : 500;
+          : message === "proposal_not_pending"
+            ? 409
+            : message === "proposal_description_empty" ||
+                message === "proposal_short_description_empty" ||
+                message === "proposal_match_confidence_zero" ||
+                message === "proposal_image_missing" ||
+                message === "proposal_image_not_allowed" ||
+                message === "product_supplier_required" ||
+                message === "variant_stock_invalid"
+              ? 422
+              : 500;
 
+  const explanations: Record<string, string> = {
+    variant_sku_changed:
+      "SKU варианта изменился. Обновите карточку и повторите поиск фото.",
+    variant_image_not_allowed:
+      "Это фото не подтверждено для выбранного SKU. Повторите поиск и выберите фото своего варианта.",
+    variant_image_target_invalid:
+      "Состав вариантов изменился. Обновите карточку.",
+    product_changed_refresh:
+      "Товар изменился во время сохранения. Обновите карточку и проверьте фото.",
+    proposal_changed_refresh:
+      "Предложение изменилось. Обновите его перед применением.",
+  };
   return NextResponse.json(
-    { error: message === "proposal_not_found" ? message : "proposal_apply_failed", message },
+    {
+      error:
+        message === "proposal_not_found" ? message : "proposal_apply_failed",
+      message: explanations[message] || message,
+    },
     { status },
   );
 }
@@ -76,6 +115,7 @@ export async function POST(req: Request, props: Params) {
       imageUrl: parsed.data.imageUrl?.trim() || null,
       stock: parsed.data.stock,
       variantStocks: parsed.data.variantStocks,
+      variantImages: parsed.data.variantImages,
     });
 
     return NextResponse.json(result);

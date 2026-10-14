@@ -1,11 +1,17 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-import { EnrichmentProposalStatus, type Prisma } from "@prisma/client";
+import { EnrichmentProposalStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/adminGuard";
 import { getEnrichmentPriceImportId } from "@/lib/enrichment/priceImportScope";
-import { priceListImagesForProducts } from "@/lib/enrichment/priceListImages";
+import {
+  priceListImagesForProducts,
+  priceListImagesBySku,
+  priceVariantGroups,
+} from "@/lib/enrichment/priceListImages";
+import { normalizeStoredVariants } from "@/lib/price-import/productVariants";
+import { imageGroups, mergeImageGroups } from "@/lib/enrichment/variantImages";
 import { prisma } from "@/lib/prisma";
 
 function stringArray(value: unknown) {
@@ -28,7 +34,9 @@ export async function GET(req: Request) {
   if (forbidden) return forbidden;
 
   const url = new URL(req.url);
-  const statusValue = (url.searchParams.get("status") || "PENDING").toUpperCase();
+  const statusValue = (
+    url.searchParams.get("status") || "PENDING"
+  ).toUpperCase();
   const status = Object.values(EnrichmentProposalStatus).includes(
     statusValue as EnrichmentProposalStatus,
   )
@@ -102,19 +110,33 @@ export async function GET(req: Request) {
     proposals.map((proposal) => proposal.productId),
     priceImportId,
   );
-  const updates: Prisma.PrismaPromise<unknown>[] = [];
+  const variantPriceImages = await priceListImagesBySku(
+    proposals.map((item) => item.productId),
+    priceImportId,
+  );
 
   const enriched = proposals.map((proposal) => {
     const priceImage = priceImages.get(proposal.productId);
-    if (!priceImage) return proposal;
+    const facts = jsonObject(proposal.facts);
+    const variantImageCandidates = mergeImageGroups(
+      imageGroups(facts.variantImageCandidates),
+      priceVariantGroups(
+        proposal.productId,
+        normalizeStoredVariants(proposal.product.variants),
+        variantPriceImages,
+      ),
+    );
+    if (!priceImage)
+      return { ...proposal, facts: { ...facts, variantImageCandidates } };
 
     const currentImages = stringArray(proposal.images);
-    const images = [
-      ...new Set([priceImage.url, ...currentImages]),
-    ].slice(0, 12);
-    const facts = jsonObject(proposal.facts);
+    const images = [...new Set([priceImage.url, ...currentImages])].slice(
+      0,
+      12,
+    );
     const nextFacts = {
       ...facts,
+      variantImageCandidates,
       priceImageUrl: priceImage.url,
       priceImageImport: {
         importId: priceImage.importId,
@@ -127,26 +149,12 @@ export async function GET(req: Request) {
       })),
     };
 
-    if (!currentImages.includes(priceImage.url)) {
-      updates.push(
-        prisma.productEnrichmentProposal.update({
-          where: { id: proposal.id },
-          data: {
-            images: images as Prisma.InputJsonValue,
-            facts: nextFacts as Prisma.InputJsonValue,
-          },
-        }),
-      );
-    }
-
     return {
       ...proposal,
       images,
       facts: nextFacts,
     };
   });
-
-  if (updates.length) await prisma.$transaction(updates);
 
   return NextResponse.json(enriched);
 }

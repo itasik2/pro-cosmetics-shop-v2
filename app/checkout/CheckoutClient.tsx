@@ -1,4 +1,5 @@
 "use client";
+import { variantDisplayImage } from "../../lib/enrichment/variantImages";
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -18,6 +19,7 @@ type ProductVariant = {
   price: number;
   stock: number;
   sku?: string;
+  image?: string;
 };
 
 type Product = {
@@ -41,6 +43,7 @@ function normalizeVariants(v: any): ProductVariant[] {
       price: Math.trunc(Number(x?.price) || 0),
       stock: Math.trunc(Number(x?.stock) || 0),
       sku: x?.sku ? String(x.sku) : undefined,
+      image: typeof x?.image === "string" ? x.image.trim() : undefined,
     }))
     .filter((x) => x.id && x.label);
 }
@@ -190,7 +193,7 @@ export default function CheckoutClient({ deliveryPrice, deliveryTerms }: { deliv
           title,
           unitPrice,
           stock,
-          image: p.image,
+          image: variantDisplayImage(v, p.image),
           brandOrCategory: p.brand?.name ?? p.category,
           link: `/shop/${p.slug}`,
         };

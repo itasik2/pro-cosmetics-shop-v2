@@ -2,6 +2,8 @@ export const runtime = "nodejs";
 export const revalidate = 0;
 
 import { NextResponse } from "next/server";
+import { invalidateChangedSkuImages } from "@/lib/enrichment/variantImages";
+import { normalizeStoredVariants } from "@/lib/price-import/productVariants";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/adminGuard";
@@ -92,6 +94,7 @@ export async function PUT(req: Request, props: Params) {
         isPublished: true,
         supplierId: true,
         lastImportedAt: true,
+        variants: true,
         isPopular: true,
         popularityPinned: true,
         popularityExcluded: true,
@@ -145,6 +148,7 @@ export async function PUT(req: Request, props: Params) {
       }
     }
 
+    if (Array.isArray(parsed.variants)) parsed.variants = invalidateChangedSkuImages(normalizeStoredVariants(current.variants), normalizeStoredVariants(parsed.variants));
     const popularityChanged = parsed.isPopular !== current.isPopular;
     const stock = variantStockTotal(parsed.variants) ?? parsed.stock;
     const updated = await prisma.product.update({

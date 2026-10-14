@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { VariantPhotosReview } from "@/components/VariantPhotoPicker";
+import type { VariantImageSelection } from "@/lib/enrichment/variantImages";
 
 type Variant = {
   id: string;
@@ -82,6 +84,7 @@ async function readResponse(response: Response) {
 
 export default function UniversalProposalReview() {
   const [proposals, setProposals] = useState<Proposal[]>([]);
+  const [variantImages, setVariantImages] = useState<Record<string, VariantImageSelection[]>>({});
   const [selectedImages, setSelectedImages] = useState<Record<string, string>>({});
   const [imageInfo, setImageInfo] = useState<Record<string, ImageInfo>>({});
   const [stocks, setStocks] = useState<Record<string, string>>({});
@@ -180,6 +183,7 @@ export default function UniversalProposalReview() {
         body: JSON.stringify({
           mode,
           imageUrl,
+          variantImages: variantImages[proposal.id] || [],
           ...inventory,
         }),
       });
@@ -187,8 +191,8 @@ export default function UniversalProposalReview() {
       setMessage(
         mode === "INVENTORY"
           ? "Количество сохранено. Фото и текст не изменялись."
-          : imageUrl
-            ? "Текст, количество и выбранное фото применены."
+          : imageUrl || variantImages[proposal.id]?.length
+            ? "Текст, количество и выбранные фото применены к своим SKU."
             : "Текст и количество применены. Текущее фото оставлено без изменений.",
       );
       await load();
@@ -271,7 +275,7 @@ export default function UniversalProposalReview() {
 
                 <div className="space-y-3">
                   <div>
-                    <div className="mb-2 text-sm font-medium">Кандидаты изображений</div>
+                    <div className="mb-2 text-sm font-medium">Общее фото товара</div>
                     {images.length ? (
                       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
                         {images.map((url) => {
@@ -328,6 +332,9 @@ export default function UniversalProposalReview() {
                     )}
                   </div>
 
+                  <VariantPhotosReview product={proposal.product} proposalId={proposal.id} facts={proposal.facts}
+                    value={variantImages[proposal.id] || []} disabled={isBusy}
+                    onChange={value => setVariantImages(current => ({ ...current, [proposal.id]: value }))} />
                   {variants.length ? (
                     <div className="rounded-xl border p-3">
                       <div className="mb-2 text-sm font-medium">Количество по вариантам</div>

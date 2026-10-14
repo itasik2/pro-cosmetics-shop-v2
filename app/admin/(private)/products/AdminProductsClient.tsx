@@ -1,4 +1,6 @@
 "use client";
+import { VariantPhotoPicker } from "@/components/VariantPhotoPicker";
+import { photoSku } from "@/lib/enrichment/variantImages";
 
 import {
   Children,
@@ -236,7 +238,7 @@ export default function AdminProductsClient() {
       const next = [...current.variants];
       const row = next[index];
       if (!row) return current;
-      next[index] = { ...row, ...patch };
+      next[index] = { ...row, ...patch, ...(patch.sku !== undefined && photoSku(patch.sku) !== photoSku(row.sku) ? { image: "" } : {}) };
       return { ...current, variants: next };
     });
   }
@@ -676,7 +678,8 @@ export default function AdminProductsClient() {
                 </h3>
                 <p className="mb-3 text-sm text-gray-500">
                   Для каждого объёма укажите цену и остаток. Общее количество
-                  считается автоматически.
+                  считается автоматически. Фото подбирается по SKU; без отдельного фото используется общее.
+                  При смене SKU прежнее фото варианта сбрасывается.
                 </p>
                 <div className="space-y-3">
                   {form.variants.map((variant, index) => {
@@ -749,6 +752,10 @@ export default function AdminProductsClient() {
                           />
                         </div>
 
+                        {editing && <VariantPhotoPicker key={variant.id + ":" + variant.sku} productId={editing} variant={variant} commonImage={form.image}
+                          disabled={busy || uploadingThis} value={{ variantId: variant.id, sku: variant.sku || "", imageUrl: variant.image || null }} onChange={selection => {
+                            if (selection) setVariantRow(index, { image: selection.imageUrl || "" });
+                          }} />}
                         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                           <div className="flex items-center gap-2">
                             {/* eslint-disable-next-line @next/next/no-img-element */}

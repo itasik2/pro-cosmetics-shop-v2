@@ -1,4 +1,5 @@
 import * as cheerio from "cheerio";
+import { photoSku } from "./variantImages";
 
 export type SourceSelectors = {
   title?: string;
@@ -28,7 +29,10 @@ export type ExtractedProductData = {
 
 function cleanText(value: unknown, maxLength = 12_000) {
   const text = typeof value === "string" ? value : "";
-  const normalized = text.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+  const normalized = text
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   return normalized ? normalized.slice(0, maxLength) : null;
 }
 
@@ -58,8 +62,14 @@ function collectJsonLdNodes(value: unknown, output: Record<string, unknown>[]) {
   if (!object) return;
 
   output.push(object);
-  if (Array.isArray(object["@graph"])) {
-    collectJsonLdNodes(object["@graph"], output);
+  for (const key of [
+    "@graph",
+    "hasVariant",
+    "itemOffered",
+    "mainEntity",
+    "offers",
+  ]) {
+    if (object[key]) collectJsonLdNodes(object[key], output);
   }
 }
 
@@ -67,7 +77,10 @@ function parseJsonLdScripts($: cheerio.CheerioAPI) {
   const nodes: Record<string, unknown>[] = [];
 
   $("script[type='application/ld+json']").each((_, element) => {
-    const raw = $(element).text().replace(/^\uFEFF/, "").trim();
+    const raw = $(element)
+      .text()
+      .replace(/^\uFEFF/, "")
+      .trim();
     if (!raw) return;
 
     try {
@@ -84,7 +97,8 @@ function asUrl(value: unknown, baseUrl: string) {
   const raw =
     typeof value === "string"
       ? value
-      : cleanText(toObject(value)?.url) || cleanText(toObject(value)?.contentUrl);
+      : cleanText(toObject(value)?.url) ||
+        cleanText(toObject(value)?.contentUrl);
 
   if (!raw) return null;
   try {
@@ -244,12 +258,7 @@ function likelyIngredientList($: cheerio.CheerioAPI) {
   const candidates: Array<{ text: string; score: number }> = [];
 
   $("p, div, td, li").each((_, element) => {
-    const directText = $(element)
-      .clone()
-      .children()
-      .remove()
-      .end()
-      .text();
+    const directText = $(element).clone().children().remove().end().text();
     const text = cleanText(directText, 8_000);
     if (!text || text.length < 50) return;
 
@@ -280,20 +289,29 @@ function isLikelyProductTitle(value: string | null): value is string {
 function productHeading($: cheerio.CheerioAPI) {
   const candidates = new Map<string, { text: string; score: number }>();
 
-  $("h1, .product-title, .product-info h1, #content h1, main h1").each((_, element) => {
-    const text = cleanText($(element).text(), 500);
-    if (!isLikelyProductTitle(text)) return;
+  $("h1, .product-title, .product-info h1, #content h1, main h1").each(
+    (_, element) => {
+      const text = cleanText($(element).text(), 500);
+      if (!isLikelyProductTitle(text)) return;
 
-    let score = Math.min(text.length, 120) / 120;
-    if ($(element).closest("#content, main, .product-info, .product-page").length) score += 20;
-    if (/\d+\s*(?:мл|ml|г|гр|g|шт)\b/iu.test(text)) score += 10;
-    if (/[А-ЯA-Z]{3,}/u.test(text)) score += 2;
+      let score = Math.min(text.length, 120) / 120;
+      if (
+        $(element).closest("#content, main, .product-info, .product-page")
+          .length
+      )
+        score += 20;
+      if (/\d+\s*(?:мл|ml|г|гр|g|шт)\b/iu.test(text)) score += 10;
+      if (/[А-ЯA-Z]{3,}/u.test(text)) score += 2;
 
-    const previous = candidates.get(text);
-    if (!previous || previous.score < score) candidates.set(text, { text, score });
-  });
+      const previous = candidates.get(text);
+      if (!previous || previous.score < score)
+        candidates.set(text, { text, score });
+    },
+  );
 
-  return [...candidates.values()].sort((a, b) => b.score - a.score)[0]?.text ?? null;
+  return (
+    [...candidates.values()].sort((a, b) => b.score - a.score)[0]?.text ?? null
+  );
 }
 
 function firstLikelyTitle(values: Array<string | null>) {
@@ -301,9 +319,11 @@ function firstLikelyTitle(values: Array<string | null>) {
 }
 
 function richestText(values: Array<string | null>) {
-  return values
-    .filter((value): value is string => Boolean(value))
-    .sort((left, right) => right.length - left.length)[0] ?? null;
+  return (
+    values
+      .filter((value): value is string => Boolean(value))
+      .sort((left, right) => right.length - left.length)[0] ?? null
+  );
 }
 
 function isLikelyProductImage(value: string) {
@@ -316,15 +336,118 @@ function isLikelyProductImage(value: string) {
   );
 }
 
+export function extractImagesForSku(input: {
+  buffer: Buffer;
+  finalUrl: string;
+  sku: string;
+  brand?: string | null;
+  selectors?: SourceSelectors | null;
+}) {
+  const wanted = photoSku(input.sku);
+  if (!wanted) return [];
+  const $ = cheerio.loadBuffer(input.buffer, {
+    encoding: { defaultEncoding: "utf-8" },
+  });
+  const nodes = parseJsonLdScripts($);
+  const products = nodes.filter((node) => typeIncludesProduct(node["@type"]));
+  const images: string[] = [];
+  for (const product of products) {
+    const expectedBrand = normalizeSearchText(input.brand || "");
+    const brand = normalizeSearchText(readBrand(product.brand) || "");
+    if (
+      expectedBrand &&
+      brand &&
+      !brand.includes(expectedBrand) &&
+      !expectedBrand.includes(brand) &&
+      !normalizeSearchText(String(product.name || "")).includes(expectedBrand)
+    )
+      continue;
+    if (photoSku(product.sku || product.mpn || product.productID) === wanted) {
+      collectImageValues(product.image, input.finalUrl, images);
+    }
+    const offers = Array.isArray(product.offers)
+      ? product.offers
+      : [product.offers];
+    for (const raw of offers) {
+      const offer = toObject(raw);
+      if (offer && photoSku(offer.sku) === wanted) {
+        // An offer SKU never makes the parent product's picture variant-specific.
+        collectImageValues(offer.image, input.finalUrl, images);
+      }
+    }
+  }
+  $("[itemscope][itemtype$='/Product'], [data-product-sku], [data-sku]").each(
+    (_, element) => {
+      const scope = $(element);
+      const sku =
+        scope.attr("data-product-sku") ||
+        scope.attr("data-sku") ||
+        scope.find("[itemprop='sku']").first().attr("content") ||
+        scope.find("[itemprop='sku']").first().text();
+      if (photoSku(sku) !== wanted) return;
+      scope.find("[itemprop='image'], img").each((_, img) => {
+        if (
+          $(img)
+            .closest(
+              "[itemscope][itemtype$='/Product'], [data-product-sku], [data-sku]",
+            )
+            .get(0) !== element
+        )
+          return;
+        const raw =
+          $(img).attr("content") ||
+          $(img).attr("src") ||
+          $(img).attr("data-src");
+        const url = asUrl(raw, input.finalUrl);
+        if (url) images.push(url);
+      });
+    },
+  );
+  const oneSkuPage =
+    products.length === 0 ||
+    (products.length === 1 &&
+      photoSku(products[0].sku || products[0].mpn || products[0].productID) ===
+        wanted &&
+      !products[0].hasVariant &&
+      !(
+        Array.isArray(products[0].offers)
+          ? products[0].offers
+          : [products[0].offers]
+      ).some((raw) => {
+        const offer = toObject(raw);
+        return offer?.sku && photoSku(offer.sku) !== wanted;
+      }));
+  if (!images.length && oneSkuPage) {
+    const extracted = extractProductFromHtml({
+      ...input,
+      expectedSku: input.sku,
+    });
+    if (photoSku(extracted.sku) === wanted) images.push(...extracted.images);
+  }
+  return [...new Set(images.filter(isLikelyProductImage))].slice(0, 12);
+}
+
 export function extractProductFromHtml(input: {
   buffer: Buffer;
   finalUrl: string;
   selectors?: SourceSelectors | null;
+  expectedSku?: string | null;
 }): ExtractedProductData {
-  const $ = cheerio.loadBuffer(input.buffer);
+  const $ = cheerio.loadBuffer(input.buffer, {
+    encoding: { defaultEncoding: "utf-8" },
+  });
   const nodes = parseJsonLdScripts($);
+  const products = nodes.filter((node) => typeIncludesProduct(node["@type"]));
   const productNode =
-    nodes.find((node) => typeIncludesProduct(node["@type"])) ?? null;
+    (input.expectedSku
+      ? products.find(
+          (node) =>
+            photoSku(node.sku || node.mpn || node.productID) ===
+            photoSku(input.expectedSku),
+        )
+      : null) ||
+    products[0] ||
+    null;
   const bodyText = cleanText($("body").text(), 200_000) || "";
 
   const selectorTitle = selectorText($, input.selectors?.title, 500);
@@ -343,16 +466,8 @@ export function extractProductFromHtml(input: {
     input.selectors?.application,
     8_000,
   );
-  const selectorSkinType = selectorText(
-    $,
-    input.selectors?.skinType,
-    2_000,
-  );
-  const selectorBenefits = selectorText(
-    $,
-    input.selectors?.benefits,
-    4_000,
-  );
+  const selectorSkinType = selectorText($, input.selectors?.skinType, 2_000);
+  const selectorBenefits = selectorText($, input.selectors?.benefits, 4_000);
 
   const fallbackApplication = labeledSection({
     text: bodyText,
@@ -432,6 +547,11 @@ export function extractProductFromHtml(input: {
   });
 
   const title = firstLikelyTitle([
+    input.expectedSku &&
+    photoSku(productNode?.sku || productNode?.mpn || productNode?.productID) ===
+      photoSku(input.expectedSku)
+      ? cleanText(productNode?.name, 500)
+      : null,
     selectorTitle,
     cleanText(productNode?.name, 500),
     productHeading($),
@@ -491,7 +611,9 @@ export function extractProductFromHtml(input: {
     readBrand(productNode?.brand) ||
     metaContent($, "meta[property='product:brand']") ||
     metaContent($, "meta[name='brand']") ||
-    (/\bANGIOPHARM\b/i.test(`${title || ""} ${bodyText}`) ? "ANGIOPHARM" : null);
+    (/\bANGIOPHARM\b/i.test(`${title || ""} ${bodyText}`)
+      ? "ANGIOPHARM"
+      : null);
 
   return {
     title,

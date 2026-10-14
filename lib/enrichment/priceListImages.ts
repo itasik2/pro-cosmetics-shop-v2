@@ -1,133 +1,145 @@
 import { PriceImportStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { normalizeStoredVariants } from "@/lib/price-import/productVariants";
+import { photoSku, type VariantImageGroup } from "./variantImages";
 
 export type PriceListImageCandidate = {
   productId: string;
+  sku: string;
   url: string;
   importId: string;
   fileName: string;
   rowNumber: number;
 };
-
 function jsonObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
 }
-
-function rowImageUrl(row: { parsedData: unknown; rawData: unknown }) {
-  const parsed = jsonObject(row.parsedData);
-  const raw = jsonObject(row.rawData);
+export function rowImageUrl(row: { parsedData: unknown; rawData: unknown }) {
+  const parsed = jsonObject(row.parsedData),
+    raw = jsonObject(row.rawData);
   const url = String(parsed.priceImageUrl || raw.priceImageUrl || "").trim();
   return /^https?:\/\//i.test(url) ? url : "";
 }
-
-function normalizeSku(value: string | null | undefined) {
-  return String(value || "").replace(/\s+/g, "").trim().toUpperCase();
+export function priceImageKey(
+  productId: string,
+  sku: string | null | undefined,
+) {
+  return productId + "\n" + photoSku(sku);
 }
-
+export async function priceListImagesBySku(
+  productIds: string[],
+  preferredImportId?: string | null,
+) {
+  const ids = [...new Set(productIds.filter(Boolean))];
+  const result = new Map<string, PriceListImageCandidate>();
+  if (!ids.length) return result;
+  const rows = await prisma.priceImportRow.findMany({
+    where: {
+      productId: { in: ids },
+      import: {
+        status: PriceImportStatus.APPLIED,
+        ...(preferredImportId ? { id: preferredImportId } : {}),
+      },
+    },
+    orderBy: [{ import: { appliedAt: "desc" } }, { updatedAt: "desc" }],
+    select: {
+      productId: true,
+      supplierSku: true,
+      rowNumber: true,
+      parsedData: true,
+      rawData: true,
+      import: { select: { id: true, fileName: true } },
+    },
+    take: 5000,
+  });
+  for (const row of rows) {
+    const url = rowImageUrl(row);
+    const parsedSku = jsonObject(row.parsedData).supplierSku;
+    if (
+      !row.productId ||
+      !photoSku(row.supplierSku) ||
+      !url ||
+      (parsedSku && photoSku(parsedSku) !== photoSku(row.supplierSku))
+    )
+      continue;
+    const key = priceImageKey(row.productId, row.supplierSku);
+    if (!result.has(key))
+      result.set(key, {
+        productId: row.productId,
+        sku: row.supplierSku!,
+        url,
+        importId: row.import.id,
+        fileName: row.import.fileName,
+        rowNumber: row.rowNumber,
+      });
+  }
+  return result;
+}
+export function priceVariantGroups(
+  productId: string,
+  variants: Array<{ id: string; sku?: string }>,
+  images: Map<string, PriceListImageCandidate>,
+): VariantImageGroup[] {
+  return variants.flatMap((variant) => {
+    const image = images.get(priceImageKey(productId, variant.sku));
+    return image && variant.sku
+      ? [
+          {
+            variantId: variant.id,
+            sku: variant.sku,
+            candidates: [
+              {
+                url: image.url,
+                source: "PRICE_LIST" as const,
+                rowNumber: image.rowNumber,
+              },
+            ],
+          },
+        ]
+      : [];
+  });
+}
 export async function priceListImagesForProducts(
   productIds: string[],
   preferredImportId?: string | null,
 ) {
-  const ids = [...new Set(productIds.map((value) => String(value || "").trim()).filter(Boolean))];
-  const result = new Map<string, PriceListImageCandidate>();
-  if (!ids.length) return result;
-
-  const [products, rows] = await Promise.all([
+  const [images, products] = await Promise.all([
+    priceListImagesBySku(productIds, preferredImportId),
     prisma.product.findMany({
-      where: { id: { in: ids } },
-      select: { id: true, supplierSku: true },
-    }),
-    prisma.priceImportRow.findMany({
-      where: {
-        productId: { in: ids },
-        import: {
-          status: PriceImportStatus.APPLIED,
-          ...(preferredImportId ? { id: preferredImportId } : {}),
-        },
-      },
-      select: {
-        productId: true,
-        supplierSku: true,
-        rowNumber: true,
-        parsedData: true,
-        rawData: true,
-        updatedAt: true,
-        import: {
-          select: {
-            id: true,
-            fileName: true,
-            appliedAt: true,
-          },
-        },
-      },
-      take: 2000,
+      where: { id: { in: productIds } },
+      select: { id: true, supplierSku: true, variants: true },
     }),
   ]);
-
-  const preferredSkuByProduct = new Map(
-    products.map((product) => [product.id, normalizeSku(product.supplierSku)]),
-  );
-
-  const grouped = new Map<string, typeof rows>();
-  for (const row of rows) {
-    if (!row.productId || !rowImageUrl(row)) continue;
-    const list = grouped.get(row.productId) || [];
-    list.push(row);
-    grouped.set(row.productId, list);
+  const result = new Map<string, PriceListImageCandidate>();
+  for (const product of products) {
+    const exact = images.get(priceImageKey(product.id, product.supplierSku));
+    // Never substitute another variant's row for the primary SKU.
+    const fallback =
+      !normalizeStoredVariants(product.variants).length &&
+      !photoSku(product.supplierSku)
+        ? [...images.values()].find((image) => image.productId === product.id)
+        : undefined;
+    if (exact || fallback) result.set(product.id, (exact || fallback)!);
   }
-
-  for (const productId of ids) {
-    const candidates = grouped.get(productId) || [];
-    const preferredSku = preferredSkuByProduct.get(productId) || "";
-    candidates.sort((a, b) => {
-      const aSku = preferredSku && normalizeSku(a.supplierSku) === preferredSku ? 1 : 0;
-      const bSku = preferredSku && normalizeSku(b.supplierSku) === preferredSku ? 1 : 0;
-      if (aSku !== bSku) return bSku - aSku;
-
-      const aApplied = a.import.appliedAt?.getTime() || 0;
-      const bApplied = b.import.appliedAt?.getTime() || 0;
-      if (aApplied !== bApplied) return bApplied - aApplied;
-      return b.updatedAt.getTime() - a.updatedAt.getTime();
-    });
-
-    const row = candidates[0];
-    if (!row) continue;
-    const url = rowImageUrl(row);
-    if (!url) continue;
-    result.set(productId, {
-      productId,
-      url,
-      importId: row.import.id,
-      fileName: row.import.fileName,
-      rowNumber: row.rowNumber,
-    });
-  }
-
   return result;
 }
-
 export async function latestPriceListImageForProduct(
   productId: string,
   preferredImportId?: string | null,
 ) {
-  const images = await priceListImagesForProducts([productId], preferredImportId);
-  return images.get(productId) || null;
-}
-
-export async function isProductPriceListImage(productId: string, sourceUrl: string) {
-  const target = String(sourceUrl || "").trim();
-  if (!/^https?:\/\//i.test(target)) return false;
-
-  const rows = await prisma.priceImportRow.findMany({
-    where: {
+  return (
+    (await priceListImagesForProducts([productId], preferredImportId)).get(
       productId,
-      import: { status: PriceImportStatus.APPLIED },
-    },
-    select: { parsedData: true, rawData: true },
-    take: 200,
-  });
-
-  return rows.some((row) => rowImageUrl(row) === target);
+    ) || null
+  );
+}
+export async function isProductPriceListImage(
+  productId: string,
+  sourceUrl: string,
+) {
+  return [...(await priceListImagesBySku([productId])).values()].some(
+    (image) => image.url === sourceUrl,
+  );
 }

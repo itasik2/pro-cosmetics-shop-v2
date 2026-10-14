@@ -1,12 +1,20 @@
 import { createHash } from "node:crypto";
 import {
   EnrichmentJobStatus,
-  PriceImportStatus,
   ProductSourceStatus,
   type Prisma,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { extractProductFromHtml } from "./extractProduct";
+import { normalizeStoredVariants } from "@/lib/price-import/productVariants";
+import {
+  latestPriceListImageForProduct,
+  priceListImagesBySku,
+  priceVariantGroups,
+} from "./priceListImages";
+import { productForVariant } from "./variantPhotoSearch";
+import { photoSku } from "./variantImages";
+import { mergeImageGroups } from "./variantImages";
+import { extractProductFromHtml, extractImagesForSku } from "./extractProduct";
 import { scoreProductMatch } from "./matchProduct";
 import { safeFetchHtml } from "./network";
 import {
@@ -47,27 +55,6 @@ function jsonObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
-}
-
-async function latestPriceImageUrl(productId: string) {
-  const rows = await prisma.priceImportRow.findMany({
-    where: {
-      productId,
-      import: { status: PriceImportStatus.APPLIED },
-    },
-    orderBy: { updatedAt: "desc" },
-    take: 10,
-    select: { parsedData: true, rawData: true },
-  });
-
-  for (const row of rows) {
-    const parsed = jsonObject(row.parsedData);
-    const raw = jsonObject(row.rawData);
-    const url = String(parsed.priceImageUrl || raw.priceImageUrl || "").trim();
-    if (/^https?:\/\//i.test(url)) return url;
-  }
-
-  return "";
 }
 
 function recoverableAutomaticSourceError(message: string) {
@@ -170,7 +157,8 @@ export async function runProductEnrichment(input: RunInput) {
     if (!product.supplier) throw new Error("product_supplier_required");
     const searchableProduct = product;
     const supplier = product.supplier;
-    const priceImageUrl = await latestPriceImageUrl(product.id);
+    const priceImageUrl =
+      (await latestPriceListImageForProduct(product.id))?.url || "";
 
     await ensureDefaultSupplierSources({
       supplierId: supplier.id,
@@ -300,6 +288,7 @@ export async function runProductEnrichment(input: RunInput) {
       buffer: fetched.buffer,
       finalUrl: fetched.finalUrl,
       selectors: selectorsFromJson(finalSource.selectors),
+      expectedSku: product.supplierSku,
     });
     let match = scoreProductMatch(product, extracted);
 
@@ -346,6 +335,7 @@ export async function runProductEnrichment(input: RunInput) {
           buffer: fetched.buffer,
           finalUrl: fetched.finalUrl,
           selectors: selectorsFromJson(finalSource.selectors),
+          expectedSku: product.supplierSku,
         });
         match = scoreProductMatch(product, extracted);
       }
@@ -435,6 +425,44 @@ export async function runProductEnrichment(input: RunInput) {
       }
     }
 
+    const variants = normalizeStoredVariants(product.variants);
+    const priceImages = await priceListImagesBySku([product.id]);
+    const variantImageCandidates = mergeImageGroups(
+      priceVariantGroups(product.id, variants, priceImages),
+      variants
+        .filter((variant) => variant.sku)
+        .map((variant) => {
+          const specific = extractProductFromHtml({
+            buffer: fetched.buffer,
+            finalUrl: fetched.finalUrl,
+            expectedSku: variant.sku,
+          });
+          const identity = scoreProductMatch(
+            productForVariant(product, variant),
+            specific,
+          );
+          const matched =
+            photoSku(specific.sku) === photoSku(variant.sku) &&
+            identity.evidence.brand !== "mismatch" &&
+            identity.evidence.volume !== "mismatch";
+          return {
+            variantId: variant.id,
+            sku: variant.sku!,
+            candidates: matched
+              ? extractImagesForSku({
+                  buffer: fetched.buffer,
+                  finalUrl: fetched.finalUrl,
+                  sku: variant.sku!,
+                  brand: product.brand?.name || product.supplier?.name,
+                }).map((url) => ({
+                  url,
+                  source: "WEB" as const,
+                  sourceUrl: fetched.finalUrl,
+                }))
+              : [],
+          };
+        }),
+    );
     const proposalImages = [
       ...new Set(
         [priceImageUrl, ...extracted.images]
@@ -476,6 +504,7 @@ export async function runProductEnrichment(input: RunInput) {
           contentChanged: changed,
           searchResult,
           priceImageUrl: priceImageUrl || null,
+          variantImageCandidates,
           imageCandidates: proposalImages.map((url) => ({
             url,
             source:
