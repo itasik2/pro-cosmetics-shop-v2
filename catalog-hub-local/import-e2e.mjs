@@ -72,6 +72,10 @@ const preview=(await request(ui+"/api/import",{
 })).data;
 assert.equal(preview.canApply,true);
 assert.equal(preview.review.length,2);
+assert.equal(preview.universalCatalog.schema,"catalog-hub/supplier-draft");
+assert.equal(preview.universalCatalog.products[1].prices.purchase,1000);
+assert.equal(preview.universalCatalog.products[1].inventory.ownQuantity,null);
+assert.ok(preview.universalCatalog.products[1].enrichment.missingFields.includes("images"));
 const matched=preview.review.find(p=>p.sku==="TEST-LOCAL-001");
 const newRow=preview.review.find(p=>p.sku===sku);
 assert.equal(matched?.status,"UPDATE",JSON.stringify(matched));
@@ -94,6 +98,7 @@ const created=after.items.find(p=>p.sku===sku);
 assert.ok(created,"New test product not created");
 assert.equal(created.price,1500);
 assert.equal(created.stock,0,"Supplier stock must not be copied");
+assert.equal(created.attributes.supplierImport.fileName,"integration-import.csv");
 assert.equal(after.items.find(p=>p.sku==="TEST-LOCAL-001")?.price,old.price,
   "Staged change must not edit product immediately");
 const history=(await request(ui+"/api/import/local-profiles",{headers:{cookie}})).data.history;

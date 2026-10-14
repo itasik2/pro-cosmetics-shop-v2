@@ -4,10 +4,12 @@ import Link from "next/link";
 import {FIELD_LABELS,type Field,type Mapping} from "@/lib/import-types";
 import type {Reviewed} from "@/lib/import-review";
 import {draftPdfSkuOverrides,duplicatePdfSkuGroups,validPrefix} from "@/lib/pdf-sku-drafts";
+import {ENRICHMENT_LABELS,type UniversalCatalog} from "@/lib/universal-catalog";
 type Preview={
  format:string;headers:string[];mapping:Mapping;review:Reviewed[];
  counts:Record<string,number>;fingerprint:string;note:string;canApply:boolean;
  warnings?:string[];pageCount?:number|null;needsManualSku?:boolean;
+ universalCatalog:UniversalCatalog;
  pdfSource?:Array<{index:number;page:string;volume:string;price1:string;price2:string}>;
 };
 type ItemResult={rowNumber:number;sku:string;status:string;id?:string;error?:string};
@@ -161,6 +163,12 @@ export function ImportConsole(){
  const valid=preview?.review.filter(r=>r.status==="CREATE"||r.status==="UPDATE")||[];
  const chosen=preview?.review.filter(r=>selected.includes(r.index))||[];
  const newChosen=chosen.filter(r=>r.status==="CREATE").length;
+ function downloadUniversal(){
+   if(!preview||pdfNeedsRefresh)return;
+   const url=URL.createObjectURL(new Blob([JSON.stringify(preview.universalCatalog,null,2)],{type:"application/json"}));
+   const link=document.createElement("a");link.href=url;link.download="catalog-hub-supplier-draft.json";
+   link.click();URL.revokeObjectURL(url);
+ }
  return <div className="page">
    <div className="page-head"><div><h1>Импорт каталогов поставщиков</h1>
      <p>PDF-каталоги с карточками товаров, Excel (XLSX), CSV, TSV, XML/YML и JSON. Сопоставление и проверка перед применением.</p></div></div>
@@ -245,6 +253,11 @@ export function ImportConsole(){
          После ручных изменений нажмите «Обновить предпросмотр».
        </div>}
        {preview.warnings?.map((w,i)=><p className="subtle" key={i}>{w}</p>)}
+       <div className="actions" style={{marginTop:12}}>
+         <button className="button" type="button" disabled={busy||pdfNeedsRefresh} onClick={downloadUniversal}>Скачать универсальный JSON</button>
+         <Link className="button" href="/ai">Очередь ИИ-обогащения →</Link>
+       </div>
+       <p className="subtle">Универсальный черновик содержит закупочные цены и источники полей. Он предназначен для внутренней проверки.</p>
        {preview.format==="PDF"&&<div className="panel" style={{padding:15,marginTop:12,marginBottom:12}}>
          <h3>Фотографии товаров из PDF — просмотр</h3>
          <p className="subtle">
@@ -351,6 +364,10 @@ export function ImportConsole(){
                      }}/>
                  </label>}</td>
                <td>{row.title||"—"}<div className="subtle">{row.barcode||""}</div>
+                 {preview.universalCatalog.products[row.index]?.enrichment.missingFields.length>0&&<div className="subtle">
+                   Не хватает в прайсе: {preview.universalCatalog.products[row.index].enrichment.missingFields.map(f=>ENRICHMENT_LABELS[f]).join(", ")}
+                 </div>}
+                 {row.productId&&<Link href={"/ai?sku="+encodeURIComponent(preview.universalCatalog.products[row.index].identity.internalSku||row.sku)}>Обогатить карточку →</Link>}
                  {preview.format==="PDF"&&(()=>{
                    const source=preview.pdfSource?.[row.index];
                    if(!source)return null;
@@ -421,6 +438,7 @@ export function ImportConsole(){
        <span>{r.sku} · строка {r.rowNumber} · <strong>{r.status}</strong>
          {r.error&&<span className="error">{r.error}</span>}</span>
        {r.id&&<Link className="button" href={(r.status==="STAGED"?"/changes/":"/catalog/")+encodeURIComponent(r.id)}>Открыть →</Link>}
+       {r.status==="CREATED"&&<Link className="button" href={"/ai?sku="+encodeURIComponent(r.sku)}>Дополнить с помощью ИИ →</Link>}
      </div>)}</div>
      <Link href="/changes" className="button" style={{marginTop:15}}>Очередь изменений →</Link>
    </section>}

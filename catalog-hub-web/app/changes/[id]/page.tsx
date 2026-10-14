@@ -2,11 +2,13 @@ import Link from "next/link";
 import { ChangeReview, type ReviewField } from "@/components/ChangeReview";
 import { hubFetch, organizationId, safeHub } from "@/lib/hub";
 import { dateTime } from "@/lib/format";
+import { isChangeSetId } from "@/lib/changeset-id";
 
 export const dynamic = "force-dynamic";
 
 type ChangeSet = {
   id: string;
+  organizationId:string;
   sku: string;
   status: string;
   sourceType: string;
@@ -17,7 +19,7 @@ type ChangeSet = {
 
 export default async function ChangeDetailsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  if (!/^[a-f0-9-]{36}$/i.test(id)) return <div className="page"><div className="error">Неверный ID изменений.</div></div>;
+  if (!isChangeSetId(id)) return <div className="page"><div className="error">Неверный ID изменений.</div></div>;
   const result = await safeHub(
     hubFetch<ChangeSet>(
       "/v1/staging/changesets/" + encodeURIComponent(id) +
@@ -26,6 +28,7 @@ export default async function ChangeDetailsPage({ params }: { params: Promise<{ 
   );
   if (!result.ok) return <div className="page"><div className="error">{result.error}</div></div>;
   const changes = result.data;
+  if(changes.organizationId!==organizationId)return <div className="page"><div className="error">Изменения не найдены.</div></div>;
   return (
     <div className="page">
       <div className="page-head">

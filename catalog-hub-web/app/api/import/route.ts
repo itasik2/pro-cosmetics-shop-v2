@@ -7,6 +7,7 @@ import {evaluateImport,type Existing} from "@/lib/import-review";
 import {isLocalReadOnly} from "@/lib/local-mode";
 import {isSameOrigin} from "@/lib/same-origin";
 import {listSupplierProfiles,recordLocalImportEvent} from "@/lib/local-supplier-store";
+import {buildUniversalCatalog} from "@/lib/universal-catalog";
 
 export const dynamic="force-dynamic";
 export const runtime="nodejs";
@@ -15,7 +16,7 @@ export const maxDuration=60;
 type Catalog={items:Existing[];total:number};
 type Categories={categories:Array<{key:string;isActive:boolean}>};
 const MAPPED_FIELDS=new Set<Field>([
- "sku","barcode","title","brand","purchasePrice","price","description","categoryKey","stock"
+ "sku","barcode","title","brand","volume","purchasePrice","price","description","categoryKey","stock"
 ]);
 
 function responseError(message:string,status=400){
@@ -62,6 +63,7 @@ async function prepare(request:NextRequest){
  const file=data.get("file");
  if(!(file instanceof File))throw new Error("file_required");
  const table=await parseTable(file);
+ const originalRows=table.rows.map(row=>({...row}));
  const skuOverrideRaw=data.get("skuOverrides");
  if(skuOverrideRaw){
    if(table.format!=="PDF"||typeof skuOverrideRaw!=="string"||skuOverrideRaw.length>25000)
@@ -95,6 +97,12 @@ async function prepare(request:NextRequest){
  ]);
  const review=evaluateImport(items,snapshot.items,categories.categories.filter(c=>c.isActive).map(c=>c.key));
  const hash=await fileHash(file);
+ const universalCatalog=buildUniversalCatalog({fileName:file.name,fileSha256:hash,table,mapping,items,review,originalRows});
+ for(const row of universalCatalog.products){
+   if(row.identity.productId){
+     row.identity.internalSku=snapshot.items.find(p=>p.id===row.identity.productId)?.sku||row.identity.internalSku;
+   }
+ }
  const sourceBase=createHash("sha256").update(hash+JSON.stringify(mapping)).digest("hex").slice(0,32);
  let profileId:string|null=null;
  if(process.env.CATALOG_HUB_LOCAL_MODE==="true"){
@@ -105,7 +113,7 @@ async function prepare(request:NextRequest){
      profileId=requested;
    }
  }
- return {data,file,table,mapping,review,sourceBase,profileId,fingerprint:digest(hash,mapping,review)};
+ return {data,file,table,mapping,review,sourceBase,profileId,universalCatalog,fingerprint:digest(hash,mapping,review)};
 }
 export async function POST(request:NextRequest) {
  if(!isSameOrigin(request))return responseError("invalid_origin",403);
@@ -130,6 +138,7 @@ export async function POST(request:NextRequest) {
    }
    return NextResponse.json({
      format:table.format,headers:table.headers,mapping,review,counts,fingerprint,
+     universalCatalog:state.universalCatalog,
      warnings:table.warnings||[],pageCount:table.pageCount||null,
      pdfSource:table.format==="PDF"?table.rows.map((x,index)=>({
        index,page:x["Страница"]||"",
@@ -173,6 +182,18 @@ export async function POST(request:NextRequest) {
        method:"POST",body:JSON.stringify({
          organizationId,card:{
            sku:item.sku,title:item.title,
+           attributes:{
+             ...(state.universalCatalog.products[item.index].card.variant?{
+               volumeValue:state.universalCatalog.products[item.index].card.variant!.value,
+               volumeUnit:state.universalCatalog.products[item.index].card.variant!.unit,
+             }:{}),
+             supplierImport:{
+               ...state.universalCatalog.source,
+               ...state.universalCatalog.products[item.index].provenance,
+               supplierSku:state.universalCatalog.products[item.index].identity.supplierSku,
+               sourceAmounts:state.universalCatalog.products[item.index].prices.sourceAmounts,
+             },
+           },
            ...(item.proposed.barcode?{barcode:item.proposed.barcode}:{}),
            ...(item.proposed.brand?{brand:item.proposed.brand}:{}),
            ...(item.proposed.description?{description:item.proposed.description}:{}),
