@@ -14,7 +14,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
     safeHub(hubFetch<Array<{id:string;code:string;name:string;isActive:boolean}>>("/v1/inventory/warehouses" + query)),
     safeHub(hubFetch<{categories:Array<{key:string;name:string;isActive:boolean;productCount:number}>;uncategorized:number}>("/v1/categories" + query)),
     safeHub(hubFetch<CardJob[]>("/v1/ai/enrichment/jobs" + filter + "&limit=30")),
-    safeHub(hubFetch<CardProposal[]>("/v1/ai/enrichment/proposals" + filter + "&limit=30")),
+    safeHub(hubFetch<CardProposal[]>("/v1/ai/enrichment/proposals" + filter + "&status=PENDING&limit=100")),
   ]);
 
   if (!result.ok) return <div className="page"><div className="error">{result.error}</div></div>;
@@ -36,7 +36,9 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
         jobs={jobs.ok ? jobs.data : []} proposals={proposals.ok ? proposals.data : []} />
     </div>
     <div style={{marginTop:14}}>
-      {warehouses.ok && <StockAdjustment product={product} warehouses={warehouses.data} />}
+      {warehouses.ok ? <StockAdjustment product={product} warehouses={warehouses.data} />
+        : <section className="panel"><h2>Остатки</h2><p>На складе: {product.totals.stock} · Доступно: {product.totals.available}</p>
+          <p className="error" role="alert">Склады временно недоступны: {warehouses.error}</p></section>}
     </div>
   </div>;
 }

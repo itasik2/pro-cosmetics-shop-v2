@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { masterCardSchema } from "./master-card.js";
 import {
@@ -15,6 +15,7 @@ export const createCatalogProductSchema = z.object({
 export const catalogListQuerySchema = z.object({
   organizationId: z.string().min(1),
   q: z.string().trim().optional(),
+  incomplete: z.enum(["true", "false"]).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 });
@@ -193,13 +194,23 @@ export async function listCatalogProducts(raw: unknown) {
 
   const where: Prisma.ProductWhereInput = {
     organizationId: query.organizationId,
+    ...(query.incomplete === "true" ? {
+      OR: [
+        ...(["brand", "shortDescription", "description", "application", "ingredients"] as const)
+          .flatMap(field => [{ [field]: null }, { [field]: "" }]),
+        { images: { equals: [] } },
+        { images: { equals: Prisma.DbNull } },
+      ],
+    } : {}),
     ...(q
       ? {
-          OR: [
-            { sku: { contains: q, mode: "insensitive" } },
-            { title: { contains: q, mode: "insensitive" } },
-            { brand: { contains: q, mode: "insensitive" } },
-            { barcode: { contains: q, mode: "insensitive" } },
+          AND: [
+            { OR: [
+              { sku: { contains: q, mode: "insensitive" } },
+              { title: { contains: q, mode: "insensitive" } },
+              { brand: { contains: q, mode: "insensitive" } },
+              { barcode: { contains: q, mode: "insensitive" } },
+            ] },
           ],
         }
       : {}),
