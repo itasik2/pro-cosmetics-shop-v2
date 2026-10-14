@@ -206,7 +206,7 @@ export function ImportConsole(){
    </section>
    <section className="panel" style={{marginTop:14}}>
      <h2>1. Выберите файл</h2>
-     <p className="subtle">XLSX/CSV/XML/JSON — до 2 МБ; PDF с текстовым слоем — до 8 МБ и 30 страниц. Максимум 200 карточек.
+     <p className="subtle">XLSX/CSV/XML/JSON — до 2 МБ и 200 строк; PDF с текстовым слоем — до 8 МБ, 30 страниц и 400 строк.
        Сканированные PDF пока требуют OCR. Оригиналы не сохраняются, складские остатки не обновляются автоматически.</p>
      <label className="editor-field"><span>Файл поставщика</span>
        <input className="input" type="file" accept=".pdf,.xlsx,.csv,.tsv,.xml,.yml,.json"
