@@ -93,7 +93,7 @@ test("saved rows reopen within their organization and deleting selected history 
  const dir=await temp();
  try{
    const snapshot={
-     table:{format:"CSV",headers:["sku","title","price"],rows:[{sku:"TEST-001",title:"Крем 50 мл",price:"1200"}]},
+     table:{format:"CSV",headers:["sku","title","price"]},
      originalRows:[{sku:"TEST-001",title:"Крем 50 мл",price:"1200"}],
      fileSha256:"a".repeat(64),mapping:{sku:"sku",title:"title",price:"price"},skuOverrides:{},
    };
@@ -104,7 +104,7 @@ test("saved rows reopen within their organization and deleting selected history 
    const filename=join(dir,"import-snapshots",entry.id+".json.gz");
    assert.equal((await stat(filename)).mode&0o777,0o600);
    assert.equal((await stat(join(dir,"import-snapshots"))).mode&0o777,0o700);
-   assert.equal((await loadLocalImportSnapshot(org,entry.id,dir)).snapshot.table.rows[0].sku,"TEST-001");
+   assert.equal((await loadLocalImportSnapshot(org,entry.id,dir)).snapshot.originalRows[0].sku,"TEST-001");
    assert.equal((await readFile(join(dir,"supplier-import-history.json"),"utf8")).includes("TEST-001"),false);
    await assert.rejects(loadLocalImportSnapshot("other-org",entry.id,dir),/history_entry_not_found/);
    assert.equal(await deleteLocalImportHistory("other-org",[entry.id],dir),0);

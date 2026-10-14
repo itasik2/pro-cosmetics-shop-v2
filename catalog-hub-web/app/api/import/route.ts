@@ -129,7 +129,8 @@ async function prepare(request:NextRequest){
      else if(data.get("profileId"))throw new Error("supplier_profile_not_found");
    }
  }
- const snapshot:LocalImportSnapshot={table,originalRows,fileSha256:hash,mapping,skuOverrides};
+ const {rows:_parsedRows,...tableMetadata}=table;
+ const snapshot:LocalImportSnapshot={table:tableMetadata,originalRows,fileSha256:hash,mapping,skuOverrides};
  return {data,fileName,table,mapping,review,sourceBase,profileId,universalCatalog,snapshot,
    fingerprint:digest(hash,mapping,review)};
 }
@@ -145,6 +146,7 @@ export async function POST(request:NextRequest) {
     [s,review.filter(r=>r.status===s).length]));
  if(action==="preview"){
    let historyId:string|null=null;
+   let historyWarning:string|null=null;
    if(process.env.CATALOG_HUB_LOCAL_MODE==="true"){
      try{
        const entry=await recordLocalImportEvent({
@@ -154,11 +156,12 @@ export async function POST(request:NextRequest) {
          selectedRows:0,snapshot:state.snapshot,
        });
        historyId=entry.id;
-     }catch(e){console.error("local_import_history_failed",e);}
+     }catch(e){console.error("local_import_history_failed",e);
+       historyWarning="Не удалось сохранить строки в локальной истории. Для повторной загрузки понадобится исходный файл.";}
    }
    return NextResponse.json({
      format:table.format,fileName:state.fileName,headers:table.headers,mapping,review,counts,fingerprint,
-     historyId,pdfSkuOverrides:state.snapshot.skuOverrides,
+     historyId,historyWarning,pdfSkuOverrides:state.snapshot.skuOverrides,
      universalCatalog:state.universalCatalog,
      warnings:table.warnings||[],pageCount:table.pageCount||null,
      pdfSource:table.format==="PDF"?table.rows.map((x,index)=>({
@@ -233,6 +236,7 @@ export async function POST(request:NextRequest) {
    break;
   }
  }
+ let historyWarning:string|null=null;
  if(process.env.CATALOG_HUB_LOCAL_MODE==="true"){
    try{
      await recordLocalImportEvent({
@@ -242,10 +246,11 @@ export async function POST(request:NextRequest) {
        totalRows:review.length,countByStatus:counts,
        selectedRows:candidates.length,snapshot:state.snapshot,
      });
-   }catch(e){console.error("local_import_history_failed",e);}
+   }catch(e){console.error("local_import_history_failed",e);
+     historyWarning="Результат применения не сохранился в локальной истории.";}
  }
  return NextResponse.json({
-   results,partial:results.some(r=>r.status==="ERROR"),
+   results,partial:results.some(r=>r.status==="ERROR"),historyWarning,
    reminder:"STAGED means saved to Changes for manual approval. CREATED means a new product was created with zero stock."
  },{headers:{"cache-control":"no-store"}});
 }

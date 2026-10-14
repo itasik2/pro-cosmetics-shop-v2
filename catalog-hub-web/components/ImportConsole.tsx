@@ -10,11 +10,12 @@ type Preview={
  counts:Record<string,number>;fingerprint:string;note:string;canApply:boolean;
  warnings?:string[];pageCount?:number|null;needsManualSku?:boolean;
  historyId?:string|null;fileName?:string;pdfSkuOverrides?:Record<number,string>;
+ historyWarning?:string|null;
  universalCatalog:UniversalCatalog;
  pdfSource?:Array<{index:number;page:string;volume:string;price1:string;price2:string}>;
 };
 type ItemResult={rowNumber:number;sku:string;status:string;id?:string;error?:string};
-type Applied={results:ItemResult[];partial:boolean;reminder:string};
+type Applied={results:ItemResult[];partial:boolean;reminder:string;historyWarning?:string|null};
 type SupplierProfile = {id:string;name:string;notes:string;mapping:Mapping;updatedAt:string};
 type ImportLog = {id:string;profileId:string|null;fileName:string;format:string;
  action:"PREVIEW"|"APPLY";result:string;totalRows:number;selectedRows:number;createdAt:string;hasSnapshot?:boolean};
@@ -296,6 +297,7 @@ export function ImportConsole(){
          После ручных изменений нажмите «Обновить предпросмотр».
        </div>}
        {preview.warnings?.map((w,i)=><p className="subtle" key={i}>{w}</p>)}
+       {preview.historyWarning&&<p role="alert" className="error">{preview.historyWarning}</p>}
        <div className="actions" style={{marginTop:12}}>
          <button className="button" type="button" disabled={busy||pdfNeedsRefresh} onClick={downloadUniversal}>Скачать универсальный JSON</button>
          <Link className="button" href="/ai">Очередь ИИ-обогащения →</Link>
@@ -500,6 +502,7 @@ export function ImportConsole(){
    {applied&&<section className="panel" style={{marginTop:14}}>
      <h2>Результат применения</h2>
      <p className="subtle">{applied.reminder}</p>
+     {applied.historyWarning&&<p role="alert" className="error">{applied.historyWarning}</p>}
      {applied.partial&&<div className="error">Выполнение прервано при ошибке. Проверьте список перед повторной попыткой.</div>}
      <div className="list">{applied.results.map(r=><div className="list-row" key={r.rowNumber}>
        <span>{r.sku} · строка {r.rowNumber} · <strong>{r.status}</strong>

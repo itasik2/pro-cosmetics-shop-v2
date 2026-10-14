@@ -30,14 +30,14 @@ export type LocalImportHistory={
   hasSnapshot?:boolean;
 };
 export type LocalImportSnapshot={
-  table:Table;
+  table:Omit<Table,"rows">;
   originalRows:Array<Record<string,string>>;
   fileSha256:string;
   mapping:Mapping;
   skuOverrides:Record<string,string>;
 };
 const MAX_PROFILES=40,MAX_HISTORY=300,MAX_FILE_BYTES=600000;
-const MAX_SNAPSHOT_BYTES=4_000_000,MAX_SNAPSHOT_COMPRESSED=2_000_000;
+const MAX_SNAPSHOT_BYTES=8_000_000,MAX_SNAPSHOT_COMPRESSED=4_000_000;
 const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 let operations:Promise<void>=Promise.resolve();
 function serialized<T>(operation:()=>Promise<T>):Promise<T>{
@@ -171,9 +171,8 @@ export async function loadLocalImportSnapshot(organizationId:string,id:string,ba
   if(data.byteLength>MAX_SNAPSHOT_COMPRESSED)throw new Error("local_import_snapshot_too_large");
   const raw=gunzipSync(data,{maxOutputLength:MAX_SNAPSHOT_BYTES}).toString("utf8");
   const snapshot=JSON.parse(raw) as LocalImportSnapshot;
-  if(!snapshot||!snapshot.table||!Array.isArray(snapshot.table.headers)||
-     !Array.isArray(snapshot.table.rows)||snapshot.table.rows.length>400||
-     !Array.isArray(snapshot.originalRows)||snapshot.originalRows.length!==snapshot.table.rows.length||
+  if(!snapshot||!snapshot.table||!Array.isArray(snapshot.table.headers)||snapshot.table.headers.length>50||
+     !Array.isArray(snapshot.originalRows)||snapshot.originalRows.length>400||
      !/^[a-f0-9]{64}$/.test(snapshot.fileSha256)||
      !snapshot.mapping||typeof snapshot.mapping!=="object"||
      !snapshot.skuOverrides||typeof snapshot.skuOverrides!=="object")
@@ -189,8 +188,8 @@ export async function deleteLocalImportHistory(organizationId:string,ids:string[
     const rows=await readList<LocalImportHistory>(dir,"supplier-import-history.json");
     const removed=rows.filter(row=>row.organizationId===organizationId&&selected.has(row.id));
     if(!removed.length)return 0;
-    await writeList(dir,"supplier-import-history.json",rows.filter(row=>!removed.includes(row)));
     for(const row of removed)if(row.hasSnapshot)await removeSnapshot(dir,row.id);
+    await writeList(dir,"supplier-import-history.json",rows.filter(row=>!removed.includes(row)));
     return removed.length;
   });
 }
@@ -209,9 +208,11 @@ export async function recordLocalImportEvent(input:Omit<LocalImportHistory,"id"|
     };
     if(snapshot)await writeSnapshot(dir,entry.id,snapshot);
     rows.push(entry);
-    try{await writeList(dir,"supplier-import-history.json",rows.slice(-MAX_HISTORY));}
+    try{
+      for(const old of rows.slice(0,-MAX_HISTORY))if(old.hasSnapshot)await removeSnapshot(dir,old.id);
+      await writeList(dir,"supplier-import-history.json",rows.slice(-MAX_HISTORY));
+    }
     catch(e){if(snapshot)await removeSnapshot(dir,entry.id);throw e;}
-    for(const old of rows.slice(0,-MAX_HISTORY))if(old.hasSnapshot)await removeSnapshot(dir,old.id);
     return entry;
   });
 }
