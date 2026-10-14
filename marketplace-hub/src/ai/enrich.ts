@@ -1,10 +1,8 @@
 import { z } from "zod";
+import { discoverProductSource } from "./discovery.js";
 import { extractProductFromHtml } from "./extract.js";
 import { scoreProductMatch } from "./match.js";
-import {
-  safeFetchHtml,
-  sourcePolicyForUrl,
-} from "./network.js";
+import { safeFetchHtml, sourcePolicyForUrl } from "./network.js";
 import {
   fallbackProductCopy,
   findExternalProductUrl,
@@ -12,10 +10,7 @@ import {
   generateProductCopy,
 } from "./openai.js";
 import { evaluateEnrichmentProposal } from "./policy.js";
-import type {
-  AllowedSourcePolicy,
-  CatalogProductInput,
-} from "./types.js";
+import type { AllowedSourcePolicy, CatalogProductInput } from "./types.js";
 
 export const enrichmentRequestSchema = z.object({
   product: z.object({
@@ -61,50 +56,33 @@ export async function buildEnrichmentProposal(raw: EnrichmentRequest) {
   const policies: AllowedSourcePolicy[] = [...input.sources];
 
   let sourceUrl = input.sourceUrl?.trim() || "";
-  let search:
-    | {
-        stage: "official" | "external";
-        confidence: number;
-        reason: string;
-      }
-    | null = null;
+  let search: {
+    stage: "official" | "external";
+    confidence: number;
+    reason: string;
+    officialFailure?: string;
+  } | null = null;
 
   if (!sourceUrl && input.discoverIfMissing) {
     const officialDomains = policies
       .filter((policy) => policy.sourceType === "OFFICIAL_SITE")
       .map((policy) => policy.domain);
 
-    if (officialDomains.length) {
-      const official = await findOfficialProductUrl({
-        product,
-        allowedDomains: officialDomains,
-      });
-
-      if (official.found && official.url) {
-        sourceUrl = official.url;
-        search = {
-          stage: "official",
-          confidence: official.confidence,
-          reason: official.reason,
-        };
-      }
-    }
-
-    if (!sourceUrl && input.allowExternalSearch) {
-      const external = await findExternalProductUrl({
-        product,
-        officialDomainsTried: officialDomains,
-      });
-
-      if (external.found && external.url) {
-        sourceUrl = external.url;
-        policies.push(exactPolicy(sourceUrl));
-        search = {
-          stage: "external",
-          confidence: external.confidence,
-          reason: external.reason,
-        };
-      }
+    const discovered = await discoverProductSource({
+      hasOfficialSources: officialDomains.length > 0,
+      allowExternalSearch: input.allowExternalSearch,
+      official: () =>
+        findOfficialProductUrl({ product, allowedDomains: officialDomains }),
+      external: () =>
+        findExternalProductUrl({
+          product,
+          officialDomainsTried: officialDomains,
+        }),
+    });
+    if (discovered) {
+      sourceUrl = discovered.url;
+      search = discovered.search;
+      if (search.stage === "external") policies.push(exactPolicy(sourceUrl));
     }
   }
 
@@ -113,7 +91,11 @@ export async function buildEnrichmentProposal(raw: EnrichmentRequest) {
   // An operator-supplied product URL is an explicit source selection. Constrain
   // fetching to its exact hostname; safeFetchHtml still rejects private IPs,
   // unsafe DNS results and redirects to other hosts.
-  if (sourceUrl && input.sourceUrl && !sourcePolicyForUrl(policies, sourceUrl)) {
+  if (
+    sourceUrl &&
+    input.sourceUrl &&
+    !sourcePolicyForUrl(policies, sourceUrl)
+  ) {
     policies.push(exactPolicy(sourceUrl));
   }
   const initialPolicy = sourcePolicyForUrl(policies, sourceUrl);
