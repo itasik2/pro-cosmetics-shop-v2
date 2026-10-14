@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { enrichmentErrorMessage } from "@/lib/enrichment-messages";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { HubProduct } from "@/lib/hub";
@@ -57,7 +58,7 @@ export function CardEnrichment({ product, jobs, proposals, canWrite }: {
       await enrichmentAction({ action: "run", id: job.id });
       router.refresh();
     } catch (cause) {
-      setError(searchError(cause));
+      setError(enrichmentErrorMessage(cause));
       router.refresh();
     } finally { setBusy(false); }
   }
@@ -68,7 +69,7 @@ export function CardEnrichment({ product, jobs, proposals, canWrite }: {
       await enrichmentAction({ action: "run", id });
       router.refresh();
     } catch (cause) {
-      setError(searchError(cause));
+      setError(enrichmentErrorMessage(cause));
       router.refresh();
     } finally { setBusy(false); }
   }
@@ -135,7 +136,7 @@ export function CardEnrichment({ product, jobs, proposals, canWrite }: {
     {jobs.filter(job => job.status === "PENDING" || job.status === "FAILED")
       .map(job => <div className="list-row" key={job.id}>
         <span>Поиск: {job.status === "FAILED" ? "ошибка" : "ожидает запуска"}
-          {job.error && <span className="error"> · {job.error}</span>}</span>
+          {job.error && <span className="error"> · {enrichmentErrorMessage(job.error)}</span>}</span>
         <button type="button" className="button" disabled={!canWrite || busy}
           onClick={() => void run(job.id)}>Повторить поиск</button>
       </div>)}
@@ -153,14 +154,6 @@ export function CardEnrichment({ product, jobs, proposals, canWrite }: {
       onStage={() => void stage(proposal.id)} />)}
     {!pending.length && <p className="subtle">Предложений для проверки пока нет.</p>}
   </section>;
-}
-
-function searchError(cause: unknown) {
-  const message = cause instanceof Error ? cause.message : "Поиск не удался";
-  if (message === "source_url_required") return "Источник не найден. Укажите ссылку на товар, настройте сайт производителя или разрешите поиск у других продавцов.";
-  if (message === "openai_not_configured") return "Для автоматического поиска в сети нужен OPENAI_API_KEY в настройках сервера. Можно указать прямую ссылку на товар без ИИ-поиска.";
-  if (message === "source_domain_not_allowed") return "Источник отклонён. Проверьте ссылку на страницу товара и разрешённые домены.";
-  return message;
 }
 
 function Proposal({ proposal, product, selectedImage, setImage, variants, selectedVariant,

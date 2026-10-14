@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { enrichmentErrorMessage } from "@/lib/enrichment-messages";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ENRICHMENT_LABELS, missingEnrichmentFields } from "@/lib/universal-catalog";
@@ -46,7 +47,7 @@ export function EnrichmentConsole({ jobs, proposals, policies, canWrite, initial
       setMessage(body.action === "create" ? "Задача добавлена. Нажмите «Запустить поиск» в очереди." : body.action === "stage"
         ? "Черновик создан. Проверьте и согласуйте изменения." : body.action === "source" ? "Источник сохранён." : "Поиск завершён. Проверьте предложение ниже.");
       router.refresh();
-    } catch (e) { setError(e instanceof Error ? e.message : "enrichment_failed"); }
+    } catch (e) { setError(enrichmentErrorMessage(e)); }
     finally { setBusy(""); }
   }
   const suppliers = [...new Map(policies.map(p => [p.supplier.code, p.supplier])).values()];
@@ -89,7 +90,7 @@ export function EnrichmentConsole({ jobs, proposals, policies, canWrite, initial
       <button className="button" type="button" disabled={Boolean(busy)} onClick={() => router.refresh()}>Обновить статусы</button>
       {!jobs.length && <p className="empty">Задач пока нет.</p>}
       <div className="list">{jobs.map(job => <div className="list-row" key={job.id}>
-        <div><strong>{job.product.title}</strong><div className="subtle">{job.product.sku} · {statusLabels[job.status] || job.status} · Попыток: {job.attempt}</div>{job.error && <div className="error">{job.error}</div>}</div>
+        <div><strong>{job.product.title}</strong><div className="subtle">{job.product.sku} · {statusLabels[job.status] || job.status} · Попыток: {job.attempt}</div>{job.error && <div className="error">{enrichmentErrorMessage(job.error)}</div>}</div>
         {["PENDING", "FAILED"].includes(job.status) && <button className="button" disabled={!canWrite || Boolean(busy)} onClick={() => void act(job.id, { action: "run", id: job.id })}>{busy === job.id ? "Поиск…" : job.status === "FAILED" ? "Повторить поиск" : "Запустить поиск"}</button>}
       </div>)}</div>
     </section>
