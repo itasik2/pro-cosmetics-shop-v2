@@ -1,6 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  Children,
+  cloneElement,
+  isValidElement,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import ProductVariantsPanel, { VariantSummary } from "./ProductVariantsPanel";
+import { adminStockSummary } from "../../../../lib/adminProductVariants";
 
 type Brand = {
   id: string;
@@ -76,8 +88,7 @@ function parseVariantRows(value: unknown): VariantFormRow[] {
   if (!Array.isArray(value)) return [];
 
   return value.map((raw) => {
-    const variant =
-      raw && typeof raw === "object" ? (raw as VariantData) : {};
+    const variant = raw && typeof raw === "object" ? (raw as VariantData) : {};
 
     return {
       id: String(variant.id ?? makeVariantId()),
@@ -91,7 +102,7 @@ function parseVariantRows(value: unknown): VariantFormRow[] {
 }
 
 async function readJson(response: Response) {
-  return response.json().catch(() => ({} as Record<string, unknown>));
+  return response.json().catch(() => ({}) as Record<string, unknown>);
 }
 
 function normalizeSearch(value: unknown) {
@@ -117,14 +128,18 @@ function productMatchesSearch(product: Product, query: string) {
     }
   }
 
-  const haystack = normalizeSearch([
-    product.name,
-    product.brand?.name,
-    product.supplier?.name,
-    product.supplierSku,
-    product.category,
-    ...variantParts,
-  ].filter(Boolean).join(" "));
+  const haystack = normalizeSearch(
+    [
+      product.name,
+      product.brand?.name,
+      product.supplier?.name,
+      product.supplierSku,
+      product.category,
+      ...variantParts,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
 
   return normalizedQuery.split(" ").every((token) => haystack.includes(token));
 }
@@ -137,21 +152,57 @@ export default function AdminProductsClient() {
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [variantUploadingId, setVariantUploadingId] = useState<string | null>(null);
+  const [variantUploadingId, setVariantUploadingId] = useState<string | null>(
+    null,
+  );
   const [searchQuery, setSearchQuery] = useState("");
+  const [editorOpen, setEditorOpen] = useState(false);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const variantsRef = useRef<HTMLDivElement>(null);
+  const openingSection = useRef<"details" | "variants">("details");
+  const initialForm = useRef(JSON.stringify(emptyForm));
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!editorOpen || !dialog) return;
+    dialog.showModal();
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    if (openingSection.current === "variants")
+      variantsRef.current?.scrollIntoView({ block: "start" });
+    else dialog.scrollTop = 0;
+    return () => {
+      dialog.close();
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [editorOpen]);
+
+  function closeEditor() {
+    if (busy || uploading || variantUploadingId) return;
+    if (
+      JSON.stringify(form) !== initialForm.current &&
+      !window.confirm("Закрыть карточку без сохранения изменений?")
+    )
+      return;
+    setEditorOpen(false);
+    setEditing(null);
+    setForm(emptyForm);
+  }
 
   async function load() {
-    const [productResponse, brandResponse] = await Promise.all([
-      fetch("/api/products", { cache: "no-store" }),
-      fetch("/api/brands", { cache: "no-store" }),
-    ]);
-
-    if (brandResponse.ok) setBrands(await brandResponse.json());
+    const productResponse = await fetch("/api/products", { cache: "no-store" });
     if (productResponse.ok) setItems(await productResponse.json());
   }
 
   useEffect(() => {
     void load();
+    void fetch("/api/brands", { cache: "no-store" })
+      .then(async (response) => {
+        if (response.ok) setBrands(await response.json());
+      })
+      .catch(() =>
+        setMsg("Не удалось загрузить список брендов. Обновите страницу."),
+      );
 
     const onProductsChanged = () => void load();
     const onSearch = (event: Event) => {
@@ -159,7 +210,8 @@ export default function AdminProductsClient() {
       setSearchQuery(value);
     };
 
-    const savedSearch = window.sessionStorage.getItem("admin-product-search") || "";
+    const savedSearch =
+      window.sessionStorage.getItem("admin-product-search") || "";
     setSearchQuery(savedSearch);
 
     window.addEventListener("products-changed", onProductsChanged);
@@ -221,7 +273,10 @@ export default function AdminProductsClient() {
       method: "POST",
       body: formData,
     });
-    const data = (await readJson(response)) as { url?: unknown; error?: unknown };
+    const data = (await readJson(response)) as {
+      url?: unknown;
+      error?: unknown;
+    };
 
     if (!response.ok) {
       throw new Error(String(data.error || response.status));
@@ -266,6 +321,21 @@ export default function AdminProductsClient() {
 
   async function save(event?: React.FormEvent) {
     event?.preventDefault();
+    if (busy || uploading || variantUploadingId) return;
+    if (
+      form.variants.some(
+        (row) => !row.label.trim() || row.price === "" || row.stock === "",
+      )
+    ) {
+      setMsg(
+        "Заполните объём, цену и остаток каждого варианта или удалите пустую строку.",
+      );
+      variantsRef.current?.scrollIntoView({
+        block: "start",
+        behavior: "smooth",
+      });
+      return;
+    }
     setBusy(true);
     setMsg(null);
 
@@ -311,16 +381,20 @@ export default function AdminProductsClient() {
           body: JSON.stringify(body),
         },
       );
-      const data = (await readJson(response)) as { error?: unknown };
+      const data = (await readJson(response)) as {
+        error?: unknown;
+        message?: unknown;
+      };
 
       if (!response.ok) {
-        throw new Error(String(data.error || response.status));
+        throw new Error(String(data.message || data.error || response.status));
       }
 
       setMsg(editing ? "Товар обновлён" : "Товар добавлен");
       setForm(emptyForm);
       setEditing(null);
-      await load();
+      setEditorOpen(false);
+      window.dispatchEvent(new Event("products-changed"));
     } catch (error: any) {
       setMsg(`Ошибка: ${error?.message || "save_failed"}`);
     } finally {
@@ -343,9 +417,9 @@ export default function AdminProductsClient() {
     }
   }
 
-  function edit(product: Product) {
+  function edit(product: Product, section: "details" | "variants" = "details") {
     setEditing(product.id);
-    setForm({
+    const nextForm = {
       name: product.name || "",
       brandId: product.brandId || "",
       shortDescription: String(product.shortDescription || ""),
@@ -358,8 +432,21 @@ export default function AdminProductsClient() {
       isNew: Boolean(product.isNew),
       isPublished: Boolean(product.isPublished),
       variants: parseVariantRows(product.variants),
-    });
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+    initialForm.current = JSON.stringify(nextForm);
+    openingSection.current = section;
+    setForm(nextForm);
+    setMsg(null);
+    setEditorOpen(true);
+  }
+
+  function addProduct() {
+    setEditing(null);
+    setForm(emptyForm);
+    initialForm.current = JSON.stringify(emptyForm);
+    openingSection.current = "details";
+    setMsg(null);
+    setEditorOpen(true);
   }
 
   const filteredItems = useMemo(
@@ -368,411 +455,555 @@ export default function AdminProductsClient() {
   );
 
   return (
-    <div className="grid md:grid-cols-2 gap-8">
-      <div className="space-y-3 min-w-0">
-        <h2 className="text-xl font-semibold">
-          {editing ? "Редактировать" : "Добавить"} товар
-        </h2>
-
-        <form className="space-y-3" onSubmit={save}>
-          <Field label="Название">
-            <input
-              required
-              className="w-full border rounded-xl px-3 py-2"
-              value={form.name}
-              onChange={(event) => setField("name", event.target.value)}
-            />
-          </Field>
-
-          <Field label="Бренд">
-            <select
-              className="w-full border rounded-xl px-3 py-2 bg-white"
-              value={form.brandId}
-              onChange={(event) => setField("brandId", event.target.value)}
+    <div className="space-y-4">
+      <dialog
+        ref={dialogRef}
+        aria-labelledby="product-editor-title"
+        className="m-auto max-h-[90dvh] w-[calc(100%-2rem)] max-w-4xl overflow-y-auto rounded-2xl border bg-white p-0 shadow-xl backdrop:bg-black/40"
+        onCancel={(event) => {
+          event.preventDefault();
+          closeEditor();
+        }}
+      >
+        <div className="space-y-4 p-4 sm:p-6">
+          <div className="sticky -top-4 z-10 -mx-4 flex flex-wrap items-center justify-between gap-3 border-b bg-white px-4 py-3 sm:-top-6 sm:-mx-6 sm:px-6">
+            <div className="min-w-0">
+              <h2 id="product-editor-title" className="text-xl font-semibold">
+                {editing ? "Редактировать товар" : "Добавить товар"}
+              </h2>
+              {editing && (
+                <p className="mt-1 max-w-xl truncate text-sm text-gray-500">
+                  {form.name}
+                </p>
+              )}
+            </div>
+            <button
+              type="button"
+              disabled={busy || uploading || Boolean(variantUploadingId)}
+              className="rounded-xl border px-3 py-2 text-sm"
+              onClick={closeEditor}
             >
-              <option value="">— без бренда —</option>
-              {brands.map((brand) => (
-                <option key={brand.id} value={brand.id}>
-                  {brand.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-
-          <Field label="Краткое описание">
-            <textarea
-              rows={3}
-              maxLength={280}
-              className="w-full border rounded-xl px-3 py-2"
-              placeholder="Что это за средство, для какой кожи или задачи и 2–3 главных преимущества"
-              value={form.shortDescription}
-              onChange={(event) => setField("shortDescription", event.target.value)}
-            />
-            <div className="mt-1 text-xs text-gray-500">
-              До 280 символов. Используется в карточке товара и метаописании.
-            </div>
-          </Field>
-
-          <Field label="Полное описание">
-            <textarea
-              required
-              rows={10}
-              className="w-full border rounded-xl px-3 py-2"
-              value={form.description}
-              onChange={(event) => setField("description", event.target.value)}
-            />
-          </Field>
-
-          <Field label="Загрузить изображение товара">
-            <input
-              type="file"
-              accept="image/*"
-              className="w-full border rounded-xl px-3 py-2 bg-white"
-              disabled={uploading}
-              onChange={(event) => {
-                const selectedFile = event.target.files?.[0];
-                if (selectedFile) uploadImage(selectedFile);
-                event.currentTarget.value = "";
-              }}
-            />
-            <div className="text-xs text-gray-500 mt-1">
-              Файл загрузится в Cloudinary, URL подставится автоматически.
-            </div>
-          </Field>
-
-          <Field label="URL изображения товара">
-            <input
-              required
-              className="w-full border rounded-xl px-3 py-2"
-              value={form.image}
-              onChange={(event) => setField("image", event.target.value)}
-            />
-          </Field>
-
-          <Field label="Превью товара">
-            <div className="flex items-center gap-3">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={form.image || "/seed/cleanser.jpg"}
-                alt="Предпросмотр товара"
-                className="w-20 h-20 object-cover rounded-xl border bg-gray-50"
-              />
-              <div className="text-xs text-gray-500">
-                {uploading
-                  ? "Загрузка…"
-                  : "Изображение будет показано в карточке товара"}
-              </div>
-            </div>
-          </Field>
-
-          <Field label="Категория">
-            <input
-              required
-              className="w-full border rounded-xl px-3 py-2"
-              value={form.category}
-              onChange={(event) => setField("category", event.target.value)}
-            />
-          </Field>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label="Цена, ₸">
-              <input
-                required
-                type="number"
-                inputMode="numeric"
-                min={0}
-                step={1}
-                className="w-full border rounded-xl px-3 py-2"
-                value={form.price}
-                onChange={(event) =>
-                  setField("price", event.target.value.replace(/[^\d]/g, ""))
-                }
-              />
-            </Field>
-
-            <Field label="Остаток, шт.">
-              <input
-                required
-                type="number"
-                inputMode="numeric"
-                min={0}
-                step={1}
-                className="w-full border rounded-xl px-3 py-2"
-                value={form.stock}
-                onChange={(event) =>
-                  setField("stock", event.target.value.replace(/[^\d]/g, ""))
-                }
-              />
-            </Field>
-          </div>
-
-          <Field label="Варианты (объём / цена / остаток / фото)">
-            <div className="space-y-3">
-              {form.variants.map((variant, index) => {
-                const preview =
-                  String(variant.image || "").trim() ||
-                  form.image ||
-                  "/seed/cleanser.jpg";
-                const uploadingThis = variantUploadingId === variant.id;
-
-                return (
-                  <div key={variant.id} className="rounded-2xl border p-3 space-y-3">
-                    <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
-                      <input
-                        className="md:col-span-3 border rounded-xl px-3 py-2"
-                        placeholder="Напр. 50 мл"
-                        value={variant.label}
-                        onChange={(event) =>
-                          setVariantRow(index, { label: event.target.value })
-                        }
-                      />
-                      <input
-                        className="md:col-span-2 border rounded-xl px-3 py-2"
-                        placeholder="Цена ₸"
-                        inputMode="numeric"
-                        value={variant.price}
-                        onChange={(event) =>
-                          setVariantRow(index, {
-                            price: event.target.value.replace(/[^\d]/g, ""),
-                          })
-                        }
-                      />
-                      <input
-                        className="md:col-span-2 border rounded-xl px-3 py-2"
-                        placeholder="Остаток"
-                        inputMode="numeric"
-                        value={variant.stock}
-                        onChange={(event) =>
-                          setVariantRow(index, {
-                            stock: event.target.value.replace(/[^\d]/g, ""),
-                          })
-                        }
-                      />
-                      <input
-                        className="md:col-span-2 border rounded-xl px-3 py-2"
-                        placeholder="SKU"
-                        value={variant.sku || ""}
-                        onChange={(event) =>
-                          setVariantRow(index, { sku: event.target.value })
-                        }
-                      />
-                      <input
-                        className="md:col-span-3 border rounded-xl px-3 py-2"
-                        placeholder="Фото варианта"
-                        value={variant.image || ""}
-                        onChange={(event) =>
-                          setVariantRow(index, { image: event.target.value })
-                        }
-                      />
-                    </div>
-
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                      <div className="flex items-center gap-2">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={preview}
-                          alt="Предпросмотр варианта"
-                          className="w-12 h-12 rounded-xl object-cover border bg-gray-50"
-                        />
-                        <span className="text-xs text-gray-500">
-                          {variant.image ? "Фото варианта" : "Основное фото"}
-                        </span>
-                      </div>
-
-                      <div className="flex flex-wrap gap-2">
-                        <label className="inline-flex items-center px-3 py-2 rounded-xl border hover:bg-gray-50 cursor-pointer text-sm">
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            disabled={uploadingThis}
-                            onChange={(event) => {
-                              const selectedFile = event.target.files?.[0];
-                              if (selectedFile) {
-                                uploadVariantImage(selectedFile, index);
-                              }
-                              event.currentTarget.value = "";
-                            }}
-                          />
-                          {uploadingThis ? "Загрузка…" : "Загрузить фото"}
-                        </label>
-                        <button
-                          type="button"
-                          className="px-3 py-2 rounded-xl border hover:bg-gray-50 text-sm"
-                          onClick={() => removeVariantRow(index)}
-                        >
-                          Удалить вариант
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-
+              Закрыть
+            </button>
+            <nav aria-label="Разделы карточки" className="flex w-full gap-2">
               <button
                 type="button"
-                className="px-4 py-2 rounded-xl border hover:bg-gray-50"
-                onClick={addVariantRow}
+                className="rounded-lg border px-3 py-2 text-sm"
+                onClick={() =>
+                  dialogRef.current?.scrollTo({ top: 0, behavior: "smooth" })
+                }
               >
-                + Добавить вариант
+                Данные товара
               </button>
-            </div>
-          </Field>
+              <button
+                type="button"
+                className="rounded-lg border px-3 py-2 text-sm"
+                onClick={() =>
+                  variantsRef.current?.scrollIntoView({
+                    block: "start",
+                    behavior: "smooth",
+                  })
+                }
+              >
+                Варианты ({form.variants.length})
+              </button>
+            </nav>
+          </div>
 
-          <Field label="Статус товара">
-            <div className="flex flex-col gap-2 text-sm">
-              <label className="inline-flex items-center gap-2 font-medium">
-                <input
-                  type="checkbox"
-                  checked={form.isPublished}
-                  onChange={(event) =>
-                    setField("isPublished", event.target.checked)
-                  }
-                />
-                <span>Опубликован на сайте</span>
-              </label>
-              <label className="inline-flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={form.isNew}
-                  onChange={(event) => setField("isNew", event.target.checked)}
-                />
-                <span>Новинка</span>
-              </label>
-              <label className="inline-flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={form.isPopular}
-                  onChange={(event) =>
-                    setField("isPopular", event.target.checked)
-                  }
-                />
-                <span>Показывать в блоке «Популярные»</span>
-              </label>
-            </div>
-          </Field>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              className="px-4 py-2 rounded bg-black text-white disabled:opacity-50"
-              type="submit"
+          <form className="space-y-3" onSubmit={save}>
+            <fieldset
               disabled={busy || uploading || Boolean(variantUploadingId)}
+              className="space-y-3"
             >
-              {busy ? "Сохранение…" : uploading ? "Загрузка…" : "Сохранить"}
-            </button>
+              <Field label="Название">
+                <input
+                  required
+                  className="w-full border rounded-xl px-3 py-2"
+                  value={form.name}
+                  onChange={(event) => setField("name", event.target.value)}
+                />
+              </Field>
 
-            {editing && (
+              <Field label="Бренд">
+                <select
+                  className="w-full border rounded-xl px-3 py-2 bg-white"
+                  value={form.brandId}
+                  onChange={(event) => setField("brandId", event.target.value)}
+                >
+                  <option value="">— без бренда —</option>
+                  {brands.map((brand) => (
+                    <option key={brand.id} value={brand.id}>
+                      {brand.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label="Краткое описание">
+                <textarea
+                  rows={3}
+                  maxLength={280}
+                  className="w-full border rounded-xl px-3 py-2"
+                  placeholder="Что это за средство, для какой кожи или задачи и 2–3 главных преимущества"
+                  value={form.shortDescription}
+                  onChange={(event) =>
+                    setField("shortDescription", event.target.value)
+                  }
+                />
+                <div className="mt-1 text-xs text-gray-500">
+                  До 280 символов. Используется в карточке товара и
+                  метаописании.
+                </div>
+              </Field>
+
+              <Field label="Полное описание">
+                <textarea
+                  required
+                  rows={10}
+                  className="w-full border rounded-xl px-3 py-2"
+                  value={form.description}
+                  onChange={(event) =>
+                    setField("description", event.target.value)
+                  }
+                />
+              </Field>
+
+              <Field label="Загрузить изображение товара">
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="w-full border rounded-xl px-3 py-2 bg-white"
+                  disabled={uploading}
+                  onChange={(event) => {
+                    const selectedFile = event.target.files?.[0];
+                    if (selectedFile) uploadImage(selectedFile);
+                    event.currentTarget.value = "";
+                  }}
+                />
+              </Field>
+
+              <Field label="URL изображения товара">
+                <input
+                  required
+                  className="w-full border rounded-xl px-3 py-2"
+                  value={form.image}
+                  onChange={(event) => setField("image", event.target.value)}
+                />
+              </Field>
+
+              <Field label="Превью товара">
+                <div className="flex items-center gap-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={form.image || "/seed/cleanser.jpg"}
+                    alt="Предпросмотр товара"
+                    className="w-20 h-20 object-cover rounded-xl border bg-gray-50"
+                  />
+                  <div className="text-xs text-gray-500">
+                    {uploading
+                      ? "Загрузка…"
+                      : "Изображение будет показано в карточке товара"}
+                  </div>
+                </div>
+              </Field>
+
+              <Field label="Категория">
+                <input
+                  required
+                  className="w-full border rounded-xl px-3 py-2"
+                  value={form.category}
+                  onChange={(event) => setField("category", event.target.value)}
+                />
+              </Field>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Field label="Цена, ₸">
+                  <input
+                    required
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    step={1}
+                    className="w-full border rounded-xl px-3 py-2"
+                    value={form.price}
+                    onChange={(event) =>
+                      setField(
+                        "price",
+                        event.target.value.replace(/[^\d]/g, ""),
+                      )
+                    }
+                  />
+                </Field>
+
+                <Field label="Остаток, шт.">
+                  <input
+                    required
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    step={1}
+                    className="w-full border rounded-xl px-3 py-2"
+                    readOnly={form.variants.length > 0}
+                    value={
+                      form.variants.length
+                        ? form.variants.reduce(
+                            (sum, row) => sum + (Number(row.stock) || 0),
+                            0,
+                          )
+                        : form.stock
+                    }
+                    onChange={(event) =>
+                      setField(
+                        "stock",
+                        event.target.value.replace(/[^\d]/g, ""),
+                      )
+                    }
+                  />
+                  {form.variants.length > 0 && (
+                    <p className="text-xs text-gray-500">
+                      Сумма остатков вариантов, рассчитывается автоматически.
+                    </p>
+                  )}
+                </Field>
+              </div>
+
+              <div
+                ref={variantsRef}
+                className="scroll-mt-36 rounded-2xl border bg-gray-50 p-3 sm:p-4"
+              >
+                <h3 className="mb-3 text-lg font-semibold">
+                  Варианты · {form.variants.length}
+                </h3>
+                <p className="mb-3 text-sm text-gray-500">
+                  Для каждого объёма укажите цену и остаток. Общее количество
+                  считается автоматически.
+                </p>
+                <div className="space-y-3">
+                  {form.variants.map((variant, index) => {
+                    const preview =
+                      String(variant.image || "").trim() ||
+                      form.image ||
+                      "/seed/cleanser.jpg";
+                    const uploadingThis = variantUploadingId === variant.id;
+
+                    return (
+                      <div
+                        key={variant.id}
+                        className="rounded-2xl border p-3 space-y-3"
+                      >
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
+                          <input
+                            className="md:col-span-3 border rounded-xl px-3 py-2"
+                            placeholder="Напр. 50 мл"
+                            aria-label={`Объём варианта ${index + 1}`}
+                            value={variant.label}
+                            onChange={(event) =>
+                              setVariantRow(index, {
+                                label: event.target.value,
+                              })
+                            }
+                          />
+                          <input
+                            className="md:col-span-2 border rounded-xl px-3 py-2"
+                            placeholder="Цена ₸"
+                            aria-label={`Цена варианта ${index + 1}`}
+                            inputMode="numeric"
+                            value={variant.price}
+                            onChange={(event) =>
+                              setVariantRow(index, {
+                                price: event.target.value.replace(/[^\d]/g, ""),
+                              })
+                            }
+                          />
+                          <input
+                            className="md:col-span-2 border rounded-xl px-3 py-2"
+                            placeholder="Остаток"
+                            aria-label={`Остаток варианта ${index + 1}`}
+                            inputMode="numeric"
+                            value={variant.stock}
+                            onChange={(event) =>
+                              setVariantRow(index, {
+                                stock: event.target.value.replace(/[^\d]/g, ""),
+                              })
+                            }
+                          />
+                          <input
+                            className="md:col-span-2 border rounded-xl px-3 py-2"
+                            placeholder="SKU"
+                            aria-label={`SKU варианта ${index + 1}`}
+                            value={variant.sku || ""}
+                            onChange={(event) =>
+                              setVariantRow(index, { sku: event.target.value })
+                            }
+                          />
+                          <input
+                            className="md:col-span-3 border rounded-xl px-3 py-2"
+                            placeholder="Фото варианта"
+                            aria-label={`Фото варианта ${index + 1}`}
+                            value={variant.image || ""}
+                            onChange={(event) =>
+                              setVariantRow(index, {
+                                image: event.target.value,
+                              })
+                            }
+                          />
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                          <div className="flex items-center gap-2">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={preview}
+                              alt="Предпросмотр варианта"
+                              className="w-12 h-12 rounded-xl object-cover border bg-gray-50"
+                            />
+                            <span className="text-xs text-gray-500">
+                              {variant.image
+                                ? "Фото варианта"
+                                : "Основное фото"}
+                            </span>
+                          </div>
+
+                          <div className="flex flex-wrap gap-2">
+                            <label className="inline-flex items-center px-3 py-2 rounded-xl border hover:bg-gray-50 cursor-pointer text-sm">
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                disabled={uploadingThis}
+                                onChange={(event) => {
+                                  const selectedFile = event.target.files?.[0];
+                                  if (selectedFile) {
+                                    uploadVariantImage(selectedFile, index);
+                                  }
+                                  event.currentTarget.value = "";
+                                }}
+                              />
+                              {uploadingThis ? "Загрузка…" : "Загрузить фото"}
+                            </label>
+                            <button
+                              type="button"
+                              className="px-3 py-2 rounded-xl border hover:bg-gray-50 text-sm"
+                              onClick={() => removeVariantRow(index)}
+                            >
+                              Удалить вариант
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  <button
+                    type="button"
+                    className="px-4 py-2 rounded-xl border hover:bg-gray-50"
+                    onClick={addVariantRow}
+                  >
+                    + Добавить вариант
+                  </button>
+                </div>
+              </div>
+
+              <Field label="Статус товара">
+                <div className="flex flex-col gap-2 text-sm">
+                  <label className="inline-flex items-center gap-2 font-medium">
+                    <input
+                      type="checkbox"
+                      checked={form.isPublished}
+                      onChange={(event) =>
+                        setField("isPublished", event.target.checked)
+                      }
+                    />
+                    <span>Опубликован на сайте</span>
+                  </label>
+                  <label className="inline-flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={form.isNew}
+                      onChange={(event) =>
+                        setField("isNew", event.target.checked)
+                      }
+                    />
+                    <span>Новинка</span>
+                  </label>
+                  <label className="inline-flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={form.isPopular}
+                      onChange={(event) =>
+                        setField("isPopular", event.target.checked)
+                      }
+                    />
+                    <span>Показывать в блоке «Популярные»</span>
+                  </label>
+                </div>
+              </Field>
+            </fieldset>
+            {msg && (
+              <div
+                role="status"
+                className="rounded-xl border bg-gray-50 p-3 text-sm"
+              >
+                {msg}
+              </div>
+            )}
+            <div className="sticky -bottom-4 flex flex-wrap items-center gap-3 border-t bg-white py-3 sm:-bottom-6">
+              <button
+                className="px-4 py-2 rounded bg-black text-white disabled:opacity-50"
+                type="submit"
+                disabled={busy || uploading || Boolean(variantUploadingId)}
+              >
+                {busy ? "Сохранение…" : uploading ? "Загрузка…" : "Сохранить"}
+              </button>
+
               <button
                 type="button"
                 className="px-4 py-2 rounded border"
-                onClick={() => {
-                  setEditing(null);
-                  setForm(emptyForm);
-                }}
+                disabled={busy || uploading || Boolean(variantUploadingId)}
+                onClick={closeEditor}
               >
                 Отмена
               </button>
-            )}
-          </div>
+            </div>
 
-          {msg && <div className="text-sm">{msg}</div>}
-          <p className="text-xs text-gray-500">
-            Импортированные товары создаются черновиками. Перед публикацией проверьте
-            описание, изображение, цену и категорию.
-          </p>
-        </form>
-      </div>
+            <p className="text-xs text-gray-500">
+              Импортированные товары создаются черновиками. Перед публикацией
+              проверьте описание, изображение, цену и категорию.
+            </p>
+          </form>
+        </div>
+      </dialog>
 
       <div className="space-y-3 min-w-0">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-xl font-semibold">Товары</h2>
+          <div>
+            <h2 className="text-xl font-semibold">Товары</h2>
+            <p className="mt-1 text-sm text-gray-500">
+              Карточки, варианты и остатки в одном списке.
+            </p>
+          </div>
+          <button type="button" className="btn shrink-0" onClick={addProduct}>
+            + Добавить товар
+          </button>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="text-sm text-gray-500">
-            {searchQuery.trim() ? filteredItems.length + " из " + items.length : items.length + " поз."}
+            {searchQuery.trim()
+              ? filteredItems.length + " из " + items.length
+              : items.length + " поз."}
           </span>
         </div>
-
+        {!editorOpen && msg && (
+          <p role="status" className="rounded-xl border bg-white p-3 text-sm">
+            {msg}
+          </p>
+        )}
 
         <div className="grid grid-cols-1 gap-3">
           {filteredItems.map((product) => {
-            const variantsCount = Array.isArray(product.variants)
-              ? product.variants.length
-              : 0;
+            const { variants } = adminStockSummary(product);
+            const variantsCount = variants.length;
+            const prices = variants.map((row) => row.price);
+            const minPrice = prices.length
+              ? Math.min(...prices)
+              : Number(product.price);
+            const maxPrice = prices.length ? Math.max(...prices) : minPrice;
 
             return (
               <div
                 key={product.id}
-                className="rounded-2xl border p-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 min-w-0"
+                className="min-w-0 rounded-2xl border bg-white p-4"
               >
-                <div className="flex items-center gap-3 min-w-0">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={product.image}
-                    alt={product.name}
-                    className="w-16 h-16 object-cover rounded-lg shrink-0"
-                  />
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={product.image}
+                      alt={product.name}
+                      className="w-16 h-16 object-cover rounded-lg shrink-0"
+                    />
 
-                  <div className="min-w-0">
-                    <div className="font-semibold flex flex-wrap items-center gap-2">
-                      <span className="break-words">{product.name}</span>
-                      {!product.isPublished && (
-                        <Badge className="bg-gray-100 text-gray-700 border-gray-200">
-                          Черновик
-                        </Badge>
-                      )}
-                      {product.isNew && (
-                        <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200">
-                          Новинка
-                        </Badge>
-                      )}
-                      {product.isPopular && (
-                        <Badge
-                          className="bg-yellow-100 text-yellow-800 border-yellow-200"
-                          title={product.popularityReason || undefined}
-                        >
-                          {product.popularityPinned
-                            ? "Популярный · вручную"
-                            : `Популярный · сеть ${Math.trunc(Number(product.popularityScore) || 0)}%`}
-                        </Badge>
-                      )}
-                      {variantsCount > 0 && (
-                        <Badge className="bg-gray-100 text-gray-700">
-                          Вариантов: {variantsCount}
-                        </Badge>
-                      )}
-                    </div>
-
-                    <div className="text-sm text-gray-500 break-words">
-                      {product.brand?.name || "—"} •{" "}
-                      {Number(product.price).toLocaleString("ru-RU")} ₸ •{" "}
-                      {product.stock} шт.
-                    </div>
-                    {(product.supplierSku || product.supplier?.name) && (
-                      <div className="text-xs text-gray-400 mt-1">
-                        {product.supplier?.name || "Поставщик"}
-                        {product.supplierSku ? ` • SKU ${product.supplierSku}` : ""}
-                        {product.sourcePrice != null
-                          ? ` • прайс ${Number(product.sourcePrice).toLocaleString("ru-RU")} ₸`
-                          : ""}
+                    <div className="min-w-0">
+                      <div className="font-semibold flex flex-wrap items-center gap-2">
+                        <span className="break-words">{product.name}</span>
+                        {!product.isPublished && (
+                          <Badge className="bg-gray-100 text-gray-700 border-gray-200">
+                            Черновик
+                          </Badge>
+                        )}
+                        {product.isNew && (
+                          <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200">
+                            Новинка
+                          </Badge>
+                        )}
+                        {product.isPopular && (
+                          <Badge
+                            className="bg-yellow-100 text-yellow-800 border-yellow-200"
+                            title={product.popularityReason || undefined}
+                          >
+                            {product.popularityPinned
+                              ? "Популярный · вручную"
+                              : `Популярный · сеть ${Math.trunc(Number(product.popularityScore) || 0)}%`}
+                          </Badge>
+                        )}
                       </div>
-                    )}
+
+                      <div className="text-sm text-gray-500 break-words">
+                        {product.brand?.name || "—"} •{" "}
+                        {minPrice.toLocaleString("ru-RU")}
+                        {maxPrice > minPrice
+                          ? `–${maxPrice.toLocaleString("ru-RU")}`
+                          : ""}{" "}
+                        ₸
+                      </div>
+                      <VariantSummary product={product} />
+                      {(product.supplierSku || product.supplier?.name) && (
+                        <div className="text-xs text-gray-400 mt-1">
+                          {product.supplier?.name || "Поставщик"}
+                          {product.supplierSku
+                            ? ` • SKU ${product.supplierSku}`
+                            : ""}
+                          {product.sourcePrice != null
+                            ? ` • прайс ${Number(product.sourcePrice).toLocaleString("ru-RU")} ₸`
+                            : ""}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 w-full sm:w-auto sm:flex-nowrap sm:justify-end">
+                    <button
+                      className="btn"
+                      onClick={() => edit(product)}
+                      type="button"
+                    >
+                      Редактировать
+                    </button>
+                    <button
+                      className="btn"
+                      onClick={() => remove(product.id)}
+                      type="button"
+                    >
+                      Удалить
+                    </button>
                   </div>
                 </div>
-
-                <div className="flex flex-wrap gap-2 w-full sm:w-auto sm:flex-nowrap sm:justify-end">
-                  <button className="btn" onClick={() => edit(product)} type="button">
-                    Ред.
-                  </button>
-                  <button className="btn" onClick={() => remove(product.id)} type="button">
-                    Удалить
-                  </button>
-                </div>
+                <ProductVariantsPanel
+                  product={product}
+                  onEdit={() => edit(product, "variants")}
+                  onSaved={() =>
+                    window.dispatchEvent(new Event("products-changed"))
+                  }
+                />
               </div>
             );
           })}
 
           {filteredItems.length === 0 && (
             <div className="rounded-xl border border-dashed p-4 text-sm text-gray-500">
-              {items.length === 0 ? "Пока пусто" : "По запросу «" + searchQuery.trim() + "» ничего не найдено"}
+              {items.length === 0
+                ? "Пока пусто"
+                : "По запросу «" + searchQuery.trim() + "» ничего не найдено"}
             </div>
           )}
         </div>
@@ -782,10 +1013,20 @@ export default function AdminProductsClient() {
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
+  const id = useId();
+  const content = Children.map(children, (child) =>
+    isValidElement<{ id?: string }>(child) &&
+    typeof child.type === "string" &&
+    ["input", "select", "textarea"].includes(child.type)
+      ? cloneElement(child, { id })
+      : child,
+  );
   return (
     <div className="space-y-1 min-w-0">
-      <label className="block text-sm text-gray-600">{label}</label>
-      {children}
+      <label htmlFor={id} className="block text-sm text-gray-600">
+        {label}
+      </label>
+      {content}
     </div>
   );
 }
