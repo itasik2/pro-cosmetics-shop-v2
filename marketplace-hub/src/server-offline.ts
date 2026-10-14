@@ -638,7 +638,8 @@ app.post("/v1/source-policies", async (request, reply) => {
 app.get("/v1/ai/enrichment/jobs", async (request, reply) => {
   if (!stagingDatabaseConfigured()) return reply.code(503).send({ error: "database_not_configured" });
   const query = z.object({
-    organizationId: z.string().min(1), limit: z.coerce.number().int().min(1).max(100).optional(),
+    organizationId: z.string().min(1), productId: z.string().min(1).max(128).optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
   }).safeParse(request.query);
   if (!query.success) return reply.code(400).send({ error: "invalid_enrichment_jobs_query" });
   return listCatalogEnrichmentJobs(query.data);
@@ -710,6 +711,7 @@ app.get("/v1/ai/enrichment/proposals", async (request, reply) => {
 
   const query = z.object({
     organizationId: z.string().min(1),
+    productId: z.string().min(1).max(128).optional(),
     status: z.enum(["PENDING", "APPLIED", "REJECTED"]).optional(),
     limit: z.coerce.number().int().min(1).max(100).optional(),
   }).safeParse(request.query);

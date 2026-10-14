@@ -405,9 +405,9 @@ export async function getCatalogEnrichmentJob(input: {
   });
 }
 
-export async function listCatalogEnrichmentJobs(input: { organizationId: string; limit?: number }) {
+export async function listCatalogEnrichmentJobs(input: { organizationId: string; productId?: string; limit?: number }) {
   return prisma.catalogEnrichmentJob.findMany({
-    where: { product: { organizationId: input.organizationId } },
+    where: { product: { organizationId: input.organizationId, ...(input.productId ? { id: input.productId } : {}) } },
     orderBy: { createdAt: "desc" },
     take: Math.max(1, Math.min(100, input.limit ?? 50)),
     include: { product: { select: { id: true, sku: true, title: true, brand: true } } },
@@ -416,12 +416,13 @@ export async function listCatalogEnrichmentJobs(input: { organizationId: string;
 
 export async function listCatalogEnrichmentProposals(input: {
   organizationId: string;
+  productId?: string;
   status?: "PENDING" | "APPLIED" | "REJECTED";
   limit?: number;
 }) {
   return prisma.catalogEnrichmentProposal.findMany({
     where: {
-      product: { organizationId: input.organizationId },
+      product: { organizationId: input.organizationId, ...(input.productId ? { id: input.productId } : {}) },
       ...(input.status ? { status: input.status } : {}),
     },
     orderBy: { createdAt: "desc" },
