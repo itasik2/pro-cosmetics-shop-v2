@@ -1,6 +1,7 @@
 import "server-only";
 import { headers } from "next/headers";
 import { isLocalReadOnly, isMutation } from "./local-mode";
+import { hubBaseForPath } from "./api-routing";
 
 const baseUrl = String(process.env.CATALOG_HUB_API_URL || "").replace(/\/$/, "");
 const apiKey = String(process.env.CATALOG_HUB_API_KEY || "");
@@ -82,7 +83,7 @@ export async function hubFetch<T>(
     throw new Error("catalog_hub_server_auth_not_configured");
   }
 
-  const response = await fetch(baseUrl + path, {
+  const response = await fetch(hubBaseForPath(path, process.env) + path, {
     ...init,
     cache: "no-store",
     headers: {

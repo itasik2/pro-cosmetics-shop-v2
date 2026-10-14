@@ -42,6 +42,8 @@ jobs:
       - name: Run local supplier import end-to-end test
         working-directory: catalog-hub-web
         run: npm run testdb:import-e2e
+      - name: Verify enrichment queue and review against isolated PostgreSQL
+        run: node catalog-hub-local/enrichment-e2e.mjs
       - name: Validate PDF.js worker in Next.js API (synthetic PDF)
         run: node catalog-hub-local/pdf-worker-smoke.mjs
       - name: Report errors and stop containers

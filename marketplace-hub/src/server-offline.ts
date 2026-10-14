@@ -51,6 +51,7 @@ import {
 import {
   createCatalogEnrichmentJob,
   getCatalogEnrichmentJob,
+  listCatalogEnrichmentJobs,
   listCatalogEnrichmentProposals,
   runCatalogEnrichmentJob,
   stageCatalogEnrichmentProposal,
@@ -634,6 +635,15 @@ app.post("/v1/source-policies", async (request, reply) => {
   }
 });
 
+app.get("/v1/ai/enrichment/jobs", async (request, reply) => {
+  if (!stagingDatabaseConfigured()) return reply.code(503).send({ error: "database_not_configured" });
+  const query = z.object({
+    organizationId: z.string().min(1), limit: z.coerce.number().int().min(1).max(100).optional(),
+  }).safeParse(request.query);
+  if (!query.success) return reply.code(400).send({ error: "invalid_enrichment_jobs_query" });
+  return listCatalogEnrichmentJobs(query.data);
+});
+
 app.post("/v1/ai/enrichment/jobs", async (request, reply) => {
   if (!stagingDatabaseConfigured()) {
     return reply.code(503).send({ error: "database_not_configured" });
@@ -723,6 +733,7 @@ app.post("/v1/ai/enrichment/proposals/:id/stage", async (request, reply) => {
     organizationId: z.string().min(1),
     includeTitle: z.boolean().optional(),
     includeBrand: z.boolean().optional(),
+    replaceFilledFields: z.boolean().optional(),
     selectedImageUrl: z.string().url().optional(),
     createdBy: z.string().optional(),
   }).safeParse(request.body);
@@ -1278,7 +1289,7 @@ app.post("/v1/kaspi/price-feed/preview", async (request, reply) => {
 
 export async function startCatalogHubServer() {
   const port = Number(process.env.PORT ?? 4100);
-  await app.listen({ port, host: "0.0.0.0" });
+  await app.listen({ port, host: process.env.HOST || "0.0.0.0" });
 }
 
 if (process.env.VERCEL !== "1") {
