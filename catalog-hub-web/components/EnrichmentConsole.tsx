@@ -24,6 +24,7 @@ export function EnrichmentConsole({ jobs, proposals, policies, canWrite, initial
   const [sku, setSku] = useState(initialSku);
   const [supplierCode, setSupplierCode] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
+  const [allowExternalSearch, setAllowExternalSearch] = useState(false);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -54,7 +55,7 @@ export function EnrichmentConsole({ jobs, proposals, policies, canWrite, initial
     <section className="panel">
       <h2>Дополнить карточку</h2>
       <p className="subtle">Сначала сохраните товар из импорта. Выберите источники поставщика для поиска точного товара и объёма. Для сайта дистрибьютора укажите ссылку на товар.</p>
-      <form onSubmit={e => { e.preventDefault(); void act("create", { action: "create", sku, supplierCode, sourceUrl }); }}>
+      <form onSubmit={e => { e.preventDefault(); void act("create", { action: "create", sku, supplierCode, sourceUrl, allowExternalSearch }); }}>
         <div className="editor-grid">
           <label className="editor-field"><span>Внутренний SKU</span><input className="input" required maxLength={100} value={sku} onChange={e => setSku(e.target.value)} /></label>
           <label className="editor-field"><span>Источники поставщика</span><select className="input" value={supplierCode} onChange={e => setSupplierCode(e.target.value)}>
@@ -63,6 +64,7 @@ export function EnrichmentConsole({ jobs, proposals, policies, canWrite, initial
           </select></label>
           <label className="editor-field wide"><span>Ссылка на товар (необязательно)</span><input className="input" type="url" value={sourceUrl} onChange={e => setSourceUrl(e.target.value)} placeholder="https://…" /></label>
         </div>
+        <label className="review-check"><input type="checkbox" checked={allowExternalSearch} onChange={e => setAllowExternalSearch(e.target.checked)} />Если производитель не найден, искать у других продавцов (потребуется ИИ и ручная проверка)</label>
         <button className="button primary" style={{ marginTop: 12 }} disabled={!canWrite || Boolean(busy)}>Добавить в очередь</button>
       </form>
     </section>

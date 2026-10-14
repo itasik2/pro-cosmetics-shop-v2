@@ -243,6 +243,7 @@ export async function importProductMedia(raw: unknown) {
           cloudinaryPublicId: uploaded.publicId,
           cloudinaryOriginalUrl: uploaded.originalUrl,
           sourceContentType: fetched.contentType,
+          requestedSourceUrl: input.sourceUrl,
           analysis,
         }),
         variants: {

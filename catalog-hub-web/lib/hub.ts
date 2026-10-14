@@ -123,6 +123,7 @@ export async function safeHub<T>(request: Promise<T>) {
 
 export function catalogPath(params?: {
   q?: string;
+  incomplete?: boolean;
   limit?: number;
   offset?: number;
 }) {
@@ -132,5 +133,6 @@ export function catalogPath(params?: {
     offset: String(params?.offset ?? 0),
   });
   if (params?.q) search.set("q", params.q);
+  if (params?.incomplete) search.set("incomplete", "true");
   return "/v1/catalog/products?" + search.toString();
 }

@@ -1,8 +1,8 @@
 export type EnrichmentAction =
-  | { action: "create"; sku: string; sourceUrl?: string; supplierCode?: string }
+  | { action: "create"; sku: string; sourceUrl?: string; supplierCode?: string; allowExternalSearch: boolean }
   | { action: "source"; supplierCode: string; name: string; sourceUrl: string; sourceType: "OFFICIAL_SITE" | "DISTRIBUTOR" }
   | { action: "run"; id: string }
-  | { action: "stage"; id: string; selectedImageUrl?: string; replaceFilledFields: boolean };
+  | { action: "stage"; id: string; selectedImageUrl?: string; selectedMediaVariantId?: string; replaceFilledFields: boolean };
 
 export function parseEnrichmentAction(raw: unknown): EnrichmentAction {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("invalid_body");
@@ -19,7 +19,12 @@ export function parseEnrichmentAction(raw: unknown): EnrichmentAction {
     if (!["https:", "http:"].includes(parsed.protocol) || parsed.username || parsed.password) throw new Error("invalid_" + field);
     return parsed.href;
   };
-  if (value.action === "create") return { action: "create", sku: text("sku"), sourceUrl: url("sourceUrl"), supplierCode: value.supplierCode ? text("supplierCode") : undefined };
+  if (value.action === "create") {
+    if (value.allowExternalSearch !== undefined && typeof value.allowExternalSearch !== "boolean") throw new Error("invalid_allowExternalSearch");
+    return { action: "create", sku: text("sku"), sourceUrl: url("sourceUrl"),
+      supplierCode: value.supplierCode ? text("supplierCode") : undefined,
+      allowExternalSearch: value.allowExternalSearch === true };
+  }
   if (value.action === "source") {
     const sourceUrl = url("sourceUrl");
     if (!sourceUrl || !["OFFICIAL_SITE", "DISTRIBUTOR"].includes(String(value.sourceType))) throw new Error("invalid_source");
@@ -28,7 +33,7 @@ export function parseEnrichmentAction(raw: unknown): EnrichmentAction {
   if (value.action === "run") return { action: "run", id: text("id") };
   if (value.action === "stage") {
     if (value.replaceFilledFields !== undefined && typeof value.replaceFilledFields !== "boolean") throw new Error("invalid_replaceFilledFields");
-    return { action: "stage", id: text("id"), selectedImageUrl: url("selectedImageUrl"), replaceFilledFields: value.replaceFilledFields === true };
+    return { action: "stage", id: text("id"), selectedImageUrl: url("selectedImageUrl"), ...(value.selectedMediaVariantId ? { selectedMediaVariantId: text("selectedMediaVariantId") } : {}), replaceFilledFields: value.replaceFilledFields === true };
   }
   throw new Error("invalid_action");
 }

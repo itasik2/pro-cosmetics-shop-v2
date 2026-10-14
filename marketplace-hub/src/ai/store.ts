@@ -32,6 +32,7 @@ const stageInputSchema = z.object({
   includeBrand: z.boolean().default(false),
   replaceFilledFields: z.boolean().default(false),
   selectedImageUrl: z.string().url().optional(),
+  selectedMediaVariantId: z.string().min(1).max(128).optional(),
   createdBy: z.string().optional(),
 });
 
@@ -405,9 +406,9 @@ export async function getCatalogEnrichmentJob(input: {
   });
 }
 
-export async function listCatalogEnrichmentJobs(input: { organizationId: string; limit?: number }) {
+export async function listCatalogEnrichmentJobs(input: { organizationId: string; productId?: string; limit?: number }) {
   return prisma.catalogEnrichmentJob.findMany({
-    where: { product: { organizationId: input.organizationId } },
+    where: { product: { organizationId: input.organizationId, ...(input.productId ? { id: input.productId } : {}) } },
     orderBy: { createdAt: "desc" },
     take: Math.max(1, Math.min(100, input.limit ?? 50)),
     include: { product: { select: { id: true, sku: true, title: true, brand: true } } },
@@ -416,12 +417,13 @@ export async function listCatalogEnrichmentJobs(input: { organizationId: string;
 
 export async function listCatalogEnrichmentProposals(input: {
   organizationId: string;
+  productId?: string;
   status?: "PENDING" | "APPLIED" | "REJECTED";
   limit?: number;
 }) {
   return prisma.catalogEnrichmentProposal.findMany({
     where: {
-      product: { organizationId: input.organizationId },
+      product: { organizationId: input.organizationId, ...(input.productId ? { id: input.productId } : {}) },
       ...(input.status ? { status: input.status } : {}),
     },
     orderBy: { createdAt: "desc" },
@@ -455,9 +457,21 @@ export async function stageCatalogEnrichmentProposal(raw: unknown) {
   if (!proposal) throw new Error("enrichment_proposal_not_found");
 
   const proposalImages = strings(proposal.images);
-  const selectedImage = input.selectedImageUrl?.trim();
+  let selectedImage = input.selectedImageUrl?.trim();
   if (selectedImage && !proposalImages.includes(selectedImage)) {
     throw new Error("selected_image_not_in_proposal");
+  }
+  if (input.selectedMediaVariantId) {
+    if (selectedImage) throw new Error("select_one_image");
+    const variant = await prisma.mediaVariant.findFirst({
+      where: { id: input.selectedMediaVariantId, media: { productId: proposal.productId } },
+      include: { media: { select: { sourceUrl: true, metadata: true } } },
+    });
+    const originalUrl = record(variant?.media.metadata).requestedSourceUrl;
+    if (!variant?.url || ![variant.media.sourceUrl, originalUrl].some(
+      url => typeof url === "string" && proposalImages.includes(url),
+    )) throw new Error("selected_image_not_in_proposal");
+    selectedImage = variant.url;
   }
 
   const stock = proposal.product.inventory.reduce(
