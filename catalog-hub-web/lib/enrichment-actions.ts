@@ -28,7 +28,7 @@ export function parseEnrichmentAction(raw: unknown): EnrichmentAction {
   if (value.action === "run") return { action: "run", id: text("id") };
   if (value.action === "stage") {
     if (value.replaceFilledFields !== undefined && typeof value.replaceFilledFields !== "boolean") throw new Error("invalid_replaceFilledFields");
-    return { action: "stage", id: text("id"), selectedImageUrl: url("selectedImageUrl"), selectedMediaVariantId: value.selectedMediaVariantId ? text("selectedMediaVariantId") : undefined, replaceFilledFields: value.replaceFilledFields === true };
+    return { action: "stage", id: text("id"), selectedImageUrl: url("selectedImageUrl"), ...(value.selectedMediaVariantId ? { selectedMediaVariantId: text("selectedMediaVariantId") } : {}), replaceFilledFields: value.replaceFilledFields === true };
   }
   throw new Error("invalid_action");
 }
