@@ -1,10 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {mkdtemp,rm,stat} from "node:fs/promises";
+import {mkdtemp,rm,stat,readFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {
- deleteSupplierProfile,listLocalImportHistory,listSupplierProfiles,
+ deleteSupplierProfile,deleteLocalImportHistory,listLocalImportHistory,listSupplierProfiles,loadLocalImportSnapshot,
  recordLocalImportEvent,saveSupplierProfile,validateProfileMapping,
 } from "./local-supplier-store";
 
@@ -87,5 +87,38 @@ test("removing a supplier mapping does not affect the history",async()=>{
    assert.equal(await deleteSupplierProfile(org,p.id,dir),true);
    assert.deepEqual(await listSupplierProfiles(org,dir),[]);
    assert.equal((await listLocalImportHistory(org,dir)).length,1);
+ }finally{await rm(dir,{recursive:true,force:true});}
+});
+test("saved rows reopen within their organization and deleting selected history removes the private snapshot",async()=>{
+ const dir=await temp();
+ try{
+   const snapshot={
+     table:{format:"CSV",headers:["sku","title","price"],rows:[{sku:"TEST-001",title:"Крем 50 мл",price:"1200"}]},
+     originalRows:[{sku:"TEST-001",title:"Крем 50 мл",price:"1200"}],
+     fileSha256:"a".repeat(64),mapping:{sku:"sku",title:"title",price:"price"},skuOverrides:{},
+   };
+   const entry=await recordLocalImportEvent({
+     organizationId:org,profileId:null,fileName:"supplier.csv",format:"CSV",action:"PREVIEW",
+     result:"PREVIEWED",totalRows:1,countByStatus:{CREATE:1},selectedRows:0,snapshot,
+   },dir);
+   const filename=join(dir,"import-snapshots",entry.id+".json.gz");
+   assert.equal((await stat(filename)).mode&0o777,0o600);
+   assert.equal((await stat(join(dir,"import-snapshots"))).mode&0o777,0o700);
+   assert.equal((await loadLocalImportSnapshot(org,entry.id,dir)).snapshot.table.rows[0].sku,"TEST-001");
+   assert.equal((await readFile(join(dir,"supplier-import-history.json"),"utf8")).includes("TEST-001"),false);
+   await assert.rejects(loadLocalImportSnapshot("other-org",entry.id,dir),/history_entry_not_found/);
+   assert.equal(await deleteLocalImportHistory("other-org",[entry.id],dir),0);
+   assert.equal(await deleteLocalImportHistory(org,[entry.id],dir),1);
+   assert.deepEqual(await listLocalImportHistory(org,dir),[]);
+   await assert.rejects(stat(filename),{code:"ENOENT"});
+ }finally{await rm(dir,{recursive:true,force:true});}
+});
+test("old history entries remain removable but cannot reopen without source rows",async()=>{
+ const dir=await temp();
+ try{
+   const entry=await recordLocalImportEvent({organizationId:org,profileId:null,fileName:"old.pdf",
+     format:"PDF",action:"PREVIEW",result:"PREVIEWED",totalRows:2,countByStatus:{CREATE:2},selectedRows:0},dir);
+   await assert.rejects(loadLocalImportSnapshot(org,entry.id,dir),/history_snapshot_unavailable/);
+   assert.equal(await deleteLocalImportHistory(org,[entry.id],dir),1);
  }finally{await rm(dir,{recursive:true,force:true});}
 });

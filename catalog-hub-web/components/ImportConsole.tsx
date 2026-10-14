@@ -9,6 +9,7 @@ type Preview={
  format:string;headers:string[];mapping:Mapping;review:Reviewed[];
  counts:Record<string,number>;fingerprint:string;note:string;canApply:boolean;
  warnings?:string[];pageCount?:number|null;needsManualSku?:boolean;
+ historyId?:string|null;fileName?:string;pdfSkuOverrides?:Record<number,string>;
  universalCatalog:UniversalCatalog;
  pdfSource?:Array<{index:number;page:string;volume:string;price1:string;price2:string}>;
 };
@@ -16,7 +17,7 @@ type ItemResult={rowNumber:number;sku:string;status:string;id?:string;error?:str
 type Applied={results:ItemResult[];partial:boolean;reminder:string};
 type SupplierProfile = {id:string;name:string;notes:string;mapping:Mapping;updatedAt:string};
 type ImportLog = {id:string;profileId:string|null;fileName:string;format:string;
- action:"PREVIEW"|"APPLY";result:string;totalRows:number;selectedRows:number;createdAt:string};
+ action:"PREVIEW"|"APPLY";result:string;totalRows:number;selectedRows:number;createdAt:string;hasSnapshot?:boolean};
 
 const fields=Object.keys(FIELD_LABELS) as Field[];
 const statusLabel:Record<string,string>={
@@ -25,6 +26,8 @@ const statusLabel:Record<string,string>={
 };
 export function ImportConsole(){
  const [file,setFile]=useState<File|null>(null);
+ const [fileInputKey,setFileInputKey]=useState(0);
+ const [historyId,setHistoryId]=useState<string|null>(null);
  const [headers,setHeaders]=useState<string[]>([]);
  const [mapping,setMapping]=useState<Mapping>({});
  const [preview,setPreview]=useState<Preview|null>(null);
@@ -35,6 +38,11 @@ export function ImportConsole(){
  const [applied,setApplied]=useState<Applied|null>(null);
  const [profiles,setProfiles]=useState<SupplierProfile[]>([]);
  const [history,setHistory]=useState<ImportLog[]>([]);
+ const [historySelected,setHistorySelected]=useState<string[]>([]);
+ const [historyVisible,setHistoryVisible]=useState(20);
+ const [historyBusy,setHistoryBusy]=useState(false);
+ const [historyError,setHistoryError]=useState("");
+ const [historyMessage,setHistoryMessage]=useState("");
  const [profileId,setProfileId]=useState("");
  const [profileName,setProfileName]=useState("");
  const [profileNotes,setProfileNotes]=useState("");
@@ -126,13 +134,19 @@ export function ImportConsole(){
  }
 
 
- async function invoke(action:"preview"|"apply") {
-  if(!file)return;
+ async function invoke(action:"preview"|"apply",sourceHistoryId?:string) {
+  if(!file&&!historyId&&!sourceHistoryId)return;
   setBusy(true);setError("");setApplied(null);
-  const data=new FormData();data.set("file",file);data.set("action",action);
-  if(headers.length||Object.values(mapping).some(Boolean))data.set("mapping",JSON.stringify(mapping));
-  if(profileId)data.set("profileId",profileId);
-  if(file.name.toLowerCase().endsWith(".pdf"))data.set("skuOverrides",JSON.stringify(pdfSkus));
+  const data=new FormData();data.set("action",action);
+  if(sourceHistoryId)data.set("historyId",sourceHistoryId);
+  else if(file)data.set("file",file);
+  else if(historyId)data.set("historyId",historyId);
+  if(!sourceHistoryId){
+    if(headers.length||Object.values(mapping).some(Boolean))data.set("mapping",JSON.stringify(mapping));
+    if(profileId)data.set("profileId",profileId);
+    if((file?.name.toLowerCase().endsWith(".pdf")||(!file&&preview?.format==="PDF")))
+      data.set("skuOverrides",JSON.stringify(pdfSkus));
+  }
   if(action==="apply"){
     if(!preview){setBusy(false);return;}
     data.set("fingerprint",preview.fingerprint);
@@ -144,9 +158,18 @@ export function ImportConsole(){
     const result=await res.json().catch(()=>null);
     if(!res.ok)throw new Error(String(result?.error||"import_failed"));
     if(action==="preview"){
-      setPreview(result as Preview);
-      setHeaders((result as Preview).headers);
-      setMapping((result as Preview).mapping);
+      const shown=result as Preview;
+      setPreview(shown);
+      setHeaders(shown.headers);
+      setMapping(shown.mapping);
+      setPdfSkus(shown.pdfSkuOverrides||{});
+      if(sourceHistoryId){
+        setFile(null);setFileInputKey(key=>key+1);
+        const saved=history.find(entry=>entry.id===sourceHistoryId);
+        const profile=profiles.find(item=>item.id===saved?.profileId);
+        setProfileId(profile?.id||"");setProfileName(profile?.name||"");setProfileNotes(profile?.notes||"");
+      }
+      setHistoryId(shown.historyId||sourceHistoryId||null);
       setSelected([]);
       setConfirmed(false);
       setPdfNeedsRefresh(false);
@@ -159,6 +182,25 @@ export function ImportConsole(){
     }
   }catch(e){setError(e instanceof Error?e.message:"Не удалось обработать файл");}
   finally{setBusy(false);}
+ }
+ async function deleteSelectedHistory(){
+   if(!historySelected.length||!window.confirm("Удалить выбранные записи локальной истории и сохранённые строки товаров?"))return;
+   setHistoryBusy(true);setHistoryError("");setHistoryMessage("");
+   try{
+     const response=await fetch("/api/import/history",{
+       method:"DELETE",headers:{"content-type":"application/json"},
+       body:JSON.stringify({ids:historySelected}),
+     });
+     const data=await response.json().catch(()=>null);
+     if(!response.ok)throw new Error(String(data?.error||"history_delete_failed"));
+     if(historyId&&historySelected.includes(historyId)&&!file){
+       setHistoryId(null);setPreview(null);setHeaders([]);
+     }
+     setHistoryMessage("Удалено записей: "+data.deleted+".");
+     setHistorySelected([]);
+     await refreshLocal();
+   }catch(e){setHistoryError(e instanceof Error?e.message:"history_delete_failed");}
+   finally{setHistoryBusy(false);}
  }
  const valid=preview?.review.filter(r=>r.status==="CREATE"||r.status==="UPDATE")||[];
  const chosen=preview?.review.filter(r=>selected.includes(r.index))||[];
@@ -207,16 +249,17 @@ export function ImportConsole(){
    <section className="panel" style={{marginTop:14}}>
      <h2>1. Выберите файл</h2>
      <p className="subtle">XLSX/CSV/XML/JSON — до 2 МБ и 200 строк; PDF с текстовым слоем — до 8 МБ, 30 страниц и 400 строк.
-       Сканированные PDF пока требуют OCR. Оригиналы не сохраняются, складские остатки не обновляются автоматически.</p>
+       Сканированные PDF пока требуют OCR. В истории сохраняются распознанные строки, но не оригиналы файлов; складские остатки не обновляются автоматически.</p>
      <label className="editor-field"><span>Файл поставщика</span>
-       <input className="input" type="file" accept=".pdf,.xlsx,.csv,.tsv,.xml,.yml,.json"
+       <input key={fileInputKey} className="input" type="file" accept=".pdf,.xlsx,.csv,.tsv,.xml,.yml,.json"
          onChange={e=>{
-           setFile(e.target.files?.[0]||null);setPreview(null);setHeaders([]);
+           setFile(e.target.files?.[0]||null);setHistoryId(null);setPreview(null);setHeaders([]);
            setMapping(profileId?mapping:{});setSelected([]);setConfirmed(false);setApplied(null);setError("");
            setPdfSkus({});setPdfNeedsRefresh(false);setPdfSkuMessage("");
            setPageImages([]);setImagesFound(0);setImagesError("");setImagePage(1);
          }}/>
      </label>
+     {!file&&historyId&&preview&&<p className="subtle">Из истории: {preview.fileName}. Исходный файл не сохранён.</p>}
      {headers.length>0&&<div style={{marginTop:15}}>
        <h3>Сопоставление колонок</h3>
        <p className="subtle">Можно вручную изменить соответствие колонок. Для поиска товара требуется SKU или штрихкод.</p>
@@ -233,7 +276,7 @@ export function ImportConsole(){
        </div>
      </div>}
      <div className="actions" style={{marginTop:14}}>
-       <button type="button" className="button primary" disabled={!file||busy}
+       <button type="button" className="button primary" disabled={(!file&&!historyId)||busy}
          onClick={()=>invoke("preview")}>
          {busy?"Обработка…":preview||pdfNeedsRefresh?"Обновить предпросмотр":"Проверить и показать изменения"}
        </button>
@@ -248,7 +291,7 @@ export function ImportConsole(){
          Всего строк: {preview.review.length}.
          Обновление существующих карточек не выполняется сразу — создаётся черновик в разделе «Изменения».</p>
        {preview.format==="PDF"&&<div className="import-warning" role="status">
-         PDF содержит карточки, а не таблицу: система не придумывает артикулы и не назначает цену 1 или 2 автоматически.
+         PDF может содержать карточки или таблицу: система не придумывает отсутствующие артикулы и не назначает цену 1 или 2 автоматически.
          Укажите внутренний SKU для новых товаров и выберите нужную колонку цены выше.
          После ручных изменений нажмите «Обновить предпросмотр».
        </div>}
@@ -258,7 +301,7 @@ export function ImportConsole(){
          <Link className="button" href="/ai">Очередь ИИ-обогащения →</Link>
        </div>
        <p className="subtle">Универсальный черновик содержит закупочные цены и источники полей. Он предназначен для внутренней проверки.</p>
-       {preview.format==="PDF"&&<div className="panel" style={{padding:15,marginTop:12,marginBottom:12}}>
+       {preview.format==="PDF"&&file&&<div className="panel" style={{padding:15,marginTop:12,marginBottom:12}}>
          <h3>Фотографии товаров из PDF — просмотр</h3>
          <p className="subtle">
            Используется извлечение встроенных фотографий из ProCosmetics.
@@ -422,13 +465,37 @@ export function ImportConsole(){
    </>}
    {history.length>0&&<section className="panel" style={{marginTop:14}}>
      <h2>Локальная история загрузок</h2>
-     <p className="subtle">История хранит только имена файлов, результаты сопоставления и даты. Сами файлы не сохраняются.</p>
-     <div className="list">{history.slice(0,10).map(entry=><div key={entry.id} className="list-row">
-       <div><strong>{entry.fileName}</strong> · {entry.action==="PREVIEW"?"Предпросмотр":"Применение"}
-         <div className="subtle">{entry.format} · {entry.totalRows} строк ·
-           {new Date(entry.createdAt).toLocaleString("ru-RU")}</div>
-       </div><span className="badge">{entry.result}</span>
+     <p className="subtle">Для новых записей локально сохраняются распознанные строки и сопоставление колонок. Исходные файлы и фотографии не сохраняются. При открытии история заново сравнивается с текущим каталогом; товары не создаются до вашего подтверждения.</p>
+     <div className="actions" style={{marginBottom:12}}>
+       <button type="button" className="button" disabled={historyBusy}
+         onClick={()=>setHistorySelected(history.slice(0,historyVisible).map(entry=>entry.id))}>Выбрать показанные</button>
+       <button type="button" className="button" disabled={!historySelected.length||historyBusy}
+         onClick={()=>setHistorySelected([])}>Снять выделение</button>
+       <button type="button" className="button" disabled={!historySelected.length||historyBusy||busy}
+         onClick={()=>void deleteSelectedHistory()}>
+         {historyBusy?"Удаление…":"Удалить выбранные ("+historySelected.length+")"}</button>
+     </div>
+     {historyError&&<div role="alert" className="error">{historyError}</div>}
+     {historyMessage&&<p role="status" className="subtle">{historyMessage}</p>}
+     <div className="list">{history.slice(0,historyVisible).map(entry=><div key={entry.id} className="list-row">
+       <div style={{display:"flex",gap:12,alignItems:"center"}}>
+         <input type="checkbox" aria-label={"Выбрать запись " + entry.fileName}
+           checked={historySelected.includes(entry.id)} disabled={historyBusy}
+           onChange={e=>setHistorySelected(current=>e.target.checked?[...current,entry.id]:current.filter(id=>id!==entry.id))}/>
+         <div><strong>{entry.fileName}</strong> · {entry.action==="PREVIEW"?"Предпросмотр":"Применение"}
+           <div className="subtle">{entry.format} · {entry.totalRows} строк ·
+             {new Date(entry.createdAt).toLocaleString("ru-RU")}</div>
+         </div>
+       </div>
+       <div className="actions">
+         {entry.hasSnapshot?<button type="button" className="button" disabled={busy||historyBusy}
+           onClick={()=>{void invoke("preview",entry.id);window.scrollTo({top:0,behavior:"smooth"});}}>
+           Открыть товары</button>:<span className="subtle">Старая запись: нужен исходный файл</span>}
+         <span className="badge">{entry.result}</span>
+       </div>
      </div>)}</div>
+     {historyVisible<history.length&&<button type="button" className="button" style={{marginTop:12}}
+       onClick={()=>setHistoryVisible(count=>count+20)}>Показать ещё ({history.length-historyVisible})</button>}
    </section>}
    {applied&&<section className="panel" style={{marginTop:14}}>
      <h2>Результат применения</h2>
