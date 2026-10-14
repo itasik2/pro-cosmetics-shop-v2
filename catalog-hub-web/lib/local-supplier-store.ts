@@ -5,6 +5,7 @@ import {gzipSync,gunzipSync} from "node:zlib";
 import type {Mapping,Field} from "./import-types";
 import type {Table} from "./import-parser";
 import {FIELD_LABELS} from "./import-types";
+import type {PriceRule} from "./import-pricing";
 
 export type SupplierProfile={
   id:string;
@@ -27,6 +28,7 @@ export type LocalImportHistory={
   countByStatus:Record<string,number>;
   selectedRows:number;
   createdAt:string;
+  sourceDate?:string|null;
   hasSnapshot?:boolean;
 };
 export type LocalImportSnapshot={
@@ -35,6 +37,7 @@ export type LocalImportSnapshot={
   fileSha256:string;
   mapping:Mapping;
   skuOverrides:Record<string,string>;
+  priceRule?:PriceRule;
 };
 const MAX_PROFILES=40,MAX_HISTORY=300,MAX_FILE_BYTES=600000;
 const MAX_SNAPSHOT_BYTES=8_000_000,MAX_SNAPSHOT_COMPRESSED=4_000_000;

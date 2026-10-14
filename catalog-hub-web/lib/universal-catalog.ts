@@ -1,6 +1,7 @@
 import type { ImportItem, Table } from "./import-parser";
 import type { Mapping } from "./import-types";
 import type { Reviewed } from "./import-review";
+import type { PriceRule } from "./import-pricing";
 
 export const ENRICHMENT_LABELS = {
   brand: "Бренд", description: "Описание", categoryKey: "Категория",
@@ -27,6 +28,7 @@ export function supplierVolume(raw: string) {
 
 export function buildUniversalCatalog(input: {
   fileName: string; fileSha256: string; table: Table; mapping: Mapping;
+  priceRule?: PriceRule;
   items: ImportItem[]; review: Reviewed[]; originalRows: Array<Record<string, string>>;
 }) {
   const { table, mapping } = input;
@@ -50,8 +52,10 @@ export function buildUniversalCatalog(input: {
           ingredients: null, application: null, images: [] as string[],
         },
         prices: { currency: "KZT", purchase: item.purchasePrice ?? null, retail: item.price ?? null,
+          calculation: input.priceRule ?? null,
           sourceAmounts: ["Цена 1", "Цена 2"].filter(column => column in row).map(column => ({
-            column, raw: row[column], role: mapping.price === column ? "RETAIL" : mapping.purchasePrice === column ? "PURCHASE" : "UNASSIGNED",
+            column, raw: row[column], role: mapping.purchasePrice === column ? "PURCHASE" :
+              (!input.priceRule || input.priceRule.mode === "PRICE_AS_IS") && mapping.price === column ? "RETAIL" : "UNASSIGNED",
           })) },
         inventory: { supplierQuantity: item.stock ?? null, ownQuantity: null },
         provenance: { rowNumber: item.rowNumber, page: Number.isInteger(page) && page! > 0 ? page : null, fields },

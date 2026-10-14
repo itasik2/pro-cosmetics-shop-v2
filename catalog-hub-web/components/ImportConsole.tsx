@@ -5,12 +5,15 @@ import {FIELD_LABELS,type Field,type Mapping} from "@/lib/import-types";
 import type {Reviewed} from "@/lib/import-review";
 import {draftPdfSkuOverrides,duplicatePdfSkuGroups,validPrefix} from "@/lib/pdf-sku-drafts";
 import {ENRICHMENT_LABELS,type UniversalCatalog} from "@/lib/universal-catalog";
+import {DEFAULT_PRICE_RULE,type PriceRule} from "@/lib/import-pricing";
 type Preview={
  format:string;headers:string[];mapping:Mapping;review:Reviewed[];
+ priceRule:PriceRule;
  counts:Record<string,number>;fingerprint:string;note:string;canApply:boolean;
  warnings?:string[];pageCount?:number|null;needsManualSku?:boolean;
  historyId?:string|null;fileName?:string;pdfSkuOverrides?:Record<number,string>;
  historyWarning?:string|null;
+ sourceDate?:string|null;appliedDate?:string|null;olderThanApplied?:boolean;
  universalCatalog:UniversalCatalog;
  pdfSource?:Array<{index:number;page:string;volume:string;price1:string;price2:string}>;
 };
@@ -31,6 +34,7 @@ export function ImportConsole(){
  const [historyId,setHistoryId]=useState<string|null>(null);
  const [headers,setHeaders]=useState<string[]>([]);
  const [mapping,setMapping]=useState<Mapping>({});
+ const [priceRule,setPriceRule]=useState<PriceRule>(DEFAULT_PRICE_RULE);
  const [preview,setPreview]=useState<Preview|null>(null);
  const [selected,setSelected]=useState<number[]>([]);
  const [confirmed,setConfirmed]=useState(false);
@@ -144,12 +148,18 @@ export function ImportConsole(){
   else if(historyId)data.set("historyId",historyId);
   if(!sourceHistoryId){
     if(headers.length||Object.values(mapping).some(Boolean))data.set("mapping",JSON.stringify(mapping));
+    data.set("priceRule",JSON.stringify(priceRule));
     if(profileId)data.set("profileId",profileId);
     if((file?.name.toLowerCase().endsWith(".pdf")||(!file&&preview?.format==="PDF")))
       data.set("skuOverrides",JSON.stringify(pdfSkus));
   }
   if(action==="apply"){
     if(!preview){setBusy(false);return;}
+    if(preview.olderThanApplied){
+      const approved=window.confirm(`Прайс от ${preview.sourceDate} старше ранее применённого прайса от ${preview.appliedDate}. Применение может вернуть прежние цены. Продолжить?`);
+      if(!approved){setBusy(false);return;}
+      data.set("acceptOlderPrice","yes");
+    }
     data.set("fingerprint",preview.fingerprint);
     data.set("selected",JSON.stringify(selected));
     data.set("confirmed",confirmed?"yes":"no");
@@ -163,6 +173,7 @@ export function ImportConsole(){
       setPreview(shown);
       setHeaders(shown.headers);
       setMapping(shown.mapping);
+      setPriceRule(shown.priceRule);
       setPdfSkus(shown.pdfSkuOverrides||{});
       if(sourceHistoryId){
         setFile(null);setFileInputKey(key=>key+1);
@@ -206,6 +217,10 @@ export function ImportConsole(){
  const valid=preview?.review.filter(r=>r.status==="CREATE"||r.status==="UPDATE")||[];
  const chosen=preview?.review.filter(r=>selected.includes(r.index))||[];
  const newChosen=chosen.filter(r=>r.status==="CREATE").length;
+ function changePriceRule(patch:Partial<PriceRule>){
+   setPriceRule(current=>({...current,...patch}));
+   setPreview(null);setSelected([]);setConfirmed(false);setApplied(null);
+ }
  function downloadUniversal(){
    if(!preview||pdfNeedsRefresh)return;
    const url=URL.createObjectURL(new Blob([JSON.stringify(preview.universalCatalog,null,2)],{type:"application/json"}));
@@ -261,6 +276,33 @@ export function ImportConsole(){
          }}/>
      </label>
      {!file&&historyId&&preview&&<p className="subtle">Из истории: {preview.fileName}. Исходный файл не сохранён.</p>}
+     <div style={{marginTop:15}}>
+       <h3>Правило цены</h3>
+       <p className="subtle">Результат расчёта показывается в предпросмотре. Закупочная цена берётся только из выбранной колонки.</p>
+       <div className="editor-grid">
+         <label className="editor-field"><span>Розничная цена</span>
+           <select className="input" value={priceRule.mode}
+             onChange={e=>changePriceRule({mode:e.target.value as PriceRule["mode"]})}>
+             <option value="PRICE_AS_IS">Из колонки прайса</option>
+             <option value="MARKUP_PERCENT">Закупочная цена + наценка</option>
+             <option value="SOURCE_ONLY">Обновить только закупочную</option>
+           </select>
+         </label>
+         <label className="editor-field"><span>Наценка, %</span>
+           <input className="input" type="number" min="0" max="500" step="1"
+             disabled={priceRule.mode!=="MARKUP_PERCENT"} value={priceRule.markupPercent}
+             onChange={e=>changePriceRule({markupPercent:Number(e.target.value)})}/>
+         </label>
+         <label className="editor-field"><span>Округление вверх, ₸</span>
+           <select className="input" disabled={priceRule.mode!=="MARKUP_PERCENT"}
+             value={priceRule.roundingStep}
+             onChange={e=>changePriceRule({roundingStep:Number(e.target.value) as PriceRule["roundingStep"]})}>
+             {[1,10,50,100].map(step=><option key={step} value={step}>{step}</option>)}
+           </select>
+         </label>
+       </div>
+       {priceRule.mode==="SOURCE_ONLY"&&<p className="subtle">Новые карточки в этом режиме не создаются. У существующих розничная цена не меняется.</p>}
+     </div>
      {headers.length>0&&<div style={{marginTop:15}}>
        <h3>Сопоставление колонок</h3>
        <p className="subtle">Можно вручную изменить соответствие колонок. Для поиска товара требуется SKU или штрихкод.</p>
@@ -291,9 +333,17 @@ export function ImportConsole(){
          {preview.pageCount?" Страниц: "+preview.pageCount+".":""}
          Всего строк: {preview.review.length}.
          Обновление существующих карточек не выполняется сразу — создаётся черновик в разделе «Изменения».</p>
+       <p className="subtle">Правило цены: {preview.priceRule.mode==="MARKUP_PERCENT"
+         ?`закупочная + ${preview.priceRule.markupPercent}%, округление до ${preview.priceRule.roundingStep} ₸`
+         :preview.priceRule.mode==="SOURCE_ONLY"?"только закупочная цена":"розничная цена из выбранной колонки"}.</p>
+       {preview.olderThanApplied&&<div className="import-warning" role="alert">
+         Прайс от {preview.sourceDate} старше применённого прайса этого поставщика от {preview.appliedDate}.
+         Перед применением потребуется отдельное подтверждение.
+       </div>}
+       {!preview.sourceDate&&<p className="subtle">Дата прайса не определена по имени файла: сравнение с предыдущим прайсом недоступно.</p>}
        {preview.format==="PDF"&&<div className="import-warning" role="status">
          PDF может содержать карточки или таблицу: система не придумывает отсутствующие артикулы и не назначает цену 1 или 2 автоматически.
-         Укажите внутренний SKU для новых товаров и выберите нужную колонку цены выше.
+         Укажите внутренний SKU для новых товаров и сопоставьте нужные колонки цен выше.
          После ручных изменений нажмите «Обновить предпросмотр».
        </div>}
        {preview.warnings?.map((w,i)=><p className="subtle" key={i}>{w}</p>)}
@@ -388,7 +438,7 @@ export function ImportConsole(){
            <span className="badge" key={key}>{value}: {preview.counts[key]||0}</span>)}
        </div>
        <div className="table-wrap import-table">
-         <table><thead><tr><th>Выбор</th><th>Строка / SKU</th><th>Товар</th>
+         <table><thead><tr><th>Выбор</th><th>Строка / SKU</th><th>Товар</th><th>Цена, ₸</th>
            <th>Сопоставление</th><th>Изменения / замечания</th><th>Остаток файла</th></tr></thead>
            <tbody>{preview.review.map(row=>{
              const allowed=row.status==="UPDATE"||row.status==="CREATE";
@@ -422,6 +472,8 @@ export function ImportConsole(){
                      <div>Цена 2: {source.price2?Number(source.price2).toLocaleString("ru-RU")+" ₸":"—"}</div>
                    </div>;
                  })()}</td>
+               <td><div>Закупочная: {row.proposed.purchasePrice??"—"}</div>
+                 <div>Розничная: {row.proposed.price??(preview.priceRule.mode==="SOURCE_ONLY"?"без изменений":"—")}</div></td>
                <td><strong>{statusLabel[row.status]}</strong>
                  <div className="subtle">{row.matchedBy? "Совпадение: "+row.matchedBy:""}</div></td>
                <td>
