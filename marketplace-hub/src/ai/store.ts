@@ -253,6 +253,7 @@ export async function runCatalogEnrichmentJob(input: {
     const result = await buildEnrichmentProposal({
       product: {
         sku: job.product.sku,
+        skuIsInternal: true,
         title: job.product.title,
         brand: job.product.brand || undefined,
         barcode: job.product.barcode || undefined,

@@ -5,6 +5,17 @@ type SearchResult = {
   reason: string;
 };
 
+type DiscoveredSource = {
+  url: string;
+  search: {
+    stage: "official" | "official_unverified" | "external";
+    confidence: number;
+    reason: string;
+    officialFailure?: string;
+  };
+  officialDomain?: string | null;
+};
+
 function recoverableSearchFailure(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   return (
@@ -18,20 +29,24 @@ export async function discoverProductSource(input: {
   hasOfficialSources: boolean;
   allowExternalSearch: boolean;
   official: () => Promise<SearchResult>;
+  unconfiguredOfficial?: () => Promise<SearchResult & { domain: string | null }>;
   external: () => Promise<SearchResult>;
-}) {
+}): Promise<DiscoveredSource | null> {
   let officialFailure: string | undefined;
-  if (input.hasOfficialSources) {
+  const officialSearch = input.hasOfficialSources ? input.official : input.unconfiguredOfficial;
+  if (officialSearch) {
     try {
-      const result = await input.official();
+      const result = await officialSearch();
       if (result.found && result.url) {
         return {
           url: result.url,
           search: {
-            stage: "official" as const,
+            stage: input.hasOfficialSources ? "official" as const : "official_unverified" as const,
             confidence: result.confidence,
             reason: result.reason,
           },
+          ...(!input.hasOfficialSources && "domain" in result
+            ? { officialDomain: typeof result.domain === "string" ? result.domain : null } : {}),
         };
       }
     } catch (error) {

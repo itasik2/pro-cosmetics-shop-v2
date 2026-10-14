@@ -1,5 +1,6 @@
 export type CatalogProductInput = {
   sku: string;
+  skuIsInternal?: boolean;
   title: string;
   brand?: string;
   barcode?: string;

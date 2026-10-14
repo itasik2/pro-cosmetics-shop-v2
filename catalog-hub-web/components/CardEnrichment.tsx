@@ -15,7 +15,7 @@ export type CardProposal = {
   shortDescription: string | null; description: string | null;
   application: string | null; ingredients: string | null; images: string[];
   warnings: string[];
-  facts?: { extracted?: { brand?: string } } | null;
+  facts?: { extracted?: { brand?: string }; source?: { search?: { stage?: string } } } | null;
   product: { id: string };
 };
 
@@ -114,7 +114,7 @@ export function CardEnrichment({ product, jobs, proposals, canWrite }: {
   return <section className="panel">
     <h2>Заполнить пустые поля и подобрать фото</h2>
     <p className="subtle">Не заполнено: {missing.map(key => labels[key]).join(", ") || "Основные поля заполнены"}.
-      Поиск использует настроенные источники производителя или указанную страницу товара.
+      ИИ ищет страницу товара на сайте производителя по бренду. Можно указать ссылку вручную.
       Предложения проверяются перед записью; цены и остатки не меняются.</p>
     <div className="actions" style={{alignItems:"end"}}>
       <label className="editor-field" style={{minWidth:260,flex:1}}>
@@ -169,8 +169,11 @@ function Proposal({ proposal, product, selectedImage, setImage, variants, select
   return <details className="panel" style={{marginTop:14}}>
     <summary>Предложение · {proposal.confidence}% совпадения · {proposal.sourceUrl}</summary>
     <p>Источник: <a href={proposal.sourceUrl} target="_blank" rel="noreferrer">{proposal.sourceUrl}</a></p>
+    {proposal.facts?.source?.search?.stage === "official_unverified" &&
+      <p className="import-warning">Сайт найден по бренду автоматически. Проверьте, что он принадлежит производителю и что страница относится именно к этой фасовке товара.</p>}
     {proposal.warnings?.map((warning,index) =>
-      <p className="import-warning" key={index}>{warning}</p>)}
+      <p className="import-warning" key={index}>{warning === "unverified_official_site_manual_review_required"
+        ? "Источник пока не подтверждён в настройках; применение требует вашей проверки." : warning}</p>)}
     {suggestedBrand && <div className="review-diff"><div><strong>Бренд сейчас</strong><pre>Не заполнено</pre></div>
       <div><strong>Предлагается</strong><pre>{suggestedBrand}</pre></div></div>}
     {fields.map(key => <div key={key} className="review-diff">

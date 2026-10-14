@@ -3,6 +3,7 @@ import test from "node:test";
 import { extractProductFromHtml } from "./extract.js";
 import { scoreProductMatch } from "./match.js";
 import { evaluateEnrichmentProposal } from "./policy.js";
+import { knownOfficialDomains } from "./official-sources.js";
 
 const html = `<!doctype html>
 <html>
@@ -62,6 +63,18 @@ test("scores exact SKU brand and volume as high confidence", () => {
   assert.equal(result.evidence.sku, "match");
   assert.equal(result.evidence.brand, "match");
   assert.equal(result.evidence.volume, "match");
+});
+
+test("internal catalog SKU does not reject an official product code", () => {
+  const extracted = extractProductFromHtml({ buffer: Buffer.from(html),
+    finalUrl: "https://brand.example/products/cream-a001" });
+  const result = scoreProductMatch({ sku: "AV02", skuIsInternal: true,
+    title: "Brand Hydrating Cream 50 ml", brand: "Brand", volumeValue: 50,
+    volumeUnit: "ml" }, extracted);
+  assert.notEqual(result.evidence.sku, "mismatch");
+  assert.ok(!result.warnings.includes("sku_mismatch"));
+  assert.deepEqual(knownOfficialDomains("ANGIOPHARM"), ["angiopharm.kz", "angiopharm.com"]);
+  assert.deepEqual(knownOfficialDomains("Мезальтера"), ["thoscane.ru"]);
 });
 
 test("only high-confidence official text can auto-apply", () => {
