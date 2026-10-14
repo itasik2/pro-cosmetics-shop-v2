@@ -1,17 +1,19 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 180;
 
-import {
-  EnrichmentJobStatus,
-  EnrichmentProposalStatus,
-} from "@prisma/client";
+import { EnrichmentJobStatus, EnrichmentProposalStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/adminGuard";
 import { runProductEnrichment } from "@/lib/enrichment/runProductEnrichment";
 import { sleep } from "@/lib/enrichment/openaiRetry";
 import { prisma } from "@/lib/prisma";
+import {
+  DISCOVERY_BUDGET_MS,
+  remainingTime,
+} from "@/lib/enrichment/timeBudget";
+import { enrichmentFailureMessage } from "@/lib/enrichment/clientMessages";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -30,7 +32,7 @@ function userMessage(message: string) {
   if (/^openai_http_429:/.test(message)) {
     return "OpenAI временно достиг лимита запросов. Автоматические повторы исчерпаны; повторите поиск через несколько секунд.";
   }
-  return message;
+  return enrichmentFailureMessage(message);
 }
 
 function retryableOpenAiError(message: string) {
@@ -55,18 +57,22 @@ async function runWithOpenAiRetry(input: {
   discoverIfMissing: boolean;
 }) {
   const maxAttempts = 3;
+  const deadlineAt = Date.now() + DISCOVERY_BUDGET_MS;
   let lastError: unknown;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     try {
-      return await runProductEnrichment(input);
+      remainingTime(deadlineAt, 1_000);
+      return await runProductEnrichment({ ...input, deadlineAt });
     } catch (error: any) {
       lastError = error;
       const message = String(error?.message || error);
       if (!retryableOpenAiError(message) || attempt >= maxAttempts - 1) {
         throw error;
       }
-      await sleep(retryDelayFromMessage(message, attempt));
+      const delay = retryDelayFromMessage(message, attempt);
+      remainingTime(deadlineAt - delay, 1_000);
+      await sleep(delay);
     }
   }
 

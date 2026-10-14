@@ -1,4 +1,8 @@
 "use client";
+import {
+  canRetryEnrichment,
+  enrichmentFailureMessage,
+} from "../../../../lib/enrichment/clientMessages";
 
 import { useEffect, useMemo, useState } from "react";
 
@@ -43,11 +47,13 @@ function errorText(value: string) {
   if (value === "enrichment_already_running") {
     return "Поиск уже выполняется";
   }
-  return value || "Ошибка поиска";
+  return enrichmentFailureMessage(value) || "Ошибка поиска";
 }
 
 async function parseResponse(response: Response) {
-  const data = await response.json().catch(() => ({} as Record<string, unknown>));
+  const data = await response
+    .json()
+    .catch(() => ({}) as Record<string, unknown>);
   if (response.ok) return { ok: true as const, data };
 
   const object = data as {
@@ -69,12 +75,7 @@ export default function BatchEnrichmentSearch() {
   const [message, setMessage] = useState<string | null>(null);
 
   const eligible = useMemo(
-    () =>
-      products.filter(
-        (product) =>
-          product.enrichmentJobs.length === 0 &&
-          product.enrichmentProposals.length === 0,
-      ),
+    () => products.filter(canRetryEnrichment),
     [products],
   );
 
@@ -86,21 +87,18 @@ export default function BatchEnrichmentSearch() {
   async function load() {
     setLoading(true);
     try {
-      const response = await fetch("/api/admin/enrichment/products?status=ALL", {
-        cache: "no-store",
-      });
+      const response = await fetch(
+        "/api/admin/enrichment/products?status=ALL",
+        {
+          cache: "no-store",
+        },
+      );
       if (!response.ok) throw new Error(String(response.status));
       const rows = (await response.json()) as Product[];
       setProducts(rows);
       setSelected((current) => {
         const eligibleIds = new Set(
-          rows
-            .filter(
-              (product) =>
-                product.enrichmentJobs.length === 0 &&
-                product.enrichmentProposals.length === 0,
-            )
-            .map((product) => product.id),
+          rows.filter(canRetryEnrichment).map((product) => product.id),
         );
         return new Set([...current].filter((id) => eligibleIds.has(id)));
       });
@@ -179,7 +177,9 @@ export default function BatchEnrichmentSearch() {
       setResult(product.id, {
         productId: product.id,
         state: "error",
-        message: errorText(parsed.code === "enrichment_failed" ? parsed.message : parsed.code),
+        message: errorText(
+          parsed.code === "enrichment_failed" ? parsed.message : parsed.code,
+        ),
       });
       return "error" as const;
     } catch (error) {
@@ -253,12 +253,14 @@ export default function BatchEnrichmentSearch() {
         <div>
           <h2 className="font-semibold">Пакетный поиск данных</h2>
           <p className="mt-1 max-w-3xl text-sm text-gray-700">
-            Выберите несколько товаров или все позиции, для которых поиск ещё ни разу не
-            запускался. Каждый товар обрабатывается отдельно, одновременно выполняются не
-            более двух поисков. Успешные результаты автоматически создают предложения.
+            Выберите новые товары или позиции с ошибкой предыдущего поиска.
+            Каждый товар обрабатывается отдельно, одновременно выполняются не
+            более двух поисков. Успешные результаты автоматически создают
+            предложения.
           </p>
           <div className="mt-2 text-xs text-gray-500">
-            Без поиска: {eligible.length} · выбрано: {selectedEligible.length}
+            Доступно для поиска: {eligible.length} · выбрано:{" "}
+            {selectedEligible.length}
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -268,7 +270,7 @@ export default function BatchEnrichmentSearch() {
             onClick={selectAll}
             disabled={loading || running || eligible.length === 0}
           >
-            Выбрать все без поиска
+            Выбрать новые и с ошибками
           </button>
           <button
             type="button"
@@ -284,7 +286,9 @@ export default function BatchEnrichmentSearch() {
             onClick={() => void runBatch()}
             disabled={running || selectedEligible.length === 0}
           >
-            {running ? "Идёт поиск…" : `Найти данные (${selectedEligible.length})`}
+            {running
+              ? "Идёт поиск…"
+              : `Найти данные (${selectedEligible.length})`}
           </button>
         </div>
       </div>
@@ -292,23 +296,34 @@ export default function BatchEnrichmentSearch() {
       {running && totalRunning > 0 && (
         <div className="rounded-xl border bg-white p-3">
           <div className="flex items-center justify-between gap-3 text-sm">
-            <span>Обработано {completed} из {totalRunning}</span>
+            <span>
+              Обработано {completed} из {totalRunning}
+            </span>
             <span>{Math.round((completed / totalRunning) * 100)}%</span>
           </div>
           <div className="mt-2 h-2 overflow-hidden rounded-full bg-gray-100">
             <div
               className="h-full bg-black transition-all"
-              style={{ width: `${Math.round((completed / totalRunning) * 100)}%` }}
+              style={{
+                width: `${Math.round((completed / totalRunning) * 100)}%`,
+              }}
             />
           </div>
         </div>
       )}
 
-      {message && <div className="rounded-xl border bg-white px-3 py-2 text-sm">{message}</div>}
+      {message && (
+        <div className="rounded-xl border bg-white px-3 py-2 text-sm">
+          {message}
+        </div>
+      )}
 
-      <details className="rounded-xl border bg-white" open={eligible.length <= 20}>
+      <details
+        className="rounded-xl border bg-white"
+        open={eligible.length <= 20}
+      >
         <summary className="cursor-pointer px-3 py-3 text-sm font-medium">
-          Товары без выполненного поиска ({eligible.length})
+          Новые товары и ошибки поиска ({eligible.length})
         </summary>
         <div className="max-h-[32rem] overflow-auto border-t">
           {eligible.map((product) => {
@@ -331,7 +346,9 @@ export default function BatchEnrichmentSearch() {
                   <span className="mt-0.5 block text-xs text-gray-500">
                     {product.brand?.name || "Без бренда"}
                     {product.supplierSku ? ` · SKU ${product.supplierSku}` : ""}
-                    {product.supplier?.name ? ` · ${product.supplier.name}` : ""}
+                    {product.supplier?.name
+                      ? ` · ${product.supplier.name}`
+                      : ""}
                   </span>
                   {result && (
                     <span
@@ -357,16 +374,17 @@ export default function BatchEnrichmentSearch() {
 
           {!loading && eligible.length === 0 && (
             <div className="px-3 py-5 text-sm text-gray-500">
-              Для выбранного рабочего прайса нет товаров, по которым поиск ещё не запускался.
+              Для выбранного рабочего прайса нет новых товаров или позиций с
+              ошибкой поиска.
             </div>
           )}
         </div>
       </details>
 
       <p className="text-xs text-gray-500">
-        Стоимость OpenAI растёт примерно пропорционально числу выбранных товаров. Ограничение
-        в два параллельных запроса снижает пиковую нагрузку и вероятность rate limit, но не
-        уменьшает количество самих поисков.
+        Стоимость OpenAI растёт примерно пропорционально числу выбранных
+        товаров. Ограничение в два параллельных запроса снижает пиковую нагрузку
+        и вероятность rate limit, но не уменьшает количество самих поисков.
       </p>
     </section>
   );
