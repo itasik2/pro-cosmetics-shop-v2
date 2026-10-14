@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { hubFetch, organizationId } from "@/lib/hub";
 import { isChangeSetId } from "@/lib/changeset-id";
+import { isSameOrigin } from "@/lib/same-origin";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
-  if (request.headers.get("origin") !== request.nextUrl.origin) {
+  if (!isSameOrigin(request)) {
     return NextResponse.json({ error: "invalid_origin" }, { status: 403 });
   }
   const { id } = await context.params;
