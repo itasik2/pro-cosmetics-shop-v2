@@ -498,7 +498,7 @@ export async function stageCatalogEnrichmentProposal(raw: unknown) {
     if (!latest || latest.status !== "PENDING") throw new Error("enrichment_proposal_not_found");
     const existing = await tx.catalogChangeSet.findFirst({
       where: { organizationId: input.organizationId, productId: proposal.productId,
-        sourceType: "AI_ENRICHMENT", sourceRef: proposal.id, status: { not: "REJECTED" } },
+        sourceType: "AI_ENRICHMENT", sourceRef: proposal.id, status: { in: ["PREVIEW", "APPROVED"] } },
       include: { fields: { orderBy: { createdAt: "asc" } } },
     });
     if (existing) return existing;

@@ -67,8 +67,15 @@ async function snapshot() {
 }
 assert.equal((await snapshot()).ingredients, null, "Staging must not edit product");
 const changeAction = async body => request(ui + "/api/catalog/changes/" + changes.id, { method: "POST", headers, body: JSON.stringify(body) });
-await changeAction({ action: "approve", approvedFields: changes.fields.map(field => field.field) });
+await changeAction({ action: "approve", approvedFields: ["application", "images"] });
 await changeAction({ action: "apply" });
+const remaining = await action({ action: "stage", id: proposalId, selectedImageUrl: "https://fixture.example/cream.jpg" });
+assert.notEqual(remaining.id, changes.id, "Partial application must allow a new review");
+assert.deepEqual(remaining.fields.map(field => field.field), ["ingredients"]);
+await request(ui + "/api/catalog/changes/" + remaining.id, { method: "POST", headers,
+  body: JSON.stringify({ action: "approve", approvedFields: ["ingredients"] }) });
+await request(ui + "/api/catalog/changes/" + remaining.id, { method: "POST", headers,
+  body: JSON.stringify({ action: "apply" }) });
 const after = await snapshot();
 assert.equal(after.description, "Reviewed supplier description");
 assert.equal(after.ingredients, "Aqua, Glycerin");
@@ -79,4 +86,4 @@ assert.equal(after.stock, 0);
 assert.deepEqual(after.images, ["https://fixture.example/cream.jpg"]);
 const proposals = (await request(ai + "/v1/ai/enrichment/proposals?organizationId=" + org, { headers: apiHeaders })).data;
 assert.equal(proposals.find(p => p.id === proposalId)?.status, "APPLIED");
-console.log("PASS: source configuration, tenant-scoped queue, failed job audit, fill-only staging, image selection, review page, approve/apply, unchanged prices and stock.");
+console.log("PASS: source configuration, tenant-scoped queue, failed job audit, fill-only staging, image selection, review page, partial restaging, approve/apply, unchanged prices and stock.");

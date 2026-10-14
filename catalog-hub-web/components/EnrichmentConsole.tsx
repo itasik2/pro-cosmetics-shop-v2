@@ -27,18 +27,23 @@ export function EnrichmentConsole({ jobs, proposals, policies, canWrite, initial
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [stagedChangeId, setStagedChangeId] = useState("");
   const [sourceCode, setSourceCode] = useState("");
   const [sourceName, setSourceName] = useState("");
   const [domainUrl, setDomainUrl] = useState("");
   const [sourceType, setSourceType] = useState("OFFICIAL_SITE");
   async function act(key: string, body: Record<string, unknown>) {
-    setBusy(key); setError(""); setMessage("");
+    setBusy(key); setError(""); setMessage(""); setStagedChangeId("");
     try {
       const response = await fetch("/api/ai/enrichment", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "enrichment_failed");
+      if (body.action === "stage") {
+        if (typeof data.id !== "string" || !/^c[a-z0-9]{24}$/.test(data.id)) throw new Error("invalid_changeset_id");
+        setStagedChangeId(data.id);
+      }
       setMessage(body.action === "create" ? "Задача добавлена. Нажмите «Запустить поиск» в очереди." : body.action === "stage"
-        ? "Черновик создан. Откройте раздел «Изменения» для согласования." : body.action === "source" ? "Источник сохранён." : "Поиск завершён. Проверьте предложение ниже.");
+        ? "Черновик создан. Проверьте и согласуйте изменения." : body.action === "source" ? "Источник сохранён." : "Поиск завершён. Проверьте предложение ниже.");
       router.refresh();
     } catch (e) { setError(e instanceof Error ? e.message : "enrichment_failed"); }
     finally { setBusy(""); }
@@ -76,7 +81,7 @@ export function EnrichmentConsole({ jobs, proposals, policies, canWrite, initial
       </form>
     </details>
     {error && <div className="error" role="alert" style={{ marginTop: 14 }}>{error}</div>}
-    {message && <p role="status">{message} <Link href="/changes">Изменения →</Link></p>}
+    {message && <p role="status">{message} <Link href={stagedChangeId ? "/changes/" + stagedChangeId : "/changes"}>{stagedChangeId ? "Открыть черновик →" : "Изменения →"}</Link></p>}
     <section className="panel" style={{ marginTop: 14 }}>
       <h2>Очередь обогащения</h2>
       <button className="button" type="button" disabled={Boolean(busy)} onClick={() => router.refresh()}>Обновить статусы</button>
