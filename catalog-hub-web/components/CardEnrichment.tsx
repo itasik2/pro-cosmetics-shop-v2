@@ -114,7 +114,7 @@ export function CardEnrichment({ product, jobs, proposals, canWrite }: {
   return <section className="panel">
     <h2>Заполнить пустые поля и подобрать фото</h2>
     <p className="subtle">Не заполнено: {missing.map(key => labels[key]).join(", ") || "Основные поля заполнены"}.
-      Поиск использует настроенные источники производителя или указанную страницу товара.
+      ИИ ищет страницу товара на сайте производителя по бренду. Можно указать ссылку вручную.
       Предложения проверяются перед записью; цены и остатки не меняются.</p>
     <div className="actions" style={{alignItems:"end"}}>
       <label className="editor-field" style={{minWidth:260,flex:1}}>
