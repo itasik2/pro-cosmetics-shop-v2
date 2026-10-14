@@ -4,9 +4,12 @@ import { parseEnrichmentAction } from "./enrichment-actions";
 import { hubBaseForPath } from "./api-routing";
 import { isChangeSetId } from "./changeset-id";
 
-test("action parser strips tenant and external search flags, defaults to filling gaps", () => {
+test("action parser strips tenant, requires explicit external search choice and defaults to filling gaps", () => {
   assert.deepEqual(parseEnrichmentAction({ action: "create", sku: " A001 ", organizationId: "another-org", allowExternalSearch: true }),
-    { action: "create", sku: "A001", sourceUrl: undefined, supplierCode: undefined });
+    { action: "create", sku: "A001", sourceUrl: undefined, supplierCode: undefined, allowExternalSearch: true });
+  assert.deepEqual(parseEnrichmentAction({ action: "create", sku: "A001" }),
+    { action: "create", sku: "A001", sourceUrl: undefined, supplierCode: undefined, allowExternalSearch: false });
+  assert.throws(() => parseEnrichmentAction({ action: "create", sku: "A001", allowExternalSearch: "true" }));
   assert.deepEqual(parseEnrichmentAction({ action: "stage", id: "proposal" }),
     { action: "stage", id: "proposal", selectedImageUrl: undefined, replaceFilledFields: false });
   assert.deepEqual(parseEnrichmentAction({ action: "stage", id: "proposal", selectedMediaVariantId: "variant" }),

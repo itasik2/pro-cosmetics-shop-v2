@@ -38,6 +38,7 @@ export function CardEnrichment({ product, jobs, proposals, canWrite }: {
 }) {
   const router = useRouter();
   const [sourceUrl, setSourceUrl] = useState("");
+  const [allowExternalSearch, setAllowExternalSearch] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [changeId, setChangeId] = useState("");
@@ -51,12 +52,12 @@ export function CardEnrichment({ product, jobs, proposals, canWrite }: {
   async function search() {
     setBusy(true); setError(""); setChangeId("");
     try {
-      const job = await enrichmentAction({ action: "create", sku: product.sku, sourceUrl });
+      const job = await enrichmentAction({ action: "create", sku: product.sku, sourceUrl, allowExternalSearch });
       if (!job.id) throw new Error("Задача поиска не создана");
       await enrichmentAction({ action: "run", id: job.id });
       router.refresh();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Поиск не удался");
+      setError(searchError(cause));
       router.refresh();
     } finally { setBusy(false); }
   }
@@ -67,7 +68,7 @@ export function CardEnrichment({ product, jobs, proposals, canWrite }: {
       await enrichmentAction({ action: "run", id });
       router.refresh();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Поиск не удался");
+      setError(searchError(cause));
       router.refresh();
     } finally { setBusy(false); }
   }
@@ -124,6 +125,9 @@ export function CardEnrichment({ product, jobs, proposals, canWrite }: {
         onClick={() => void search()}>{busy ? "Поиск…" : "Найти и предложить"}</button>
       <Link className="button" href="/ai">Настроить источники</Link>
     </div>
+    <label className="review-check"><input type="checkbox" checked={allowExternalSearch}
+      onChange={event => setAllowExternalSearch(event.target.checked)} />
+      Если производитель не найден, искать у других продавцов (потребуется ИИ и ручная проверка)</label>
     {!canWrite && <p className="subtle">Локальный режим чтения: поиск и запись отключены.</p>}
     {error && <p className="error" role="alert">{error}</p>}
     {changeId && <p role="status">Черновик создан. <Link href={"/changes/" + encodeURIComponent(changeId)}>
@@ -149,6 +153,14 @@ export function CardEnrichment({ product, jobs, proposals, canWrite }: {
       onStage={() => void stage(proposal.id)} />)}
     {!pending.length && <p className="subtle">Предложений для проверки пока нет.</p>}
   </section>;
+}
+
+function searchError(cause: unknown) {
+  const message = cause instanceof Error ? cause.message : "Поиск не удался";
+  if (message === "source_url_required") return "Источник не найден. Укажите ссылку на товар, настройте сайт производителя или разрешите поиск у других продавцов.";
+  if (message === "openai_not_configured") return "Для автоматического поиска в сети нужен OPENAI_API_KEY в настройках сервера. Можно указать прямую ссылку на товар без ИИ-поиска.";
+  if (message === "source_domain_not_allowed") return "Источник отклонён. Проверьте ссылку на страницу товара и разрешённые домены.";
+  return message;
 }
 
 function Proposal({ proposal, product, selectedImage, setImage, variants, selectedVariant,

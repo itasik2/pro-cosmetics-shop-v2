@@ -110,6 +110,12 @@ export async function buildEnrichmentProposal(raw: EnrichmentRequest) {
 
   if (!sourceUrl) throw new Error("source_url_required");
 
+  // An operator-supplied product URL is an explicit source selection. Constrain
+  // fetching to its exact hostname; safeFetchHtml still rejects private IPs,
+  // unsafe DNS results and redirects to other hosts.
+  if (sourceUrl && input.sourceUrl && !sourcePolicyForUrl(policies, sourceUrl)) {
+    policies.push(exactPolicy(sourceUrl));
+  }
   const initialPolicy = sourcePolicyForUrl(policies, sourceUrl);
   if (!initialPolicy) throw new Error("source_domain_not_allowed");
 

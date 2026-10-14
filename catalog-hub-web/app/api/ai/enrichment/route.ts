@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
     const payload = input.action === "create" ? {
       organizationId, sku: input.sku, sourceUrl: input.sourceUrl,
       sourceSupplierCode: input.supplierCode,
-      discoverIfMissing: true, allowExternalSearch: false,
+      discoverIfMissing: true, allowExternalSearch: input.allowExternalSearch,
     } : input.action === "stage" ? {
       organizationId, selectedImageUrl: input.selectedImageUrl,
       selectedMediaVariantId: input.selectedMediaVariantId,
