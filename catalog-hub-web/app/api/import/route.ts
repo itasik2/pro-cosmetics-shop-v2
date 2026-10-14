@@ -6,8 +6,10 @@ import {type Mapping,type Field} from "@/lib/import-types";
 import {evaluateImport,type Existing} from "@/lib/import-review";
 import {isLocalReadOnly} from "@/lib/local-mode";
 import {isSameOrigin} from "@/lib/same-origin";
-import {listSupplierProfiles,loadLocalImportSnapshot,recordLocalImportEvent,type LocalImportSnapshot} from "@/lib/local-supplier-store";
+import {listSupplierProfiles,listLocalImportHistory,loadLocalImportSnapshot,recordLocalImportEvent,type LocalImportSnapshot} from "@/lib/local-supplier-store";
 import {buildUniversalCatalog} from "@/lib/universal-catalog";
+import {parsePriceRule,priceImportItems,type PriceRule} from "@/lib/import-pricing";
+import {dateFromFileName,previousAppliedDate} from "@/lib/import-date";
 
 export const dynamic="force-dynamic";
 export const runtime="nodejs";
@@ -30,9 +32,9 @@ function secret(){
 function fileHash(file:File) {
  return file.arrayBuffer().then(buffer=>createHash("sha256").update(Buffer.from(buffer)).digest("hex"));
 }
-function digest(fileDigest:string,mapping:Mapping,review:ReturnType<typeof evaluateImport>){
+function digest(fileDigest:string,mapping:Mapping,priceRule:PriceRule,review:ReturnType<typeof evaluateImport>){
  const data=JSON.stringify({
-   org:organizationId,fileDigest,mapping,
+   org:organizationId,fileDigest,mapping,priceRule,
    rows:review.map(x=>[x.rowNumber,x.sku,x.barcode,x.productId,x.status,x.currentUpdatedAt,x.proposed,x.changes])
  });
  return createHmac("sha256",secret()).update(data).digest("hex");
@@ -63,6 +65,7 @@ async function prepare(request:NextRequest){
  const file=data.get("file");
  let table:Table,originalRows:Array<Record<string,string>>,hash:string,fileName:string;
  let storedMapping:Mapping|undefined,storedOverrides:Record<string,string>={};
+ let storedPriceRule:PriceRule|undefined;
  let historyProfileId:string|null=null;
  if(file instanceof File){
    table=await parseTable(file);
@@ -77,6 +80,7 @@ async function prepare(request:NextRequest){
    originalRows=saved.snapshot.originalRows.map(row=>({...row}));
    hash=saved.snapshot.fileSha256;fileName=saved.entry.fileName;
    storedMapping=saved.snapshot.mapping;storedOverrides=saved.snapshot.skuOverrides;
+   storedPriceRule=saved.snapshot.priceRule;
    historyProfileId=saved.entry.profileId;
  }
  const skuOverrideRaw=data.get("skuOverrides")??(table.format==="PDF"?JSON.stringify(storedOverrides):null);
@@ -99,13 +103,17 @@ async function prepare(request:NextRequest){
    }
  }
  const mapping=mappingFrom(data.get("mapping")??(storedMapping?JSON.stringify(storedMapping):null),table.headers);
- const items=mapImport(table,mapping);
+ const priceRule=parsePriceRule(data.get("priceRule")??storedPriceRule);
+ const effectiveMapping=priceRule.mode==="PRICE_AS_IS"?mapping:{...mapping,price:undefined};
+ const items=priceImportItems(mapImport(table,effectiveMapping),priceRule);
  // PDF booklets have two unlabeled commercial amounts. Require an explicit
  // retail-price column choice; never create an unpriced or guessed-price card.
  if(table.format==="PDF"){
    for(const item of items){
-     if(!mapping.price)item.errors.push("PDF: выберите розничную цену (Цена 1 или Цена 2) в сопоставлении колонок");
-     else if(item.price===undefined)item.errors.push("PDF: выбранная колонка розничной цены пуста");
+     if(priceRule.mode==="PRICE_AS_IS"){
+       if(!mapping.price)item.errors.push("PDF: выберите розничную цену (Цена 1 или Цена 2) в сопоставлении колонок");
+       else if(item.price===undefined)item.errors.push("PDF: выбранная колонка розничной цены пуста");
+     }
    }
  }
  const [currentCatalog,categories]=await Promise.all([
@@ -113,7 +121,15 @@ async function prepare(request:NextRequest){
    hubFetch<Categories>("/v1/categories?organizationId="+encodeURIComponent(organizationId)),
  ]);
  const review=evaluateImport(items,currentCatalog.items,categories.categories.filter(c=>c.isActive).map(c=>c.key));
- const universalCatalog=buildUniversalCatalog({fileName,fileSha256:hash,table,mapping,items,review,originalRows});
+ if(priceRule.mode==="SOURCE_ONLY"){
+   for(const row of review){
+     if(row.status==="CREATE"){
+       row.status="INVALID";
+       row.reasons.push("Режим «Только закупочная цена» применяется к существующим товарам; для нового товара выберите правило розничной цены");
+     }
+   }
+ }
+ const universalCatalog=buildUniversalCatalog({fileName,fileSha256:hash,table,mapping,priceRule,items,review,originalRows});
  for(const row of universalCatalog.products){
    if(row.identity.productId){
      row.identity.internalSku=currentCatalog.items.find(p=>p.id===row.identity.productId)?.sku||row.identity.internalSku;
@@ -129,10 +145,14 @@ async function prepare(request:NextRequest){
      else if(data.get("profileId"))throw new Error("supplier_profile_not_found");
    }
  }
+ const sourceDate=dateFromFileName(fileName);
+ const appliedDate=process.env.CATALOG_HUB_LOCAL_MODE==="true"
+   ?previousAppliedDate(await listLocalImportHistory(organizationId),profileId):null;
+ const olderThanApplied=Boolean(sourceDate&&appliedDate&&sourceDate<appliedDate);
  const {rows:_parsedRows,...tableMetadata}=table;
- const snapshot:LocalImportSnapshot={table:tableMetadata,originalRows,fileSha256:hash,mapping,skuOverrides};
- return {data,fileName,table,mapping,review,sourceBase,profileId,universalCatalog,snapshot,
-   fingerprint:digest(hash,mapping,review)};
+ const snapshot:LocalImportSnapshot={table:tableMetadata,originalRows,fileSha256:hash,mapping,skuOverrides,priceRule};
+ return {data,fileName,table,mapping,priceRule,review,sourceBase,profileId,sourceDate,appliedDate,olderThanApplied,universalCatalog,snapshot,
+   fingerprint:digest(hash,mapping,priceRule,review)};
 }
 export async function POST(request:NextRequest) {
  if(!isSameOrigin(request))return responseError("invalid_origin",403);
@@ -140,7 +160,7 @@ export async function POST(request:NextRequest) {
  try{state=await prepare(request);}
  catch(e){const msg=e instanceof Error?e.message:"import_preview_failed";
    return responseError(msg,/too_large|size_limit|too_many/.test(msg)?413:400);}
- const {data,table,mapping,review,fingerprint}=state;
+ const {data,table,mapping,priceRule,review,fingerprint}=state;
  const action=data.get("action")==="apply"?"apply":"preview";
  const counts=Object.fromEntries(["CREATE","UPDATE","SAME","INVALID","CONFLICT","DUPLICATE"].map(s=>
     [s,review.filter(r=>r.status===s).length]));
@@ -151,6 +171,7 @@ export async function POST(request:NextRequest) {
      try{
        const entry=await recordLocalImportEvent({
          organizationId,profileId:state.profileId,
+         sourceDate:state.sourceDate,
          fileName:state.fileName,format:table.format,action:"PREVIEW",
          result:"PREVIEWED",totalRows:review.length,countByStatus:counts,
          selectedRows:0,snapshot:state.snapshot,
@@ -160,8 +181,9 @@ export async function POST(request:NextRequest) {
        historyWarning="Не удалось сохранить строки в локальной истории. Для повторной загрузки понадобится исходный файл.";}
    }
    return NextResponse.json({
-     format:table.format,fileName:state.fileName,headers:table.headers,mapping,review,counts,fingerprint,
+     format:table.format,fileName:state.fileName,headers:table.headers,mapping,priceRule,review,counts,fingerprint,
      historyId,historyWarning,pdfSkuOverrides:state.snapshot.skuOverrides,
+     sourceDate:state.sourceDate,appliedDate:state.appliedDate,olderThanApplied:state.olderThanApplied,
      universalCatalog:state.universalCatalog,
      warnings:table.warnings||[],pageCount:table.pageCount||null,
      pdfSource:table.format==="PDF"?table.rows.map((x,index)=>({
@@ -176,6 +198,8 @@ export async function POST(request:NextRequest) {
    },{headers:{"cache-control":"no-store"}});
  }
  if(data.get("confirmed")!=="yes")return responseError("confirmation_required");
+ if(state.olderThanApplied&&data.get("acceptOlderPrice")!=="yes")
+   return responseError("older_price_confirmation_required",409);
  if(isLocalReadOnly())return responseError("local_read_only_mode: сохранение товаров отключено до подключения тестовой базы.",403);
  const signature=data.get("fingerprint");
  if(typeof signature!=="string"||!equalSignature(signature,fingerprint))
@@ -241,6 +265,7 @@ export async function POST(request:NextRequest) {
    try{
      await recordLocalImportEvent({
        organizationId,profileId:state.profileId,
+       sourceDate:state.sourceDate,
        fileName:state.fileName,format:table.format,action:"APPLY",
        result:results.some(r=>r.status==="ERROR")?"PARTIAL":"COMPLETED",
        totalRows:review.length,countByStatus:counts,
