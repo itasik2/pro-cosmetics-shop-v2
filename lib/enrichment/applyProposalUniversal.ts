@@ -6,7 +6,11 @@ import {
 import { prisma } from "@/lib/prisma";
 import { normalizeStoredVariants } from "@/lib/price-import/productVariants";
 import { importProductImage } from "./productImages";
-import { manuallyEditedProductName } from "./proposalText";
+import {
+  hasManualProposalText,
+  manuallyEditedProductName,
+} from "./proposalText";
+import { hasManualVariantChanges } from "./removedVariants";
 import {
   latestPriceListImageForProduct,
   priceListImagesBySku,
@@ -51,6 +55,7 @@ export async function applyProductEnrichmentProposalUniversal(
     stock?: number;
     variantStocks?: Record<string, number>;
     variantImages?: VariantImageSelection[];
+    automatic?: boolean;
   },
   dependencies: {
     database?: typeof prisma;
@@ -72,6 +77,10 @@ export async function applyProductEnrichmentProposalUniversal(
   if (!proposal) throw new Error("proposal_not_found");
   if (proposal.status !== EnrichmentProposalStatus.PENDING)
     throw new Error("proposal_not_pending");
+  if (input.automatic && hasManualProposalText(proposal.facts))
+    throw new Error("manual_text_review_required");
+  if (input.automatic && hasManualVariantChanges(proposal.facts))
+    throw new Error("manual_variant_review_required");
   if (proposal.confidence === 0)
     throw new Error("proposal_match_confidence_zero");
   const finalize = input.mode === "ALL";
@@ -185,9 +194,33 @@ export async function applyProductEnrichmentProposalUniversal(
     if (claimed.count !== 1) throw new Error("proposal_changed_refresh");
     const current = await tx.product.findUniqueOrThrow({
       where: { id: proposal.productId },
-      select: { variants: true, updatedAt: true },
+      select: {
+        variants: true,
+        updatedAt: true,
+        supplierSku: true,
+        image: true,
+      },
     });
     const currentVariants = normalizeStoredVariants(current.variants);
+    if (
+      input.automatic &&
+      commonUrl &&
+      current.supplierSku !== proposal.product.supplierSku
+    )
+      throw new Error("variant_sku_changed");
+    if (
+      input.automatic &&
+      ((commonUrl && current.image !== proposal.product.image) ||
+        selections.some(
+          (selection) =>
+            currentVariants.find(
+              (variant) => variant.id === selection.variantId,
+            )?.image !==
+            variants.find((variant) => variant.id === selection.variantId)
+              ?.image,
+        ))
+    )
+      throw new Error("product_changed_refresh");
     validateVariantImages(currentVariants, selections, groups);
     let nextVariants = assignVariantImages(currentVariants, prepared);
     if (applyInventory)

@@ -17,14 +17,14 @@ import {
 } from "./catalogAutopilotPolicy";
 import { monitorStaleProductSources } from "./monitorSources";
 import { runProductEnrichment } from "./runProductEnrichment";
+import { prepareProposalPhotos } from "./prepareProposalPhotos";
+import { automaticPhotoPlan } from "./automaticPhotos";
+import { normalizeStoredVariants } from "@/lib/price-import/productVariants";
+import { applyProductEnrichmentProposalUniversal } from "./applyProposalUniversal";
+import { hasManualVariantChanges } from "./removedVariants";
 
 type ProposalResultStatus =
-  | "APPLIED"
-  | "REVIEW"
-  | "RETRY_FAILED"
-  | "DISCARDED"
-  | "SKIPPED"
-  | "FAILED";
+  "APPLIED" | "REVIEW" | "RETRY_FAILED" | "DISCARDED" | "SKIPPED" | "FAILED";
 
 export type CatalogAutopilotProposalResult = {
   proposalId: string;
@@ -111,7 +111,9 @@ async function recordEvaluation(
           evaluatedAt: new Date().toISOString(),
         },
       } as Prisma.InputJsonValue,
-      warnings: [...new Set([...warnings, ...evaluationWarnings])] as Prisma.InputJsonValue,
+      warnings: [
+        ...new Set([...warnings, ...evaluationWarnings]),
+      ] as Prisma.InputJsonValue,
     },
   });
 }
@@ -127,6 +129,9 @@ export async function processCatalogAutopilotProposal(
         select: {
           id: true,
           sourceUrl: true,
+          image: true,
+          supplierSku: true,
+          variants: true,
         },
       },
       source: {
@@ -170,12 +175,33 @@ export async function processCatalogAutopilotProposal(
       warnings: proposal.warnings,
       retryCount,
       manualTextEdited: hasManualProposalText(proposal.facts),
+      manualVariantEdited: hasManualVariantChanges(proposal.facts),
     },
     config,
   );
 
   if (evaluation.decision === "AUTO_APPLY") {
     try {
+      const photos = await prepareProposalPhotos(proposal.id, {
+        automatic: true,
+      });
+      const current = await prisma.product.findUniqueOrThrow({
+        where: { id: proposal.productId },
+        select: { image: true, supplierSku: true, variants: true },
+      });
+      const plan = automaticPhotoPlan(
+        { ...current, variants: normalizeStoredVariants(current.variants) },
+        photos,
+      );
+      if (plan.imageUrl || plan.variantImages.length) {
+        await applyProductEnrichmentProposalUniversal({
+          proposalId: proposal.id,
+          mode: "IMAGE",
+          automatic: true,
+          imageUrl: plan.imageUrl,
+          variantImages: plan.variantImages,
+        });
+      }
       await finalizeProductEnrichmentText({
         proposalId: proposal.id,
         appliedBy: "AUTOPILOT",
@@ -188,6 +214,7 @@ export async function processCatalogAutopilotProposal(
         proposalId: proposal.id,
         productId: proposal.productId,
         status: "APPLIED",
+        usedNetwork: true,
         reasons: [],
       };
     } catch (error) {
@@ -195,6 +222,7 @@ export async function processCatalogAutopilotProposal(
         proposalId: proposal.id,
         productId: proposal.productId,
         status: "FAILED",
+        usedNetwork: true,
         reasons: [messageOf(error)],
       };
     }
@@ -207,10 +235,18 @@ export async function processCatalogAutopilotProposal(
     evaluation,
     proposal.updatedAt,
   );
-  if (recorded.count !== 1) return { proposalId, productId: proposal.productId, status: "SKIPPED", reasons: ["proposal_changed_refresh"] };
+  if (recorded.count !== 1)
+    return {
+      proposalId,
+      productId: proposal.productId,
+      status: "SKIPPED",
+      reasons: ["proposal_changed_refresh"],
+    };
 
   if (evaluation.decision === "DISCARD") {
-    await rejectProductEnrichmentProposal(proposal.id, prisma, { automatic: true });
+    await rejectProductEnrichmentProposal(proposal.id, prisma, {
+      automatic: true,
+    });
     return {
       proposalId: proposal.id,
       productId: proposal.productId,
@@ -228,7 +264,9 @@ export async function processCatalogAutopilotProposal(
     };
   }
 
-  await rejectProductEnrichmentProposal(proposal.id, prisma, { automatic: true });
+  await rejectProductEnrichmentProposal(proposal.id, prisma, {
+    automatic: true,
+  });
   if (proposal.product.sourceUrl === proposal.sourceUrl) {
     await prisma.product.update({
       where: { id: proposal.productId },
@@ -280,6 +318,7 @@ export async function processCatalogAutopilotProposal(
 
 export async function runCatalogAutopilot(input?: {
   priceImportId?: string | null;
+  excludedProposalIds?: string[];
 }) {
   const config = getCatalogAutopilotConfig();
   const startedAt = new Date();
@@ -309,6 +348,7 @@ export async function runCatalogAutopilot(input?: {
   const proposalResults: CatalogAutopilotProposalResult[] = [];
   const zeroMatchProposals = await prisma.productEnrichmentProposal.findMany({
     where: {
+      id: { notIn: input?.excludedProposalIds || [] },
       status: EnrichmentProposalStatus.PENDING,
       confidence: 0,
       ...proposalProductScope,
@@ -325,6 +365,7 @@ export async function runCatalogAutopilot(input?: {
 
   const pending = await prisma.productEnrichmentProposal.findMany({
     where: {
+      id: { notIn: input?.excludedProposalIds || [] },
       status: EnrichmentProposalStatus.PENDING,
       confidence: { gt: 0 },
       ...proposalProductScope,
@@ -394,7 +435,7 @@ export async function runCatalogAutopilot(input?: {
         }
         return consecutiveFailures < 3;
       })
-      .slice(0, config.discoveryBatch);
+      .slice(0, Math.min(1, config.discoveryBatch));
 
     for (const product of products) {
       usedNetwork = true;
@@ -422,7 +463,8 @@ export async function runCatalogAutopilot(input?: {
     }
   }
 
-  let monitor: Awaited<ReturnType<typeof monitorStaleProductSources>> | null = null;
+  let monitor: Awaited<ReturnType<typeof monitorStaleProductSources>> | null =
+    null;
   if (!usedNetwork && config.monitorBatch > 0) {
     monitor = await monitorStaleProductSources({
       limit: config.monitorBatch,
@@ -430,7 +472,9 @@ export async function runCatalogAutopilot(input?: {
       priceImportId,
       staleHours: Math.max(
         1,
-        Math.trunc(Number(process.env.ENRICHMENT_MONITOR_STALE_HOURS) || 24 * 7),
+        Math.trunc(
+          Number(process.env.ENRICHMENT_MONITOR_STALE_HOURS) || 24 * 7,
+        ),
       ),
     });
 
@@ -453,14 +497,22 @@ export async function runCatalogAutopilot(input?: {
     discoveries,
     monitor,
     summary: {
-      applied: proposalResults.filter((result) => result.status === "APPLIED").length,
-      review: proposalResults.filter((result) => result.status === "REVIEW").length,
-      retried: proposalResults.filter((result) => result.replacementProposalId).length,
-      discarded: proposalResults.filter((result) => result.status === "DISCARDED").length,
-      failed: proposalResults.filter((result) =>
-        ["FAILED", "RETRY_FAILED"].includes(result.status),
+      applied: proposalResults.filter((result) => result.status === "APPLIED")
+        .length,
+      review: proposalResults.filter((result) => result.status === "REVIEW")
+        .length,
+      retried: proposalResults.filter((result) => result.replacementProposalId)
+        .length,
+      discarded: proposalResults.filter(
+        (result) => result.status === "DISCARDED",
       ).length,
-      discovered: discoveries.filter((result) => result.status === "CREATED").length,
+      failed:
+        proposalResults.filter((result) =>
+          ["FAILED", "RETRY_FAILED"].includes(result.status),
+        ).length +
+        discoveries.filter((result) => result.status === "FAILED").length,
+      discovered: discoveries.filter((result) => result.status === "CREATED")
+        .length,
     },
   };
 }

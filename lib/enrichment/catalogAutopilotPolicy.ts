@@ -1,10 +1,7 @@
 import { hasMissingProductData } from "../productCopy";
 
 export type CatalogAutopilotDecision =
-  | "AUTO_APPLY"
-  | "RETRY"
-  | "REVIEW"
-  | "DISCARD";
+  "AUTO_APPLY" | "RETRY" | "REVIEW" | "DISCARD";
 
 export type CatalogAutopilotConfig = {
   enabled: boolean;
@@ -45,6 +42,7 @@ export type CatalogAutopilotProposalInput = {
   warnings?: unknown;
   retryCount?: number;
   manualTextEdited?: boolean;
+  manualVariantEdited?: boolean;
 };
 
 const BLOCKING_WARNINGS = new Set([
@@ -85,8 +83,7 @@ function sourceMatchesDomain(input: CatalogAutopilotProposalInput) {
     const url = new URL(String(input.sourceUrl || ""));
     if (url.protocol !== "https:" && url.protocol !== "http:") return false;
     if (url.username || url.password || url.port) return false;
-    const hostname = url.hostname.toLowerCase()
-      .replace(/^www\./, "");
+    const hostname = url.hostname.toLowerCase().replace(/^www\./, "");
     return (
       hostname === expected ||
       (input.allowSubdomains !== false && hostname.endsWith(`.${expected}`))
@@ -98,7 +95,8 @@ function sourceMatchesDomain(input: CatalogAutopilotProposalInput) {
 
 export function getCatalogAutopilotConfig(): CatalogAutopilotConfig {
   return {
-    enabled: process.env.CATALOG_AUTOPILOT_ENABLED?.trim().toLowerCase() !== "false",
+    enabled:
+      process.env.CATALOG_AUTOPILOT_ENABLED?.trim().toLowerCase() !== "false",
     minConfidence: integerFromEnv(
       process.env.CATALOG_AUTOPILOT_MIN_CONFIDENCE,
       90,
@@ -130,7 +128,10 @@ export function evaluateCatalogAutopilotProposal(
   input: CatalogAutopilotProposalInput,
   config: Pick<CatalogAutopilotConfig, "enabled" | "minConfidence">,
 ): CatalogAutopilotEvaluation {
-  const confidence = Math.min(100, Math.max(0, Math.trunc(input.confidence || 0)));
+  const confidence = Math.min(
+    100,
+    Math.max(0, Math.trunc(input.confidence || 0)),
+  );
   const description = String(input.description || "").trim();
   const shortDescription = String(input.shortDescription || "").trim();
   const application = String(input.application || "").trim();
@@ -143,15 +144,15 @@ export function evaluateCatalogAutopilotProposal(
     )
     .map((warning) => `blocking_warning:${warning}`);
   const retryCount = Math.max(0, Math.trunc(input.retryCount || 0));
-  const officialSource = String(input.sourceType || "").toUpperCase() === "OFFICIAL_SITE";
+  const officialSource =
+    String(input.sourceType || "").toUpperCase() === "OFFICIAL_SITE";
   const sourceEnabled = input.sourceEnabled !== false;
   const sourceDomainAllowed = sourceMatchesDomain(input);
   const benefitCount = description
     .split("\n")
     .filter((line) => /^\s*[•*-]\s+\S/u.test(line)).length;
-  const hasAudienceSection = /(?:^|\n)\s*Для (?:какой кожи|каких задач)\s*(?:\n|:)/iu.test(
-    description,
-  );
+  const hasAudienceSection =
+    /(?:^|\n)\s*Для (?:какой кожи|каких задач)\s*(?:\n|:)/iu.test(description);
   const promotionalTextFound =
     PROMOTIONAL_TEXT_PATTERN.test(description) ||
     PROMOTIONAL_TEXT_PATTERN.test(shortDescription);
@@ -171,8 +172,18 @@ export function evaluateCatalogAutopilotProposal(
   };
 
   if (input.manualTextEdited) {
-    return { decision: "REVIEW", reasons: ["manual_text_review_required"], checks };
+    return {
+      decision: "REVIEW",
+      reasons: ["manual_text_review_required"],
+      checks,
+    };
   }
+  if (input.manualVariantEdited)
+    return {
+      decision: "REVIEW",
+      reasons: ["manual_variant_review_required"],
+      checks,
+    };
   if (!config.enabled) {
     return { decision: "REVIEW", reasons: ["autopilot_disabled"], checks };
   }
@@ -201,7 +212,8 @@ export function evaluateCatalogAutopilotProposal(
   }
 
   const reasons: string[] = [];
-  if (confidence < config.minConfidence) reasons.push("confidence_below_auto_apply_threshold");
+  if (confidence < config.minConfidence)
+    reasons.push("confidence_below_auto_apply_threshold");
   if (!officialSource) reasons.push("official_source_required");
   if (!sourceEnabled) reasons.push("source_disabled");
   if (!sourceDomainAllowed) reasons.push("source_domain_mismatch");
@@ -213,7 +225,11 @@ export function evaluateCatalogAutopilotProposal(
   if (benefitCount < 3) reasons.push("benefits_missing");
   if (application.length < 20) reasons.push("application_missing");
   if (promotionalTextFound) reasons.push("promotional_text_found");
-  if (hasMissingProductData(description) || hasMissingProductData(shortDescription) || hasMissingProductData(application)) {
+  if (
+    hasMissingProductData(description) ||
+    hasMissingProductData(shortDescription) ||
+    hasMissingProductData(application)
+  ) {
     reasons.push("incomplete_product_information");
   }
 

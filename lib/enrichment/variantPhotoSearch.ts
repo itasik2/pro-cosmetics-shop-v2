@@ -64,6 +64,7 @@ export async function searchVariantPhotos(
     policies: AllowedSourcePolicy[];
     priceCandidates: VariantImageCandidate[];
     deadlineAt?: number;
+    catalogOnly?: boolean;
   },
   dependencies: Dependencies = {
     official: findOfficialProductUrl,
@@ -158,7 +159,7 @@ export async function searchVariantPhotos(
       }
     }
   }
-  if (!candidates.length && searchable) {
+  if (!candidates.length && searchable && !input.catalogOnly) {
     for (const stage of ["official", "external"] as const) {
       if (stage === "official" && !input.officialDomains.length) continue;
       try {

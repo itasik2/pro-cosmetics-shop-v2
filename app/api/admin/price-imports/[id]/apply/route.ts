@@ -10,7 +10,10 @@ import {
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/adminGuard";
 import { prisma } from "@/lib/prisma";
-import { ParsedImportRowSchema, type ParsedImportRow } from "@/lib/price-import/parsedRow";
+import {
+  ParsedImportRowSchema,
+  type ParsedImportRow,
+} from "@/lib/price-import/parsedRow";
 import { normalizePriceMode } from "@/lib/price-import/pricing";
 import {
   autoVariantGroupKeys,
@@ -24,6 +27,10 @@ import {
 import { formatProductName } from "@/lib/productNames";
 import { slugify } from "@/lib/slug";
 import { uniqueSlug } from "@/lib/uniqueSlug";
+import {
+  removedVariantSkus,
+  shouldSkipRemovedVariant,
+} from "@/lib/enrichment/removedVariants";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -36,11 +43,16 @@ function normalizeBrandName(value: string) {
 }
 
 function normalizeSku(value: string | null | undefined) {
-  return String(value || "").replace(/\s+/g, "").trim().toUpperCase();
+  return String(value || "")
+    .replace(/\s+/g, "")
+    .trim()
+    .toUpperCase();
 }
 
 function importedDescription(value: string | null | undefined) {
-  return String(value || "").replace(/\s+/g, " ").trim();
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 async function ensureBrand(name: string) {
@@ -146,7 +158,9 @@ async function updateExistingPrice(input: {
         normalizeSku(variant.sku) === normalizeSku(sku)
           ? {
               ...variant,
-              ...(!variant.image && input.parsed.priceImageUrl ? { image: input.parsed.priceImageUrl } : {}),
+              ...(!variant.image && input.parsed.priceImageUrl
+                ? { image: input.parsed.priceImageUrl }
+                : {}),
               price: input.sourceOnly ? variant.price : input.parsed.salePrice,
             }
           : variant,
@@ -160,7 +174,9 @@ async function updateExistingPrice(input: {
           sku,
           image: input.parsed.priceImageUrl,
           label,
-          price: input.sourceOnly ? input.parsed.sourcePrice : input.parsed.salePrice,
+          price: input.sourceOnly
+            ? input.parsed.sourcePrice
+            : input.parsed.salePrice,
           stock: 0,
         }),
       );
@@ -253,7 +269,8 @@ export async function POST(_req: Request, props: Params) {
     );
   }
 
-  const sourceOnly = normalizePriceMode(priceImport.priceMode) === "SOURCE_ONLY";
+  const sourceOnly =
+    normalizePriceMode(priceImport.priceMode) === "SOURCE_ONLY";
   const brandCache = new Map<string, { id: string; name: string }>();
   const parsedRowsForGrouping = priceImport.rows
     .map((row) => ParsedImportRowSchema.safeParse(row.parsedData))
@@ -277,7 +294,9 @@ export async function POST(_req: Request, props: Params) {
   for (const product of supplierProducts) {
     const skus = [
       product.supplierSku,
-      ...normalizeStoredVariants(product.variants).map((variant) => variant.sku || null),
+      ...normalizeStoredVariants(product.variants).map(
+        (variant) => variant.sku || null,
+      ),
     ];
     for (const sku of skus) {
       const key = normalizeSku(sku);
@@ -291,6 +310,20 @@ export async function POST(_req: Request, props: Params) {
   for (const [sku, ids] of skuCandidates) {
     if (ids.size === 1) uniqueProductBySku.set(sku, [...ids][0]);
   }
+  const exclusions = await prisma.productEnrichmentProposal.findMany({
+    where: {
+      productId: { in: supplierProducts.map((product) => product.id) },
+      facts: { path: ["removedVariantSkus"], array_contains: [] },
+    },
+    select: { productId: true, facts: true },
+  });
+  const removedOwners = new Map(
+    exclusions.flatMap((row) =>
+      removedVariantSkus(row.facts).map((sku) => [sku, row.productId] as const),
+    ),
+  );
+  const excludedSkus = new Set(removedOwners.keys());
+  const activeSkus = new Set(skuCandidates.keys());
 
   let createdRows = 0;
   let updatedRows = 0;
@@ -311,18 +344,39 @@ export async function POST(_req: Request, props: Params) {
     try {
       const parsed = ParsedImportRowSchema.parse(row.parsedData);
       if (!parsed.supplierSku) throw new Error("sku_required_for_apply");
+      if (
+        shouldSkipRemovedVariant(parsed.supplierSku, excludedSkus, activeSkus)
+      ) {
+        await prisma.priceImportRow.update({
+          where: { id: row.id },
+          data: {
+            action: ImportRowAction.SKIP,
+            productId: removedOwners.get(normalizeSku(parsed.supplierSku)),
+            error:
+              "Вариант ранее удалён администратором и исключён из автодобавления.",
+          },
+        });
+        skippedRows += 1;
+        continue;
+      }
 
       const groupKey = parsedProductGroupKey(parsed);
       const variantMode = Boolean(groupKey && variantGroupKeys.has(groupKey));
-      const brandKey = normalizeBrandName(parsed.brand).toLocaleLowerCase("ru-RU");
+      const brandKey = normalizeBrandName(parsed.brand).toLocaleLowerCase(
+        "ru-RU",
+      );
       let brand = brandCache.get(brandKey);
       if (!brand) {
         brand = await ensureBrand(parsed.brand);
         brandCache.set(brandKey, brand);
       }
 
-      const cachedProductId = groupKey ? groupProductCache.get(groupKey) : undefined;
-      const skuProductId = uniqueProductBySku.get(normalizeSku(parsed.supplierSku));
+      const cachedProductId = groupKey
+        ? groupProductCache.get(groupKey)
+        : undefined;
+      const skuProductId = uniqueProductBySku.get(
+        normalizeSku(parsed.supplierSku),
+      );
       const matchedProductId = cachedProductId || row.productId || skuProductId;
 
       if (matchedProductId) {
@@ -342,7 +396,10 @@ export async function POST(_req: Request, props: Params) {
         if (groupKey && variantMode) {
           groupProductCache.set(groupKey, result.productId);
         }
-        uniqueProductBySku.set(normalizeSku(parsed.supplierSku), result.productId);
+        uniqueProductBySku.set(
+          normalizeSku(parsed.supplierSku),
+          result.productId,
+        );
         await prisma.priceImportRow.update({
           where: { id: row.id },
           data: {
@@ -367,7 +424,8 @@ export async function POST(_req: Request, props: Params) {
       );
       const slug = await uniqueSlug({ model: "product", value: baseSlug });
       const initialPrice = sourceOnly ? parsed.sourcePrice : parsed.salePrice;
-      const description = importedDescription(parsed.description) || "Описание готовится";
+      const description =
+        importedDescription(parsed.description) || "Описание готовится";
       const label = variantMode ? variantLabel(parsed) : "";
 
       const productId = await prisma.$transaction(async (tx) => {
