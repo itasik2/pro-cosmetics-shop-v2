@@ -9,6 +9,7 @@ import {isSameOrigin} from "@/lib/same-origin";
 import {listSupplierProfiles,listLocalImportHistory,loadLocalImportSnapshot,recordLocalImportEvent,type LocalImportSnapshot} from "@/lib/local-supplier-store";
 import {buildUniversalCatalog} from "@/lib/universal-catalog";
 import {parsePriceRule,priceImportItems,type PriceRule} from "@/lib/import-pricing";
+import {defaultImportMapping,isJeudermPriceList} from "@/lib/import-price-preset";
 import {dateFromFileName,previousAppliedDate} from "@/lib/import-date";
 
 export const dynamic="force-dynamic";
@@ -102,7 +103,10 @@ async function prepare(request:NextRequest){
      table.rows[number]["Артикул"]=value.trim();
    }
  }
- const mapping=mappingFrom(data.get("mapping")??(storedMapping?JSON.stringify(storedMapping):null),table.headers);
+ const suppliedMapping=data.get("mapping")??(storedMapping?JSON.stringify(storedMapping):null);
+ const mapping=suppliedMapping===null
+   ?defaultImportMapping(fileName,table.format,table.headers,autoMapping(table.headers))
+   :mappingFrom(suppliedMapping,table.headers);
  const priceRule=parsePriceRule(data.get("priceRule")??storedPriceRule);
  const effectiveMapping=priceRule.mode==="PRICE_AS_IS"?mapping:{...mapping,price:undefined};
  const items=priceImportItems(mapImport(table,effectiveMapping),priceRule);
@@ -182,6 +186,7 @@ export async function POST(request:NextRequest) {
    }
    return NextResponse.json({
      format:table.format,fileName:state.fileName,headers:table.headers,mapping,priceRule,review,counts,fingerprint,
+     jeudermPriceRule:isJeudermPriceList(state.fileName,table.format,table.headers),
      historyId,historyWarning,pdfSkuOverrides:state.snapshot.skuOverrides,
      sourceDate:state.sourceDate,appliedDate:state.appliedDate,olderThanApplied:state.olderThanApplied,
      universalCatalog:state.universalCatalog,

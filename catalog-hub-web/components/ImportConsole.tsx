@@ -9,6 +9,7 @@ import {DEFAULT_PRICE_RULE,type PriceRule} from "@/lib/import-pricing";
 type Preview={
  format:string;headers:string[];mapping:Mapping;review:Reviewed[];
  priceRule:PriceRule;
+ jeudermPriceRule?:boolean;
  counts:Record<string,number>;fingerprint:string;note:string;canApply:boolean;
  warnings?:string[];pageCount?:number|null;needsManualSku?:boolean;
  historyId?:string|null;fileName?:string;pdfSkuOverrides?:Record<number,string>;
@@ -278,7 +279,7 @@ export function ImportConsole(){
      {!file&&historyId&&preview&&<p className="subtle">Из истории: {preview.fileName}. Исходный файл не сохранён.</p>}
      <div style={{marginTop:15}}>
        <h3>Правило цены</h3>
-       <p className="subtle">Результат расчёта показывается в предпросмотре. Закупочная цена берётся только из выбранной колонки.</p>
+       <p className="subtle">Результат расчёта показывается в предпросмотре. Закупочная цена берётся только из выбранной колонки. Для PDF JeuDerm: «Цена 1» — закупочная, «Цена 2» — готовая розничная.</p>
        <div className="editor-grid">
          <label className="editor-field"><span>Розничная цена</span>
            <select className="input" value={priceRule.mode}
@@ -302,6 +303,7 @@ export function ImportConsole(){
          </label>
        </div>
        {priceRule.mode==="SOURCE_ONLY"&&<p className="subtle">Новые карточки в этом режиме не создаются. У существующих розничная цена не меняется.</p>}
+       {priceRule.mode==="MARKUP_PERCENT"&&<p className="subtle">Наценка рассчитывается от закупочной цены; указанная в прайсе розничная цена не применяется.</p>}
      </div>
      {headers.length>0&&<div style={{marginTop:15}}>
        <h3>Сопоставление колонок</h3>
@@ -342,8 +344,10 @@ export function ImportConsole(){
        </div>}
        {!preview.sourceDate&&<p className="subtle">Дата прайса не определена по имени файла: сравнение с предыдущим прайсом недоступно.</p>}
        {preview.format==="PDF"&&<div className="import-warning" role="status">
-         PDF может содержать карточки или таблицу: система не придумывает отсутствующие артикулы и не назначает цену 1 или 2 автоматически.
-         Укажите внутренний SKU для новых товаров и сопоставьте нужные колонки цен выше.
+         {preview.jeudermPriceRule
+           ?"JeuDerm: «Цена 1» — закупочная, «Цена 2» — готовая розничная. Сопоставление можно изменить вручную."
+           :"Проверьте назначение колонок цен в сопоставлении выше."}
+         {" "}Для новых товаров укажите внутренний SKU; отсутствующие артикулы система не придумывает.
          После ручных изменений нажмите «Обновить предпросмотр».
        </div>}
        {preview.warnings?.map((w,i)=><p className="subtle" key={i}>{w}</p>)}
@@ -429,8 +433,9 @@ export function ImportConsole(){
              {" — "}{item.title}
            </div>)}
          </div>)}
-         <p className="subtle">Исходные цены: «Цена 1» и «Цена 2» не назначаются автоматически.
-           Выберите их значения в блоке «Сопоставление колонок» выше и снова проверьте строки.</p>
+         <p className="subtle">{preview.jeudermPriceRule
+           ?"JeuDerm: «Цена 1» — закупочная, «Цена 2» — готовая розничная. Проверьте сопоставление выше и суммы в строках."
+           :"Выберите роль «Цены 1» и «Цены 2» в блоке «Сопоставление колонок» выше и снова проверьте строки."}</p>
        </div>}
        {pdfNeedsRefresh&&<p className="error" role="status">SKU изменены: обновите предпросмотр перед подтверждением.</p>}
        <div className="import-summary">

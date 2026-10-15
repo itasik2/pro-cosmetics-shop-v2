@@ -258,7 +258,7 @@ export async function parsePdfSupplier(bytes:Uint8Array,options:{fileName?:strin
    warnings.push("Колонка «Цена, тг.» сохранена как «Цена 1»: подтвердите её роль перед импортом.");
   }else{
    warnings.push("PDF не содержит подтверждённых артикулов: введите SKU вручную перед созданием новых товаров.");
-   warnings.push("Цена 1 и Цена 2 оставлены без назначения: выберите нужную колонку для закупочной/розничной цены.");
+   warnings.push("Колонки «Цена 1» и «Цена 2» сохранены: проверьте их назначение в сопоставлении перед импортом.");
   }
   warnings.push("Автоматическое изменение складских остатков из PDF отключено.");
   return {format:"PDF",headers:angiopharm?[...HEADERS,"Бренд"]:HEADERS,rows:result,pageCount:pdf.numPages,warnings,needsManualSku:true};
