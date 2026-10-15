@@ -1,10 +1,12 @@
 "use client";
 
 import { VariantPhotosReview } from "@/components/VariantPhotoPicker";
+import { ProposalTextEditor } from "@/components/ProposalTextEditor";
+import { applyProposalChange, publishProposalChange, subscribeProposalChanges } from "@/lib/enrichment/proposalChanges";
 import type { VariantImageSelection } from "@/lib/enrichment/variantImages";
 import { enrichmentFailureMessage } from "../../../../lib/enrichment/clientMessages";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 type Tab = "products" | "proposals" | "sources";
 type ApplyMode = "ALL" | "DESCRIPTION" | "DESCRIPTION_FINAL" | "IMAGE";
@@ -45,6 +47,7 @@ type Product = {
 
 type Proposal = {
   id: string;
+  textVersion: string;
   status: string;
   sourceUrl: string;
   confidence: number;
@@ -189,6 +192,7 @@ function autopilotReasonText(value: string) {
     skin_or_task_section_missing: "не указан тип кожи или задачи ухода",
     benefits_missing: "меньше трёх подтверждённых преимуществ",
     application_missing: "нет полноценного способа применения",
+    manual_text_review_required: "текст отредактирован вручную и ожидает одобрения",
     promotional_text_found: "обнаружены рекламные SEO-фразы",
     low_match_retry_required: "нужен повторный поиск источника",
     low_match_manual_review_required: "низкое совпадение после повторного поиска",
@@ -391,6 +395,9 @@ export default function AdminEnrichmentClient() {
   const [tab, setTab] = useState<Tab>("products");
   const [products, setProducts] = useState<Product[]>([]);
   const [proposals, setProposals] = useState<Proposal[]>([]);
+  const proposalRequest = useRef(0);
+  const [editingText, setEditingText] = useState<Record<string, boolean>>({});
+  const [actionMessages, setActionMessages] = useState<Record<string, string>>({});
   const [suppliers, setSuppliers] = useState<SupplierGroup[]>([]);
   const [autopilot, setAutopilot] = useState<AutopilotOverview | null>(null);
   const [query, setQuery] = useState("");
@@ -422,10 +429,12 @@ export default function AdminEnrichmentClient() {
   }
 
   async function loadProposals() {
+    const request = ++proposalRequest.current;
     const response = await fetch("/api/admin/enrichment/proposals?status=PENDING", {
       cache: "no-store",
     });
     const rows = (await readResponse(response)) as Proposal[];
+    if (request !== proposalRequest.current) return;
     setProposals(rows);
     setStockValues((current) => {
       const next: Record<string, string> = {};
@@ -493,6 +502,14 @@ export default function AdminEnrichmentClient() {
     // Начальная загрузка выполняется один раз; фильтры применяются отдельной кнопкой.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => subscribeProposalChanges((change) => {
+    proposalRequest.current++;
+    setProposals((current) => applyProposalChange(current, change));
+    void loadProposals().catch(() => setMessage("Изменение сохранено. Не удалось обновить список; обновите страницу."));
+    // loadProposals only uses stable state setters and the request ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), []);
 
   async function runAutopilot() {
     setBusyKey("autopilot:run");
@@ -621,6 +638,7 @@ export default function AdminEnrichmentClient() {
         }),
       });
       await readResponse(response);
+      publishProposalChange({ id: proposalId, status: mode === "ALL" || mode === "DESCRIPTION_FINAL" ? "APPLIED" : "PENDING" });
       setMessage(
         mode === "ALL"
           ? "Описание, фото и количество применены. Товар добавлен в черновики для публикации."
@@ -630,7 +648,7 @@ export default function AdminEnrichmentClient() {
               ? "Описание сохранено. Фото, цена и количество не изменялись; предложение остаётся на проверке."
               : "Фото и количество сохранены. Предложение остаётся на проверке.",
       );
-      await Promise.all([loadProducts(), loadProposals()]);
+      void loadProducts().catch(() => undefined);
     } catch (error) {
       setMessage(`Не удалось применить предложение: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
@@ -639,18 +657,21 @@ export default function AdminEnrichmentClient() {
   }
 
   async function rejectProposal(proposalId: string) {
-    if (!confirm("Отклонить это предложение?")) return;
     setBusyKey(`reject:${proposalId}`);
     setMessage(null);
+    setActionMessages((current) => ({ ...current, [proposalId]: "" }));
     try {
       const response = await fetch(`/api/admin/enrichment/proposals/${proposalId}/reject`, {
         method: "POST",
       });
       await readResponse(response);
+      publishProposalChange({ id: proposalId, status: "REJECTED" });
       setMessage("Предложение отклонено.");
-      await Promise.all([loadProducts(), loadProposals()]);
+      void loadProducts().catch(() => undefined);
     } catch (error) {
-      setMessage(`Не удалось отклонить предложение: ${error instanceof Error ? error.message : String(error)}`);
+      const message = `Не удалось отклонить предложение: ${error instanceof Error ? error.message : String(error)}`;
+      setMessage(message);
+      setActionMessages((current) => ({ ...current, [proposalId]: message }));
     } finally {
       setBusyKey(null);
     }
@@ -1001,11 +1022,8 @@ export default function AdminEnrichmentClient() {
 
                 <div className="grid gap-4 xl:grid-cols-2">
                   <div className="space-y-3">
-                    <TextBlock label="Заголовок" value={proposal.title} />
-                    <TextBlock label="Краткое описание" value={proposal.shortDescription} />
-                    <TextBlock label="Описание" value={proposal.description} />
-                    <TextBlock label="Способ применения" value={proposal.application} />
-                    <TextBlock label="Состав и активные компоненты" value={proposal.ingredients} />
+                    <ProposalTextEditor proposal={proposal} disabled={isBusy}
+                      onEditingChange={(editing) => setEditingText((current) => ({ ...current, [proposal.id]: editing }))} />
                   </div>
 
                   <div className="space-y-3">
@@ -1116,7 +1134,7 @@ export default function AdminEnrichmentClient() {
                   <button
                     type="button"
                     className="rounded-xl bg-black px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-50"
-                    disabled={isBusy}
+                    disabled={isBusy || editingText[proposal.id]}
                     onClick={() => void applyProposal(proposal.id, "DESCRIPTION_FINAL")}
                   >
                     Одобрить только текст
@@ -1124,7 +1142,7 @@ export default function AdminEnrichmentClient() {
                   <button
                     type="button"
                     className="rounded-xl border px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
-                    disabled={isBusy || (!selectedImage && !variantImages[proposal.id]?.length)}
+                    disabled={isBusy || editingText[proposal.id] || (!selectedImage && !variantImages[proposal.id]?.length)}
                     title={!selectedImage && !variantImages[proposal.id]?.length ? "Выберите общее фото или фото для SKU" : undefined}
                     onClick={() => void applyProposal(proposal.id, "ALL")}
                   >
@@ -1133,7 +1151,7 @@ export default function AdminEnrichmentClient() {
                   <button
                     type="button"
                     className="rounded-xl border px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
-                    disabled={isBusy || (!selectedImage && !variantImages[proposal.id]?.length)}
+                    disabled={isBusy || editingText[proposal.id] || (!selectedImage && !variantImages[proposal.id]?.length)}
                     title={!selectedImage && !variantImages[proposal.id]?.length ? "Выберите общее фото или фото для SKU" : undefined}
                     onClick={() => void applyProposal(proposal.id, "IMAGE")}
                   >
@@ -1145,9 +1163,10 @@ export default function AdminEnrichmentClient() {
                     disabled={isBusy}
                     onClick={() => void rejectProposal(proposal.id)}
                   >
-                    Отклонить
+                    {busyKey === `reject:${proposal.id}` ? "Отклонение…" : "Отклонить"}
                   </button>
                 </div>
+                {actionMessages[proposal.id] && <p role="alert" className="text-sm text-red-700">{actionMessages[proposal.id]}</p>}
               </article>
             );
           })}
@@ -1331,15 +1350,6 @@ function Metric({ label, value }: { label: string; value: number }) {
     <div className="rounded-xl border border-emerald-100 bg-white px-3 py-2">
       <div className="text-xl font-semibold">{value}</div>
       <div className="text-xs text-gray-600">{label}</div>
-    </div>
-  );
-}
-
-function TextBlock({ label, value }: { label: string; value: string | null }) {
-  return (
-    <div className="rounded-xl border p-3">
-      <div className="mb-1 text-xs font-medium uppercase tracking-wide text-gray-500">{label}</div>
-      <div className="whitespace-pre-line text-sm text-gray-800">{value?.trim() || "—"}</div>
     </div>
   );
 }

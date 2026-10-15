@@ -5,6 +5,7 @@ import {
   type Prisma,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { sanitizeProposalTitle } from "./proposalText";
 import { normalizeStoredVariants } from "@/lib/price-import/productVariants";
 import {
   latestPriceListImageForProduct,
@@ -490,7 +491,7 @@ export async function runProductEnrichment(input: RunInput) {
         jobId: job.id,
         sourceUrl: fetched.finalUrl,
         confidence: match.confidence,
-        title: extracted.title,
+        title: sanitizeProposalTitle(extracted.title, product.name),
         shortDescription: generated.shortDescription,
         description: generated.description,
         application: generated.application,

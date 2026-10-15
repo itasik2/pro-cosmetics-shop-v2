@@ -6,6 +6,10 @@ import {
 import { prisma } from "@/lib/prisma";
 import { applyProductEnrichmentProposalUniversal } from "./applyProposalUniversal";
 import type { VariantImageSelection } from "./variantImages";
+import {
+  hasManualProposalText,
+  manuallyEditedProductName,
+} from "./proposalText";
 
 export type ProposalApplyMode = "ALL" | "DESCRIPTION" | "IMAGE";
 
@@ -42,8 +46,11 @@ function composeDescription(input: {
   return sections.join("\n\n").trim();
 }
 
-async function refreshProductEnrichmentStatus(productId: string) {
-  const pending = await prisma.productEnrichmentProposal.count({
+async function refreshProductEnrichmentStatus(
+  productId: string,
+  database = prisma,
+) {
+  const pending = await database.productEnrichmentProposal.count({
     where: {
       productId,
       status: EnrichmentProposalStatus.PENDING,
@@ -51,7 +58,7 @@ async function refreshProductEnrichmentStatus(productId: string) {
     },
   });
 
-  await prisma.product.update({
+  await database.product.update({
     where: { id: productId },
     data: { enrichmentStatus: pending > 0 ? "REVIEW" : "READY" },
   });
@@ -68,15 +75,18 @@ export async function applyProductEnrichmentProposal(input: {
   return applyProductEnrichmentProposalUniversal(input);
 }
 
-export async function finalizeProductEnrichmentText(input: {
-  proposalId: string;
-  appliedBy: "AUTOPILOT" | "ADMIN";
-  evaluation?: {
-    reasons: string[];
-    checks: Record<string, unknown>;
-  };
-}) {
-  const proposal = await prisma.productEnrichmentProposal.findUnique({
+export async function finalizeProductEnrichmentText(
+  input: {
+    proposalId: string;
+    appliedBy: "AUTOPILOT" | "ADMIN";
+    evaluation?: {
+      reasons: string[];
+      checks: Record<string, unknown>;
+    };
+  },
+  database = prisma,
+) {
+  const proposal = await database.productEnrichmentProposal.findUnique({
     where: { id: input.proposalId },
     include: {
       product: {
@@ -105,6 +115,10 @@ export async function finalizeProductEnrichmentText(input: {
   if (proposal.confidence === 0) {
     throw new Error("proposal_match_confidence_zero");
   }
+
+  if (input.appliedBy === "AUTOPILOT" && hasManualProposalText(proposal.facts))
+    throw new Error("manual_text_review_required");
+  const editedName = manuallyEditedProductName(proposal);
 
   const description = composeDescription(proposal);
   const shortDescription = String(proposal.shortDescription || "").trim();
@@ -141,11 +155,12 @@ export async function finalizeProductEnrichmentText(input: {
     },
   };
 
-  await prisma.$transaction(async (tx) => {
+  await database.$transaction(async (tx) => {
     const claimed = await tx.productEnrichmentProposal.updateMany({
       where: {
         id: proposal.id,
         status: EnrichmentProposalStatus.PENDING,
+        updatedAt: proposal.updatedAt,
       },
       data: {
         status: EnrichmentProposalStatus.APPLIED,
@@ -162,6 +177,7 @@ export async function finalizeProductEnrichmentText(input: {
     await tx.product.update({
       where: { id: proposal.productId },
       data: {
+        ...(editedName ? { name: editedName } : {}),
         shortDescription,
         description,
         descriptionSourceUrl: proposal.sourceUrl,
@@ -180,9 +196,9 @@ export async function finalizeProductEnrichmentText(input: {
     }
   });
 
-  await refreshProductEnrichmentStatus(proposal.productId);
+  await refreshProductEnrichmentStatus(proposal.productId, database);
 
-  return prisma.productEnrichmentProposal.findUnique({
+  return database.productEnrichmentProposal.findUnique({
     where: { id: proposal.id },
     include: {
       product: {
@@ -311,57 +327,85 @@ export async function rollbackAutopilotDescription(proposalId: string) {
   });
 }
 
-export async function rejectProductEnrichmentProposal(proposalId: string) {
-  const proposal = await prisma.productEnrichmentProposal.findUnique({
-    where: { id: proposalId },
-    select: {
-      id: true,
-      productId: true,
-      jobId: true,
-      status: true,
-    },
-  });
-
-  if (!proposal) throw new Error("proposal_not_found");
-  if (proposal.status !== EnrichmentProposalStatus.PENDING) {
-    throw new Error("proposal_not_pending");
-  }
-
-  await prisma.$transaction(async (tx) => {
-    await tx.productEnrichmentProposal.update({
-      where: { id: proposal.id },
-      data: { status: EnrichmentProposalStatus.REJECTED },
+export async function rejectProductEnrichmentProposal(
+  proposalId: string,
+  database = prisma,
+  options: { automatic?: boolean } = {},
+) {
+  return database.$transaction(async (tx) => {
+    const proposal = await tx.productEnrichmentProposal.findUnique({
+      where: { id: proposalId },
+      select: {
+        id: true,
+        productId: true,
+        jobId: true,
+        status: true,
+        facts: true,
+        updatedAt: true,
+      },
     });
 
-    if (proposal.jobId) {
-      await tx.enrichmentJob.update({
-        where: { id: proposal.jobId },
-        data: {
-          status: EnrichmentJobStatus.CANCELED,
-          finishedAt: new Date(),
-        },
-      });
+    if (!proposal) throw new Error("proposal_not_found");
+    if (options.automatic && hasManualProposalText(proposal.facts))
+      throw new Error("manual_text_review_required");
+    if (
+      proposal.status !== EnrichmentProposalStatus.PENDING &&
+      proposal.status !== EnrichmentProposalStatus.REJECTED
+    ) {
+      throw new Error("proposal_not_pending");
     }
-  });
 
-  await refreshProductEnrichmentStatus(proposal.productId);
-
-  return prisma.productEnrichmentProposal.findUnique({
-    where: { id: proposal.id },
-    include: {
-      product: {
-        select: {
-          id: true,
-          name: true,
-          image: true,
-          stock: true,
-          variants: true,
-          isPublished: true,
-          enrichmentStatus: true,
+    if (proposal.status === EnrichmentProposalStatus.PENDING) {
+      const claimed = await tx.productEnrichmentProposal.updateMany({
+        where: {
+          id: proposal.id,
+          status: EnrichmentProposalStatus.PENDING,
+          updatedAt: proposal.updatedAt,
         },
+        data: { status: EnrichmentProposalStatus.REJECTED },
+      });
+      if (claimed.count !== 1) throw new Error("proposal_changed_refresh");
+
+      if (proposal.jobId) {
+        await tx.enrichmentJob.update({
+          where: { id: proposal.jobId },
+          data: {
+            status: EnrichmentJobStatus.CANCELED,
+            finishedAt: new Date(),
+          },
+        });
+      }
+    }
+
+    const pending = await tx.productEnrichmentProposal.count({
+      where: {
+        productId: proposal.productId,
+        status: EnrichmentProposalStatus.PENDING,
+        confidence: { gt: 0 },
       },
-      source: true,
-      job: true,
-    },
+    });
+    await tx.product.update({
+      where: { id: proposal.productId },
+      data: { enrichmentStatus: pending > 0 ? "REVIEW" : "READY" },
+    });
+
+    return tx.productEnrichmentProposal.findUnique({
+      where: { id: proposal.id },
+      include: {
+        product: {
+          select: {
+            id: true,
+            name: true,
+            image: true,
+            stock: true,
+            variants: true,
+            isPublished: true,
+            enrichmentStatus: true,
+          },
+        },
+        source: true,
+        job: true,
+      },
+    });
   });
 }

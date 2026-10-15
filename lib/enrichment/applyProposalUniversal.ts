@@ -6,6 +6,7 @@ import {
 import { prisma } from "@/lib/prisma";
 import { normalizeStoredVariants } from "@/lib/price-import/productVariants";
 import { importProductImage } from "./productImages";
+import { manuallyEditedProductName } from "./proposalText";
 import {
   latestPriceListImageForProduct,
   priceListImagesBySku,
@@ -84,6 +85,7 @@ export async function applyProductEnrichmentProposalUniversal(
   const selections = applyPhotos ? input.variantImages || [] : [];
   const variants = normalizeStoredVariants(proposal.product.variants);
   const facts = object(proposal.facts);
+  const editedName = applyText ? manuallyEditedProductName(proposal) : null;
   const priceImages = selections.length
     ? await loadPriceImages([proposal.productId])
     : new Map();
@@ -197,6 +199,7 @@ export async function applyProductEnrichmentProposalUniversal(
       ...(applyText
         ? {
             shortDescription: proposal.shortDescription?.trim() || null,
+            ...(editedName ? { name: editedName } : {}),
             description,
             descriptionSourceUrl: proposal.sourceUrl,
           }

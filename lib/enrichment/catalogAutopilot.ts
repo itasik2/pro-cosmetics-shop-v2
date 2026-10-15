@@ -4,6 +4,7 @@ import {
   type Prisma,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { hasManualProposalText } from "./proposalText";
 import {
   finalizeProductEnrichmentText,
   rejectProductEnrichmentProposal,
@@ -86,6 +87,7 @@ async function recordEvaluation(
   factsValue: unknown,
   warningsValue: unknown,
   evaluation: CatalogAutopilotEvaluation,
+  updatedAt: Date,
 ) {
   const facts = jsonObject(factsValue);
   const warnings = stringArray(warningsValue);
@@ -93,10 +95,11 @@ async function recordEvaluation(
     (reason) => `catalog_autopilot:${reason}`,
   );
 
-  await prisma.productEnrichmentProposal.updateMany({
+  return prisma.productEnrichmentProposal.updateMany({
     where: {
       id: proposalId,
       status: EnrichmentProposalStatus.PENDING,
+      updatedAt,
     },
     data: {
       facts: {
@@ -166,6 +169,7 @@ export async function processCatalogAutopilotProposal(
       application: proposal.application,
       warnings: proposal.warnings,
       retryCount,
+      manualTextEdited: hasManualProposalText(proposal.facts),
     },
     config,
   );
@@ -196,15 +200,17 @@ export async function processCatalogAutopilotProposal(
     }
   }
 
-  await recordEvaluation(
+  const recorded = await recordEvaluation(
     proposal.id,
     proposal.facts,
     proposal.warnings,
     evaluation,
+    proposal.updatedAt,
   );
+  if (recorded.count !== 1) return { proposalId, productId: proposal.productId, status: "SKIPPED", reasons: ["proposal_changed_refresh"] };
 
   if (evaluation.decision === "DISCARD") {
-    await rejectProductEnrichmentProposal(proposal.id);
+    await rejectProductEnrichmentProposal(proposal.id, prisma, { automatic: true });
     return {
       proposalId: proposal.id,
       productId: proposal.productId,
@@ -222,7 +228,7 @@ export async function processCatalogAutopilotProposal(
     };
   }
 
-  await rejectProductEnrichmentProposal(proposal.id);
+  await rejectProductEnrichmentProposal(proposal.id, prisma, { automatic: true });
   if (proposal.product.sourceUrl === proposal.sourceUrl) {
     await prisma.product.update({
       where: { id: proposal.productId },
