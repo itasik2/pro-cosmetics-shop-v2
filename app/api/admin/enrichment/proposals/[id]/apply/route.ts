@@ -66,6 +66,12 @@ function errorResponse(error: unknown) {
               : 500;
 
   const explanations: Record<string, string> = {
+    proposal_image_not_allowed:
+      "Выбранное общее фото больше не соответствует карточке. Повторите подбор фото по SKU.",
+    proposal_short_description_empty:
+      "Добавьте краткое описание товара перед применением карточки.",
+    proposal_description_empty:
+      "Добавьте описание товара перед применением карточки.",
     variant_sku_changed:
       "SKU варианта изменился. Обновите карточку и повторите поиск фото.",
     variant_image_not_allowed:

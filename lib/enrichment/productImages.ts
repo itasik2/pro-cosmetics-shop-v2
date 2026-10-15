@@ -34,10 +34,16 @@ async function isTrustedProposalImage(
     proposals.some(
       (proposal) =>
         stringArray(proposal.images).includes(sourceUrl) ||
-        imageGroups(
-          (proposal.facts as Record<string, unknown> | null)
-            ?.variantImageCandidates,
-        ).some((group) =>
+        [
+          ...imageGroups(
+            (proposal.facts as Record<string, unknown> | null)
+              ?.variantImageCandidates,
+          ),
+          ...imageGroups(
+            (proposal.facts as Record<string, unknown> | null)
+              ?.productImageCandidates,
+          ),
+        ].some((group) =>
           group.candidates.some((candidate) => candidate.url === sourceUrl),
         ),
     )

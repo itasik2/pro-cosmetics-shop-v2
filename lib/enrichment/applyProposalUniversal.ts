@@ -11,6 +11,7 @@ import {
   manuallyEditedProductName,
 } from "./proposalText";
 import { hasManualVariantChanges } from "./removedVariants";
+import { primarySkuPhotoCandidates } from "./automaticPhotos";
 import {
   latestPriceListImageForProduct,
   priceListImagesBySku,
@@ -104,10 +105,20 @@ export async function applyProductEnrichmentProposalUniversal(
   );
   validateVariantImages(variants, selections, groups);
   const commonUrl = applyPhotos ? String(input.imageUrl || "").trim() : "";
+  // A verified photo for the current primary SKU can also be its common photo.
+  const commonFromPrimarySku = primarySkuPhotoCandidates(
+    {
+      id: proposal.productId,
+      supplierSku: proposal.product.supplierSku,
+      variants,
+    },
+    facts,
+  ).some((candidate) => candidate.url === commonUrl);
   if (input.mode === "IMAGE" && !commonUrl && !selections.length)
     throw new Error("proposal_image_missing");
   if (
     commonUrl &&
+    !commonFromPrimarySku &&
     !(Array.isArray(proposal.images) && proposal.images.includes(commonUrl))
   ) {
     const priceImage = await loadCommonPriceImage(proposal.productId);
@@ -140,13 +151,14 @@ export async function applyProductEnrichmentProposalUniversal(
       })
     : null;
   const imported = new Map<string, string>();
+  if (commonUrl && importedImage) imported.set(commonUrl, importedImage.url);
   const urls = [
     ...new Set(
       selections.flatMap((selection) =>
         selection.imageUrl ? [selection.imageUrl] : [],
       ),
     ),
-  ];
+  ].filter((url) => !imported.has(url));
   let cursor = 0;
   async function upload() {
     while (cursor < urls.length) {
@@ -202,6 +214,18 @@ export async function applyProductEnrichmentProposalUniversal(
       },
     });
     const currentVariants = normalizeStoredVariants(current.variants);
+    if (
+      commonFromPrimarySku &&
+      !primarySkuPhotoCandidates(
+        {
+          id: proposal.productId,
+          supplierSku: current.supplierSku,
+          variants: currentVariants,
+        },
+        facts,
+      ).some((candidate) => candidate.url === commonUrl)
+    )
+      throw new Error("variant_sku_changed");
     if (
       input.automatic &&
       commonUrl &&
