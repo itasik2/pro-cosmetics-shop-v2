@@ -64,16 +64,18 @@ export async function POST(
         },
         { status: 422 },
       );
+    let proposalUrl: string | null = null;
     if (body.data.proposalId) {
       const proposal = await prisma.productEnrichmentProposal.findFirst({
         where: { id: body.data.proposalId, productId: id, status: "PENDING" },
-        select: { id: true },
+        select: { id: true, sourceUrl: true },
       });
       if (!proposal)
         return NextResponse.json(
           { error: "proposal_not_pending" },
           { status: 409 },
         );
+      proposalUrl = proposal.sourceUrl;
     }
     await ensureDefaultSupplierSources({
       supplierId: product.supplier.id,
@@ -88,18 +90,27 @@ export async function POST(
       product,
       variant,
       knownUrl: product.sourceUrl,
+      knownUrls: proposalUrl ? [proposalUrl] : [],
       officialDomains: sources
         .filter((source) => source.sourceType === "OFFICIAL_SITE")
         .map((source) => source.domain),
       policies: toAllowedPolicies(sources),
       priceCandidates: priceGroup?.candidates || [],
     });
-    const group = {
+    let group = {
       variantId: variant.id,
       sku: variant.sku!,
       candidates: result.candidates,
     };
-    if (body.data.proposalId)
+    if (result.status === "INCOMPLETE")
+      console.warn("variant_photo_search_incomplete", {
+        productId: id,
+        variantId: variant.id,
+        sku: variant.sku,
+        issues: result.issues.map((issue) => issue.code),
+      });
+    // An unsuccessful retry must not erase previously reviewed candidates.
+    if (body.data.proposalId && result.candidates.length)
       await prisma.$transaction(async (tx) => {
         const current = await tx.product.findUniqueOrThrow({
           where: { id },
@@ -124,6 +135,12 @@ export async function POST(
         const other = imageGroups(facts.variantImageCandidates).filter(
           (item) => item.variantId !== variant.id,
         );
+        const previous = imageGroups(facts.variantImageCandidates).filter(
+          (item) =>
+            item.variantId === variant.id &&
+            photoSku(item.sku) === photoSku(group.sku),
+        );
+        group = mergeImageGroups([group], previous)[0];
         const written = await tx.productEnrichmentProposal.updateMany({
           where: {
             id: proposal.id,
@@ -139,7 +156,12 @@ export async function POST(
         });
         if (written.count !== 1) throw new Error("proposal_changed_refresh");
       });
-    return NextResponse.json({ ...result, variantId: variant.id, group });
+    return NextResponse.json({
+      ...result,
+      candidates: group.candidates,
+      variantId: variant.id,
+      group,
+    });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "variant_image_search_failed";

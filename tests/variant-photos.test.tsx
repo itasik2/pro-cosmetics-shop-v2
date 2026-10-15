@@ -23,7 +23,15 @@ import {
   priceImageKey,
   type PriceListImageCandidate,
 } from "../lib/enrichment/priceListImages";
-import { VariantPhotoPicker } from "../components/VariantPhotoPicker";
+import {
+  VariantPhotoPicker,
+  VariantPhotoPreview,
+} from "../components/VariantPhotoPicker";
+import {
+  catalogProductUrls,
+  officialCatalogSearchUrls,
+} from "../lib/enrichment/officialCatalogSearch";
+import { variantPhotoSearchIssue } from "../lib/enrichment/clientMessages";
 import { applyProductEnrichmentProposalUniversal } from "../lib/enrichment/applyProposalUniversal";
 import { buildOrderFromCart } from "../lib/order";
 
@@ -331,6 +339,203 @@ test("variant photo review labels the SKU, source and common fallback", () => {
   assert.match(markup, /Найти фото по SKU/);
   assert.match(markup, /Использовать общее фото/);
   assert.ok(!markup.includes("AV02"));
+});
+
+test("official catalog lookup follows product links, never search thumbnails or foreign links", () => {
+  assert.deepEqual(
+    officialCatalogSearchUrls(
+      ["brand.example", "angiopharm.com", "angiopharm.com.evil.example"],
+      "AG01",
+    ),
+    ["https://angiopharm.com/index.php?route=product%2Fsearch&search=AG01"],
+  );
+  assert.deepEqual(
+    catalogProductUrls(
+      Buffer.from(`<main id="content">
+    <div class="product-thumb"><div class="image"><a href="/tonic"><img src="/wrong-search-thumbnail.jpg"></a></div><h4><a href="/tonic">Тоник</a></h4></div>
+    <div class="product-layout"><h4><a href="/tonic">Дубликат</a></h4></div>
+    <div class="product-thumb"><h4><a href="https://other.example/tonic">Другой сайт</a></h4></div>
+    <div class="product-thumb"><h4><a href="/index.php?route=product/category">Категория</a></h4></div>
+  </main>`),
+      "https://angiopharm.com/index.php?route=product/search&search=AG01",
+    ),
+    ["https://angiopharm.com/tonic"],
+  );
+});
+
+test("AG01 and MV09 are found through the official SKU catalog without requiring AI", async () => {
+  const parent = {
+    ...product,
+    name: "Омолаживающий тоник",
+    brand: { name: "Angiopharm" },
+    volumeValue: 50,
+  };
+  for (const [sku, label] of [
+    ["AG01", "200"],
+    ["MV09", "50"],
+  ]) {
+    const fetched: string[] = [];
+    const result = await searchVariantPhotos(
+      {
+        product: parent,
+        variant: { sku, label },
+        knownUrl: "https://angiopharm.com/old-sibling",
+        officialDomains: ["angiopharm.com"],
+        policies: [{ domain: "angiopharm.com", allowSubdomains: true }],
+        priceCandidates: [],
+      },
+      {
+        official: async () => {
+          assert.fail(
+            "the catalog should find the photo even if AI is unavailable",
+          );
+        },
+        external: async () => {
+          assert.fail("no external search needed");
+        },
+        fetchHtml: async (url, policies) => {
+          assert.equal(policies[0].domain, "angiopharm.com");
+          fetched.push(url);
+          return {
+            buffer: Buffer.from(
+              url.includes("search=")
+                ? `<main id="content"><div class="product-thumb"><h4><a href="/wrong">Другой SKU</a></h4></div><div class="product-thumb"><h4><a href="/tonic-${sku}">Тоник</a></h4></div></main>`
+                : url.endsWith("/wrong") || url.endsWith("/old-sibling")
+                  ? `<body><h1>Омолаживающий тоник, ${label} мл</h1><div>Артикул: WRONG</div><meta property="og:image" content="/wrong.jpg"></body>`
+                  : // Matches the manufacturer's actual OpenCart markup: no JSON-LD,
+                    // a visible SKU with an old article number, and a product gallery.
+                    `<body><h1>ОМОЛАЖИВАЮЩИЙ ТОНИК, ${label} МЛ</h1><ul><li>Артикул: ${sku} (старый 0416)</li></ul><div id="content"><div class="thumbnails"><a class="thumbnail" href="/image/catalog/products/${sku}.jpg"><img src="/image/catalog/products/${sku}.jpg"></a></div></div><footer>ANGIOPHARM</footer></body>`,
+            ),
+            finalUrl: url,
+            status: 200,
+            headers: {},
+            contentType: "text/html",
+          };
+        },
+      },
+    );
+    assert.equal(result.status, "FOUND");
+    assert.deepEqual(
+      result.candidates.map((item) => item.url),
+      [`https://angiopharm.com/image/catalog/products/${sku}.jpg`],
+    );
+    assert.ok(
+      fetched.some((url) => new URL(url).searchParams.get("search") === sku),
+    );
+    assert.equal(
+      productForVariant(parent, { sku, label }).volumeValue,
+      Number(label),
+    );
+    assert.equal(productForVariant(parent, { sku, label }).volumeUnit, "ml");
+  }
+});
+
+test("a pending proposal page can be reused without discovering it again", async () => {
+  const result = await searchVariantPhotos(
+    {
+      product,
+      variant: variants[1],
+      knownUrls: [pageUrl],
+      officialDomains: [],
+      policies: [],
+      priceCandidates: [],
+    },
+    {
+      official: async () => {
+        assert.fail("reuse the proposal page");
+      },
+      external: async () => {
+        assert.fail("reuse the proposal page");
+      },
+      fetchHtml: async (url) => ({
+        buffer,
+        finalUrl: url,
+        status: 200,
+        headers: {},
+        contentType: "text/html",
+      }),
+    },
+  );
+  assert.equal(result.status, "FOUND");
+  assert.ok(result.candidates.every((item) => item.url.includes("large-")));
+});
+
+test("photo search reports safe actionable issues and can still fall back from a blocked catalog", async () => {
+  const result = await searchVariantPhotos(
+    {
+      product,
+      variant: variants[1],
+      officialDomains: ["angiopharm.com"],
+      policies: [],
+      priceCandidates: [],
+    },
+    {
+      official: async () => {
+        throw new Error('openai_http_429:{"secret":"must-not-leak"}');
+      },
+      external: async () => {
+        assert.fail("do not repeat a rejected provider request");
+      },
+      fetchHtml: async () => {
+        throw new Error("source_http_403");
+      },
+    },
+  );
+  assert.equal(result.status, "INCOMPLETE");
+  assert.deepEqual(
+    result.issues.map((issue) => issue.code),
+    ["source_unavailable", "ai_limit"],
+  );
+  assert.ok(!JSON.stringify(result).includes("must-not-leak"));
+  for (const [error, code] of [
+    ["openai_not_configured", "ai_not_configured"],
+    ["openai_http_401:private-body", "ai_access_denied"],
+    ["openai_http_400:private-body", "ai_request_rejected"],
+    ["source_timeout", "search_timeout"],
+  ]) {
+    assert.equal(variantPhotoSearchIssue(new Error(error)).code, code);
+    assert.ok(
+      !variantPhotoSearchIssue(new Error(error)).message.includes(
+        "private-body",
+      ),
+    );
+  }
+});
+
+test("empty legacy image placeholders do not render broken images and selections preview the chosen SKU", () => {
+  const missing = renderToStaticMarkup(
+    <VariantPhotoPreview
+      src="/seed/cleanser.jpg"
+      alt="AG01"
+      className="photo"
+    />,
+  );
+  assert.match(missing, /Фото отсутствует/);
+  assert.ok(!missing.includes("<img"));
+  const fallback = renderToStaticMarkup(
+    <VariantPhotoPreview
+      src="/seed/cleanser.jpg"
+      fallback="/real-common.jpg"
+      alt="AG01"
+      className="photo"
+    />,
+  );
+  assert.match(fallback, /src="\/real-common.jpg"/);
+  const selected = renderToStaticMarkup(
+    <VariantPhotoPicker
+      productId="p1"
+      variant={variants[1]}
+      commonImage="/seed/cleanser.jpg"
+      value={{
+        variantId: "large",
+        sku: "AV03",
+        imageUrl: "https://brand.example/selected.jpg",
+      }}
+      onChange={() => {}}
+    />,
+  );
+  assert.match(selected, /src="https:\/\/brand.example\/selected.jpg"/);
+  assert.ok(!selected.includes('src="/seed/cleanser.jpg"'));
 });
 
 test("order photos follow each selected SKU and fall back to the common photo only when absent", async () => {
