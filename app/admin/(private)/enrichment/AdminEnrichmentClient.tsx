@@ -1043,6 +1043,7 @@ export default function AdminEnrichmentClient() {
                     </div>
 
                     <VariantPhotosReview product={proposal.product} proposalId={proposal.id} facts={proposal.facts}
+                      commonImage={selectedImage}
                       value={variantImages[proposal.id] || []} disabled={isBusy}
                       onChange={value => setVariantImages(current => ({ ...current, [proposal.id]: value }))} />
                     {variants.length ? (

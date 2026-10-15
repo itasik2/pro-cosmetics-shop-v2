@@ -10,6 +10,55 @@ import {
 } from "../lib/enrichment/variantImages";
 
 type Variant = { id: string; label: string; sku?: string; image?: string };
+
+function isRealPhoto(url: string) {
+  // These legacy seed files are empty, not actual product photographs.
+  return (
+    Boolean(url?.trim()) &&
+    !/^\/seed\/(?:cleanser|cream|serum)\.jpg(?:\?|$)/.test(url)
+  );
+}
+
+export function VariantPhotoPreview({
+  src,
+  fallback,
+  alt,
+  className,
+}: {
+  src: string;
+  fallback?: string;
+  alt: string;
+  className: string;
+}) {
+  const [failed, setFailed] = useState<string[]>([]);
+  const url = [src, fallback].find((url): url is string =>
+    Boolean(url && isRealPhoto(url) && !failed.includes(url)),
+  );
+  if (!url)
+    return (
+      <div
+        role="img"
+        aria-label="Фото отсутствует"
+        className={
+          "flex items-center justify-center bg-gray-50 p-1 text-center text-[10px] text-gray-500 " +
+          className
+        }
+      >
+        Нет фото
+      </div>
+    );
+  return (
+    <img
+      src={url}
+      alt={alt}
+      className={className}
+      loading="lazy"
+      referrerPolicy="no-referrer"
+      onError={() => setFailed((previous) => [...previous, url])}
+    />
+  );
+}
+
 export function VariantPhotoPicker({
   productId,
   proposalId,
@@ -35,6 +84,9 @@ export function VariantPhotoPicker({
   const photos = found || candidates;
   const selected =
     value && photoSku(value.sku) === photoSku(variant.sku) ? value : undefined;
+  const preview = selected
+    ? selected.imageUrl || commonImage
+    : variantDisplayImage(variant, commonImage);
   async function search() {
     setBusy(true);
     setMessage("");
@@ -58,13 +110,21 @@ export function VariantPhotoPicker({
         throw new Error(result.message || result.error || "Поиск не удался");
       if (photoSku(result.sku) !== photoSku(variant.sku))
         throw new Error("SKU изменился. Повторите поиск после сохранения.");
-      setFound(result.candidates || []);
+      if (result.candidates?.length) setFound(result.candidates);
+      const details = result.issues
+        ?.map((issue: { message: string }) => issue.message)
+        .join(" ");
       setMessage(
         result.status === "INCOMPLETE"
-          ? "Поиск не завершён. Повторите попытку; текущее фото сохранено."
+          ? (details || "Поиск не завершён. Повторите попытку позже.") +
+              " Текущее фото и ранее найденные варианты сохранены."
           : result.candidates?.length
             ? "Найдены фото для SKU " + variant.sku + ". Выберите подходящее."
-            : "Отдельное фото не найдено. Доступно общее фото товара.",
+            : photos.length
+              ? "Новых фото не найдено. Ранее найденные фото сохранены."
+              : isRealPhoto(commonImage)
+                ? "Отдельное фото не найдено. Доступно общее фото товара."
+                : "Отдельное фото не найдено. Добавьте общее фото товара.",
       );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Поиск не удался");
@@ -84,16 +144,20 @@ export function VariantPhotoPicker({
         {variant.label} · SKU {variant.sku || "не указан"}
       </legend>
       <div className="flex items-center gap-3">
-        <img
-          src={variantDisplayImage(variant, commonImage)}
+        <VariantPhotoPreview
+          src={preview}
+          fallback={commonImage}
           alt={variant.label + " · SKU " + (variant.sku || "")}
           className="h-16 w-16 rounded-lg border bg-white object-contain"
-          loading="lazy"
         />
         <div className="text-xs text-gray-600">
-          {variant.image
-            ? "Собственное фото варианта"
-            : "Используется общее фото"}
+          {selected?.imageUrl
+            ? "Выбрано фото варианта"
+            : !isRealPhoto(preview)
+              ? "Общее фото ещё не добавлено"
+              : !selected && variant.image
+                ? "Собственное фото варианта"
+                : "Используется общее фото"}
         </div>
         <button
           type="button"
@@ -149,10 +213,9 @@ export function VariantPhotoPicker({
                   : "")
               }
             >
-              <img
+              <VariantPhotoPreview
                 src={candidate.url}
                 alt={"Фото SKU " + variant.sku}
-                loading="lazy"
                 className="h-24 w-full object-contain"
               />
               <span className="mt-1 block break-all text-xs">
@@ -187,6 +250,7 @@ export function VariantPhotosReview({
   value,
   onChange,
   disabled,
+  commonImage,
 }: {
   product: { id: string; image: string; variants: unknown };
   proposalId: string;
@@ -194,6 +258,7 @@ export function VariantPhotosReview({
   value: VariantImageSelection[];
   onChange: (value: VariantImageSelection[]) => void;
   disabled?: boolean;
+  commonImage?: string;
 }) {
   const variants = adminVariants(product.variants);
   const groups = imageGroups(
@@ -213,7 +278,7 @@ export function VariantPhotosReview({
           productId={product.id}
           proposalId={proposalId}
           variant={variant}
-          commonImage={product.image}
+          commonImage={commonImage || product.image}
           candidates={
             groups.find(
               (group) =>

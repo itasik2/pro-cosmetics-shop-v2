@@ -333,6 +333,7 @@ export default function UniversalProposalReview() {
                   </div>
 
                   <VariantPhotosReview product={proposal.product} proposalId={proposal.id} facts={proposal.facts}
+                    commonImage={selectedImages[proposal.id]}
                     value={variantImages[proposal.id] || []} disabled={isBusy}
                     onChange={value => setVariantImages(current => ({ ...current, [proposal.id]: value }))} />
                   {variants.length ? (

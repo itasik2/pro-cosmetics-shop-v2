@@ -8,6 +8,11 @@ import {
 import { safeFetchHtml, type AllowedSourcePolicy } from "./network";
 import { remainingTime } from "./timeBudget";
 import { photoSku, type VariantImageCandidate } from "./variantImages";
+import {
+  catalogProductUrls,
+  officialCatalogSearchUrls,
+} from "./officialCatalogSearch";
+import { variantPhotoSearchIssue } from "./clientMessages";
 
 type SearchResult = { found: boolean; url: string | null };
 type Dependencies = {
@@ -23,7 +28,11 @@ export function productForVariant(
   product: MatchableProduct,
   variant: { sku?: string; label: string },
 ): MatchableProduct {
-  const volume = variant.label.match(
+  const label =
+    /^\d+(?:[.,]\d+)?$/.test(variant.label.trim()) && product.volumeUnit
+      ? variant.label.trim() + " " + product.volumeUnit
+      : variant.label;
+  const volume = label.match(
     /(\d+(?:[.,]\d+)?)\s*(мл|ml|л|l|г|гр\.?|g|кг|kg)(?=$|\s|[()])/iu,
   );
   const unit = volume?.[2].toLowerCase();
@@ -38,7 +47,7 @@ export function productForVariant(
     .trim();
   return {
     ...product,
-    name: baseName + " " + variant.label,
+    name: baseName + " " + label,
     supplierSku: variant.sku || null,
     barcode: null,
     volumeValue: value === null ? null : value * multiplier,
@@ -50,6 +59,7 @@ export async function searchVariantPhotos(
     product: MatchableProduct;
     variant: { sku?: string; label: string };
     knownUrl?: string | null;
+    knownUrls?: string[];
     officialDomains: string[];
     policies: AllowedSourcePolicy[];
     priceCandidates: VariantImageCandidate[];
@@ -68,16 +78,16 @@ export async function searchVariantPhotos(
   const candidates: VariantImageCandidate[] = [];
   const errors: string[] = [];
   const tried = new Set<string>();
-  async function inspect(url: string, discovered = false) {
+  async function inspect(url: string, discovered = false, until = deadlineAt) {
     if (tried.has(url)) return false;
     tried.add(url);
-    if (
-      ["procosmetics.kz", "www.procosmetics.kz"].includes(
-        new URL(url).hostname.toLowerCase(),
-      )
-    )
-      return false;
     try {
+      if (
+        ["procosmetics.kz", "www.procosmetics.kz"].includes(
+          new URL(url).hostname.toLowerCase(),
+        )
+      )
+        return false;
       const policies = discovered
         ? [
             ...input.policies,
@@ -85,7 +95,7 @@ export async function searchVariantPhotos(
           ]
         : input.policies;
       const fetched = await dependencies.fetchHtml(url, policies, {
-        timeoutMs: remainingTime(deadlineAt, 12_000),
+        timeoutMs: remainingTime(until, 12_000),
       });
       const extracted = extractProductFromHtml({
         buffer: fetched.buffer,
@@ -119,8 +129,36 @@ export async function searchVariantPhotos(
     }
   }
   // First reuse a saved page only if it actually identifies this SKU.
-  if (input.knownUrl) await inspect(input.knownUrl);
-  if (!candidates.length && !/^JD-[A-Z0-9]{6,}$/i.test(sku)) {
+  for (const url of [
+    ...new Set(
+      [...(input.knownUrls || []), input.knownUrl].filter(
+        (url): url is string => Boolean(url),
+      ),
+    ),
+  ].slice(0, 3)) {
+    if (await inspect(url)) break;
+  }
+  const searchable = !/^JD-[A-Z0-9]{6,}$/i.test(sku);
+  if (!candidates.length && searchable) {
+    const catalogDeadline = Math.min(deadlineAt, Date.now() + 35_000);
+    for (const url of officialCatalogSearchUrls(input.officialDomains, sku)) {
+      try {
+        const page = await dependencies.fetchHtml(url, input.policies, {
+          timeoutMs: remainingTime(catalogDeadline, 8_000),
+        });
+        for (const productUrl of catalogProductUrls(
+          page.buffer,
+          page.finalUrl,
+        )) {
+          if (await inspect(productUrl, false, catalogDeadline)) break;
+        }
+        if (candidates.length) break;
+      } catch (error) {
+        errors.push(error instanceof Error ? error.message : String(error));
+      }
+    }
+  }
+  if (!candidates.length && searchable) {
     for (const stage of ["official", "external"] as const) {
       if (stage === "official" && !input.officialDomains.length) continue;
       try {
@@ -155,6 +193,14 @@ export async function searchVariantPhotos(
       candidates.map((candidate) => [candidate.url, candidate]),
     ).values(),
   ].slice(0, 12);
+  const issues = [
+    ...new Map(
+      errors.map((error) => {
+        const issue = variantPhotoSearchIssue(error);
+        return [issue.code, issue] as const;
+      }),
+    ).values(),
+  ];
   return {
     sku,
     candidates: unique,
@@ -163,6 +209,7 @@ export async function searchVariantPhotos(
       : errors.length
         ? ("INCOMPLETE" as const)
         : ("NOT_FOUND" as const),
-    errors,
+    // Send safe, actionable diagnostics; provider response bodies stay private.
+    issues,
   };
 }
