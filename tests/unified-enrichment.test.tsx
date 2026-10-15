@@ -9,6 +9,7 @@ import {
 } from "../lib/enrichment/automaticPhotos";
 import { collectProposalPhotos } from "../lib/enrichment/prepareProposalPhotos";
 import { removeProposalVariant } from "../lib/enrichment/removeProposalVariant";
+import { applyProductEnrichmentProposalUniversal } from "../lib/enrichment/applyProposalUniversal";
 import {
   removedVariantSkus,
   shouldSkipRemovedVariant,
@@ -254,6 +255,8 @@ function deletionFixture() {
       ...product,
       price: 1500,
       stock: 5,
+      supplierId: "supplier",
+      isPublished: false,
       sourceUrl: "https://brand.example/small",
       updatedAt: new Date(1000),
     },
@@ -262,6 +265,14 @@ function deletionFixture() {
         id: "proposal",
         productId: "p",
         status: "PENDING",
+        confidence: 26,
+        shortDescription: "Омолаживающая маска для кожи вокруг глаз.",
+        description: "Маска для ухода за кожей вокруг глаз.",
+        sourceUrl: "https://brand.example/small",
+        jobId: "job",
+        images: groups.flatMap((group) =>
+          group.candidates.map((candidate) => candidate.url),
+        ),
         updatedAt: new Date(1000),
         facts: { variantImageCandidates: groups, keep: "text" },
       },
@@ -273,6 +284,9 @@ function deletionFixture() {
     return {
       product: {
         findUnique: async () => structuredClone(get().product),
+        findUniqueOrThrow: async () => structuredClone(get().product),
+        update: async ({ data }: any) =>
+          Object.assign(get().product, structuredClone(data)),
         updateMany: async ({ where, data }: any) => {
           if (
             flags.failProduct ||
@@ -287,9 +301,14 @@ function deletionFixture() {
       },
       productEnrichmentProposal: {
         findUnique: async ({ where }: any) =>
-          structuredClone(
-            get().proposals.find((row: any) => row.id === where.id) || null,
-          ),
+          get().proposals.some((row: any) => row.id === where.id)
+            ? structuredClone({
+                ...get().proposals.find((row: any) => row.id === where.id),
+                product: get().product,
+              })
+            : null,
+        count: async () =>
+          get().proposals.filter((row: any) => row.status === "PENDING").length,
         findMany: async () =>
           structuredClone(
             get().proposals.filter((row: any) => row.status === "PENDING"),
@@ -309,6 +328,11 @@ function deletionFixture() {
           return { count: 1 };
         },
       },
+      productImage: {
+        updateMany: async () => ({ count: 1 }),
+        update: async () => ({}),
+      },
+      enrichmentJob: { update: async () => ({}) },
       $transaction: async (callback: (tx: any) => Promise<any>) => {
         const draft = structuredClone(state);
         const result = await callback(db(() => draft));
@@ -331,6 +355,144 @@ const remove = {
   variantId: "small",
   sku: "MV16",
 };
+
+test("deleting the primary variant then applying the remaining SKU photo and stock succeeds", async () => {
+  const f = deletionFixture();
+  await removeProposalVariant(remove, f.database);
+  const proposal = f.state.proposals[0];
+  assert.deepEqual(proposal.images, []);
+  const plan = automaticPhotoPlan(f.state.product, proposal.facts);
+  assert.equal(plan.imageUrl, "https://brand.example/AG16.jpg");
+  const uploads: string[] = [];
+  await applyProductEnrichmentProposalUniversal(
+    {
+      proposalId: proposal.id,
+      mode: "ALL",
+      imageUrl: plan.imageUrl,
+      variantImages: plan.variantImages,
+      variantStocks: { large: 3 },
+    },
+    {
+      database: f.database,
+      loadPriceImages: async () => new Map(),
+      loadCommonPriceImage: async () => null,
+      importImage: async (input) => {
+        uploads.push(input.sourceUrl);
+        return {
+          id: "ag16-media",
+          url: "https://media.example/AG16.jpg",
+        } as any;
+      },
+    },
+  );
+  assert.equal(f.state.proposals[0].status, "APPLIED");
+  assert.equal(f.state.product.image, "https://media.example/AG16.jpg");
+  assert.equal(f.state.product.variants.length, 1);
+  assert.equal(f.state.product.variants[0].sku, "AG16");
+  assert.equal(f.state.product.variants[0].image, f.state.product.image);
+  assert.equal(f.state.product.variants[0].stock, 3);
+  assert.equal(f.state.product.stock, 3);
+  assert.equal(f.state.product.price, 7000);
+  assert.equal(f.state.product.isPublished, false);
+  assert.deepEqual(uploads, ["https://brand.example/AG16.jpg"]);
+  assert.deepEqual(removedVariantSkus(f.state.proposals[0].facts), ["MV16"]);
+});
+
+test("a photo belonging to another SKU or a removed variant cannot become the common photo", async () => {
+  for (const target of ["sibling", "removed", "foreign-product"]) {
+    const f = deletionFixture();
+    const proposal = f.state.proposals[0];
+    proposal.images = [];
+    let imageUrl = "https://brand.example/AG16.jpg";
+    if (target === "removed") {
+      proposal.facts.variantImageCandidates = [
+        { ...groups[0], variantId: "deleted-id" },
+      ];
+      imageUrl = groups[0].candidates[0].url;
+    }
+    if (target === "foreign-product") {
+      proposal.facts.variantImageCandidates = [];
+      proposal.facts.productImageCandidates = [
+        { ...groups[0], variantId: "product:someone-else" },
+      ];
+      imageUrl = groups[0].candidates[0].url;
+    }
+    const before = structuredClone(f.state);
+    let uploads = 0;
+    await assert.rejects(
+      applyProductEnrichmentProposalUniversal(
+        { proposalId: "proposal", mode: "ALL", imageUrl },
+        {
+          database: f.database,
+          loadCommonPriceImage: async () => null,
+          importImage: async () => {
+            uploads++;
+            throw new Error("must not upload");
+          },
+        },
+      ),
+      /proposal_image_not_allowed/,
+    );
+    assert.equal(uploads, 0);
+    assert.deepEqual(f.state, before);
+    if (target !== "sibling")
+      assert.equal(
+        automaticPhotoPlan(f.state.product, proposal.facts).imageUrl,
+        null,
+      );
+  }
+});
+
+test("a confirmed primary product photo is accepted without a legacy image gallery", async () => {
+  const f = deletionFixture();
+  f.state.product.variants = [];
+  f.state.proposals[0].images = [];
+  f.state.proposals[0].facts = {
+    productImageCandidates: [{ ...groups[0], variantId: "product:p" }],
+  };
+  const plan = automaticPhotoPlan(f.state.product, f.state.proposals[0].facts);
+  await applyProductEnrichmentProposalUniversal(
+    { proposalId: "proposal", mode: "ALL", imageUrl: plan.imageUrl, stock: 3 },
+    {
+      database: f.database,
+      importImage: async () =>
+        ({ id: "media", url: "https://media.example/MV16.jpg" }) as any,
+      loadCommonPriceImage: async () => {
+        throw new Error("confirmed SKU photo must not need a price row");
+      },
+    },
+  );
+  assert.equal(f.state.product.image, "https://media.example/MV16.jpg");
+  assert.equal(f.state.product.stock, 3);
+  assert.equal(f.state.proposals[0].status, "APPLIED");
+});
+
+test("a primary SKU changed during upload cannot receive the old SKU photo even during manual application", async () => {
+  const f = deletionFixture();
+  await removeProposalVariant(remove, f.database);
+  const plan = automaticPhotoPlan(f.state.product, f.state.proposals[0].facts);
+  await assert.rejects(
+    applyProductEnrichmentProposalUniversal(
+      { proposalId: "proposal", mode: "ALL", imageUrl: plan.imageUrl },
+      {
+        database: f.database,
+        loadCommonPriceImage: async () => null,
+        importImage: async () => {
+          f.state.product.supplierSku = "AG17";
+          f.state.product.variants[0].sku = "AG17";
+          f.state.product.updatedAt = new Date(5000);
+          return { id: "media", url: "https://media.example/AG16.jpg" } as any;
+        },
+      },
+    ),
+    /variant_sku_changed/,
+  );
+  assert.equal(f.state.product.supplierSku, "AG17");
+  assert.equal(f.state.product.variants[0].image, undefined);
+  assert.equal(f.state.product.image, "/seed/cream.jpg");
+  assert.equal(f.state.product.stock, 2);
+  assert.equal(f.state.proposals[0].status, "PENDING");
+});
 
 test("deletion updates SKU, minimum price and total stock, preserves history, and removes photo choices only for that variant", async () => {
   const f = deletionFixture();

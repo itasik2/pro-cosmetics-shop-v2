@@ -706,6 +706,7 @@ export default function AdminEnrichmentClient() {
   }
 
   async function applyProposal(proposalId: string, mode: ApplyMode) {
+    setActionMessages((current) => ({ ...current, [proposalId]: "" }));
     const proposal = proposals.find((item) => item.id === proposalId);
     const variants = proposalVariants(proposal?.product.variants);
     let stock: number | undefined;
@@ -732,7 +733,10 @@ export default function AdminEnrichmentClient() {
         stock = Number(value);
       }
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Проверьте остатки.");
+      const message =
+        error instanceof Error ? error.message : "Проверьте остатки.";
+      setMessage(message);
+      setActionMessages((current) => ({ ...current, [proposalId]: message }));
       return;
     }
 
@@ -774,9 +778,9 @@ export default function AdminEnrichmentClient() {
       );
       void loadProducts().catch(() => undefined);
     } catch (error) {
-      setMessage(
-        `Не удалось применить предложение: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      const message = `Не удалось применить карточку: ${error instanceof Error ? error.message : String(error)}`;
+      setMessage(message);
+      setActionMessages((current) => ({ ...current, [proposalId]: message }));
     } finally {
       setBusyKey(null);
     }
@@ -845,6 +849,7 @@ export default function AdminEnrichmentClient() {
       setMessage(
         `Вариант ${variant.label} (SKU ${variant.sku}) удалён и исключён из автоматического импорта.`,
       );
+      await loadProposals();
       void loadProducts().catch(() => undefined);
     } catch (error) {
       setActionMessages((current) => ({
@@ -1485,7 +1490,9 @@ export default function AdminEnrichmentClient() {
                     disabled={isBusy || editingText[proposal.id]}
                     onClick={() => void applyProposal(proposal.id, "ALL")}
                   >
-                    Применить карточку
+                    {busyKey === `apply:${proposal.id}:ALL`
+                      ? "Применение…"
+                      : "Применить карточку"}
                   </button>
                   <button
                     type="button"
