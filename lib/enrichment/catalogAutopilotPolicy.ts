@@ -44,6 +44,7 @@ export type CatalogAutopilotProposalInput = {
   application?: string | null;
   warnings?: unknown;
   retryCount?: number;
+  manualTextEdited?: boolean;
 };
 
 const BLOCKING_WARNINGS = new Set([
@@ -169,6 +170,9 @@ export function evaluateCatalogAutopilotProposal(
     retryCount,
   };
 
+  if (input.manualTextEdited) {
+    return { decision: "REVIEW", reasons: ["manual_text_review_required"], checks };
+  }
   if (!config.enabled) {
     return { decision: "REVIEW", reasons: ["autopilot_disabled"], checks };
   }

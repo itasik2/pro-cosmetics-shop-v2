@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { VariantPhotosReview } from "@/components/VariantPhotoPicker";
+import { ProposalTextEditor } from "@/components/ProposalTextEditor";
+import type { EditableProposal } from "@/lib/enrichment/proposalText";
+import { applyProposalChange, publishProposalChange, subscribeProposalChanges } from "@/lib/enrichment/proposalChanges";
 import type { VariantImageSelection } from "@/lib/enrichment/variantImages";
 
 type Variant = {
@@ -12,7 +15,7 @@ type Variant = {
   sku?: string;
 };
 
-type Proposal = {
+type Proposal = EditableProposal & {
   id: string;
   confidence: number;
   images: unknown;
@@ -84,6 +87,9 @@ async function readResponse(response: Response) {
 
 export default function UniversalProposalReview() {
   const [proposals, setProposals] = useState<Proposal[]>([]);
+  const proposalRequest = useRef(0);
+  const [editingText, setEditingText] = useState<Record<string, boolean>>({});
+  const [actionMessages, setActionMessages] = useState<Record<string, string>>({});
   const [variantImages, setVariantImages] = useState<Record<string, VariantImageSelection[]>>({});
   const [selectedImages, setSelectedImages] = useState<Record<string, string>>({});
   const [imageInfo, setImageInfo] = useState<Record<string, ImageInfo>>({});
@@ -94,12 +100,14 @@ export default function UniversalProposalReview() {
   const [message, setMessage] = useState<string | null>(null);
 
   async function load() {
+    const request = ++proposalRequest.current;
     setLoading(true);
     try {
       const response = await fetch("/api/admin/enrichment/proposals?status=PENDING", {
         cache: "no-store",
       });
       const rows = (await readResponse(response)) as Proposal[];
+      if (request !== proposalRequest.current) return;
       setProposals(rows);
       setStocks((current) =>
         Object.fromEntries(
@@ -140,6 +148,14 @@ export default function UniversalProposalReview() {
   useEffect(() => {
     void load();
   }, []);
+
+  useEffect(() => subscribeProposalChanges((change) => {
+    proposalRequest.current++;
+    setProposals((current) => applyProposalChange(current, change));
+    void load();
+    // load only uses stable state setters and the request ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), []);
 
   const total = proposals.length;
   const withPriceImages = useMemo(
@@ -188,6 +204,7 @@ export default function UniversalProposalReview() {
         }),
       });
       await readResponse(response);
+      publishProposalChange({ id: proposal.id, status: mode === "ALL" ? "APPLIED" : "PENDING" });
       setMessage(
         mode === "INVENTORY"
           ? "Количество сохранено. Фото и текст не изменялись."
@@ -195,12 +212,23 @@ export default function UniversalProposalReview() {
             ? "Текст, количество и выбранные фото применены к своим SKU."
             : "Текст и количество применены. Текущее фото оставлено без изменений.",
       );
-      await load();
     } catch (error) {
       setMessage(`Не удалось применить: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setBusy(null);
     }
+  }
+
+  async function reject(proposalId: string) {
+    setBusy(`REJECT:${proposalId}`);
+    setActionMessages((current) => ({ ...current, [proposalId]: "" }));
+    try {
+      await readResponse(await fetch(`/api/admin/enrichment/proposals/${proposalId}/reject`, { method: "POST" }));
+      publishProposalChange({ id: proposalId, status: "REJECTED" });
+      setMessage("Предложение отклонено.");
+    } catch (error) {
+      setActionMessages((current) => ({ ...current, [proposalId]: error instanceof Error ? error.message : "Не удалось отклонить предложение." }));
+    } finally { setBusy(null); }
   }
 
   return (
@@ -274,6 +302,8 @@ export default function UniversalProposalReview() {
                 </div>
 
                 <div className="space-y-3">
+                  <ProposalTextEditor proposal={proposal} disabled={isBusy}
+                    onEditingChange={(editing) => setEditingText((current) => ({ ...current, [proposal.id]: editing }))} />
                   <div>
                     <div className="mb-2 text-sm font-medium">Общее фото товара</div>
                     {images.length ? (
@@ -385,7 +415,7 @@ export default function UniversalProposalReview() {
                     <button
                       type="button"
                       className="rounded-xl bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
-                      disabled={isBusy}
+                      disabled={isBusy || editingText[proposal.id]}
                       onClick={() => void apply(proposal, "ALL")}
                     >
                       {busy === `ALL:${proposal.id}` ? "Применение…" : "Применить всё"}
@@ -393,12 +423,16 @@ export default function UniversalProposalReview() {
                     <button
                       type="button"
                       className="rounded-xl border px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
-                      disabled={isBusy}
+                      disabled={isBusy || editingText[proposal.id]}
                       onClick={() => void apply(proposal, "INVENTORY")}
                     >
                       {busy === `INVENTORY:${proposal.id}` ? "Сохранение…" : "Сохранить только количество"}
                     </button>
+                    <button type="button" disabled={isBusy} onClick={() => void reject(proposal.id)} className="rounded-xl border border-red-200 px-4 py-2 text-sm text-red-700 disabled:opacity-50">
+                      {busy === `REJECT:${proposal.id}` ? "Отклонение…" : "Отклонить"}
+                    </button>
                   </div>
+                  {actionMessages[proposal.id] && <p role="alert" className="text-sm text-red-700">{actionMessages[proposal.id]}</p>}
                 </div>
               </div>
             </details>

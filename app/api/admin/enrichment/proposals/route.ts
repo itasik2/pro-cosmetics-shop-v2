@@ -13,6 +13,8 @@ import {
 import { normalizeStoredVariants } from "@/lib/price-import/productVariants";
 import { imageGroups, mergeImageGroups } from "@/lib/enrichment/variantImages";
 import { prisma } from "@/lib/prisma";
+import { proposalText } from "@/lib/enrichment/proposalText";
+import { proposalTextVersion } from "@/lib/enrichment/editProposal";
 
 function stringArray(value: unknown) {
   return Array.isArray(value)
@@ -116,6 +118,7 @@ export async function GET(req: Request) {
   );
 
   const enriched = proposals.map((proposal) => {
+    const text = { ...proposalText(proposal), textVersion: proposalTextVersion(proposal) };
     const priceImage = priceImages.get(proposal.productId);
     const facts = jsonObject(proposal.facts);
     const variantImageCandidates = mergeImageGroups(
@@ -127,7 +130,7 @@ export async function GET(req: Request) {
       ),
     );
     if (!priceImage)
-      return { ...proposal, facts: { ...facts, variantImageCandidates } };
+      return { ...proposal, ...text, facts: { ...facts, variantImageCandidates } };
 
     const currentImages = stringArray(proposal.images);
     const images = [...new Set([priceImage.url, ...currentImages])].slice(
@@ -151,6 +154,7 @@ export async function GET(req: Request) {
 
     return {
       ...proposal,
+      ...text,
       images,
       facts: nextFacts,
     };
