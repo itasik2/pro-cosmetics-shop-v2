@@ -12,7 +12,8 @@ import {
   priceListImagesBySku,
   priceVariantGroups,
 } from "./priceListImages";
-import { productForVariant } from "./variantPhotoSearch";
+import { productForVariant, searchVariantPhotos } from "./variantPhotoSearch";
+import { collectProposalPhotos } from "./prepareProposalPhotos";
 import { photoSku } from "./variantImages";
 import { mergeImageGroups } from "./variantImages";
 import { extractProductFromHtml, extractImagesForSku } from "./extractProduct";
@@ -32,7 +33,11 @@ import {
   selectorsFromJson,
   toAllowedPolicies,
 } from "./sourcePolicies";
-import { discoverWithFallback, remainingTime } from "./timeBudget";
+import {
+  DISCOVERY_BUDGET_MS,
+  discoverWithFallback,
+  remainingTime,
+} from "./timeBudget";
 
 type RunInput = {
   productId: string;
@@ -73,7 +78,7 @@ function recoverableAutomaticSourceError(message: string) {
 }
 
 export async function runProductEnrichment(input: RunInput) {
-  const deadlineAt = input.deadlineAt ?? Date.now() + 50_000;
+  const deadlineAt = input.deadlineAt ?? Date.now() + DISCOVERY_BUDGET_MS;
   const staleBefore = new Date(Date.now() - 30 * 60 * 1000);
   await prisma.enrichmentJob.updateMany({
     where: {
@@ -193,6 +198,42 @@ export async function runProductEnrichment(input: RunInput) {
     let searchResult: Record<string, unknown> | null = null;
 
     async function discoverSource(excludedUrls: string[] = []) {
+      if (
+        searchableProduct.supplierSku &&
+        officialDomains.length &&
+        deadlineAt - Date.now() > 45_000
+      ) {
+        const direct = await searchVariantPhotos({
+          product: searchableProduct,
+          variant: {
+            sku: searchableProduct.supplierSku,
+            label:
+              searchableProduct.volumeValue && searchableProduct.volumeUnit
+                ? `${searchableProduct.volumeValue} ${searchableProduct.volumeUnit}`
+                : "",
+          },
+          officialDomains,
+          policies: toAllowedPolicies(allowedSources),
+          priceCandidates: [],
+          catalogOnly: true,
+          deadlineAt: Math.min(deadlineAt - 40_000, Date.now() + 30_000),
+        });
+        const url = direct.candidates.find(
+          (candidate) =>
+            candidate.sourceUrl && !excludedUrls.includes(candidate.sourceUrl),
+        )?.sourceUrl;
+        if (url)
+          return {
+            url,
+            result: {
+              searchStage: "official",
+              reason: "exact_sku_catalog",
+              found: true,
+              url,
+              confidence: 100,
+            },
+          };
+      }
       const discovered = await discoverWithFallback(
         async () =>
           officialDomains.length
@@ -464,13 +505,63 @@ export async function runProductEnrichment(input: RunInput) {
           };
         }),
     );
+    const primarySku = product.supplierSku || variants[0]?.sku;
+    const primaryImages =
+      primarySku &&
+      photoSku(extracted.sku) === photoSku(primarySku) &&
+      match.evidence.brand !== "mismatch" &&
+      match.evidence.volume !== "mismatch"
+        ? extractImagesForSku({
+            buffer: fetched.buffer,
+            finalUrl: fetched.finalUrl,
+            sku: primarySku,
+            brand: product.brand?.name || product.supplier?.name,
+          }).map((url) => ({
+            url,
+            source: "WEB" as const,
+            sourceUrl: fetched.finalUrl,
+          }))
+        : [];
+    const photos = await collectProposalPhotos({
+      product,
+      groups: variantImageCandidates,
+      productGroups: mergeImageGroups(
+        priceVariantGroups(
+          product.id,
+          primarySku ? [{ id: "product:" + product.id, sku: primarySku }] : [],
+          priceImages,
+        ),
+        primarySku
+          ? [
+              {
+                variantId: "product:" + product.id,
+                sku: primarySku,
+                candidates: primaryImages,
+              },
+            ]
+          : [],
+      ),
+      knownUrl: fetched.finalUrl,
+      officialDomains,
+      policies: toAllowedPolicies(allowedSources),
+      deadlineAt: Math.min(deadlineAt - 3_000, Date.now() + 60_000),
+    });
     const proposalImages = [
       ...new Set(
-        [priceImageUrl, ...extracted.images]
+        [
+          priceImageUrl,
+          ...extracted.images,
+          ...[
+            ...photos.variantImageCandidates,
+            ...photos.productImageCandidates,
+          ].flatMap((group) =>
+            group.candidates.map((candidate) => candidate.url),
+          ),
+        ]
           .map((value) => String(value || "").trim())
           .filter(Boolean),
       ),
-    ].slice(0, 12);
+    ];
 
     const warnings = [
       ...match.warnings,
@@ -505,7 +596,7 @@ export async function runProductEnrichment(input: RunInput) {
           contentChanged: changed,
           searchResult,
           priceImageUrl: priceImageUrl || null,
-          variantImageCandidates,
+          ...photos,
           imageCandidates: proposalImages.map((url) => ({
             url,
             source:

@@ -5,6 +5,7 @@ import {
 } from "../../../../lib/enrichment/clientMessages";
 
 import { useEffect, useMemo, useState } from "react";
+import { publishProposalChange } from "@/lib/enrichment/proposalChanges";
 
 type Product = {
   id: string;
@@ -154,6 +155,11 @@ export default function BatchEnrichmentSearch() {
       const parsed = await parseResponse(response);
 
       if (parsed.ok) {
+        if (parsed.data.proposal?.id)
+          publishProposalChange({
+            id: parsed.data.proposal.id,
+            status: "PENDING",
+          });
         setResult(product.id, {
           productId: product.id,
           state: "success",
@@ -195,15 +201,6 @@ export default function BatchEnrichmentSearch() {
   async function runBatch() {
     const queue = [...selectedEligible];
     if (!queue.length || running) return;
-
-    if (
-      queue.length > 25 &&
-      !window.confirm(
-        `Выбрано ${queue.length} товаров. Это ${queue.length} отдельных поисков OpenAI. Запустить очередь с двумя одновременными запросами?`,
-      )
-    ) {
-      return;
-    }
 
     setRunning(true);
     setMessage(null);

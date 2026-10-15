@@ -1,15 +1,36 @@
 "use client";
 
-import { VariantPhotosReview } from "@/components/VariantPhotoPicker";
+import {
+  VariantPhotoPreview,
+  VariantPhotosReview,
+} from "@/components/VariantPhotoPicker";
 import { ProposalTextEditor } from "@/components/ProposalTextEditor";
-import { applyProposalChange, publishProposalChange, subscribeProposalChanges } from "@/lib/enrichment/proposalChanges";
-import type { VariantImageSelection } from "@/lib/enrichment/variantImages";
+import {
+  applyProposalChange,
+  publishProposalChange,
+  subscribeProposalChanges,
+} from "@/lib/enrichment/proposalChanges";
+import {
+  automaticPhotoPlan,
+  mergeAutomaticSelections,
+} from "@/lib/enrichment/automaticPhotos";
+import { isProductPhoto } from "@/lib/enrichment/photoQuality";
+import {
+  adminVariants,
+  variantStockChanges,
+  type AdminVariant,
+} from "@/lib/adminProductVariants";
+import {
+  photoSku,
+  type VariantImageSelection,
+} from "@/lib/enrichment/variantImages";
 import { enrichmentFailureMessage } from "../../../../lib/enrichment/clientMessages";
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 type Tab = "products" | "proposals" | "sources";
-type ApplyMode = "ALL" | "DESCRIPTION" | "DESCRIPTION_FINAL" | "IMAGE";
+type ApplyMode =
+  "ALL" | "DESCRIPTION" | "DESCRIPTION_FINAL" | "IMAGE" | "INVENTORY";
 
 type Product = {
   id: string;
@@ -162,7 +183,10 @@ const emptySourceForm: SourceForm = {
 
 function stringArray(value: unknown) {
   return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    ? value.filter(
+        (item): item is string =>
+          typeof item === "string" && item.trim().length > 0,
+      )
     : [];
 }
 
@@ -174,14 +198,16 @@ function jsonObject(value: unknown): Record<string, unknown> {
 
 function autopilotEvaluation(value: unknown) {
   const evaluation = jsonObject(jsonObject(value).catalogAutopilotEvaluation);
-  const decision = typeof evaluation.decision === "string" ? evaluation.decision : "";
+  const decision =
+    typeof evaluation.decision === "string" ? evaluation.decision : "";
   const reasons = stringArray(evaluation.reasons);
   return decision ? { decision, reasons } : null;
 }
 
 function autopilotReasonText(value: string) {
   const labels: Record<string, string> = {
-    confidence_below_auto_apply_threshold: "совпадение ниже порога автоприменения",
+    confidence_below_auto_apply_threshold:
+      "совпадение ниже порога автоприменения",
     official_source_required: "нужен официальный источник",
     source_disabled: "источник отключён",
     source_domain_mismatch: "адрес не соответствует разрешённому домену",
@@ -192,10 +218,14 @@ function autopilotReasonText(value: string) {
     skin_or_task_section_missing: "не указан тип кожи или задачи ухода",
     benefits_missing: "меньше трёх подтверждённых преимуществ",
     application_missing: "нет полноценного способа применения",
-    manual_text_review_required: "текст отредактирован вручную и ожидает одобрения",
+    manual_text_review_required:
+      "текст отредактирован вручную и ожидает одобрения",
+    manual_variant_review_required:
+      "вариант удалён вручную; проверьте карточку перед применением",
     promotional_text_found: "обнаружены рекламные SEO-фразы",
     low_match_retry_required: "нужен повторный поиск источника",
-    low_match_manual_review_required: "низкое совпадение после повторного поиска",
+    low_match_manual_review_required:
+      "низкое совпадение после повторного поиска",
   };
   if (value.startsWith("blocking_warning:")) {
     return `критическое предупреждение источника: ${value.slice("blocking_warning:".length)}`;
@@ -203,29 +233,7 @@ function autopilotReasonText(value: string) {
   return labels[value] || value;
 }
 
-type ProposalVariant = {
-  id: string;
-  label: string;
-  price: number;
-  stock: number;
-  sku?: string;
-};
-
-function proposalVariants(value: unknown): ProposalVariant[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((raw) => {
-      const row = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
-      return {
-        id: String(row.id || ""),
-        label: String(row.label || ""),
-        price: Math.max(0, Math.trunc(Number(row.price) || 0)),
-        stock: Math.max(0, Math.trunc(Number(row.stock) || 0)),
-        sku: row.sku ? String(row.sku) : undefined,
-      };
-    })
-    .filter((variant) => variant.id && variant.label);
-}
+const proposalVariants = adminVariants;
 
 function formatDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -271,7 +279,9 @@ function statusClass(status: string) {
   if (["READY", "APPLIED", "ACTIVE"].includes(normalized)) {
     return "border-emerald-200 bg-emerald-50 text-emerald-800";
   }
-  if (["REVIEW", "PENDING", "RUNNING", "SOURCE_REQUIRED"].includes(normalized)) {
+  if (
+    ["REVIEW", "PENDING", "RUNNING", "SOURCE_REQUIRED"].includes(normalized)
+  ) {
     return "border-amber-200 bg-amber-50 text-amber-800";
   }
   if (["FAILED", "ERROR", "BLOCKED", "UNAVAILABLE"].includes(normalized)) {
@@ -282,7 +292,9 @@ function statusClass(status: string) {
 
 function StatusBadge({ value }: { value: string }) {
   return (
-    <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] ${statusClass(value)}`}>
+    <span
+      className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] ${statusClass(value)}`}
+    >
       {statusLabel(value)}
     </span>
   );
@@ -296,12 +308,14 @@ function SelectableImage({
   proposalId,
   index,
   onSelect,
+  disabled,
 }: {
   src: string;
   selected: boolean;
   proposalId: string;
   index: number;
   onSelect: () => void;
+  disabled?: boolean;
 }) {
   const [status, setStatus] = useState<ImageStatus>("loading");
 
@@ -313,7 +327,7 @@ function SelectableImage({
     return () => window.clearTimeout(timer);
   }, [src]);
 
-  const canSelect = status === "loaded";
+  const canSelect = status === "loaded" && !disabled;
 
   return (
     <label
@@ -383,7 +397,9 @@ function SelectableImage({
 }
 
 async function readResponse(response: Response) {
-  const data = await response.json().catch(() => ({} as Record<string, unknown>));
+  const data = await response
+    .json()
+    .catch(() => ({}) as Record<string, unknown>);
   if (!response.ok) {
     const object = data as { message?: unknown; error?: unknown };
     throw new Error(String(object.message || object.error || response.status));
@@ -392,21 +408,31 @@ async function readResponse(response: Response) {
 }
 
 export default function AdminEnrichmentClient() {
-  const [tab, setTab] = useState<Tab>("products");
+  const [tab, setTab] = useState<Tab>("proposals");
   const [products, setProducts] = useState<Product[]>([]);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const proposalRequest = useRef(0);
+  const autopilotStop = useRef(false);
+  const [stopRequested, setStopRequested] = useState(false);
   const [editingText, setEditingText] = useState<Record<string, boolean>>({});
-  const [actionMessages, setActionMessages] = useState<Record<string, string>>({});
+  const [actionMessages, setActionMessages] = useState<Record<string, string>>(
+    {},
+  );
   const [suppliers, setSuppliers] = useState<SupplierGroup[]>([]);
   const [autopilot, setAutopilot] = useState<AutopilotOverview | null>(null);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("ALL");
   const [sourceUrls, setSourceUrls] = useState<Record<string, string>>({});
-  const [variantImages, setVariantImages] = useState<Record<string, VariantImageSelection[]>>({});
-  const [selectedImages, setSelectedImages] = useState<Record<string, string>>({});
+  const [variantImages, setVariantImages] = useState<
+    Record<string, VariantImageSelection[]>
+  >({});
+  const [selectedImages, setSelectedImages] = useState<Record<string, string>>(
+    {},
+  );
   const [stockValues, setStockValues] = useState<Record<string, string>>({});
-  const [variantStockValues, setVariantStockValues] = useState<Record<string, Record<string, string>>>({});
+  const [variantStockValues, setVariantStockValues] = useState<
+    Record<string, Record<string, string>>
+  >({});
   const [sourceForm, setSourceForm] = useState<SourceForm>(emptySourceForm);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -422,24 +448,31 @@ export default function AdminEnrichmentClient() {
     const params = new URLSearchParams();
     if (query.trim()) params.set("q", query.trim());
     if (status !== "ALL") params.set("status", status);
-    const response = await fetch(`/api/admin/enrichment/products?${params.toString()}`, {
-      cache: "no-store",
-    });
+    const response = await fetch(
+      `/api/admin/enrichment/products?${params.toString()}`,
+      {
+        cache: "no-store",
+      },
+    );
     setProducts((await readResponse(response)) as Product[]);
   }
 
   async function loadProposals() {
     const request = ++proposalRequest.current;
-    const response = await fetch("/api/admin/enrichment/proposals?status=PENDING", {
-      cache: "no-store",
-    });
+    const response = await fetch(
+      "/api/admin/enrichment/proposals?status=PENDING",
+      {
+        cache: "no-store",
+      },
+    );
     const rows = (await readResponse(response)) as Proposal[];
     if (request !== proposalRequest.current) return;
     setProposals(rows);
     setStockValues((current) => {
       const next: Record<string, string> = {};
       for (const proposal of rows) {
-        next[proposal.id] = current[proposal.id] ?? String(proposal.product.stock);
+        next[proposal.id] =
+          current[proposal.id] ?? String(proposal.product.stock);
       }
       return next;
     });
@@ -450,21 +483,53 @@ export default function AdminEnrichmentClient() {
         if (!variants.length) continue;
         const previous = current[proposal.id] || {};
         next[proposal.id] = Object.fromEntries(
-          variants.map((variant) => [variant.id, previous[variant.id] ?? String(variant.stock)]),
+          variants.map((variant) => [
+            variant.id,
+            previous[variant.id] ?? String(variant.stock),
+          ]),
         );
       }
       return next;
     });
-    setSelectedImages((current) => {
-      const activeProposalIds = new Set(rows.map((proposal) => proposal.id));
-      return Object.fromEntries(
-        Object.entries(current).filter(([proposalId]) => activeProposalIds.has(proposalId)),
-      );
-    });
+    setSelectedImages((current) =>
+      Object.fromEntries(
+        rows.map((proposal) => [
+          proposal.id,
+          current[proposal.id] ??
+            automaticPhotoPlan(
+              {
+                ...proposal.product,
+                variants: proposalVariants(proposal.product.variants),
+              },
+              proposal.facts,
+            ).imageUrl ??
+            "",
+        ]),
+      ),
+    );
+    setVariantImages((current) =>
+      Object.fromEntries(
+        rows.map((proposal) => {
+          const variants = proposalVariants(proposal.product.variants);
+          const automatic = automaticPhotoPlan(
+            { ...proposal.product, variants },
+            proposal.facts,
+          ).variantImages;
+          return [
+            proposal.id,
+            current[proposal.id] === undefined
+              ? automatic
+              : mergeAutomaticSelections([], current[proposal.id], variants),
+          ];
+        }),
+      ),
+    );
   }
 
   async function loadSources() {
-    const response = await fetch("/api/admin/enrichment/sources", { cache: "no-store" });
+    const response = await fetch("/api/admin/enrichment/sources", {
+      cache: "no-store",
+    });
     const rows = (await readResponse(response)) as SupplierGroup[];
     setSuppliers(rows);
     setSourceForm((current) => ({
@@ -491,7 +556,9 @@ export default function AdminEnrichmentClient() {
         loadAutopilot(),
       ]);
     } catch (error) {
-      setMessage(`Ошибка загрузки: ${error instanceof Error ? error.message : String(error)}`);
+      setMessage(
+        `Ошибка загрузки: ${error instanceof Error ? error.message : String(error)}`,
+      );
     } finally {
       setLoading(false);
     }
@@ -503,46 +570,82 @@ export default function AdminEnrichmentClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => subscribeProposalChanges((change) => {
-    proposalRequest.current++;
-    setProposals((current) => applyProposalChange(current, change));
-    void loadProposals().catch(() => setMessage("Изменение сохранено. Не удалось обновить список; обновите страницу."));
-    // loadProposals only uses stable state setters and the request ref.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), []);
+  useEffect(
+    () =>
+      subscribeProposalChanges((change) => {
+        proposalRequest.current++;
+        setProposals((current) => applyProposalChange(current, change));
+        void Promise.all([loadProposals(), loadAutopilot()]).catch(() =>
+          setMessage(
+            "Изменение сохранено. Не удалось обновить список; обновите страницу.",
+          ),
+        );
+        // loadProposals only uses stable state setters and the request ref.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }),
+    [],
+  );
+
+  useEffect(
+    () => () => {
+      autopilotStop.current = true;
+    },
+    [],
+  );
 
   async function runAutopilot() {
+    autopilotStop.current = false;
+    setStopRequested(false);
     setBusyKey("autopilot:run");
-    setMessage(null);
+    setMessage(
+      "Автозаполнение запущено. Можно оставить страницу открытой — очередь обрабатывается автоматически.",
+    );
+    const seen = new Set<string>();
+    const totals = { applied: 0, review: 0, discovered: 0, failed: 0 };
+    let limited = false;
     try {
-      const response = await fetch("/api/admin/enrichment/autopilot", {
-        method: "POST",
-      });
-      const data = (await readResponse(response)) as {
-        result?: {
-          summary?: {
-            applied?: number;
-            review?: number;
-            discovered?: number;
-            failed?: number;
+      for (let batch = 0; batch < 20 && !autopilotStop.current; batch++) {
+        const response = await fetch("/api/admin/enrichment/autopilot", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ excludedProposalIds: [...seen] }),
+        });
+        const data = (await readResponse(response)) as {
+          result?: {
+            proposalResults?: {
+              proposalId: string;
+              replacementProposalId?: string;
+            }[];
+            summary?: Partial<typeof totals>;
           };
+          overview?: AutopilotOverview;
         };
-        overview?: AutopilotOverview;
-      };
-      if (data.overview) setAutopilot(data.overview);
-      const summary = data.result?.summary;
+        if (data.overview) setAutopilot(data.overview);
+        const summary = data.result?.summary;
+        for (const key of Object.keys(totals) as (keyof typeof totals)[])
+          totals[key] += summary?.[key] || 0;
+        const results = data.result?.proposalResults || [];
+        for (const row of results) {
+          seen.add(row.proposalId);
+          if (row.replacementProposalId) seen.add(row.replacementProposalId);
+        }
+        setMessage(
+          `Автозаполнение: применено ${totals.applied}, найдено ${totals.discovered}, на проверку ${totals.review}, ошибок ${totals.failed}.`,
+        );
+        await Promise.all([loadProducts(), loadProposals()]);
+        if (!results.length && !summary?.discovered) break;
+        if (batch === 19) limited = true;
+      }
       setMessage(
-        summary
-          ? `Автопилот завершён: применено ${summary.applied || 0}, найдено ${summary.discovered || 0}, оставлено на проверку ${summary.review || 0}, ошибок ${summary.failed || 0}.`
-          : "Автопилот завершён.",
+        `${autopilotStop.current ? "Остановлено после текущей карточки." : limited ? "Пакет завершён. Запустите снова для оставшейся очереди." : "Автозаполнение завершено."} Применено ${totals.applied}, найдено ${totals.discovered}, на проверку ${totals.review}, ошибок ${totals.failed}.`,
       );
-      await Promise.all([loadProducts(), loadProposals(), loadAutopilot()]);
     } catch (error) {
       setMessage(
-        `Автопилот не выполнен: ${error instanceof Error ? error.message : String(error)}`,
+        `Автозаполнение прервано: ${error instanceof Error ? error.message : String(error)}. Уже сохранённые изменения сохранены.`,
       );
     } finally {
       setBusyKey(null);
+      setStopRequested(false);
     }
   }
 
@@ -578,20 +681,25 @@ export default function AdminEnrichmentClient() {
     setBusyKey(`discover:${productId}`);
     setMessage(null);
     try {
-      const response = await fetch(`/api/admin/enrichment/products/${productId}/discover`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sourceUrl: sourceUrls[productId]?.trim() || "",
-          discoverIfMissing: true,
-        }),
-      });
+      const response = await fetch(
+        `/api/admin/enrichment/products/${productId}/discover`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sourceUrl: sourceUrls[productId]?.trim() || "",
+            discoverIfMissing: true,
+          }),
+        },
+      );
       await readResponse(response);
       setMessage("Предложение создано и отправлено на проверку.");
       setTab("proposals");
       await Promise.all([loadProducts(), loadProposals()]);
     } catch (error) {
-      setMessage(`Поиск не выполнен: ${error instanceof Error ? error.message : String(error)}`);
+      setMessage(
+        `Поиск не выполнен: ${error instanceof Error ? error.message : String(error)}`,
+      );
     } finally {
       setBusyKey(null);
     }
@@ -603,54 +711,149 @@ export default function AdminEnrichmentClient() {
     let stock: number | undefined;
     let variantStocks: Record<string, number> | undefined;
 
-    const appliesInventory = mode === "ALL" || mode === "IMAGE";
+    const appliesInventory = mode === "ALL" || mode === "INVENTORY";
 
-    if (appliesInventory && variants.length) {
-      variantStocks = {};
-      for (const variant of variants) {
-        const value = Number(variantStockValues[proposalId]?.[variant.id] ?? variant.stock);
-        if (!Number.isInteger(value) || value < 0) {
-          setMessage(`Количество для варианта «${variant.label}» должно быть целым числом от 0 и выше.`);
-          return;
-        }
-        variantStocks[variant.id] = value;
+    try {
+      if (appliesInventory && variants.length) {
+        variantStocks = Object.fromEntries(
+          variantStockChanges(
+            variants,
+            variantStockValues[proposalId] || {},
+          ).map((change) => [change.variantId, change.stock]),
+        );
+      } else if (
+        appliesInventory &&
+        proposal &&
+        stockValues[proposalId] !== String(proposal.product.stock)
+      ) {
+        const value = stockValues[proposalId] ?? String(proposal.product.stock);
+        if (!/^\d+$/.test(value) || Number(value) > 1_000_000)
+          throw new Error("Укажите целое количество от 0 до 1 000 000.");
+        stock = Number(value);
       }
-    } else if (appliesInventory) {
-      stock = Number(stockValues[proposalId] ?? "0");
-      if (!Number.isInteger(stock) || stock < 0) {
-        setMessage("Количество должно быть целым числом от 0 и выше.");
-        return;
-      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Проверьте остатки.");
+      return;
     }
 
     setBusyKey(`apply:${proposalId}:${mode}`);
     setMessage(null);
     try {
-      const response = await fetch(`/api/admin/enrichment/proposals/${proposalId}/apply`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mode,
-          imageUrl: selectedImages[proposalId] || "",
-          stock,
-          variantStocks,
-          variantImages: variantImages[proposalId] || [],
-        }),
-      });
+      const response = await fetch(
+        `/api/admin/enrichment/proposals/${proposalId}/apply`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mode,
+            imageUrl: selectedImages[proposalId] || "",
+            stock,
+            variantStocks,
+            variantImages: variantImages[proposalId] || [],
+          }),
+        },
+      );
       await readResponse(response);
-      publishProposalChange({ id: proposalId, status: mode === "ALL" || mode === "DESCRIPTION_FINAL" ? "APPLIED" : "PENDING" });
+      publishProposalChange({
+        id: proposalId,
+        status:
+          mode === "ALL" || mode === "DESCRIPTION_FINAL"
+            ? "APPLIED"
+            : "PENDING",
+      });
       setMessage(
         mode === "ALL"
-          ? "Описание, фото и количество применены. Товар добавлен в черновики для публикации."
+          ? "Карточка заполнена. Выбранные фото и изменённые остатки сохранены."
           : mode === "DESCRIPTION_FINAL"
             ? "Краткое и полное описание одобрены. Фото, цена и количество не изменялись."
             : mode === "DESCRIPTION"
               ? "Описание сохранено. Фото, цена и количество не изменялись; предложение остаётся на проверке."
-              : "Фото и количество сохранены. Предложение остаётся на проверке.",
+              : mode === "INVENTORY"
+                ? "Остатки сохранены."
+                : "Фото сохранены. Предложение остаётся на проверке.",
       );
       void loadProducts().catch(() => undefined);
     } catch (error) {
-      setMessage(`Не удалось применить предложение: ${error instanceof Error ? error.message : String(error)}`);
+      setMessage(
+        `Не удалось применить предложение: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function preparePhotos(proposal: Proposal) {
+    setBusyKey(`photos:${proposal.id}`);
+    setActionMessages((current) => ({ ...current, [proposal.id]: "" }));
+    try {
+      const response = await fetch(
+        `/api/admin/enrichment/proposals/${proposal.id}/photos`,
+        { method: "POST" },
+      );
+      const photos = await readResponse(response);
+      const plan = automaticPhotoPlan(
+        {
+          ...proposal.product,
+          variants: proposalVariants(proposal.product.variants),
+        },
+        photos,
+      );
+      setSelectedImages((current) => ({
+        ...current,
+        [proposal.id]: plan.imageUrl || "",
+      }));
+      setVariantImages((current) => ({
+        ...current,
+        [proposal.id]: plan.variantImages,
+      }));
+      publishProposalChange({ id: proposal.id, status: "PENDING" });
+      setMessage(
+        plan.imageUrl || plan.variantImages.length
+          ? "Фото подобраны по SKU. Нажмите «Применить карточку»."
+          : "Отдельные фото не найдены. Сохранены текущие фото; варианты без своего снимка используют общее.",
+      );
+    } catch (error) {
+      setActionMessages((current) => ({
+        ...current,
+        [proposal.id]:
+          error instanceof Error ? error.message : "Подбор фото не завершён.",
+      }));
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function removeVariant(proposal: Proposal, variant: AdminVariant) {
+    setBusyKey(`remove:${proposal.id}:${variant.id}`);
+    setActionMessages((current) => ({ ...current, [proposal.id]: "" }));
+    try {
+      const response = await fetch(
+        `/api/admin/enrichment/products/${encodeURIComponent(proposal.product.id)}/variants/${encodeURIComponent(variant.id)}`,
+        {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ proposalId: proposal.id, sku: variant.sku }),
+        },
+      );
+      await readResponse(response);
+      setSelectedImages((current) => {
+        const next = { ...current };
+        delete next[proposal.id];
+        return next;
+      });
+      publishProposalChange({ id: proposal.id, status: "PENDING" });
+      setMessage(
+        `Вариант ${variant.label} (SKU ${variant.sku}) удалён и исключён из автоматического импорта.`,
+      );
+      void loadProducts().catch(() => undefined);
+    } catch (error) {
+      setActionMessages((current) => ({
+        ...current,
+        [proposal.id]:
+          error instanceof Error
+            ? error.message
+            : "Не удалось удалить вариант.",
+      }));
     } finally {
       setBusyKey(null);
     }
@@ -661,9 +864,12 @@ export default function AdminEnrichmentClient() {
     setMessage(null);
     setActionMessages((current) => ({ ...current, [proposalId]: "" }));
     try {
-      const response = await fetch(`/api/admin/enrichment/proposals/${proposalId}/reject`, {
-        method: "POST",
-      });
+      const response = await fetch(
+        `/api/admin/enrichment/proposals/${proposalId}/reject`,
+        {
+          method: "POST",
+        },
+      );
       await readResponse(response);
       publishProposalChange({ id: proposalId, status: "REJECTED" });
       setMessage("Предложение отклонено.");
@@ -681,15 +887,20 @@ export default function AdminEnrichmentClient() {
     setBusyKey(`source:${source.id}`);
     setMessage(null);
     try {
-      const response = await fetch(`/api/admin/enrichment/sources/${source.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ isEnabled: !source.isEnabled }),
-      });
+      const response = await fetch(
+        `/api/admin/enrichment/sources/${source.id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ isEnabled: !source.isEnabled }),
+        },
+      );
       await readResponse(response);
       await loadSources();
     } catch (error) {
-      setMessage(`Источник не обновлён: ${error instanceof Error ? error.message : String(error)}`);
+      setMessage(
+        `Источник не обновлён: ${error instanceof Error ? error.message : String(error)}`,
+      );
     } finally {
       setBusyKey(null);
     }
@@ -716,10 +927,15 @@ export default function AdminEnrichmentClient() {
       });
       await readResponse(response);
       setMessage("Разрешённый источник добавлен.");
-      setSourceForm((current) => ({ ...emptySourceForm, supplierId: current.supplierId }));
+      setSourceForm((current) => ({
+        ...emptySourceForm,
+        supplierId: current.supplierId,
+      }));
       await loadSources();
     } catch (error) {
-      setMessage(`Источник не добавлен: ${error instanceof Error ? error.message : String(error)}`);
+      setMessage(
+        `Источник не добавлен: ${error instanceof Error ? error.message : String(error)}`,
+      );
     } finally {
       setBusyKey(null);
     }
@@ -731,8 +947,9 @@ export default function AdminEnrichmentClient() {
         <div>
           <h1 className="text-2xl font-semibold">Автозаполнение товаров</h1>
           <p className="mt-1 max-w-3xl text-sm text-gray-600">
-            Безопасный автопилот сам применяет только качественный текст с официального
-            источника и совпадением от 90%. Фото, цена, остатки и публикация не меняются.
+            Автопилот заполняет описание и подбирает фото по точному SKU. При
+            совпадении от 90% с официальным источником данные применяются
+            автоматически. Спорные карточки остаются здесь.
           </p>
         </div>
         <button
@@ -750,29 +967,65 @@ export default function AdminEnrichmentClient() {
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="font-semibold">Безопасный автопилот</h2>
-                <StatusBadge value={autopilot.config.enabled ? "ACTIVE" : "DISABLED"} />
+                <h2 className="font-semibold">Автоматическое заполнение</h2>
+                <StatusBadge
+                  value={autopilot.config.enabled ? "ACTIVE" : "DISABLED"}
+                />
               </div>
               <p className="mt-1 max-w-3xl text-sm text-gray-700">
-                Порог — {autopilot.config.minConfidence}%. Низкое совпадение перепроверяется один
-                раз, сомнительные данные остаются в предложениях, совпадение 0% отбрасывается.
+                Порог — {autopilot.config.minConfidence}%. Низкое совпадение
+                перепроверяется один раз, сомнительные данные остаются в
+                предложениях, совпадение 0% отбрасывается.
               </p>
             </div>
             <button
               type="button"
               className="self-start rounded-xl bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
-              disabled={Boolean(busyKey) || !autopilot.config.enabled}
+              disabled={
+                Boolean(busyKey) ||
+                Object.values(editingText).some(Boolean) ||
+                !autopilot.config.enabled
+              }
               onClick={() => void runAutopilot()}
             >
-              {busyKey === "autopilot:run" ? "Автопилот работает…" : "Запустить сейчас"}
+              {busyKey === "autopilot:run"
+                ? "Очередь обрабатывается…"
+                : "Заполнить автоматически"}
             </button>
+            {busyKey === "autopilot:run" && (
+              <button
+                type="button"
+                disabled={stopRequested}
+                className="self-start rounded-xl border px-4 py-2 text-sm disabled:opacity-50"
+                onClick={() => {
+                  autopilotStop.current = true;
+                  setStopRequested(true);
+                }}
+              >
+                {stopRequested
+                  ? "Остановка после текущей карточки…"
+                  : "Остановить"}
+              </button>
+            )}
           </div>
 
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-            <Metric label="Ожидают проверки" value={autopilot.counts.pendingProposals} />
-            <Metric label="Ожидают поиска" value={autopilot.counts.pendingDiscovery} />
-            <Metric label="Нужен источник" value={autopilot.counts.sourceRequired} />
-            <Metric label="Недавние автоправки" value={autopilot.counts.recentAutomaticChanges} />
+            <Metric
+              label="Ожидают проверки"
+              value={autopilot.counts.pendingProposals}
+            />
+            <Metric
+              label="Ожидают поиска"
+              value={autopilot.counts.pendingDiscovery}
+            />
+            <Metric
+              label="Нужен источник"
+              value={autopilot.counts.sourceRequired}
+            />
+            <Metric
+              label="Недавние автоправки"
+              value={autopilot.counts.recentAutomaticChanges}
+            />
           </div>
 
           {autopilot.recentChanges.length > 0 && (
@@ -798,7 +1051,9 @@ export default function AdminEnrichmentClient() {
                       disabled={Boolean(busyKey)}
                       onClick={() => void rollbackAutopilotChange(change.id)}
                     >
-                      {busyKey === `autopilot:rollback:${change.id}` ? "Откат…" : "Откатить текст"}
+                      {busyKey === `autopilot:rollback:${change.id}`
+                        ? "Откат…"
+                        : "Откатить текст"}
                     </button>
                   </div>
                 ))}
@@ -809,10 +1064,16 @@ export default function AdminEnrichmentClient() {
       )}
 
       <div className="flex flex-wrap gap-2 border-b pb-3">
-        <TabButton active={tab === "products"} onClick={() => setTab("products")}>
+        <TabButton
+          active={tab === "products"}
+          onClick={() => setTab("products")}
+        >
           Товары ({products.length})
         </TabButton>
-        <TabButton active={tab === "proposals"} onClick={() => setTab("proposals")}>
+        <TabButton
+          active={tab === "proposals"}
+          onClick={() => setTab("proposals")}
+        >
           Предложения ({pendingCount})
         </TabButton>
         <TabButton active={tab === "sources"} onClick={() => setTab("sources")}>
@@ -820,7 +1081,11 @@ export default function AdminEnrichmentClient() {
         </TabButton>
       </div>
 
-      {message && <div className="rounded-xl border bg-white px-4 py-3 text-sm">{message}</div>}
+      {message && (
+        <div className="rounded-xl border bg-white px-4 py-3 text-sm">
+          {message}
+        </div>
+      )}
 
       {tab === "products" && (
         <section className="space-y-4">
@@ -849,7 +1114,10 @@ export default function AdminEnrichmentClient() {
               <option value="SOURCE_REQUIRED">Нужен источник</option>
               <option value="FAILED">Ошибка</option>
             </select>
-            <button className="rounded-xl bg-black px-4 py-2 text-white" type="submit">
+            <button
+              className="rounded-xl bg-black px-4 py-2 text-white"
+              type="submit"
+            >
               Найти
             </button>
           </form>
@@ -863,10 +1131,15 @@ export default function AdminEnrichmentClient() {
               const sourceRequired =
                 product.enrichmentStatus === "SOURCE_REQUIRED" ||
                 isSourceRequiredError(lastJob?.error);
-              const displayStatus = sourceRequired ? "SOURCE_REQUIRED" : product.enrichmentStatus;
+              const displayStatus = sourceRequired
+                ? "SOURCE_REQUIRED"
+                : product.enrichmentStatus;
 
               return (
-                <article key={product.id} className="rounded-2xl border bg-white p-4">
+                <article
+                  key={product.id}
+                  className="rounded-2xl border bg-white p-4"
+                >
                   <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                     <div className="flex min-w-0 gap-3">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -879,24 +1152,42 @@ export default function AdminEnrichmentClient() {
                         <div className="flex flex-wrap items-center gap-2">
                           <h2 className="font-semibold">{product.name}</h2>
                           <StatusBadge value={displayStatus} />
-                          {!product.isPublished && <StatusBadge value="Черновик" />}
+                          {!product.isPublished && (
+                            <StatusBadge value="Черновик" />
+                          )}
                         </div>
                         <div className="mt-1 text-sm text-gray-500">
-                          {product.brand?.name || "Без бренда"} · {product.supplier?.name || "Без поставщика"}
-                          {product.supplierSku ? ` · SKU ${product.supplierSku}` : ""}
+                          {product.brand?.name || "Без бренда"} ·{" "}
+                          {product.supplier?.name || "Без поставщика"}
+                          {product.supplierSku
+                            ? ` · SKU ${product.supplierSku}`
+                            : ""}
                         </div>
                         <div className="mt-2 space-y-1 text-xs text-gray-500">
                           <div>
-                            Последний источник: {lastSource ? lastSource.title || lastSource.url : "не найден"}
+                            Последний источник:{" "}
+                            {lastSource
+                              ? lastSource.title || lastSource.url
+                              : "не найден"}
                           </div>
                           <div>
-                            Последняя проверка: {formatDate(lastSource?.lastCheckedAt)}
+                            Последняя проверка:{" "}
+                            {formatDate(lastSource?.lastCheckedAt)}
                           </div>
                           <div>
-                            Задание: {lastJob ? `${lastJob.status} · ${formatDate(lastJob.createdAt)}` : "не запускалось"}
+                            Задание:{" "}
+                            {lastJob
+                              ? `${lastJob.status} · ${formatDate(lastJob.createdAt)}`
+                              : "не запускалось"}
                           </div>
                           {lastJob?.error && (
-                            <div className={sourceRequired ? "text-amber-700" : "text-red-700"}>
+                            <div
+                              className={
+                                sourceRequired
+                                  ? "text-amber-700"
+                                  : "text-red-700"
+                              }
+                            >
                               {sourceRequired ? "Источник: " : "Ошибка: "}
                               {enrichmentErrorText(lastJob.error)}
                             </div>
@@ -919,17 +1210,25 @@ export default function AdminEnrichmentClient() {
                       />
                       {sourceRequired && (
                         <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                          Автопоиск по официальным страницам исчерпан. Укажите точный URL из разрешённого источника или добавьте источник во вкладке «Источники».
+                          Автопоиск по официальным страницам исчерпан. Укажите
+                          точный URL из разрешённого источника или добавьте
+                          источник во вкладке «Источники».
                         </div>
                       )}
                       <div className="flex flex-wrap gap-2">
                         <button
                           type="button"
                           className="rounded-xl bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
-                          disabled={busy || hasProposal || Boolean(busyKey && !busy)}
+                          disabled={
+                            busy || hasProposal || Boolean(busyKey && !busy)
+                          }
                           onClick={() => void runDiscovery(product.id)}
                         >
-                          {busy ? "Поиск…" : hasProposal ? "Есть предложение" : "Найти данные"}
+                          {busy
+                            ? "Поиск…"
+                            : hasProposal
+                              ? "Есть предложение"
+                              : "Найти данные"}
                         </button>
                         {sourceRequired && (
                           <button
@@ -969,19 +1268,37 @@ export default function AdminEnrichmentClient() {
       {tab === "proposals" && (
         <section className="space-y-4">
           {proposals.map((proposal) => {
-            const images = stringArray(proposal.images);
+            const photoPlan = automaticPhotoPlan(
+              {
+                ...proposal.product,
+                variants: proposalVariants(proposal.product.variants),
+              },
+              proposal.facts,
+            );
+            const images = photoPlan.commonCandidates.length
+              ? photoPlan.commonCandidates.map((item) => item.url)
+              : proposal.confidence >= 70
+                ? stringArray(proposal.images).filter(isProductPhoto)
+                : [];
             const selectedImage = selectedImages[proposal.id] || "";
-            const isBusy = Boolean(busyKey?.includes(proposal.id));
+            const isBusy = Boolean(busyKey);
             const variants = proposalVariants(proposal.product.variants);
             const evaluation = autopilotEvaluation(proposal.facts);
 
             return (
-              <article key={proposal.id} className="space-y-4 rounded-2xl border bg-white p-4">
+              <article
+                key={proposal.id}
+                className="space-y-4 rounded-2xl border bg-white p-4"
+              >
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="text-lg font-semibold">{proposal.product.name}</h2>
-                      <StatusBadge value={`${proposal.confidence}% совпадения`} />
+                      <h2 className="text-lg font-semibold">
+                        {proposal.product.name}
+                      </h2>
+                      <StatusBadge
+                        value={`${proposal.confidence}% совпадения`}
+                      />
                       <StatusBadge
                         value={
                           proposal.source?.sourceType === "OFFICIAL_SITE"
@@ -989,11 +1306,15 @@ export default function AdminEnrichmentClient() {
                             : "Внешний источник"
                         }
                       />
-                      {!proposal.product.isPublished && <StatusBadge value="Черновик" />}
+                      {!proposal.product.isPublished && (
+                        <StatusBadge value="Черновик" />
+                      )}
                     </div>
                     <div className="mt-1 text-sm text-gray-500">
                       {proposal.product.brand?.name || "Без бренда"}
-                      {proposal.product.supplierSku ? ` · SKU ${proposal.product.supplierSku}` : ""}
+                      {proposal.product.supplierSku
+                        ? ` · SKU ${proposal.product.supplierSku}`
+                        : ""}
                     </div>
                     <a
                       href={proposal.sourceUrl}
@@ -1011,7 +1332,9 @@ export default function AdminEnrichmentClient() {
 
                 {evaluation && (
                   <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                    <div className="font-medium">Почему требуется участие человека</div>
+                    <div className="font-medium">
+                      Почему требуется участие человека
+                    </div>
                     <ul className="mt-1 list-disc space-y-1 pl-5 text-xs">
                       {evaluation.reasons.map((reason) => (
                         <li key={reason}>{autopilotReasonText(reason)}</li>
@@ -1022,95 +1345,118 @@ export default function AdminEnrichmentClient() {
 
                 <div className="grid gap-4 xl:grid-cols-2">
                   <div className="space-y-3">
-                    <ProposalTextEditor proposal={proposal} disabled={isBusy}
-                      onEditingChange={(editing) => setEditingText((current) => ({ ...current, [proposal.id]: editing }))} />
+                    <ProposalTextEditor
+                      proposal={proposal}
+                      disabled={isBusy}
+                      onEditingChange={(editing) =>
+                        setEditingText((current) => ({
+                          ...current,
+                          [proposal.id]: editing,
+                        }))
+                      }
+                    />
                   </div>
 
                   <div className="space-y-3">
-                    <div>
-                      <div className="mb-2 text-sm font-medium">Общее фото товара</div>
-                      {images.length ? (
-                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                          {images.map((image, index) => (
-                            <SelectableImage
-                              key={image}
-                              src={image}
-                              index={index}
-                              proposalId={proposal.id}
-                              selected={selectedImage === image}
-                              onSelect={() =>
-                                setSelectedImages((current) => ({
-                                  ...current,
-                                  [proposal.id]: image,
-                                }))
-                              }
-                            />
-                          ))}
+                    <div className="rounded-xl border p-3">
+                      <div className="flex items-center gap-3">
+                        <VariantPhotoPreview
+                          src={selectedImage || proposal.product.image}
+                          alt={proposal.product.name}
+                          className="h-20 w-20 rounded-lg bg-white object-contain"
+                        />
+                        <div className="text-sm">
+                          <div className="font-medium">Общее фото товара</div>
+                          <p className="mt-1 text-xs text-gray-600">
+                            {selectedImage
+                              ? "Фото по SKU выбрано и готово к применению."
+                              : "Используется текущее общее фото."}
+                          </p>
                         </div>
-                      ) : (
-                        <div className="text-sm text-gray-500">Изображения не найдены.</div>
-                      )}
+                      </div>
                       {images.length > 0 && (
-                        <div className="mt-2 text-xs text-gray-600">
-                          {selectedImage
-                            ? "Выбранное фото будет скопировано в Cloudinary."
-                            : "Нажмите «Выбрать фото» под подходящим изображением."}
-                          {" "}Автопилот и кнопка «Одобрить только текст» эти изображения не используют.
-                        </div>
-                      )}
-                    </div>
-
-                    <VariantPhotosReview product={proposal.product} proposalId={proposal.id} facts={proposal.facts}
-                      commonImage={selectedImage}
-                      value={variantImages[proposal.id] || []} disabled={isBusy}
-                      onChange={value => setVariantImages(current => ({ ...current, [proposal.id]: value }))} />
-                    {variants.length ? (
-                      <div className="rounded-xl border p-3 text-sm">
-                        <div className="mb-2 font-medium">Количество по вариантам</div>
-                        <div className="grid gap-2 sm:grid-cols-2">
-                          {variants.map((variant) => (
-                            <label key={variant.id} className="rounded-lg bg-gray-50 p-2">
-                              <span className="mb-1 block text-xs font-medium">
-                                {variant.label}
-                                {variant.sku ? ` · SKU ${variant.sku}` : ""}
-                              </span>
-                              <input
-                                type="number"
-                                min={0}
-                                step={1}
-                                inputMode="numeric"
-                                className="w-full rounded-lg border bg-white px-3 py-2"
-                                value={variantStockValues[proposal.id]?.[variant.id] ?? String(variant.stock)}
-                                onChange={(event) =>
-                                  setVariantStockValues((current) => ({
+                        <details className="mt-3">
+                          <summary className="cursor-pointer text-xs">
+                            Выбрать другое фото ({images.length})
+                          </summary>
+                          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                            {images.map((image, index) => (
+                              <SelectableImage
+                                key={image}
+                                src={image}
+                                index={index}
+                                proposalId={proposal.id}
+                                disabled={isBusy}
+                                selected={selectedImage === image}
+                                onSelect={() =>
+                                  setSelectedImages((current) => ({
                                     ...current,
-                                    [proposal.id]: {
-                                      ...(current[proposal.id] || {}),
-                                      [variant.id]: event.target.value,
-                                    },
+                                    [proposal.id]: image,
                                   }))
                                 }
                               />
-                              <span className="mt-1 block text-[11px] text-gray-500">
-                                {variant.price.toLocaleString("ru-RU")} ₸
-                              </span>
-                            </label>
-                          ))}
-                        </div>
-                        <span className="mt-2 block text-xs text-gray-500">
-                          Остаток хранится отдельно для каждой фасовки.
-                        </span>
-                      </div>
-                    ) : (
+                            ))}
+                          </div>
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            className="mt-2 rounded-lg border px-3 py-1 text-xs"
+                            onClick={() =>
+                              setSelectedImages((current) => ({
+                                ...current,
+                                [proposal.id]: "",
+                              }))
+                            }
+                          >
+                            Оставить текущее фото
+                          </button>
+                        </details>
+                      )}
+                    </div>
+                    <VariantPhotosReview
+                      product={proposal.product}
+                      proposalId={proposal.id}
+                      facts={proposal.facts}
+                      commonImage={selectedImage}
+                      stocks={variantStockValues[proposal.id]}
+                      value={variantImages[proposal.id] || []}
+                      disabled={isBusy || editingText[proposal.id]}
+                      onStockChange={(id, value) =>
+                        setVariantStockValues((current) => ({
+                          ...current,
+                          [proposal.id]: {
+                            ...current[proposal.id],
+                            [id]: value,
+                          },
+                        }))
+                      }
+                      onRemove={(variant) =>
+                        void removeVariant(proposal, variant)
+                      }
+                      onChange={(value) =>
+                        setVariantImages((current) => ({
+                          ...current,
+                          [proposal.id]: value,
+                        }))
+                      }
+                    />
+                    {!variants.length && (
                       <label className="block rounded-xl border p-3 text-sm">
-                        <span className="mb-1 block font-medium">Количество на складе</span>
+                        <span className="mb-1 block font-medium">
+                          Количество на складе
+                        </span>
                         <input
                           type="number"
                           min={0}
+                          max={1000000}
                           step={1}
                           inputMode="numeric"
-                          className="w-full rounded-xl border px-3 py-2"
-                          value={stockValues[proposal.id] ?? String(proposal.product.stock)}
+                          disabled={isBusy}
+                          className="w-32 rounded-lg border px-3 py-2"
+                          value={
+                            stockValues[proposal.id] ??
+                            String(proposal.product.stock)
+                          }
                           onChange={(event) =>
                             setStockValues((current) => ({
                               ...current,
@@ -1118,55 +1464,95 @@ export default function AdminEnrichmentClient() {
                             }))
                           }
                         />
-                        <span className="mt-1 block text-xs text-gray-500">
-                          Значение сохранится только при ручном применении фото или всего предложения.
-                          Ноль означает «нет в наличии».
-                        </span>
                       </label>
                     )}
 
-                    <JsonBlock label="Извлечённые факты" value={proposal.facts} />
-                    <JsonBlock label="Предупреждения" value={proposal.warnings} />
+                    <JsonBlock
+                      label="Извлечённые факты"
+                      value={proposal.facts}
+                    />
+                    <JsonBlock
+                      label="Предупреждения"
+                      value={proposal.warnings}
+                    />
                   </div>
                 </div>
 
                 <div className="flex flex-wrap gap-2 border-t pt-4">
                   <button
                     type="button"
-                    className="rounded-xl bg-black px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-50"
+                    className="rounded-xl bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
                     disabled={isBusy || editingText[proposal.id]}
-                    onClick={() => void applyProposal(proposal.id, "DESCRIPTION_FINAL")}
-                  >
-                    Одобрить только текст
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-xl border px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
-                    disabled={isBusy || editingText[proposal.id] || (!selectedImage && !variantImages[proposal.id]?.length)}
-                    title={!selectedImage && !variantImages[proposal.id]?.length ? "Выберите общее фото или фото для SKU" : undefined}
                     onClick={() => void applyProposal(proposal.id, "ALL")}
                   >
-                    Применить всё вручную
+                    Применить карточку
                   </button>
                   <button
                     type="button"
-                    className="rounded-xl border px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
-                    disabled={isBusy || editingText[proposal.id] || (!selectedImage && !variantImages[proposal.id]?.length)}
-                    title={!selectedImage && !variantImages[proposal.id]?.length ? "Выберите общее фото или фото для SKU" : undefined}
-                    onClick={() => void applyProposal(proposal.id, "IMAGE")}
+                    className="rounded-xl border px-4 py-2 text-sm disabled:opacity-50"
+                    disabled={isBusy || editingText[proposal.id]}
+                    onClick={() => void preparePhotos(proposal)}
                   >
-                    Только фото
+                    {busyKey === `photos:${proposal.id}`
+                      ? "Подбор фото…"
+                      : "Подобрать фото автоматически"}
                   </button>
                   <button
                     type="button"
-                    className="rounded-xl border border-red-200 px-4 py-2 text-sm text-red-700 hover:bg-red-50 disabled:opacity-50"
-                    disabled={isBusy}
+                    className="rounded-xl border border-red-200 px-4 py-2 text-sm text-red-700 disabled:opacity-50"
+                    disabled={isBusy || editingText[proposal.id]}
                     onClick={() => void rejectProposal(proposal.id)}
                   >
-                    {busyKey === `reject:${proposal.id}` ? "Отклонение…" : "Отклонить"}
+                    {busyKey === `reject:${proposal.id}`
+                      ? "Отклонение…"
+                      : "Отклонить"}
                   </button>
+                  <details className="w-full text-xs">
+                    <summary className="cursor-pointer py-2 text-gray-600">
+                      Сохранить отдельно
+                    </summary>
+                    <div className="mt-1 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="rounded-lg border px-3 py-2 disabled:opacity-50"
+                        disabled={isBusy || editingText[proposal.id]}
+                        onClick={() =>
+                          void applyProposal(proposal.id, "DESCRIPTION_FINAL")
+                        }
+                      >
+                        Только текст
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-lg border px-3 py-2 disabled:opacity-50"
+                        disabled={
+                          isBusy ||
+                          editingText[proposal.id] ||
+                          (!selectedImage &&
+                            !variantImages[proposal.id]?.length)
+                        }
+                        onClick={() => void applyProposal(proposal.id, "IMAGE")}
+                      >
+                        Только фото
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-lg border px-3 py-2 disabled:opacity-50"
+                        disabled={isBusy || editingText[proposal.id]}
+                        onClick={() =>
+                          void applyProposal(proposal.id, "INVENTORY")
+                        }
+                      >
+                        Только остатки
+                      </button>
+                    </div>
+                  </details>
                 </div>
-                {actionMessages[proposal.id] && <p role="alert" className="text-sm text-red-700">{actionMessages[proposal.id]}</p>}
+                {actionMessages[proposal.id] && (
+                  <p role="alert" className="text-sm text-red-700">
+                    {actionMessages[proposal.id]}
+                  </p>
+                )}
               </article>
             );
           })}
@@ -1196,7 +1582,10 @@ export default function AdminEnrichmentClient() {
               className="rounded-xl border bg-white px-3 py-2"
               value={sourceForm.supplierId}
               onChange={(event) =>
-                setSourceForm((current) => ({ ...current, supplierId: event.target.value }))
+                setSourceForm((current) => ({
+                  ...current,
+                  supplierId: event.target.value,
+                }))
               }
             >
               <option value="">Выберите поставщика</option>
@@ -1212,7 +1601,10 @@ export default function AdminEnrichmentClient() {
               placeholder="Название источника"
               value={sourceForm.name}
               onChange={(event) =>
-                setSourceForm((current) => ({ ...current, name: event.target.value }))
+                setSourceForm((current) => ({
+                  ...current,
+                  name: event.target.value,
+                }))
               }
             />
             <input
@@ -1221,7 +1613,10 @@ export default function AdminEnrichmentClient() {
               placeholder="Домен, например angiopharm.ru"
               value={sourceForm.domain}
               onChange={(event) =>
-                setSourceForm((current) => ({ ...current, domain: event.target.value }))
+                setSourceForm((current) => ({
+                  ...current,
+                  domain: event.target.value,
+                }))
               }
             />
             <input
@@ -1231,7 +1626,10 @@ export default function AdminEnrichmentClient() {
               placeholder="https://angiopharm.ru"
               value={sourceForm.baseUrl}
               onChange={(event) =>
-                setSourceForm((current) => ({ ...current, baseUrl: event.target.value }))
+                setSourceForm((current) => ({
+                  ...current,
+                  baseUrl: event.target.value,
+                }))
               }
             />
             <input
@@ -1242,7 +1640,10 @@ export default function AdminEnrichmentClient() {
               placeholder="Приоритет"
               value={sourceForm.priority}
               onChange={(event) =>
-                setSourceForm((current) => ({ ...current, priority: event.target.value }))
+                setSourceForm((current) => ({
+                  ...current,
+                  priority: event.target.value,
+                }))
               }
             />
             <label className="inline-flex items-center gap-2 text-sm">
@@ -1264,19 +1665,26 @@ export default function AdminEnrichmentClient() {
                 className="rounded-xl bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
                 disabled={busyKey === "source:create"}
               >
-                {busyKey === "source:create" ? "Добавление…" : "Добавить источник"}
+                {busyKey === "source:create"
+                  ? "Добавление…"
+                  : "Добавить источник"}
               </button>
             </div>
           </form>
 
           {suppliers.map((supplier) => (
-            <div key={supplier.id} className="space-y-3 rounded-2xl border bg-white p-4">
+            <div
+              key={supplier.id}
+              className="space-y-3 rounded-2xl border bg-white p-4"
+            >
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <h2 className="font-semibold">{supplier.name}</h2>
                   <div className="text-xs text-gray-500">{supplier.slug}</div>
                 </div>
-                <span className="text-sm text-gray-500">Источников: {supplier.sources.length}</span>
+                <span className="text-sm text-gray-500">
+                  Источников: {supplier.sources.length}
+                </span>
               </div>
 
               <div className="grid gap-3">
@@ -1288,8 +1696,12 @@ export default function AdminEnrichmentClient() {
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-medium">{source.name}</span>
-                        <StatusBadge value={source.isEnabled ? "ACTIVE" : "DISABLED"} />
-                        <span className="text-xs text-gray-500">приоритет {source.priority}</span>
+                        <StatusBadge
+                          value={source.isEnabled ? "ACTIVE" : "DISABLED"}
+                        />
+                        <span className="text-xs text-gray-500">
+                          приоритет {source.priority}
+                        </span>
                       </div>
                       <a
                         href={source.baseUrl}
@@ -1300,7 +1712,8 @@ export default function AdminEnrichmentClient() {
                         {source.baseUrl}
                       </a>
                       <div className="mt-1 text-xs text-gray-500">
-                        Домен: {source.domain} · поддомены: {source.allowSubdomains ? "разрешены" : "запрещены"}
+                        Домен: {source.domain} · поддомены:{" "}
+                        {source.allowSubdomains ? "разрешены" : "запрещены"}
                         {` · связанных страниц: ${source._count.productSources}`}
                       </div>
                     </div>

@@ -409,3 +409,64 @@ test("the proposal exposes inline text editing and does not display the advertis
   assert.ok(!markup.includes("ПЕРВЫЙ.онлайн"));
   assert.ok(!markup.includes("купить в интернет-магазине"));
 });
+
+test("automatic photo and text application fills the matching variant without changing prices or publication", async () => {
+  const f = fixture();
+  f.state.product.variants = [
+    { id: "v1", sku: "AA03", label: "50 мл", price: 15000, stock: 7 },
+  ];
+  const imageUrl = "https://source.example/aa03.jpg";
+  f.state.proposal.facts.variantImageCandidates[0].candidates = [
+    { url: imageUrl, source: "WEB" },
+  ];
+  await applyProductEnrichmentProposalUniversal(
+    {
+      proposalId: "proposal",
+      mode: "IMAGE",
+      automatic: true,
+      variantImages: [{ variantId: "v1", sku: "AA03", imageUrl }],
+    },
+    {
+      database: f.database,
+      loadPriceImages: async () => new Map(),
+      importImage: async () =>
+        ({ id: "media", url: "https://media.example/aa03.jpg" }) as any,
+    },
+  );
+  assert.equal(f.state.proposal.status, "PENDING");
+  await finalizeProductEnrichmentText(
+    { proposalId: "proposal", appliedBy: "AUTOPILOT" },
+    f.database,
+  );
+  assert.equal(f.state.proposal.status, "APPLIED");
+  assert.equal(
+    f.state.product.variants[0].image,
+    "https://media.example/aa03.jpg",
+  );
+  assert.equal(f.state.product.image, "/original.jpg");
+  assert.equal(f.state.product.stock, 7);
+  assert.equal(f.state.product.price, 15000);
+  assert.equal(f.state.product.isPublished, false);
+  assert.match(f.state.product.description, /Полное описание/);
+});
+
+test("a manual variant removal blocks both automatic photo application and text approval", async () => {
+  const f = fixture();
+  f.state.proposal.facts.manualVariantReviewRequired = true;
+  const before = structuredClone(f.state);
+  await assert.rejects(
+    applyProductEnrichmentProposalUniversal(
+      { proposalId: "proposal", mode: "IMAGE", automatic: true },
+      { database: f.database },
+    ),
+    /manual_variant_review_required/,
+  );
+  await assert.rejects(
+    finalizeProductEnrichmentText(
+      { proposalId: "proposal", appliedBy: "AUTOPILOT" },
+      f.database,
+    ),
+    /manual_variant_review_required/,
+  );
+  assert.deepEqual(f.state, before);
+});

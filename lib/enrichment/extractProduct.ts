@@ -1,5 +1,6 @@
 import * as cheerio from "cheerio";
 import { photoSku } from "./variantImages";
+import { isProductPhoto } from "./photoQuality";
 
 export type SourceSelectors = {
   title?: string;
@@ -327,13 +328,7 @@ function richestText(values: Array<string | null>) {
 }
 
 function isLikelyProductImage(value: string) {
-  const normalized = value.toLocaleLowerCase("ru-RU");
-  if (!normalized) return false;
-  if (/\.(?:svg|gif)(?:$|[?#])/i.test(normalized)) return false;
-
-  return !/(?:ajax[._-]?loader|loader|loading|spinner|progress|preload|logo|icon|sprite|payment|favicon|avatar|badge|banner|button|widget|social|share|instagram|whatsapp|facebook|telegram|yandex|passport|login|signin|sign-in|auth|oauth|captcha)/i.test(
-    normalized,
-  );
+  return Boolean(value) && isProductPhoto(value);
 }
 
 export function extractImagesForSku(input: {
@@ -597,7 +592,7 @@ export function extractProductFromHtml(input: {
     images.push(
       ...selectorImages(
         $,
-        "main img, #content img, .product-info img, .product-image img, .thumbnails img, a.thumbnail",
+        ".product-info .product-image img, .product-image img, .product-gallery img, .product-gallery a, .product-photos img, .product-zoom-image img, a.cloud-zoom, a.cloud-zoom-gallery, .thumbnails img, a.thumbnail, [itemprop='image']",
         input.finalUrl,
       ),
     );

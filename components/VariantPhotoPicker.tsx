@@ -1,6 +1,7 @@
 "use client";
-import { useState } from "react";
-import { adminVariants } from "../lib/adminProductVariants";
+import { useState, type ReactNode } from "react";
+import { adminVariants, type AdminVariant } from "../lib/adminProductVariants";
+import { isUsablePhoto } from "../lib/enrichment/photoQuality";
 import {
   imageGroups,
   photoSku,
@@ -12,11 +13,7 @@ import {
 type Variant = { id: string; label: string; sku?: string; image?: string };
 
 function isRealPhoto(url: string) {
-  // These legacy seed files are empty, not actual product photographs.
-  return (
-    Boolean(url?.trim()) &&
-    !/^\/seed\/(?:cleanser|cream|serum)\.jpg(?:\?|$)/.test(url)
-  );
+  return isUsablePhoto(url);
 }
 
 export function VariantPhotoPreview({
@@ -68,6 +65,7 @@ export function VariantPhotoPicker({
   value,
   onChange,
   disabled,
+  children,
 }: {
   productId: string;
   proposalId?: string;
@@ -77,6 +75,7 @@ export function VariantPhotoPicker({
   value?: VariantImageSelection;
   onChange: (selection: VariantImageSelection | undefined) => void;
   disabled?: boolean;
+  children?: ReactNode;
 }) {
   const [found, setFound] = useState<VariantImageCandidate[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -110,7 +109,15 @@ export function VariantPhotoPicker({
         throw new Error(result.message || result.error || "Поиск не удался");
       if (photoSku(result.sku) !== photoSku(variant.sku))
         throw new Error("SKU изменился. Повторите поиск после сохранения.");
-      if (result.candidates?.length) setFound(result.candidates);
+      if (result.candidates?.length) {
+        setFound(result.candidates);
+        if (proposalId)
+          onChange({
+            variantId: variant.id,
+            sku: variant.sku || "",
+            imageUrl: result.candidates[0].url,
+          });
+      }
       const details = result.issues
         ?.map((issue: { message: string }) => issue.message)
         .join(" ");
@@ -119,7 +126,11 @@ export function VariantPhotoPicker({
           ? (details || "Поиск не завершён. Повторите попытку позже.") +
               " Текущее фото и ранее найденные варианты сохранены."
           : result.candidates?.length
-            ? "Найдены фото для SKU " + variant.sku + ". Выберите подходящее."
+            ? "Фото для SKU " +
+              variant.sku +
+              (proposalId
+                ? " выбрано. Примените карточку."
+                : " найдено. Выберите подходящее.")
             : photos.length
               ? "Новых фото не найдено. Ранее найденные фото сохранены."
               : isRealPhoto(commonImage)
@@ -143,6 +154,7 @@ export function VariantPhotoPicker({
       <legend className="px-1 text-sm font-medium">
         {variant.label} · SKU {variant.sku || "не указан"}
       </legend>
+      {children}
       <div className="flex items-center gap-3">
         <VariantPhotoPreview
           src={preview}
@@ -199,34 +211,39 @@ export function VariantPhotoPicker({
         </button>
       </div>
       {photos.length > 0 && (
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {photos.map((candidate) => (
-            <button
-              key={candidate.url}
-              type="button"
-              onClick={() => choose(candidate.url)}
-              aria-pressed={selected?.imageUrl === candidate.url}
-              className={
-                "rounded-lg border bg-white p-2 text-left " +
-                (selected?.imageUrl === candidate.url
-                  ? "border-black ring-1 ring-black"
-                  : "")
-              }
-            >
-              <VariantPhotoPreview
-                src={candidate.url}
-                alt={"Фото SKU " + variant.sku}
-                className="h-24 w-full object-contain"
-              />
-              <span className="mt-1 block break-all text-xs">
-                SKU {variant.sku} ·{" "}
-                {candidate.source === "PRICE_LIST"
-                  ? "Прайс, строка " + candidate.rowNumber
-                  : "Сайт"}
-              </span>
-            </button>
-          ))}
-        </div>
+        <details>
+          <summary className="cursor-pointer text-xs">
+            Другие фото SKU {variant.sku} ({photos.length})
+          </summary>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {photos.map((candidate) => (
+              <button
+                key={candidate.url}
+                type="button"
+                onClick={() => choose(candidate.url)}
+                aria-pressed={selected?.imageUrl === candidate.url}
+                className={
+                  "rounded-lg border bg-white p-2 text-left " +
+                  (selected?.imageUrl === candidate.url
+                    ? "border-black ring-1 ring-black"
+                    : "")
+                }
+              >
+                <VariantPhotoPreview
+                  src={candidate.url}
+                  alt={"Фото SKU " + variant.sku}
+                  className="h-24 w-full object-contain"
+                />
+                <span className="mt-1 block break-all text-xs">
+                  SKU {variant.sku} ·{" "}
+                  {candidate.source === "PRICE_LIST"
+                    ? "Прайс, строка " + candidate.rowNumber
+                    : "Сайт"}
+                </span>
+              </button>
+            ))}
+          </div>
+        </details>
       )}
       {selected && (
         <p className="text-xs font-medium">
@@ -251,6 +268,9 @@ export function VariantPhotosReview({
   onChange,
   disabled,
   commonImage,
+  stocks,
+  onStockChange,
+  onRemove,
 }: {
   product: { id: string; image: string; variants: unknown };
   proposalId: string;
@@ -259,6 +279,9 @@ export function VariantPhotosReview({
   onChange: (value: VariantImageSelection[]) => void;
   disabled?: boolean;
   commonImage?: string;
+  stocks?: Record<string, string>;
+  onStockChange?: (variantId: string, value: string) => void;
+  onRemove?: (variant: AdminVariant) => void;
 }) {
   const variants = adminVariants(product.variants);
   const groups = imageGroups(
@@ -267,7 +290,10 @@ export function VariantPhotosReview({
   if (!variants.length) return null;
   return (
     <section className="space-y-3">
-      <h3 className="text-sm font-semibold">Фото по SKU вариантов</h3>
+      <h3 className="text-sm font-semibold">
+        Варианты · {variants.length} · Остаток{" "}
+        {variants.reduce((sum, variant) => sum + variant.stock, 0)}
+      </h3>
       <p className="text-xs text-gray-600">
         Отдельное фото применяется только к указанному SKU. При отсутствии
         своего фото вариант использует общее изображение товара.
@@ -294,7 +320,47 @@ export function VariantPhotosReview({
               ...(selection ? [selection] : []),
             ])
           }
-        />
+        >
+          {(onStockChange || onRemove) && (
+            <div className="flex flex-wrap items-end gap-3">
+              {onStockChange && (
+                <label className="text-xs">
+                  <span className="mb-1 block">
+                    Остаток · {variant.price.toLocaleString("ru-RU")} ₸
+                  </span>
+                  <input
+                    aria-label={"Остаток SKU " + variant.sku}
+                    type="number"
+                    min={0}
+                    max={1000000}
+                    step={1}
+                    inputMode="numeric"
+                    className="w-28 rounded-lg border bg-white px-3 py-2 text-sm"
+                    value={stocks?.[variant.id] ?? String(variant.stock)}
+                    onChange={(event) =>
+                      onStockChange(variant.id, event.target.value)
+                    }
+                  />
+                </label>
+              )}
+              {onRemove && (
+                <button
+                  type="button"
+                  className="ml-auto rounded-lg border border-red-200 px-3 py-2 text-xs text-red-700 disabled:opacity-40"
+                  disabled={variants.length <= 1}
+                  title={
+                    variants.length <= 1
+                      ? "Это последний вариант. Можно отклонить всё предложение."
+                      : undefined
+                  }
+                  onClick={() => onRemove(variant)}
+                >
+                  Удалить вариант
+                </button>
+              )}
+            </div>
+          )}
+        </VariantPhotoPicker>
       ))}
     </section>
   );

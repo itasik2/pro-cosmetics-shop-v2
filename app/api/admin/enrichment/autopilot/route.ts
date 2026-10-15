@@ -1,9 +1,10 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 import { EnrichmentProposalStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { requireAdmin } from "@/lib/adminGuard";
 import { runCatalogAutopilot } from "@/lib/enrichment/catalogAutopilot";
 import { getCatalogAutopilotConfig } from "@/lib/enrichment/catalogAutopilotPolicy";
@@ -116,14 +117,30 @@ export async function GET() {
   return NextResponse.json(await overview(priceImportId));
 }
 
-export async function POST() {
+export async function POST(req: Request) {
   const forbidden = await requireAdmin();
   if (forbidden) return forbidden;
+  const body = z
+    .object({
+      excludedProposalIds: z
+        .array(z.string().min(1).max(150))
+        .max(1200)
+        .optional(),
+    })
+    .safeParse(await req.json().catch(() => ({})));
+  if (!body.success)
+    return NextResponse.json({ error: "validation" }, { status: 400 });
 
   try {
     const priceImportId = await getEnrichmentPriceImportId();
-    const result = await runCatalogAutopilot({ priceImportId });
-    return NextResponse.json({ result, overview: await overview(priceImportId) });
+    const result = await runCatalogAutopilot({
+      priceImportId,
+      excludedProposalIds: body.data.excludedProposalIds,
+    });
+    return NextResponse.json({
+      result,
+      overview: await overview(priceImportId),
+    });
   } catch (error) {
     console.error("POST catalog autopilot", error);
     return NextResponse.json(

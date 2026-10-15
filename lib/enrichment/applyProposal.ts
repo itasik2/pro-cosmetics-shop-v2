@@ -6,6 +6,7 @@ import {
 import { prisma } from "@/lib/prisma";
 import { applyProductEnrichmentProposalUniversal } from "./applyProposalUniversal";
 import type { VariantImageSelection } from "./variantImages";
+import { hasManualVariantChanges } from "./removedVariants";
 import {
   hasManualProposalText,
   manuallyEditedProductName,
@@ -118,6 +119,11 @@ export async function finalizeProductEnrichmentText(
 
   if (input.appliedBy === "AUTOPILOT" && hasManualProposalText(proposal.facts))
     throw new Error("manual_text_review_required");
+  if (
+    input.appliedBy === "AUTOPILOT" &&
+    hasManualVariantChanges(proposal.facts)
+  )
+    throw new Error("manual_variant_review_required");
   const editedName = manuallyEditedProductName(proposal);
 
   const description = composeDescription(proposal);
