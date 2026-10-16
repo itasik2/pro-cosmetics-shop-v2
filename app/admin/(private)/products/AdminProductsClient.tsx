@@ -401,8 +401,15 @@ export default function AdminProductsClient() {
         ...current.filter((product) => product.id !== data.id),
         data,
       ]);
-      edit(data);
-      setAssistantVersion((current) => current + 1);
+      if (publishNow) {
+        setEditorOpen(false);
+        setEditing(null);
+        setForm(emptyForm);
+        initialForm.current = JSON.stringify(emptyForm);
+      } else {
+        edit(data);
+        setAssistantVersion((current) => current + 1);
+      }
       setMsg(
         publishNow
           ? "Товар сохранён и опубликован на сайте"
