@@ -138,6 +138,7 @@ export default function AdminProductsClient() {
   const [editing, setEditing] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const [toolBusy, setToolBusy] = useState(false);
   const [assistantVersion, setAssistantVersion] = useState(0);
   const [uploading, setUploading] = useState(false);
@@ -318,9 +319,12 @@ export default function AdminProductsClient() {
     }
   }
 
-  async function save(event?: React.FormEvent) {
-    event?.preventDefault();
+  async function save(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     if (busy || toolBusy || uploading || variantUploadingId) return;
+    const submitter = (event.nativeEvent as SubmitEvent).submitter;
+    const publishNow =
+      submitter instanceof HTMLButtonElement && submitter.value === "publish";
     if (
       form.variants.some(
         (row) => !row.label.trim() || row.price === "" || row.stock === "",
@@ -336,6 +340,7 @@ export default function AdminProductsClient() {
       return;
     }
     setBusy(true);
+    setPublishing(publishNow);
     setMsg(null);
 
     const variants = form.variants.length
@@ -367,7 +372,8 @@ export default function AdminProductsClient() {
       stock: Math.max(0, Math.trunc(Number(form.stock) || 0)),
       isPopular: form.isPopular,
       isNew: form.isNew,
-      isPublished: form.isPublished,
+      isPublished: publishNow || form.isPublished,
+      ...(publishNow ? { publishNow: true } : {}),
       variants,
     };
 
@@ -395,12 +401,19 @@ export default function AdminProductsClient() {
       ]);
       edit(data);
       setAssistantVersion((current) => current + 1);
-      setMsg(editing ? "Товар обновлён" : "Товар добавлен");
+      setMsg(
+        publishNow
+          ? "Товар сохранён и опубликован на сайте"
+          : editing
+            ? "Товар обновлён"
+            : "Товар добавлен",
+      );
       window.dispatchEvent(new Event("products-changed"));
     } catch (error: any) {
       setMsg(`Ошибка: ${error?.message || "save_failed"}`);
     } finally {
       setBusy(false);
+      setPublishing(false);
     }
   }
 
@@ -969,12 +982,41 @@ export default function AdminProductsClient() {
               <button
                 className="px-4 py-2 rounded bg-black text-white disabled:opacity-50"
                 type="submit"
+                name="intent"
+                value="save"
                 disabled={
                   busy || toolBusy || uploading || Boolean(variantUploadingId)
                 }
               >
                 {busy ? "Сохранение…" : uploading ? "Загрузка…" : "Сохранить"}
               </button>
+
+              {editingProduct && !editingProduct.isPublished && (
+                <button
+                  type="submit"
+                  name="intent"
+                  value="publish"
+                  disabled={
+                    busy || toolBusy || uploading || Boolean(variantUploadingId)
+                  }
+                  className="rounded-xl bg-emerald-700 px-4 py-2 text-sm text-white disabled:opacity-50"
+                >
+                  {publishing ? "Публикация…" : "Сохранить и опубликовать"}
+                </button>
+              )}
+
+              {editingProduct && (
+                <span
+                  className={
+                    "text-xs " +
+                    (editingProduct.isPublished
+                      ? "text-emerald-700"
+                      : "text-gray-500")
+                  }
+                >
+                  {editingProduct.isPublished ? "Опубликован" : "Черновик"}
+                </span>
+              )}
 
               <button
                 type="button"
