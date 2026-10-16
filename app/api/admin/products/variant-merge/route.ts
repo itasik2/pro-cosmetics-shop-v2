@@ -4,28 +4,30 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { EnrichmentProposalStatus, Prisma } from "@prisma/client";
 import { z } from "zod";
+import { productMergePlan } from "@/lib/productMergePlan";
+import { isUsablePhoto } from "@/lib/enrichment/photoQuality";
+import { photoSku } from "@/lib/enrichment/variantImages";
 import { requireAdmin } from "@/lib/adminGuard";
 import { prisma } from "@/lib/prisma";
 import {
   baseProductName,
-  makeImportedVariant,
-  mergeImportedVariant,
   normalizeStoredVariants,
   productIdentityKey,
   variantLabel,
 } from "@/lib/price-import/productVariants";
-import {
-  formatProductName,
-  isAllCapsProductName,
-} from "@/lib/productNames";
+import { formatProductName, isAllCapsProductName } from "@/lib/productNames";
 
 const MergeSchema = z.object({
+  automatic: z.boolean().optional().default(false),
   canonicalId: z.string().min(1),
   productIds: z.array(z.string().min(1)).min(2).max(20),
 });
 
 function placeholderDescription(value: string) {
-  const normalized = value.replace(/\s+/g, " ").trim().toLocaleLowerCase("ru-RU");
+  const normalized = value
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLocaleLowerCase("ru-RU");
   return !normalized || normalized === "описание готовится";
 }
 
@@ -58,10 +60,14 @@ function productScore(product: {
   name: string;
   supplierId: string | null;
   isPopular: boolean;
-  enrichmentProposals: Array<{ id: string }>;
+  enrichmentProposals: Array<{ id: string; status: string }>;
 }) {
   return (
-    (product.enrichmentProposals.length ? 1000 : 0) +
+    (product.enrichmentProposals.some(
+      (proposal) => proposal.status === "APPLIED",
+    )
+      ? 1000
+      : 0) +
     (product.supplierId ? 300 : 0) +
     (product.isPublished ? 200 : 0) +
     (product.isPopular ? 80 : 0) +
@@ -82,6 +88,7 @@ const productSelect = {
   stock: true,
   image: true,
   description: true,
+  shortDescription: true,
   category: true,
   volumeValue: true,
   volumeUnit: true,
@@ -100,6 +107,7 @@ const productSelect = {
   isNew: true,
   enrichmentStatus: true,
   createdAt: true,
+  updatedAt: true,
   brand: { select: { name: true } },
   supplier: { select: { name: true } },
   enrichmentProposals: {
@@ -118,10 +126,11 @@ const productSelect = {
   },
 } as const;
 
-export async function GET() {
+export async function GET(req: Request) {
   const forbidden = await requireAdmin();
   if (forbidden) return forbidden;
 
+  const productId = new URL(req.url).searchParams.get("productId");
   const products = await prisma.product.findMany({
     where: {
       brandId: { not: null },
@@ -157,23 +166,38 @@ export async function GET() {
       );
       if (productLines.size > 1) return null;
 
-      const labels = new Set(
-        items
-          .flatMap((item) => {
-            const variants = normalizeStoredVariants(item.variants);
-            if (variants.length) {
-              return variants.map((variant) => variant.label.toLocaleLowerCase("ru-RU"));
-            }
-            const label = productVariantLabel(item);
-            return label ? [label.toLocaleLowerCase("ru-RU")] : [];
-          })
-          .filter(Boolean),
-      );
-      if (labels.size < 2) return null;
+      if (productId && !items.some((item) => item.id === productId))
+        return null;
 
-      const sorted = [...items].sort((a, b) => productScore(b) - productScore(a));
+      const sorted = [...items].sort(
+        (a, b) => productScore(b) - productScore(a),
+      );
       const canonical = sorted[0];
+      let automatic = false;
+      let warnings: string[] = [];
+      let kind = "variants";
+      try {
+        const plan = productMergePlan(items, canonical.id);
+        automatic = plan.automatic;
+        warnings = plan.warnings;
+        kind = plan.kind;
+      } catch (error) {
+        warnings = [
+          mergeErrorMessage(
+            error instanceof Error ? error.message : "merge_group_invalid",
+          ),
+        ];
+      }
+      if (items.length > 20) {
+        automatic = false;
+        warnings.push(
+          "В группе больше 20 карточек. Объедините их меньшими группами в разделе объединения товаров.",
+        );
+      }
       return {
+        automatic,
+        warnings,
+        kind,
         key,
         title: formatProductName(
           baseProductName(canonical.name, productVariantLabel(canonical)),
@@ -191,8 +215,7 @@ export async function GET() {
           stock: item.stock,
           image: item.image,
           isPublished: item.isPublished,
-          enrichmentProposalStatus:
-            item.enrichmentProposals[0]?.status || null,
+          enrichmentProposalStatus: item.enrichmentProposals[0]?.status || null,
           appliedEnrichment:
             item.enrichmentProposals[0]?.status ===
             EnrichmentProposalStatus.APPLIED,
@@ -219,7 +242,10 @@ export async function POST(req: Request) {
 
   const productIds = [...new Set(parsed.data.productIds)];
   if (!productIds.includes(parsed.data.canonicalId)) {
-    return NextResponse.json({ error: "canonical_not_in_group" }, { status: 400 });
+    return NextResponse.json(
+      { error: "canonical_not_in_group" },
+      { status: 400 },
+    );
   }
 
   const products = await prisma.product.findMany({
@@ -230,7 +256,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "product_not_found" }, { status: 404 });
   }
 
-  const canonical = products.find((product) => product.id === parsed.data.canonicalId)!;
+  const canonical = products.find(
+    (product) => product.id === parsed.data.canonicalId,
+  )!;
   if (!canonical.brandId || !canonical.brand?.name) {
     return NextResponse.json({ error: "merge_group_invalid" }, { status: 409 });
   }
@@ -287,56 +315,27 @@ export async function POST(req: Request) {
     }
   }
 
-  let variants = normalizeStoredVariants(canonical.variants);
-  // Для простой старой карточки заказ не содержит variantId, поэтому запоминаем
-  // созданный вариант. У карточки, где варианты уже были, существующий variantId
-  // заказа сохраняем без изменений.
-  const simpleProductVariantIds = new Map<string, string>();
-
-  for (const product of products) {
-    const stored = normalizeStoredVariants(product.variants);
-    if (stored.length) {
-      for (const variant of stored) {
-        variants = mergeImportedVariant(variants, variant);
-      }
-      continue;
-    }
-
-    const label = productVariantLabel(product);
-    if (!label) {
+  let plan: ReturnType<typeof productMergePlan>;
+  try {
+    plan = productMergePlan(products, canonical.id);
+    if (parsed.data.automatic && !plan.automatic)
       return NextResponse.json(
-        {
-          error: "variant_label_missing",
-          productId: product.id,
-          productName: product.name,
-        },
+        { error: "merge_review_required", message: plan.warnings.join(" ") },
         { status: 409 },
       );
-    }
-    const variant = makeImportedVariant({
-      sku: product.supplierSku,
-      label,
-      price: product.price,
-      stock: product.stock,
-      image: product.image.startsWith("/seed/") ? null : product.image,
-    });
-    variants = mergeImportedVariant(variants, variant);
-    simpleProductVariantIds.set(product.id, variant.id);
-  }
-
-  const labels = new Set(
-    variants.map((variant) => variant.label.toLocaleLowerCase("ru-RU")),
-  );
-  if (labels.size < 2) {
+  } catch (error) {
     return NextResponse.json(
-      { error: "not_enough_distinct_variants" },
+      {
+        error: "merge_group_invalid",
+        message: mergeErrorMessage(
+          error instanceof Error ? error.message : "merge_group_invalid",
+        ),
+      },
       { status: 409 },
     );
   }
+  const { variants, orderMappings } = plan;
 
-  const realImageProduct = products.find(
-    (product) => !product.image.startsWith("/seed/"),
-  );
   const describedProduct = products.find(
     (product) => !placeholderDescription(product.description),
   );
@@ -355,94 +354,171 @@ export async function POST(req: Request) {
     .filter((product) => product.id !== canonical.id)
     .map((product) => product.id);
   const primarySku =
-    canonical.supplierSku || variants.find((variant) => variant.sku)?.sku || null;
+    canonical.supplierSku ||
+    variants.find((variant) => variant.sku)?.sku ||
+    null;
   const popularitySource = [...products].sort(
     (left, right) =>
       right.popularityScore - left.popularityScore ||
       right.popularityConfidence - left.popularityConfidence,
   )[0];
 
-  await prisma.$transaction(async (tx) => {
-    // Сначала освобождаем supplierSku архивируемых дублей. Иначе, если основной
-    // товар получает SKU одного из них, PostgreSQL справедливо возмутится unique-index.
-    for (const id of duplicateIds) {
-      await tx.product.update({
-        where: { id },
-        data: {
-          isPublished: false,
-          stock: 0,
-          supplierSku: null,
-          enrichmentStatus: "MERGED",
-          variants: [],
-          isPopular: false,
-          popularityPinned: false,
-          popularityExcluded: false,
-        },
-      });
-    }
+  try {
+    await prisma.$transaction(
+      async (tx) => {
+        const activeJob = await tx.enrichmentJob.findFirst({
+          where: {
+            productId: { in: productIds },
+            status: { in: ["PENDING", "RUNNING"] },
+          },
+          select: { id: true },
+        });
+        if (activeJob) throw new Error("enrichment_already_running");
+        // Сначала освобождаем supplierSku архивируемых дублей. Иначе, если основной
+        // товар получает SKU одного из них, PostgreSQL справедливо возмутится unique-index.
+        for (const id of duplicateIds) {
+          const original = products.find((product) => product.id === id)!;
+          const archived = await tx.product.updateMany({
+            where: {
+              id,
+              updatedAt: original.updatedAt,
+              enrichmentStatus: { notIn: ["MERGED", "RUNNING"] },
+            },
+            data: {
+              isPublished: false,
+              stock: 0,
+              supplierSku: null,
+              enrichmentStatus: "MERGED",
+              isPopular: false,
+              popularityPinned: false,
+              popularityExcluded: false,
+            },
+          });
+          if (archived.count !== 1) throw new Error("product_changed_refresh");
+        }
 
-    await tx.product.update({
-      where: { id: canonical.id },
-      data: {
-        name: nextName,
-        supplierId: mergeSupplierId,
-        supplierSku: primarySku,
-        price: nextPrice,
-        stock: nextStock,
-        variants,
-        image: realImageProduct?.image || canonical.image,
-        description: describedProduct?.description || canonical.description,
-        isPublished: products.some((product) => product.isPublished),
-        isPopular: products.some((product) => product.isPopular),
-        popularityPinned: products.some((product) => product.popularityPinned),
-        popularityExcluded:
-          !products.some((product) => product.popularityPinned) &&
-          products.every((product) => product.popularityExcluded),
-        popularityScore: popularitySource?.popularityScore || 0,
-        popularityConfidence: popularitySource?.popularityConfidence || 0,
-        popularityReason: popularitySource?.popularityReason || null,
-        popularityEvidence:
-          popularitySource?.popularityEvidence == null
-            ? Prisma.JsonNull
-            : popularitySource.popularityEvidence,
-        popularityCheckedAt: popularitySource?.popularityCheckedAt || null,
-        isNew: products.some((product) => product.isNew),
+        const written = await tx.product.updateMany({
+          where: {
+            id: canonical.id,
+            updatedAt: canonical.updatedAt,
+            enrichmentStatus: { notIn: ["MERGED", "RUNNING"] },
+          },
+          data: {
+            name: nextName,
+            supplierId: mergeSupplierId,
+            supplierSku: primarySku,
+            price: nextPrice,
+            stock: nextStock,
+            variants,
+            // The pre-merge suggestions below are rejected, so no review remains.
+            enrichmentStatus:
+              canonical.enrichmentStatus === "REVIEW"
+                ? "READY"
+                : canonical.enrichmentStatus,
+            image: isUsablePhoto(canonical.image)
+              ? canonical.image
+              : variants.find(
+                  (variant) =>
+                    photoSku(variant.sku) === photoSku(primarySku) &&
+                    isUsablePhoto(variant.image),
+                )?.image || canonical.image,
+            shortDescription:
+              canonical.shortDescription?.trim() ||
+              products.find((product) => product.shortDescription?.trim())
+                ?.shortDescription ||
+              null,
+            description: describedProduct?.description || canonical.description,
+            isPublished: products.some((product) => product.isPublished),
+            isPopular: products.some((product) => product.isPopular),
+            popularityPinned: products.some(
+              (product) => product.popularityPinned,
+            ),
+            popularityExcluded:
+              !products.some((product) => product.popularityPinned) &&
+              products.every((product) => product.popularityExcluded),
+            popularityScore: popularitySource?.popularityScore || 0,
+            popularityConfidence: popularitySource?.popularityConfidence || 0,
+            popularityReason: popularitySource?.popularityReason || null,
+            popularityEvidence:
+              popularitySource?.popularityEvidence == null
+                ? Prisma.JsonNull
+                : popularitySource.popularityEvidence,
+            popularityCheckedAt: popularitySource?.popularityCheckedAt || null,
+            isNew: products.some((product) => product.isNew),
+          },
+        });
+
+        if (written.count !== 1) throw new Error("product_changed_refresh");
+        for (const mapping of orderMappings) {
+          await tx.orderItem.updateMany({
+            where: {
+              productId: mapping.productId,
+              variantId: mapping.fromVariantId,
+            },
+            data: { productId: canonical.id, variantId: mapping.variantId },
+          });
+        }
+
+        // All pending suggestions describe the pre-merge variant set; search it afresh.
+        await tx.productEnrichmentProposal.updateMany({
+          where: { productId: { in: productIds }, status: "PENDING" },
+          data: { status: "REJECTED" },
+        });
+        await tx.enrichmentJob.updateMany({
+          where: { productId: { in: productIds }, status: "REVIEW" },
+          data: { status: "CANCELED", finishedAt: new Date() },
+        });
+        if (duplicateIds.length) {
+          await tx.orderItem.updateMany({
+            where: { productId: { in: duplicateIds } },
+            data: { productId: canonical.id },
+          });
+          await tx.priceImportRow.updateMany({
+            where: { productId: { in: duplicateIds } },
+            data: { productId: canonical.id },
+          });
+        }
       },
-    });
-
-    for (const product of products) {
-      const variantId = simpleProductVariantIds.get(product.id) || null;
-      await tx.orderItem.updateMany({
-        where: { productId: product.id },
-        data: {
-          productId: canonical.id,
-          ...(variantId ? { variantId } : {}),
-        },
-      });
-    }
-
-    if (duplicateIds.length) {
-      await tx.priceImportRow.updateMany({
-        where: { productId: { in: duplicateIds } },
-        data: { productId: canonical.id },
-      });
-    }
-  });
+      { timeout: 15_000 },
+    );
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: "merge_failed",
+        message: mergeErrorMessage(
+          error instanceof Error ? error.message : "merge_failed",
+        ),
+      },
+      { status: 409 },
+    );
+  }
 
   const result = await prisma.product.findUnique({
     where: { id: canonical.id },
-    select: {
-      id: true,
-      name: true,
-      price: true,
-      stock: true,
-      variants: true,
-      isPublished: true,
-    },
+    include: { brand: true, supplier: true },
   });
 
   return NextResponse.json({
     product: result,
     mergedProductIds: duplicateIds,
   });
+}
+
+function mergeErrorMessage(code: string) {
+  const messages: Record<string, string> = {
+    variant_label_missing:
+      "Не указан объём или SKU товара. Уточните карточки перед объединением.",
+    sku_volume_conflict:
+      "Одинаковый SKU указан для разных объёмов. Исправьте SKU или фасовку.",
+    variant_volume_ambiguous:
+      "У одинаковой фасовки разные SKU. Уточните названия вариантов перед объединением.",
+    enrichment_already_running:
+      "Поиск данных ещё выполняется. Дождитесь завершения и повторите объединение.",
+    product_changed_refresh:
+      "Товар изменился во время объединения. Обновите карточку.",
+  };
+  return (
+    messages[code] ||
+    "Не удалось объединить карточки. Обновите список и проверьте товары."
+  );
 }

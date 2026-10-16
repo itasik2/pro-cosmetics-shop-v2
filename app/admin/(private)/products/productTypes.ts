@@ -1,0 +1,26 @@
+export type Product = {
+  id: string;
+  name: string;
+  brandId: string | null;
+  brand?: { id?: string; name: string } | null;
+  supplier?: { id: string; name: string } | null;
+  supplierSku?: string | null;
+  sourcePrice?: number | null;
+  shortDescription?: string | null;
+  description?: string;
+  image: string;
+  category: string;
+  price: number;
+  stock: number;
+  isPopular: boolean;
+  popularityPinned?: boolean;
+  popularityExcluded?: boolean;
+  popularityScore?: number;
+  popularityConfidence?: number;
+  popularityReason?: string | null;
+  popularityCheckedAt?: string | null;
+  isNew: boolean;
+  isPublished: boolean;
+  enrichmentStatus?: string;
+  variants?: unknown;
+};

@@ -1,5 +1,15 @@
 "use client";
-import { VariantPhotoPicker } from "@/components/VariantPhotoPicker";
+import ProductFiltersBar from "./ProductFiltersBar";
+import ProductAssistant from "./ProductAssistant";
+import {
+  emptyProductFilters,
+  productMatchesFilters,
+  type ProductFilters,
+} from "@/lib/adminProductFilters";
+import {
+  VariantPhotoPreview,
+  VariantPhotoPicker,
+} from "@/components/VariantPhotoPicker";
 import { photoSku } from "@/lib/enrichment/variantImages";
 
 import {
@@ -40,32 +50,7 @@ type VariantData = {
   image?: unknown;
 };
 
-type Product = {
-  id: string;
-  name: string;
-  brandId: string | null;
-  brand?: { id?: string; name: string } | null;
-  supplier?: { id: string; name: string } | null;
-  supplierSku?: string | null;
-  sourcePrice?: number | null;
-  shortDescription?: string | null;
-  description?: string;
-  image: string;
-  category: string;
-  price: number;
-  stock: number;
-  isPopular: boolean;
-  popularityPinned?: boolean;
-  popularityExcluded?: boolean;
-  popularityScore?: number;
-  popularityConfidence?: number;
-  popularityReason?: string | null;
-  popularityCheckedAt?: string | null;
-  isNew: boolean;
-  isPublished: boolean;
-  enrichmentStatus?: string;
-  variants?: unknown;
-};
+import type { Product } from "./productTypes";
 
 const emptyForm = {
   name: "",
@@ -153,14 +138,20 @@ export default function AdminProductsClient() {
   const [editing, setEditing] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [toolBusy, setToolBusy] = useState(false);
+  const [assistantVersion, setAssistantVersion] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [variantUploadingId, setVariantUploadingId] = useState<string | null>(
     null,
   );
   const [searchQuery, setSearchQuery] = useState("");
+  const [filters, setFilters] = useState<ProductFilters>({
+    ...emptyProductFilters,
+  });
   const [editorOpen, setEditorOpen] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const variantsRef = useRef<HTMLDivElement>(null);
+  const assistantRef = useRef<HTMLDivElement>(null);
   const openingSection = useRef<"details" | "variants">("details");
   const initialForm = useRef(JSON.stringify(emptyForm));
 
@@ -180,7 +171,7 @@ export default function AdminProductsClient() {
   }, [editorOpen]);
 
   function closeEditor() {
-    if (busy || uploading || variantUploadingId) return;
+    if (busy || toolBusy || uploading || variantUploadingId) return;
     if (
       JSON.stringify(form) !== initialForm.current &&
       !window.confirm("Закрыть карточку без сохранения изменений?")
@@ -238,7 +229,13 @@ export default function AdminProductsClient() {
       const next = [...current.variants];
       const row = next[index];
       if (!row) return current;
-      next[index] = { ...row, ...patch, ...(patch.sku !== undefined && photoSku(patch.sku) !== photoSku(row.sku) ? { image: "" } : {}) };
+      next[index] = {
+        ...row,
+        ...patch,
+        ...(patch.sku !== undefined && photoSku(patch.sku) !== photoSku(row.sku)
+          ? { image: "" }
+          : {}),
+      };
       return { ...current, variants: next };
     });
   }
@@ -323,7 +320,7 @@ export default function AdminProductsClient() {
 
   async function save(event?: React.FormEvent) {
     event?.preventDefault();
-    if (busy || uploading || variantUploadingId) return;
+    if (busy || toolBusy || uploading || variantUploadingId) return;
     if (
       form.variants.some(
         (row) => !row.label.trim() || row.price === "" || row.stock === "",
@@ -383,7 +380,7 @@ export default function AdminProductsClient() {
           body: JSON.stringify(body),
         },
       );
-      const data = (await readJson(response)) as {
+      const data = (await readJson(response)) as Product & {
         error?: unknown;
         message?: unknown;
       };
@@ -392,10 +389,13 @@ export default function AdminProductsClient() {
         throw new Error(String(data.message || data.error || response.status));
       }
 
+      setItems((current) => [
+        ...current.filter((product) => product.id !== data.id),
+        data,
+      ]);
+      edit(data);
+      setAssistantVersion((current) => current + 1);
       setMsg(editing ? "Товар обновлён" : "Товар добавлен");
-      setForm(emptyForm);
-      setEditing(null);
-      setEditorOpen(false);
       window.dispatchEvent(new Event("products-changed"));
     } catch (error: any) {
       setMsg(`Ошибка: ${error?.message || "save_failed"}`);
@@ -451,9 +451,65 @@ export default function AdminProductsClient() {
     setEditorOpen(true);
   }
 
+  function assistantSaved(product: Product, mergedIds: string[] = []) {
+    setItems((current) => [
+      ...current.filter(
+        (row) => row.id !== product.id && !mergedIds.includes(row.id),
+      ),
+      product,
+    ]);
+    edit(product);
+    setAssistantVersion((current) => current + 1);
+    setMsg(
+      mergedIds.length
+        ? "Карточки объединены. Проверьте варианты ниже."
+        : "Данные применены. Можно отредактировать текст в полях ниже.",
+    );
+    window.dispatchEvent(new Event("products-changed"));
+  }
+
+  const editingProduct = items.find((product) => product.id === editing);
+  const dirty = JSON.stringify(form) !== initialForm.current;
+
   const filteredItems = useMemo(
-    () => items.filter((product) => productMatchesSearch(product, searchQuery)),
-    [items, searchQuery],
+    () =>
+      items.filter(
+        (product) =>
+          productMatchesSearch(product, searchQuery) &&
+          productMatchesFilters(product, filters),
+      ),
+    [items, searchQuery, filters],
+  );
+
+  const filterOptions = useMemo(
+    () => ({
+      categories: [
+        ...new Map(
+          items
+            .filter((p) => p.category.trim())
+            .map((p) => [
+              p.category.trim().toLocaleLowerCase("ru-RU"),
+              {
+                value: p.category.trim().toLocaleLowerCase("ru-RU"),
+                label: p.category.trim(),
+              },
+            ]),
+        ).values(),
+      ].sort((a, b) => a.label.localeCompare(b.label, "ru")),
+      suppliers: [
+        ...new Map(
+          items.flatMap((p) =>
+            p.supplier ? [[p.supplier.id, p.supplier] as const] : [],
+          ),
+        ).values(),
+      ].sort((a, b) => a.name.localeCompare(b.name, "ru")),
+      counts: {
+        all: items.length,
+        draft: items.filter((p) => !p.isPublished).length,
+        published: items.filter((p) => p.isPublished).length,
+      },
+    }),
+    [items],
   );
 
   return (
@@ -481,13 +537,18 @@ export default function AdminProductsClient() {
             </div>
             <button
               type="button"
-              disabled={busy || uploading || Boolean(variantUploadingId)}
+              disabled={
+                busy || toolBusy || uploading || Boolean(variantUploadingId)
+              }
               className="rounded-xl border px-3 py-2 text-sm"
               onClick={closeEditor}
             >
               Закрыть
             </button>
-            <nav aria-label="Разделы карточки" className="flex w-full gap-2">
+            <nav
+              aria-label="Разделы карточки"
+              className="flex w-full flex-wrap gap-2"
+            >
               <button
                 type="button"
                 className="rounded-lg border px-3 py-2 text-sm"
@@ -497,6 +558,20 @@ export default function AdminProductsClient() {
               >
                 Данные товара
               </button>
+              {editing && (
+                <button
+                  type="button"
+                  className="rounded-lg border px-3 py-2 text-sm"
+                  onClick={() =>
+                    assistantRef.current?.scrollIntoView({
+                      block: "start",
+                      behavior: "smooth",
+                    })
+                  }
+                >
+                  ИИ и дубли
+                </button>
+              )}
               <button
                 type="button"
                 className="rounded-lg border px-3 py-2 text-sm"
@@ -512,9 +587,28 @@ export default function AdminProductsClient() {
             </nav>
           </div>
 
+          {editorOpen && editingProduct && (
+            <div ref={assistantRef} className="scroll-mt-36">
+              <ProductAssistant
+                key={editingProduct.id + ":" + assistantVersion}
+                product={editingProduct}
+                dirty={dirty}
+                disabled={busy || uploading || Boolean(variantUploadingId)}
+                onBusyChange={setToolBusy}
+                onSaved={assistantSaved}
+              />
+            </div>
+          )}
+          {!editing && (
+            <p className="text-xs text-gray-500">
+              Сохраните товар, чтобы открыть инструменты поиска и объединения.
+            </p>
+          )}
           <form className="space-y-3" onSubmit={save}>
             <fieldset
-              disabled={busy || uploading || Boolean(variantUploadingId)}
+              disabled={
+                busy || toolBusy || uploading || Boolean(variantUploadingId)
+              }
               className="space-y-3"
             >
               <Field label="Название">
@@ -595,11 +689,10 @@ export default function AdminProductsClient() {
 
               <Field label="Превью товара">
                 <div className="flex items-center gap-3">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={form.image || "/seed/cleanser.jpg"}
+                  <VariantPhotoPreview
+                    src={form.image}
                     alt="Предпросмотр товара"
-                    className="w-20 h-20 object-cover rounded-xl border bg-gray-50"
+                    className="h-20 w-20 rounded-xl border bg-gray-50 object-contain"
                   />
                   <div className="text-xs text-gray-500">
                     {uploading
@@ -678,8 +771,9 @@ export default function AdminProductsClient() {
                 </h3>
                 <p className="mb-3 text-sm text-gray-500">
                   Для каждого объёма укажите цену и остаток. Общее количество
-                  считается автоматически. Фото подбирается по SKU; без отдельного фото используется общее.
-                  При смене SKU прежнее фото варианта сбрасывается.
+                  считается автоматически. Фото подбирается по SKU; без
+                  отдельного фото используется общее. При смене SKU прежнее фото
+                  варианта сбрасывается.
                 </p>
                 <div className="space-y-3">
                   {form.variants.map((variant, index) => {
@@ -752,17 +846,34 @@ export default function AdminProductsClient() {
                           />
                         </div>
 
-                        {editing && <VariantPhotoPicker key={variant.id + ":" + variant.sku} productId={editing} variant={variant} commonImage={form.image}
-                          disabled={busy || uploadingThis} value={{ variantId: variant.id, sku: variant.sku || "", imageUrl: variant.image || null }} onChange={selection => {
-                            if (selection) setVariantRow(index, { image: selection.imageUrl || "" });
-                          }} />}
+                        {editing && (
+                          <VariantPhotoPicker
+                            key={variant.id + ":" + variant.sku}
+                            productId={editing}
+                            variant={variant}
+                            commonImage={form.image}
+                            disabled={busy || toolBusy || uploadingThis}
+                            onBusyChange={setToolBusy}
+                            value={{
+                              variantId: variant.id,
+                              sku: variant.sku || "",
+                              imageUrl: variant.image || null,
+                            }}
+                            onChange={(selection) => {
+                              if (selection)
+                                setVariantRow(index, {
+                                  image: selection.imageUrl || "",
+                                });
+                            }}
+                          />
+                        )}
                         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                           <div className="flex items-center gap-2">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
+                            <VariantPhotoPreview
                               src={preview}
+                              fallback={form.image}
                               alt="Предпросмотр варианта"
-                              className="w-12 h-12 rounded-xl object-cover border bg-gray-50"
+                              className="h-12 w-12 rounded-xl border bg-gray-50 object-contain"
                             />
                             <span className="text-xs text-gray-500">
                               {variant.image
@@ -858,7 +969,9 @@ export default function AdminProductsClient() {
               <button
                 className="px-4 py-2 rounded bg-black text-white disabled:opacity-50"
                 type="submit"
-                disabled={busy || uploading || Boolean(variantUploadingId)}
+                disabled={
+                  busy || toolBusy || uploading || Boolean(variantUploadingId)
+                }
               >
                 {busy ? "Сохранение…" : uploading ? "Загрузка…" : "Сохранить"}
               </button>
@@ -866,7 +979,9 @@ export default function AdminProductsClient() {
               <button
                 type="button"
                 className="px-4 py-2 rounded border"
-                disabled={busy || uploading || Boolean(variantUploadingId)}
+                disabled={
+                  busy || toolBusy || uploading || Boolean(variantUploadingId)
+                }
                 onClick={closeEditor}
               >
                 Отмена
@@ -893,11 +1008,15 @@ export default function AdminProductsClient() {
             + Добавить товар
           </button>
         </div>
+        <ProductFiltersBar
+          value={filters}
+          onChange={setFilters}
+          brands={brands}
+          {...filterOptions}
+        />
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="text-sm text-gray-500">
-            {searchQuery.trim()
-              ? filteredItems.length + " из " + items.length
-              : items.length + " поз."}
+            Найдено: {filteredItems.length} из {items.length}
           </span>
         </div>
         {!editorOpen && msg && (
@@ -923,11 +1042,10 @@ export default function AdminProductsClient() {
               >
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                   <div className="flex items-center gap-3 min-w-0">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
+                    <VariantPhotoPreview
                       src={product.image}
                       alt={product.name}
-                      className="w-16 h-16 object-cover rounded-lg shrink-0"
+                      className="h-16 w-16 shrink-0 rounded-lg bg-gray-50 object-contain"
                     />
 
                     <div className="min-w-0">
@@ -1010,7 +1128,7 @@ export default function AdminProductsClient() {
             <div className="rounded-xl border border-dashed p-4 text-sm text-gray-500">
               {items.length === 0
                 ? "Пока пусто"
-                : "По запросу «" + searchQuery.trim() + "» ничего не найдено"}
+                : "По выбранным фильтрам и поиску ничего не найдено"}
             </div>
           )}
         </div>

@@ -65,6 +65,7 @@ export function VariantPhotoPicker({
   value,
   onChange,
   disabled,
+  onBusyChange,
   children,
 }: {
   productId: string;
@@ -75,6 +76,7 @@ export function VariantPhotoPicker({
   value?: VariantImageSelection;
   onChange: (selection: VariantImageSelection | undefined) => void;
   disabled?: boolean;
+  onBusyChange?: (busy: boolean) => void;
   children?: ReactNode;
 }) {
   const [found, setFound] = useState<VariantImageCandidate[] | null>(null);
@@ -88,6 +90,7 @@ export function VariantPhotoPicker({
     : variantDisplayImage(variant, commonImage);
   async function search() {
     setBusy(true);
+    onBusyChange?.(true);
     setMessage("");
     try {
       const response = await fetch(
@@ -141,6 +144,7 @@ export function VariantPhotoPicker({
       setMessage(error instanceof Error ? error.message : "Поиск не удался");
     } finally {
       setBusy(false);
+      onBusyChange?.(false);
     }
   }
   function choose(imageUrl: string | null) {
@@ -271,6 +275,7 @@ export function VariantPhotosReview({
   stocks,
   onStockChange,
   onRemove,
+  onBusyChange,
 }: {
   product: { id: string; image: string; variants: unknown };
   proposalId: string;
@@ -282,6 +287,7 @@ export function VariantPhotosReview({
   stocks?: Record<string, string>;
   onStockChange?: (variantId: string, value: string) => void;
   onRemove?: (variant: AdminVariant) => void;
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const variants = adminVariants(product.variants);
   const groups = imageGroups(
@@ -314,6 +320,7 @@ export function VariantPhotosReview({
           }
           value={value.find((selection) => selection.variantId === variant.id)}
           disabled={disabled}
+          onBusyChange={onBusyChange}
           onChange={(selection) =>
             onChange([
               ...value.filter((item) => item.variantId !== variant.id),

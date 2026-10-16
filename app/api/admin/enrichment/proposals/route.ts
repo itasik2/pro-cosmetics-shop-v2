@@ -44,12 +44,15 @@ export async function GET(req: Request) {
   )
     ? (statusValue as EnrichmentProposalStatus)
     : EnrichmentProposalStatus.PENDING;
-  const priceImportId = await getEnrichmentPriceImportId();
+  // A card opened from Products must not inherit an unrelated price-list filter.
+  const productId = url.searchParams.get("productId")?.trim();
+  const priceImportId = productId ? null : await getEnrichmentPriceImportId();
 
   const proposals = await prisma.productEnrichmentProposal.findMany({
     where: {
       status,
       confidence: { gt: 0 },
+      ...(productId ? { productId } : {}),
       ...(priceImportId
         ? {
             product: {
@@ -118,7 +121,10 @@ export async function GET(req: Request) {
   );
 
   const enriched = proposals.map((proposal) => {
-    const text = { ...proposalText(proposal), textVersion: proposalTextVersion(proposal) };
+    const text = {
+      ...proposalText(proposal),
+      textVersion: proposalTextVersion(proposal),
+    };
     const priceImage = priceImages.get(proposal.productId);
     const facts = jsonObject(proposal.facts);
     const variantImageCandidates = mergeImageGroups(
@@ -130,7 +136,11 @@ export async function GET(req: Request) {
       ),
     );
     if (!priceImage)
-      return { ...proposal, ...text, facts: { ...facts, variantImageCandidates } };
+      return {
+        ...proposal,
+        ...text,
+        facts: { ...facts, variantImageCandidates },
+      };
 
     const currentImages = stringArray(proposal.images);
     const images = [...new Set([priceImage.url, ...currentImages])].slice(
