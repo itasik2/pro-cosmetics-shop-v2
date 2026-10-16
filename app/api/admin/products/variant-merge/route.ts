@@ -410,6 +410,11 @@ export async function POST(req: Request) {
             price: nextPrice,
             stock: nextStock,
             variants,
+            // The pre-merge suggestions below are rejected, so no review remains.
+            enrichmentStatus:
+              canonical.enrichmentStatus === "REVIEW"
+                ? "READY"
+                : canonical.enrichmentStatus,
             image: isUsablePhoto(canonical.image)
               ? canonical.image
               : variants.find(
