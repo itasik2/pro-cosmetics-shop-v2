@@ -109,6 +109,7 @@ export async function runProductEnrichment(input: RunInput) {
   const claimed = await prisma.product.updateMany({
     where: {
       id: input.productId,
+      enrichmentStatus: { not: "MERGED" },
       OR: [
         { enrichmentStatus: { not: "RUNNING" } },
         { updatedAt: { lt: staleBefore } },
