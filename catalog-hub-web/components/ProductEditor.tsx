@@ -165,10 +165,10 @@ export function ProductEditor({ product, categories }: { product: HubProduct; ca
     <form className="panel editor-panel" onSubmit={submit}>
       <div className="editor-heading">
         <div>
-          <h2>Редактор Master Card</h2>
-          <p className="subtle">Изменения сначала сохраняются в очередь на проверку. Товар не меняется до подтверждения и применения.</p>
+          <h2>Карточка товара</h2>
+          <p className="subtle">Редактируйте поля и фотографии здесь. При сохранении вы увидите изменения по полям перед их применением.</p>
         </div>
-        <span className="badge warn">Review-first</span>
+        <span className="badge">{product.sku}</span>
       </div>
       <div className="editor-grid">
         {textInputs.map(([key, label]) => (
@@ -220,6 +220,14 @@ export function ProductEditor({ product, categories }: { product: HubProduct; ca
         <label className="editor-field wide">
           <span>Ссылки на изображения (по одной в строке)</span>
           <textarea rows={4} value={form.images} onChange={(event) => update("images", event.target.value)} />
+          <span className="subtle">Можно добавить ссылку вручную или выбрать фото из ИИ-предложений ниже.</span>
+          <div className="enrichment-images" style={{marginTop:10}}>
+            {form.images.split(/\r?\n/).map((src) => src.trim())
+              .filter((src) => /^https?:\/\/[^ ]+$/i.test(src))
+              .map((src) => <img key={src} src={src} alt={form.title + " — фото товара"}
+                loading="lazy" style={{width:140,height:140,objectFit:"contain"}} />)}
+            {!form.images.trim() && <span className="subtle">Фото пока нет</span>}
+          </div>
         </label>
         <label className="editor-field wide">
           <span>Характеристики (JSON)</span>

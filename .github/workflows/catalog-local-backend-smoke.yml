@@ -1,0 +1,55 @@
+name: Catalog Hub isolated local backend smoke
+on:
+  pull_request:
+    paths:
+      - "catalog-hub-local/**"
+      - "marketplace-hub/prisma/schema.prisma"
+      - "catalog-hub-web/lib/pdf-supplier.ts"
+      - "catalog-hub-web/lib/pdf-jeuderm-images.ts"
+      - "catalog-hub-web/lib/pdf-jeuderm-images.test.ts"
+      - "catalog-hub-web/app/api/import/pdf-images/**"
+      - "catalog-hub-web/components/ImportConsole.tsx"
+      - "catalog-hub-web/lib/import-parser.ts"
+      - "catalog-hub-web/next.config.mjs"
+      - "marketplace-hub/supabase/functions/catalog-hub/**"
+      - ".github/workflows/catalog-local-backend-smoke.yml"
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Inspect localhost Docker Compose config
+        run: docker compose -f catalog-hub-local/compose.yaml config --quiet
+      - name: Start isolated backend with artificial records
+        working-directory: catalog-hub-web
+        run: npm run testdb:setup
+      - name: Read/write smoke against localhost-only backend
+        run: node catalog-hub-local/smoke.mjs
+      - name: Install local Next.js console
+        working-directory: catalog-hub-web
+        run: npm install
+      - name: Activate isolated test backend and launch Next.js
+        working-directory: catalog-hub-web
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: |
+          npm run testdb:use
+          nohup npm run local:dev > ../catalog-hub-local/next-test.log 2>&1 &
+      - name: Run local supplier import end-to-end test
+        working-directory: catalog-hub-web
+        run: npm run testdb:import-e2e
+      - name: Verify enrichment queue and review against isolated PostgreSQL
+        run: node catalog-hub-local/enrichment-e2e.mjs
+      - name: Validate PDF.js worker in Next.js API (synthetic PDF)
+        run: node catalog-hub-local/pdf-worker-smoke.mjs
+      - name: Report errors and stop containers
+        if: always()
+        run: |
+          docker compose -f catalog-hub-local/compose.yaml ps || true
+          if [ -f catalog-hub-local/next-test.log ]; then tail -n 60 catalog-hub-local/next-test.log; fi
+          docker compose -f catalog-hub-local/compose.yaml logs --tail 60 api || true
+          docker compose -f catalog-hub-local/compose.yaml down || true

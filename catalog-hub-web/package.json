@@ -7,14 +7,25 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test lib/import-review.test.ts"
+    "test": "node --import tsx --test lib/*.test.ts",
+    "local:init": "node scripts/local-init.mjs",
+    "local:check": "node scripts/local-check.mjs",
+    "local:dev": "node scripts/local-dev.mjs",
+    "local:keygen": "node scripts/local-keygen.mjs",
+    "testdb:setup": "node ../catalog-hub-local/setup.mjs",
+    "testdb:use": "node ../catalog-hub-local/switch.mjs test",
+    "testdb:remote": "node ../catalog-hub-local/switch.mjs remote",
+    "testdb:stop": "docker compose -f ../catalog-hub-local/compose.yaml down",
+    "testdb:status": "docker compose -f ../catalog-hub-local/compose.yaml ps",
+    "testdb:import-e2e": "node ../catalog-hub-local/import-e2e.mjs"
   },
   "dependencies": {
     "next": "15.5.24",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "fast-xml-parser": "^5.2.5",
-    "read-excel-file": "^9.3.10"
+    "read-excel-file": "^9.3.10",
+    "pdfjs-dist": "4.10.38"
   },
   "devDependencies": {
     "@types/node": "^20.19.23",

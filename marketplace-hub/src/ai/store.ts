@@ -9,6 +9,7 @@ import { prisma } from "../offline/staging-store.js";
 import { createChangeSet } from "../offline/staging-store.js";
 import { masterCardSchema } from "../offline/master-card.js";
 import { stagingPatchSchema } from "../offline/staging.js";
+import { buildEnrichmentPatch } from "./staging-patch.js";
 
 const jobInputSchema = z
   .object({
@@ -16,6 +17,7 @@ const jobInputSchema = z
     productId: z.string().min(1).optional(),
     sku: z.string().trim().min(1).optional(),
     sourceUrl: z.string().url().optional(),
+    sourceSupplierCode: z.string().trim().min(1).max(80).optional(),
     discoverIfMissing: z.boolean().default(true),
     allowExternalSearch: z.boolean().default(false),
   })
@@ -28,7 +30,9 @@ const stageInputSchema = z.object({
   proposalId: z.string().min(1),
   includeTitle: z.boolean().default(false),
   includeBrand: z.boolean().default(false),
+  replaceFilledFields: z.boolean().default(false),
   selectedImageUrl: z.string().url().optional(),
+  selectedMediaVariantId: z.string().min(1).max(128).optional(),
   createdBy: z.string().optional(),
 });
 
@@ -162,6 +166,9 @@ export async function createCatalogEnrichmentJob(raw: unknown) {
   const input = jobInputSchema.parse(raw);
   const product = await resolveProduct(input);
   if (!product) throw new Error("product_not_found");
+  if (input.sourceSupplierCode && !await prisma.supplier.findUnique({
+    where: { organizationId_code: { organizationId: input.organizationId, code: input.sourceSupplierCode } },
+  })) throw new Error("supplier_not_found");
 
   return prisma.catalogEnrichmentJob.create({
     data: {
@@ -172,6 +179,7 @@ export async function createCatalogEnrichmentJob(raw: unknown) {
         organizationId: input.organizationId,
         discoverIfMissing: input.discoverIfMissing,
         allowExternalSearch: input.allowExternalSearch,
+        sourceSupplierCode: input.sourceSupplierCode,
       }),
     },
   });
@@ -215,10 +223,22 @@ export async function runCatalogEnrichmentJob(input: {
 
   const metadata = record(job.result);
   const policies = sourcePolicies(job.product);
+  if (typeof metadata.sourceSupplierCode === "string") {
+    const selectedPolicies = await prisma.catalogSourcePolicy.findMany({
+      where: { isEnabled: true, supplier: { organizationId: input.organizationId, code: metadata.sourceSupplierCode } },
+      orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
+    });
+    for (const policy of selectedPolicies) {
+      if (["OFFICIAL_SITE", "DISTRIBUTOR", "DISCOVERED_WEB"].includes(policy.sourceType)) policies.push({
+        id: policy.id, domain: policy.domain, allowSubdomains: policy.allowSubdomains,
+        sourceType: policy.sourceType as "OFFICIAL_SITE" | "DISTRIBUTOR" | "DISCOVERED_WEB",
+      });
+    }
+  }
   const volume = productVolume(job.product.attributes);
 
-  await prisma.catalogEnrichmentJob.update({
-    where: { id: job.id },
+  const claimed = await prisma.catalogEnrichmentJob.updateMany({
+    where: { id: job.id, status: { in: [CatalogEnrichmentJobStatus.PENDING, CatalogEnrichmentJobStatus.FAILED] } },
     data: {
       status: CatalogEnrichmentJobStatus.RUNNING,
       startedAt: new Date(),
@@ -227,11 +247,13 @@ export async function runCatalogEnrichmentJob(input: {
       attempt: { increment: 1 },
     },
   });
+  if (claimed.count !== 1) throw new Error("enrichment_job_not_runnable");
 
   try {
     const result = await buildEnrichmentProposal({
       product: {
         sku: job.product.sku,
+        skuIsInternal: true,
         title: job.product.title,
         brand: job.product.brand || undefined,
         barcode: job.product.barcode || undefined,
@@ -385,21 +407,32 @@ export async function getCatalogEnrichmentJob(input: {
   });
 }
 
+export async function listCatalogEnrichmentJobs(input: { organizationId: string; productId?: string; limit?: number }) {
+  return prisma.catalogEnrichmentJob.findMany({
+    where: { product: { organizationId: input.organizationId, ...(input.productId ? { id: input.productId } : {}) } },
+    orderBy: { createdAt: "desc" },
+    take: Math.max(1, Math.min(100, input.limit ?? 50)),
+    include: { product: { select: { id: true, sku: true, title: true, brand: true } } },
+  });
+}
+
 export async function listCatalogEnrichmentProposals(input: {
   organizationId: string;
+  productId?: string;
   status?: "PENDING" | "APPLIED" | "REJECTED";
   limit?: number;
 }) {
   return prisma.catalogEnrichmentProposal.findMany({
     where: {
-      product: { organizationId: input.organizationId },
+      product: { organizationId: input.organizationId, ...(input.productId ? { id: input.productId } : {}) },
       ...(input.status ? { status: input.status } : {}),
     },
     orderBy: { createdAt: "desc" },
     take: Math.max(1, Math.min(100, input.limit ?? 50)),
     include: {
       product: {
-        select: { id: true, sku: true, title: true, brand: true },
+        select: { id: true, sku: true, title: true, brand: true, categoryKey: true, shortDescription: true,
+          description: true, application: true, ingredients: true, images: true },
       },
       source: true,
     },
@@ -425,9 +458,21 @@ export async function stageCatalogEnrichmentProposal(raw: unknown) {
   if (!proposal) throw new Error("enrichment_proposal_not_found");
 
   const proposalImages = strings(proposal.images);
-  const selectedImage = input.selectedImageUrl?.trim();
+  let selectedImage = input.selectedImageUrl?.trim();
   if (selectedImage && !proposalImages.includes(selectedImage)) {
     throw new Error("selected_image_not_in_proposal");
+  }
+  if (input.selectedMediaVariantId) {
+    if (selectedImage) throw new Error("select_one_image");
+    const variant = await prisma.mediaVariant.findFirst({
+      where: { id: input.selectedMediaVariantId, media: { productId: proposal.productId } },
+      include: { media: { select: { sourceUrl: true, metadata: true } } },
+    });
+    const originalUrl = record(variant?.media.metadata).requestedSourceUrl;
+    if (!variant?.url || ![variant.media.sourceUrl, originalUrl].some(
+      url => typeof url === "string" && proposalImages.includes(url),
+    )) throw new Error("selected_image_not_in_proposal");
+    selectedImage = variant.url;
   }
 
   const stock = proposal.product.inventory.reduce(
@@ -452,35 +497,30 @@ export async function stageCatalogEnrichmentProposal(raw: unknown) {
     stock,
   });
 
-  const proposed = stagingPatchSchema.parse({
-    ...(input.includeTitle && proposal.title
-      ? { title: proposal.title }
-      : {}),
-    ...(input.includeBrand
-      ? {
-          brand:
-            record(proposal.facts).extracted &&
-            typeof record(record(proposal.facts).extracted).brand === "string"
-              ? String(record(record(proposal.facts).extracted).brand)
-              : undefined,
-        }
-      : {}),
-    ...(proposal.shortDescription
-      ? { shortDescription: proposal.shortDescription }
-      : {}),
-    ...(proposal.description ? { description: proposal.description } : {}),
-    ...(proposal.application ? { application: proposal.application } : {}),
-    ...(proposal.ingredients ? { ingredients: proposal.ingredients } : {}),
-    ...(selectedImage ? { images: [selectedImage] } : {}),
-  });
-
-  return createChangeSet({
-    organizationId: input.organizationId,
-    productId: proposal.productId,
-    sourceType: "AI_ENRICHMENT",
-    sourceRef: proposal.id,
+  const extractedBrand = record(record(proposal.facts).extracted).brand;
+  const proposed = stagingPatchSchema.parse(buildEnrichmentPatch({
     current,
-    proposed,
-    createdBy: input.createdBy,
+    proposal: { ...proposal, brand: typeof extractedBrand === "string" ? extractedBrand : undefined },
+    includeTitle: input.includeTitle, includeBrand: input.includeBrand,
+    selectedImageUrl: selectedImage, replaceFilledFields: input.replaceFilledFields,
+  }));
+  if (!Object.keys(proposed).length) throw new Error("enrichment_no_missing_fields");
+
+  return prisma.$transaction(async tx => {
+    // Serialize staging retries for the same proposal, including concurrent requests.
+    await tx.$queryRaw`SELECT "id" FROM "CatalogEnrichmentProposal" WHERE "id" = ${proposal.id} FOR UPDATE`;
+    const latest = await tx.catalogEnrichmentProposal.findUnique({ where: { id: proposal.id } });
+    if (!latest || latest.status !== "PENDING") throw new Error("enrichment_proposal_not_found");
+    const existing = await tx.catalogChangeSet.findFirst({
+      where: { organizationId: input.organizationId, productId: proposal.productId,
+        sourceType: "AI_ENRICHMENT", sourceRef: proposal.id, status: { in: ["PREVIEW", "APPROVED"] } },
+      include: { fields: { orderBy: { createdAt: "asc" } } },
+    });
+    if (existing) return existing;
+    return createChangeSet({
+      organizationId: input.organizationId, productId: proposal.productId,
+      sourceType: "AI_ENRICHMENT", sourceRef: proposal.id,
+      current, proposed, createdBy: input.createdBy,
+    }, tx);
   });
 }

@@ -6,10 +6,12 @@ on:
       - "feature/catalog-hub-web-app"
     paths:
       - "catalog-hub-web/**"
+      - "catalog-hub-local/**"
       - ".github/workflows/catalog-hub-web.yml"
   pull_request:
     paths:
       - "catalog-hub-web/**"
+      - "catalog-hub-local/**"
       - ".github/workflows/catalog-hub-web.yml"
 
 jobs:
@@ -27,6 +29,10 @@ jobs:
           cache-dependency-path: catalog-hub-web/package.json
       - name: Install
         run: npm install
+      - name: Check isolated database scripts syntax
+        run: |
+          node --check ../catalog-hub-local/setup.mjs
+          node --check ../catalog-hub-local/switch.mjs
       - name: Import match tests
         run: npm test
 

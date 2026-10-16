@@ -10,7 +10,6 @@ export function middleware(request: NextRequest) {
 
   const token = String(process.env.CATALOG_HUB_UI_SESSION_TOKEN || "");
   if (!token) {
-    if (process.env.NODE_ENV === "development") return NextResponse.next();
     const url = new URL("/login", request.url);
     url.searchParams.set("error", "session_not_configured");
     return NextResponse.redirect(url);

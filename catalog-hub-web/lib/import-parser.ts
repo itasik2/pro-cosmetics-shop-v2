@@ -3,11 +3,14 @@ import { readSheet } from "read-excel-file/node";
 import { XMLParser, XMLValidator } from "fast-xml-parser";
 
 import {type Field,type Mapping} from "./import-types";
-export type Table = { headers:string[];rows:Array<Record<string,string>>;format:string };
+import {parsePdfSupplier} from "./pdf-supplier";
+export type Table = { headers:string[];rows:Array<Record<string,string>>;format:string;
+  warnings?:string[];pageCount?:number;needsManualSku?:boolean };
 export type ImportItem = {
  rowNumber:number;sku:string;barcode:string;title:string;brand?:string;
  purchasePrice?:number;price?:number;description?:string;categoryKey?:string;
  stock?:number;errors:string[];
+ volume?:string;
 };
 const MAX_BYTES=2*1024*1024, MAX_ROWS=200, MAX_COLS=50;
 
@@ -76,8 +79,12 @@ function parseObjects(items:Array<Record<string,unknown>>,format:string):Table {
  return tabular(headers,normalized.map(o=>headers.map(h=>o[h]??"")),format);
 }
 export async function parseTable(file:File):Promise<Table>{
- if(file.size<1||file.size>MAX_BYTES)throw new Error("file_size_limit_2mb");
  const name=file.name.toLowerCase();
+ if(name.endsWith(".pdf")){
+   const parsed=await parsePdfSupplier(new Uint8Array(await file.arrayBuffer()),{fileName:file.name});
+   return parsed;
+ }
+ if(file.size<1||file.size>MAX_BYTES)throw new Error("file_size_limit_2mb");
  if(name.endsWith(".xlsx")){
    const rows=await readSheet(Buffer.from(await file.arrayBuffer()) as Parameters<typeof readSheet>[0]);
    if(rows.length<2)throw new Error("xlsx_empty");
@@ -107,7 +114,7 @@ export async function parseTable(file:File):Promise<Table>{
    if(!rows)throw new Error("xml_products_not_found");
    return parseObjects(rows,"XML");
  }
- throw new Error("unsupported_format_use_xlsx_csv_tsv_xml_yml_json");
+ throw new Error("unsupported_format_use_pdf_xlsx_csv_tsv_xml_yml_json");
 }
 
 const aliases:Record<Field,string[]>={
@@ -115,6 +122,7 @@ const aliases:Record<Field,string[]>={
  barcode:["barcode","штрихкод","штрих код","ean","ean13","gtin"],
  title:["title","название","наименование","товар","product name","name"],
  brand:["brand","бренд","марка","vendor","manufacturer","производитель"],
+ volume:["volume","объем","объём","объем упаковки","объём упаковки","вес","weight"],
  purchasePrice:["закупочная цена","себестоимость","purchaseprice","cost","закупка","оптовая цена"],
  price:["розничная цена","цена","price","retail","retail price","sellingprice"],
  description:["описание","description","descr"],
@@ -152,6 +160,6 @@ export function mapImport(table:Table,mapping:Mapping):ImportItem[]{
    if(price===0)errors.push("Розничная цена должна быть положительной");
    return {rowNumber:i+2,sku,barcode,title,
      brand:field("brand")||undefined,description:field("description")||undefined,
-     categoryKey:field("categoryKey")||undefined,purchasePrice,price,stock,errors};
+     categoryKey:field("categoryKey")||undefined,volume:field("volume")||undefined,purchasePrice,price,stock,errors};
  });
 }

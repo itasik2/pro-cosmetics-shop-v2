@@ -5,3 +5,9 @@ node_modules
 prisma/dev.db
 .DS_Store
 *.tsbuildinfo
+
+# Catalog Hub local-only supplier profiles and import summaries
+.local-data/
+
+# Ubuntu isolated test backend credentials — never commit
+catalog-hub-local/.test-credentials.json

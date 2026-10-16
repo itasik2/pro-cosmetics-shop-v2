@@ -1,74 +1,44 @@
 import { hubFetch, organizationId, safeHub, type HubProduct } from "@/lib/hub";
-import { dateTime, money } from "@/lib/format";
 import { ProductEditor } from "@/components/ProductEditor";
+import { CardEnrichment, type CardJob, type CardProposal } from "@/components/CardEnrichment";
 import { StockAdjustment } from "@/components/StockAdjustment";
+import { isLocalReadOnly } from "@/lib/local-mode";
 import Link from "next/link";
 
 export default async function ProductPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [result, warehouses, categories] = await Promise.all([
-    safeHub(
-    hubFetch<HubProduct>("/v1/catalog/products/" + encodeURIComponent(id) + "?organizationId=" + organizationId),
-  ),
-    safeHub(hubFetch<Array<{id:string;code:string;name:string;isActive:boolean}>>("/v1/inventory/warehouses?organizationId=" + organizationId)),
-    safeHub(hubFetch<{categories:Array<{key:string;name:string;isActive:boolean;productCount:number}>;uncategorized:number}>("/v1/categories?organizationId=" + encodeURIComponent(organizationId))),
+  const query = "?organizationId=" + encodeURIComponent(organizationId);
+  const filter = query + "&productId=" + encodeURIComponent(id);
+  const [result, warehouses, categories, jobs, proposals] = await Promise.all([
+    safeHub(hubFetch<HubProduct>("/v1/catalog/products/" + encodeURIComponent(id) + query)),
+    safeHub(hubFetch<Array<{id:string;code:string;name:string;isActive:boolean}>>("/v1/inventory/warehouses" + query)),
+    safeHub(hubFetch<{categories:Array<{key:string;name:string;isActive:boolean;productCount:number}>;uncategorized:number}>("/v1/categories" + query)),
+    safeHub(hubFetch<CardJob[]>("/v1/ai/enrichment/jobs" + filter + "&limit=30")),
+    safeHub(hubFetch<CardProposal[]>("/v1/ai/enrichment/proposals" + filter + "&status=PENDING&limit=100")),
   ]);
 
   if (!result.ok) return <div className="page"><div className="error">{result.error}</div></div>;
-  const item = result.data;
+  const product = result.data;
 
-  return (
-    <div className="page">
-      <div className="page-head">
-        <div><span className="eyebrow">{item.sku}</span><h1>{item.title}</h1><p>{item.brand || "Без бренда"} · {item.categoryKey || "Без категории"}</p></div>
-        <div className="actions"><Link className="button" href="/catalog">← Каталог</Link><span className="badge good">Master Card</span></div>
-      </div>
-      <div className="two-col">
-        <section className="panel">
-          <h2>Карточка</h2>
-          <div className="list">
-            <TextInfo label="Краткое описание" value={item.shortDescription} />
-            <TextInfo label="Описание" value={item.description} />
-            <TextInfo label="Применение" value={item.application} />
-            <TextInfo label="Состав" value={item.ingredients} />
-            <Info label="Штрихкод" value={item.barcode} />
-          </div>
-        </section>
-        <section className="panel">
-          <h2>Коммерческие данные</h2>
-          <div className="list">
-            <Info label="Закупочная цена" value={money(item.purchasePrice)} />
-            <Info label="Розничная цена" value={money(item.price)} />
-            <Info label="На складе" value={item.totals.stock} />
-            <Info label="Доступно" value={item.totals.available} />
-            <Info label="Обновлено" value={dateTime(item.updatedAt)} />
-          </div>
-        </section>
-      </div>
-      <div style={{marginTop:14}}>{warehouses.ok && <StockAdjustment product={item} warehouses={warehouses.data} />}</div>
-      <div style={{marginTop:14}}>
-        {!categories.ok && <p className="error">Справочник категорий недоступен: {categories.error}</p>}
-        <ProductEditor product={item} categories={categories.ok ? categories.data.categories : []} />
-      </div>
-      <section className="panel" style={{marginTop:14}}>
-        <h2>Изображения</h2>
-        <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
-          {item.images?.length ? item.images.map((url) => <img key={url} src={url} alt="" style={{width:160,height:160,objectFit:"contain",border:"1px solid var(--line)",borderRadius:12}} />) : <div className="empty">Изображений нет</div>}
-        </div>
-      </section>
+  return <div className="page">
+    <div className="page-head">
+      <div><span className="eyebrow">{product.sku}</span><h1>{product.title}</h1>
+        <p>{product.brand || "Без бренда"} · {product.categoryKey || "Без категории"}</p></div>
+      <Link className="button" href="/catalog">← Каталог</Link>
     </div>
-  );
-}
-
-function TextInfo({ label, value }: { label: string; value: string | null | undefined }) {
-  return (
-    <div className="product-detail-block">
-      <div className="product-detail-label">{label}</div>
-      <p className="product-detail-body">{value?.trim() || "—"}</p>
+    <ProductEditor product={product} categories={categories.ok ? categories.data.categories : []} />
+    {!categories.ok && <p className="error" role="alert">Справочник категорий недоступен: {categories.error}</p>}
+    {(!jobs.ok || !proposals.ok) && <p className="error" role="alert">
+      ИИ-предложения временно недоступны: {!jobs.ok ? jobs.error : !proposals.ok ? proposals.error : ""}
+    </p>}
+    <div style={{marginTop:14}}>
+      <CardEnrichment product={product} canWrite={!isLocalReadOnly()}
+        jobs={jobs.ok ? jobs.data : []} proposals={proposals.ok ? proposals.data : []} />
     </div>
-  );
-}
-
-function Info({ label, value }: { label: string; value: React.ReactNode }) {
-  return <div className="list-row"><span className="subtle">{label}</span><span style={{maxWidth:"68%",textAlign:"right",whiteSpace:"pre-wrap"}}>{value || "—"}</span></div>;
+    <div style={{marginTop:14}}>
+      {warehouses.ok ? <StockAdjustment product={product} warehouses={warehouses.data} />
+        : <section className="panel"><h2>Остатки</h2><p>На складе: {product.totals.stock} · Доступно: {product.totals.available}</p>
+          <p className="error" role="alert">Склады временно недоступны: {warehouses.error}</p></section>}
+    </div>
+  </div>;
 }
