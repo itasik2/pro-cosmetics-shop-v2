@@ -272,6 +272,51 @@ test("equivalent volume units deduplicate while conflicting SKUs require correct
   );
 });
 
+test("merging existing variant cards retains each source common photo only for its primary SKU", () => {
+  const small = {
+    id: "small",
+    label: "50 мл",
+    sku: "SKU-50",
+    stock: 3,
+    price: 4000,
+  };
+  const large = {
+    id: "large",
+    label: "100 мл",
+    sku: "SKU-100",
+    stock: 5,
+    price: 6000,
+  };
+  const extra = {
+    id: "extra",
+    label: "200 мл",
+    sku: "SKU-200",
+    stock: 1,
+    price: 10000,
+  };
+  const plan = productMergePlan(
+    [
+      { ...product, image: "/photos/small.jpg", variants: [small] },
+      {
+        ...product,
+        id: "large",
+        supplierSku: "SKU-100",
+        image: "/photos/large.jpg",
+        variants: [large, extra],
+      },
+    ],
+    product.id,
+  );
+  assert.deepEqual(
+    plan.variants.map((row) => [row.sku, row.image]),
+    [
+      ["SKU-50", "/photos/small.jpg"],
+      ["SKU-100", "/photos/large.jpg"],
+      ["SKU-200", undefined],
+    ],
+  );
+});
+
 test("missing SKUs or conflicting duplicate prices disable automatic merge", () => {
   const missing = productMergePlan(
     [product, { ...product, id: "large", supplierSku: null, volumeValue: 100 }],

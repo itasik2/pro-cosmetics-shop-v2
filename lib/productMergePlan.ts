@@ -109,6 +109,18 @@ export function productMergePlan(
           : row.label;
       const incoming = { ...row, label: displayLabel };
       const sku = photoSku(incoming.sku);
+      // A source card's common image belongs to its primary SKU, not to every size.
+      const primarySku = photoSku(
+        product.supplierSku || (stored.length === 1 ? stored[0].sku : ""),
+      );
+      if (
+        !isUsablePhoto(incoming.image) &&
+        sku &&
+        sku === primarySku &&
+        isUsablePhoto(product.image)
+      ) {
+        incoming.image = product.image;
+      }
       const key = sku || "label:" + volumeKey(incoming.label);
       if (!sku)
         warnings.add(
