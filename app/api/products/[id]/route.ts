@@ -10,6 +10,10 @@ import { requireAdmin } from "@/lib/adminGuard";
 import { formatProductName } from "@/lib/productNames";
 import { variantStockTotal } from "@/lib/productStock";
 import { processStockAlertsForProduct } from "@/lib/stockAlerts";
+import {
+  publicationMissingFields,
+  publishEditedProduct,
+} from "@/lib/productPublication";
 
 const ProductSchema = z.object({
   name: z.string().min(2),
@@ -23,6 +27,7 @@ const ProductSchema = z.object({
   isPopular: z.boolean().optional().default(false),
   isNew: z.boolean().optional().default(false),
   isPublished: z.boolean().optional().default(true),
+  publishNow: z.boolean().optional().default(false),
   variants: z.any().nullable().optional(),
 });
 
@@ -37,36 +42,6 @@ const ProductPatchSchema = z
   );
 
 type Params = { params: Promise<{ id: string }> };
-
-type PublicationFields = {
-  brandId: string | null;
-  shortDescription: string | null;
-  description: string;
-  image: string;
-  category: string;
-  price: number;
-};
-
-function publicationMissingFields(
-  product: PublicationFields,
-  requireAppliedEnrichment: boolean,
-  hasAppliedEnrichment: boolean,
-) {
-  const missing: string[] = [];
-  const description = product.description.trim().toLocaleLowerCase("ru-RU");
-
-  if (requireAppliedEnrichment && !hasAppliedEnrichment) {
-    missing.push("одобрение во вкладке автозаполнения");
-  }
-  if (!product.brandId) missing.push("бренд");
-  if (!product.shortDescription?.trim()) missing.push("краткое описание");
-  if (!description || description === "описание готовится") missing.push("описание");
-  if (!product.image || product.image.startsWith("/seed/")) missing.push("фотография");
-  if (!product.category.trim()) missing.push("категория");
-  if (product.price <= 0) missing.push("цена");
-
-  return missing;
-}
 
 async function hasAppliedEnrichment(productId: string) {
   const proposal = await prisma.productEnrichmentProposal.findFirst({
@@ -87,10 +62,12 @@ export async function PUT(req: Request, props: Params) {
 
   try {
     const parsed = ProductSchema.parse(await req.json());
+    if (parsed.publishNow) parsed.isPublished = true;
     const current = await prisma.product.findUnique({
       where: { id: params.id },
       select: {
         id: true,
+        updatedAt: true,
         isPublished: true,
         supplierId: true,
         lastImportedAt: true,
@@ -111,18 +88,16 @@ export async function PUT(req: Request, props: Params) {
         select: { id: true },
       });
       if (!brand) {
-        return NextResponse.json(
-          { error: "brand_not_found" },
-          { status: 400 },
-        );
+        return NextResponse.json({ error: "brand_not_found" }, { status: 400 });
       }
     }
 
-    if (parsed.isPublished && !current.isPublished) {
+    if (parsed.publishNow || (parsed.isPublished && !current.isPublished)) {
       const imported = Boolean(current.supplierId || current.lastImportedAt);
-      const approved = imported
-        ? await hasAppliedEnrichment(current.id)
-        : true;
+      const approved =
+        imported && !parsed.publishNow
+          ? await hasAppliedEnrichment(current.id)
+          : !imported;
       const missing = publicationMissingFields(
         {
           brandId: parsed.brandId ?? null,
@@ -132,8 +107,11 @@ export async function PUT(req: Request, props: Params) {
           category: parsed.category,
           price: parsed.price,
         },
-        imported,
-        approved,
+        {
+          imported,
+          hasAppliedEnrichment: approved,
+          reviewedInEditor: parsed.publishNow,
+        },
       );
 
       if (missing.length) {
@@ -148,38 +126,65 @@ export async function PUT(req: Request, props: Params) {
       }
     }
 
-    if (Array.isArray(parsed.variants)) parsed.variants = invalidateChangedSkuImages(normalizeStoredVariants(current.variants), normalizeStoredVariants(parsed.variants));
+    if (Array.isArray(parsed.variants))
+      parsed.variants = invalidateChangedSkuImages(
+        normalizeStoredVariants(current.variants),
+        normalizeStoredVariants(parsed.variants),
+      );
     const popularityChanged = parsed.isPopular !== current.isPopular;
     const stock = variantStockTotal(parsed.variants) ?? parsed.stock;
-    const updated = await prisma.product.update({
-      where: { id: params.id },
-      data: {
-        name: formatProductName(parsed.name),
-        brandId: parsed.brandId ?? null,
-        shortDescription: parsed.shortDescription?.trim() || null,
-        description: parsed.description,
-        image: parsed.image,
-        category: parsed.category,
-        price: parsed.price,
-        stock,
-        isPopular: parsed.isPopular,
-        ...(popularityChanged
-          ? {
-              popularityPinned: parsed.isPopular,
-              popularityExcluded: !parsed.isPopular,
-            }
-          : {}),
-        isNew: parsed.isNew,
-        isPublished: parsed.isPublished,
-        enrichmentStatus: parsed.isPublished ? "READY" : "PENDING",
-        variants: parsed.variants ?? null,
-      },
-      include: { brand: true, supplier: true },
-    });
+    const data = {
+      name: formatProductName(parsed.name),
+      brandId: parsed.brandId ?? null,
+      shortDescription: parsed.shortDescription?.trim() || null,
+      description: parsed.description,
+      image: parsed.image,
+      category: parsed.category,
+      price: parsed.price,
+      stock,
+      isPopular: parsed.isPopular,
+      ...(popularityChanged
+        ? {
+            popularityPinned: parsed.isPopular,
+            popularityExcluded: !parsed.isPopular,
+          }
+        : {}),
+      isNew: parsed.isNew,
+      isPublished: parsed.isPublished,
+      enrichmentStatus: parsed.isPublished ? "READY" : "PENDING",
+      variants: parsed.variants ?? null,
+    };
+    const updated = parsed.publishNow
+      ? await publishEditedProduct({
+          productId: current.id,
+          expectedUpdatedAt: current.updatedAt,
+          data,
+        })
+      : await prisma.product.update({
+          where: { id: params.id },
+          data,
+          include: { brand: true, supplier: true },
+        });
 
     await processStockAlertsForProduct(updated.id);
     return NextResponse.json(updated);
   } catch (error: any) {
+    if (
+      ["publication_enrichment_running", "product_changed_refresh"].includes(
+        error?.message,
+      )
+    ) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          message:
+            error.message === "publication_enrichment_running"
+              ? "Поиск ИИ ещё выполняется. Дождитесь завершения и повторите публикацию."
+              : "Товар изменился во время сохранения. Откройте карточку повторно и проверьте данные.",
+        },
+        { status: 409 },
+      );
+    }
     if (error?.name === "ZodError") {
       return NextResponse.json(
         { error: "validation", issues: error.issues },
@@ -188,10 +193,7 @@ export async function PUT(req: Request, props: Params) {
     }
 
     console.error(`PUT /api/products/${params.id}`, error);
-    return NextResponse.json(
-      { error: "failed_to_update" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "failed_to_update" }, { status: 500 });
   }
 }
 
@@ -233,10 +235,11 @@ export async function PATCH(req: Request, props: Params) {
 
   if (parsed.data.isPublished === true) {
     const imported = Boolean(product.supplierId || product.lastImportedAt);
-    const approved = imported
-      ? await hasAppliedEnrichment(product.id)
-      : true;
-    const missing = publicationMissingFields(product, imported, approved);
+    const approved = imported ? await hasAppliedEnrichment(product.id) : true;
+    const missing = publicationMissingFields(product, {
+      imported,
+      hasAppliedEnrichment: approved,
+    });
 
     if (missing.length) {
       return NextResponse.json(
@@ -259,9 +262,7 @@ export async function PATCH(req: Request, props: Params) {
             enrichmentStatus: parsed.data.isPublished ? "READY" : "PENDING",
           }
         : {}),
-      ...(parsed.data.stock !== undefined
-        ? { stock: parsed.data.stock }
-        : {}),
+      ...(parsed.data.stock !== undefined ? { stock: parsed.data.stock } : {}),
     },
     include: { brand: true, supplier: true },
   });

@@ -8,6 +8,10 @@ import {
   productMatchesFilters,
 } from "../lib/adminProductFilters";
 import { productMergePlan } from "../lib/productMergePlan";
+import {
+  publicationMissingFields,
+  publishEditedProduct,
+} from "../lib/productPublication";
 
 const product = {
   id: "main",
@@ -29,6 +33,208 @@ const product = {
   stock: 3,
   image: "/seed/cream.jpg",
 };
+
+const publishable = {
+  ...product,
+  shortDescription: "Крем для ежедневного ухода",
+  description: "Увлажняющий крем для лица",
+  image: "/media/cream.jpg",
+};
+
+test("explicit publication from the editor accepts a complete manually reviewed imported card", () => {
+  assert.deepEqual(
+    publicationMissingFields(publishable, {
+      imported: true,
+      hasAppliedEnrichment: false,
+      reviewedInEditor: true,
+    }),
+    [],
+  );
+});
+
+test("queue publication still requires applied enrichment for imported cards", () => {
+  assert.deepEqual(
+    publicationMissingFields(publishable, {
+      imported: true,
+      hasAppliedEnrichment: false,
+    }),
+    ["одобрение описания и фото"],
+  );
+  assert.deepEqual(
+    publicationMissingFields(publishable, {
+      imported: true,
+      hasAppliedEnrichment: true,
+    }),
+    [],
+  );
+});
+
+test("publishing from the editor cannot skip missing content, photo, category or price", () => {
+  assert.deepEqual(
+    publicationMissingFields(
+      { ...product, brandId: null, category: "", price: 0 },
+      { imported: true, hasAppliedEnrichment: false, reviewedInEditor: true },
+    ),
+    [
+      "бренд",
+      "краткое описание",
+      "описание",
+      "фотография",
+      "категория",
+      "цена",
+    ],
+  );
+});
+
+test("ready manually created products do not require AI approval", () => {
+  assert.deepEqual(
+    publicationMissingFields(publishable, {
+      imported: false,
+      hasAppliedEnrichment: false,
+    }),
+    [],
+  );
+});
+
+function publicationFixture() {
+  let state = {
+    product: {
+      id: "main",
+      name: "Крем",
+      isPublished: false,
+      enrichmentStatus: "REVIEW",
+      updatedAt: new Date(1000),
+      stock: 7,
+      image: "/saved.jpg",
+    },
+    proposals: [
+      { productId: "main", status: "PENDING" },
+      { productId: "main", status: "APPLIED" },
+      { productId: "other", status: "PENDING" },
+    ],
+    jobs: [
+      { productId: "main", status: "REVIEW" },
+      { productId: "other", status: "REVIEW" },
+    ],
+  };
+  const flags = { failCleanup: false };
+  const database = {
+    $transaction: async (callback: (tx: any) => Promise<unknown>) => {
+      const draft = structuredClone(state);
+      const result = await callback({
+        product: {
+          updateMany: async ({ where, data }: any) => {
+            if (
+              where.id !== draft.product.id ||
+              +where.updatedAt !== +draft.product.updatedAt ||
+              where.enrichmentStatus.notIn.includes(
+                draft.product.enrichmentStatus,
+              )
+            )
+              return { count: 0 };
+            Object.assign(draft.product, data, { updatedAt: new Date(2000) });
+            return { count: 1 };
+          },
+          findUniqueOrThrow: async () => structuredClone(draft.product),
+        },
+        productEnrichmentProposal: {
+          updateMany: async ({ where, data }: any) => {
+            if (flags.failCleanup) throw new Error("database_unavailable");
+            draft.proposals
+              .filter(
+                (row) =>
+                  row.productId === where.productId &&
+                  row.status === where.status,
+              )
+              .forEach((row) => Object.assign(row, data));
+            return { count: 1 };
+          },
+        },
+        enrichmentJob: {
+          findFirst: async ({ where }: any) =>
+            draft.jobs.find(
+              (row) =>
+                row.productId === where.productId &&
+                where.status.in.includes(row.status),
+            ) || null,
+          updateMany: async ({ where, data }: any) => {
+            draft.jobs
+              .filter(
+                (row) =>
+                  row.productId === where.productId &&
+                  row.status === where.status,
+              )
+              .forEach((row) => Object.assign(row, data));
+            return { count: 1 };
+          },
+        },
+      });
+      state = draft;
+      return result;
+    },
+  } as unknown as NonNullable<Parameters<typeof publishEditedProduct>[1]>;
+  return {
+    database,
+    flags,
+    get state() {
+      return state;
+    },
+  };
+}
+
+const publicationInput = {
+  productId: "main",
+  expectedUpdatedAt: new Date(1000),
+  data: { name: "Крем для лица" },
+};
+
+test("editor publication saves edits and closes old AI suggestions without changing inventory or other cards", async () => {
+  const fixture = publicationFixture();
+  const result = await publishEditedProduct(publicationInput, fixture.database);
+  assert.equal(result.isPublished, true);
+  assert.equal(result.name, "Крем для лица");
+  assert.equal(fixture.state.product.enrichmentStatus, "READY");
+  assert.equal(fixture.state.product.stock, 7);
+  assert.equal(fixture.state.product.image, "/saved.jpg");
+  assert.deepEqual(
+    fixture.state.proposals.map((row) => row.status),
+    ["REJECTED", "APPLIED", "PENDING"],
+  );
+  assert.deepEqual(
+    fixture.state.jobs.map((row) => row.status),
+    ["CANCELED", "REVIEW"],
+  );
+});
+
+test("a failed AI suggestion cleanup rolls back both edits and publication", async () => {
+  const fixture = publicationFixture();
+  fixture.flags.failCleanup = true;
+  const before = structuredClone(fixture.state);
+  await assert.rejects(
+    publishEditedProduct(publicationInput, fixture.database),
+    /database_unavailable/,
+  );
+  assert.deepEqual(fixture.state, before);
+});
+
+test("active enrichment, archived cards and concurrent edits cannot be published from a stale form", async () => {
+  for (const condition of ["active", "changed", "archived"] as const) {
+    const fixture = publicationFixture();
+    if (condition === "active") fixture.state.jobs[0].status = "RUNNING";
+    if (condition === "changed")
+      fixture.state.product.updatedAt = new Date(1500);
+    if (condition === "archived")
+      fixture.state.product.enrichmentStatus = "MERGED";
+    const before = structuredClone(fixture.state);
+    await assert.rejects(
+      publishEditedProduct(publicationInput, fixture.database),
+      condition === "active"
+        ? /publication_enrichment_running/
+        : /product_changed_refresh/,
+    );
+    assert.deepEqual(fixture.state, before);
+  }
+});
 const filter = (patch: Partial<typeof emptyProductFilters>) => ({
   ...emptyProductFilters,
   ...patch,
