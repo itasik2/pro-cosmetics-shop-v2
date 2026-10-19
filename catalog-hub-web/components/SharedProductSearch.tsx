@@ -15,8 +15,9 @@ const fields: Array<[Field,string]> = [
   ["application","Применение"], ["ingredients","Состав"],
 ];
 
-export function SharedProductSearch({product,enabled,canWrite}:{
+export function SharedProductSearch({product,enabled,canWrite,onSelect}:{
   product:HubProduct;enabled:boolean;canWrite:boolean;
+  onSelect?: (fields:Partial<Record<Field,string>> & {images?:string[]})=>void;
 }) {
   const [sourceUrl,setSourceUrl]=useState("");
   const [external,setExternal]=useState(false);
@@ -51,6 +52,11 @@ export function SharedProductSearch({product,enabled,canWrite}:{
     }
     if(!product.images?.length&&image)proposed.images=[image];
     if(!Object.keys(proposed).length){setError("Выберите данные для сохранения.");return;}
+    if(onSelect){
+      onSelect(proposed as Partial<Record<Field,string>> & {images?:string[]});
+      setResult(null);
+      return;
+    }
     setBusy(true);setError("");
     try{
       const response=await fetch("/api/catalog/changes",{
@@ -110,7 +116,7 @@ export function SharedProductSearch({product,enabled,canWrite}:{
         </div>
       </div>}
       <button className="button primary" type="button" disabled={busy||!canWrite}
-        onClick={()=>void stage()}>{busy?"Сохранение…":"Сохранить предложение на проверку"}</button>
+        onClick={()=>void stage()}>{busy?"Сохранение…":onSelect?"Перенести в карточку":"Сохранить предложение на проверку"}</button>
     </div>}
   </section>;
 }

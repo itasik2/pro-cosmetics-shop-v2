@@ -124,6 +124,7 @@ export async function safeHub<T>(request: Promise<T>) {
 export function catalogPath(params?: {
   q?: string;
   incomplete?: boolean;
+  category?: string;
   limit?: number;
   offset?: number;
 }) {
@@ -134,5 +135,6 @@ export function catalogPath(params?: {
   });
   if (params?.q) search.set("q", params.q);
   if (params?.incomplete) search.set("incomplete", "true");
+  if (params?.category) search.set("category", params.category);
   return "/v1/catalog/products?" + search.toString();
 }
