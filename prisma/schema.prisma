@@ -276,6 +276,7 @@ model PriceImport {
   priceHistory ProductPriceHistory[]
 
   @@unique([supplierId, fileHash])
+  @@index([supplierId, sourceDate(sort: Desc)], map: "PriceImport_supplier_date_idx")
 }
 
 model PriceImportRow {
@@ -295,6 +296,7 @@ model PriceImportRow {
   confidence  Int             @default(0)
   selected    Boolean         @default(true)
   error       String?
+  appliedAt   DateTime?
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

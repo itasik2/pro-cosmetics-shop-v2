@@ -1,6 +1,6 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 import {
   ImportRowAction,
@@ -28,19 +28,17 @@ import {
   parsedProductGroupKey,
 } from "@/lib/price-import/productVariants";
 import { slugify } from "@/lib/slug";
+import { applyPriceImport } from "@/lib/price-import/applyImport";
+import {
+  preparePriceImport,
+  readPriceImport,
+} from "@/lib/price-import/reconciliation";
+import { dateBlock, sourceDay } from "@/lib/price-import/reconciliationPolicy";
 
 const MAX_FILE_SIZE = 12 * 1024 * 1024;
 
 async function readImport(id: string) {
-  return prisma.priceImport.findUnique({
-    where: { id },
-    include: {
-      supplier: true,
-      rows: {
-        orderBy: [{ pageNumber: "asc" }, { rowNumber: "asc" }],
-      },
-    },
-  });
+  return readPriceImport(id);
 }
 
 function cleanText(value: FormDataEntryValue | null, maxLength: number) {
@@ -60,7 +58,10 @@ function normalizeLookup(value: string) {
 }
 
 function skuKey(value: string | null | undefined) {
-  return String(value || "").replace(/\s+/g, "").trim().toUpperCase();
+  return String(value || "")
+    .replace(/\s+/g, "")
+    .trim()
+    .toUpperCase();
 }
 
 function productKey(brand: string, sku: string) {
@@ -87,23 +88,19 @@ function isPdf(file: File, bytes: Uint8Array) {
 function looksLikeJeudermFile(fileName: string, parserMode: string) {
   return (
     parserMode === "JEUDERM_PDF" ||
-    /jeu\s*d[eé]rm/i.test(fileName.normalize("NFKD").replace(/[\u0300-\u036f]/g, ""))
+    /jeu\s*d[eé]rm/i.test(
+      fileName.normalize("NFKD").replace(/[\u0300-\u036f]/g, ""),
+    )
   );
 }
 
-async function ensureSupplier(input: {
-  name: string;
-  siteUrl: string | null;
-}) {
+async function ensureSupplier(input: { name: string; siteUrl: string | null }) {
   const slug = slugify(input.name);
   if (!slug) throw new Error("supplier_slug_empty");
 
   const existing = await prisma.supplier.findFirst({
     where: {
-      OR: [
-        { slug },
-        { name: { equals: input.name, mode: "insensitive" } },
-      ],
+      OR: [{ slug }, { name: { equals: input.name, mode: "insensitive" } }],
     },
   });
 
@@ -212,9 +209,21 @@ export async function POST(req: Request) {
     );
     const defaultBrand = cleanText(form.get("defaultBrand"), 160);
     const parserMode = normalizeParserMode(form.get("parserMode"));
+    const requestedDate = cleanText(form.get("sourceDate"), 20);
+    if (requestedDate && !sourceDay(requestedDate))
+      return NextResponse.json(
+        {
+          error: "source_date_invalid",
+          message: "Укажите корректную дату прайса.",
+        },
+        { status: 400 },
+      );
 
     if (!supplierName) {
-      return NextResponse.json({ error: "supplier_name_required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "supplier_name_required" },
+        { status: 400 },
+      );
     }
     if (!(file instanceof File)) {
       return NextResponse.json({ error: "file_required" }, { status: 400 });
@@ -250,10 +259,23 @@ export async function POST(req: Request) {
           fileHash,
         },
       },
-      select: { id: true, status: true, createdAt: true },
+      select: {
+        id: true,
+        status: true,
+        createdAt: true,
+        rows: {
+          where: { appliedAt: { not: null } },
+          select: { id: true },
+          take: 1,
+        },
+      },
     });
 
-    if (duplicate && duplicate.status !== PriceImportStatus.FAILED) {
+    if (
+      duplicate &&
+      (duplicate.status !== PriceImportStatus.FAILED ||
+        duplicate.rows.length > 0)
+    ) {
       const refreshed = await refreshDuplicateJeudermImages({
         importId: duplicate.id,
         bytes,
@@ -320,6 +342,13 @@ export async function POST(req: Request) {
       parserMode,
       defaultBrand,
     });
+    if (requestedDate) {
+      parsed.sourceDate = requestedDate;
+      parsed.rows = parsed.rows.map((row) => ({
+        ...row,
+        sourceDate: requestedDate,
+      }));
+    }
 
     const variantGroupKeys = autoVariantGroupKeys(parsed.rows);
     const existingProducts = await prisma.product.findMany({
@@ -345,7 +374,10 @@ export async function POST(req: Request) {
       },
     });
 
-    const existingByBrandSku = new Map<string, (typeof existingProducts)[number]>();
+    const existingByBrandSku = new Map<
+      string,
+      (typeof existingProducts)[number]
+    >();
     const existingByGroup = new Map<
       string,
       Array<(typeof existingProducts)[number]>
@@ -404,10 +436,7 @@ export async function POST(req: Request) {
       }
     }
 
-    const existingBySku = new Map<
-      string,
-      (typeof existingProducts)[number]
-    >();
+    const existingBySku = new Map<string, (typeof existingProducts)[number]>();
     for (const [sku, candidates] of skuCandidates) {
       if (candidates.size === 1) {
         existingBySku.set(sku, [...candidates.values()][0]);
@@ -423,10 +452,7 @@ export async function POST(req: Request) {
       groupedRows.set(key, list);
     }
 
-    const groupCanonical = new Map<
-      string,
-      (typeof existingProducts)[number]
-    >();
+    const groupCanonical = new Map<string, (typeof existingProducts)[number]>();
     for (const [key, rows] of groupedRows) {
       const skuMatches = rows
         .map((row) => {
@@ -436,12 +462,12 @@ export async function POST(req: Request) {
             existingBySku.get(skuKey(row.supplierSku))
           );
         })
-        .filter(
-          (row): row is (typeof existingProducts)[number] => Boolean(row),
+        .filter((row): row is (typeof existingProducts)[number] =>
+          Boolean(row),
         );
       const candidates = skuMatches.length
         ? skuMatches
-        : existingByGroup.get(key) ?? [];
+        : (existingByGroup.get(key) ?? []);
       const unique = [
         ...new Map(candidates.map((product) => [product.id, product])).values(),
       ];
@@ -471,13 +497,13 @@ export async function POST(req: Request) {
           : undefined;
         const existing =
           autoVariant && groupKey
-            ? groupCanonical.get(groupKey) ?? exactSkuExisting
+            ? (groupCanonical.get(groupKey) ?? exactSkuExisting)
             : exactSkuExisting;
         const previousBrand = exactSkuExisting?.brand?.name || null;
         const rebrandDetected = Boolean(
           exactSkuExisting &&
-            previousBrand &&
-            normalizeLookup(previousBrand) !== normalizeLookup(row.brand),
+          previousBrand &&
+          normalizeLookup(previousBrand) !== normalizeLookup(row.brand),
         );
         const retailRestricted =
           priceMode === "PRICE_AS_IS" &&
@@ -546,9 +572,7 @@ export async function POST(req: Request) {
       await prisma.priceImportRow.createMany({ data: rowData });
     }
 
-    const sourceDate = parsed.sourceDate
-      ? new Date(`${parsed.sourceDate}T00:00:00.000Z`)
-      : null;
+    const sourceDate = sourceDay(parsed.sourceDate);
     const validRows = rowData.filter(
       (row) =>
         (row.confidence ?? 0) >= 75 &&
@@ -569,10 +593,24 @@ export async function POST(req: Request) {
       },
     });
 
+    let automaticWarning: string | null = null;
+    try {
+      await preparePriceImport(priceImport.id);
+      if (!dateBlock(sourceDate, null))
+        await applyPriceImport({ importId: priceImport.id, automatic: true });
+    } catch (error) {
+      // Parsing succeeded; keep the review and any completed row transactions available for retry.
+      automaticWarning =
+        error instanceof Error
+          ? error.message
+          : "automatic_price_update_failed";
+    }
+
     const result = await readImport(priceImport.id);
     return NextResponse.json(
       {
         import: result,
+        automaticWarning,
         parser: {
           id: parsed.parserId,
           pageCount: parsed.pageCount,
@@ -593,8 +631,8 @@ export async function POST(req: Request) {
 
     if (importId) {
       await prisma.priceImport
-        .update({
-          where: { id: importId },
+        .updateMany({
+          where: { id: importId, rows: { none: { appliedAt: { not: null } } } },
           data: { status: PriceImportStatus.FAILED },
         })
         .catch(() => undefined);

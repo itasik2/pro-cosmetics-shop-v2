@@ -8,6 +8,7 @@ type ImportItem = {
   status: "UPLOADED" | "PARSING" | "REVIEW" | "APPLIED" | "FAILED";
   createdAt: string;
   totalRows: number;
+  hasAppliedRows?: boolean;
   supplier: { name: string };
 };
 
@@ -22,10 +23,14 @@ export default function PriceImportMaintenance() {
   const [message, setMessage] = useState<string | null>(null);
 
   async function load() {
-    const response = await fetch("/api/admin/price-imports", { cache: "no-store" });
+    const response = await fetch("/api/admin/price-imports", {
+      cache: "no-store",
+    });
     if (!response.ok) return;
     const rows = (await response.json()) as ImportItem[];
-    setItems(rows.filter((row) => row.status !== "APPLIED"));
+    setItems(
+      rows.filter((row) => row.status !== "APPLIED" && !row.hasAppliedRows),
+    );
   }
 
   useEffect(() => {
@@ -33,7 +38,11 @@ export default function PriceImportMaintenance() {
   }, []);
 
   async function remove(item: ImportItem) {
-    if (!confirm(`Удалить импорт «${item.fileName}»? Товары из неприменённого импорта не создавались.`)) {
+    if (
+      !confirm(
+        `Удалить импорт «${item.fileName}»? Товары из неприменённого импорта не создавались.`,
+      )
+    ) {
       return;
     }
 
@@ -64,8 +73,8 @@ export default function PriceImportMaintenance() {
       <div>
         <h2 className="font-semibold">Удаление неприменённых импортов</h2>
         <p className="mt-1 text-xs text-gray-500">
-          Неудачные и ожидающие проверки загрузки можно удалить. Применённые импорты
-          остаются журналом изменения товаров и цен.
+          Неудачные и ожидающие проверки загрузки можно удалить. Применённые
+          импорты остаются журналом изменения товаров и цен.
         </p>
       </div>
 
@@ -81,8 +90,8 @@ export default function PriceImportMaintenance() {
               <div className="min-w-0">
                 <div className="font-medium break-words">{item.fileName}</div>
                 <div className="text-xs text-gray-500">
-                  {item.supplier.name} • {item.status} • строк: {item.totalRows} •{" "}
-                  {formatDate(item.createdAt)}
+                  {item.supplier.name} • {item.status} • строк: {item.totalRows}{" "}
+                  • {formatDate(item.createdAt)}
                 </div>
               </div>
               <button

@@ -1,5 +1,6 @@
 import { PriceImportStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { priceToday } from "./reconciliationPolicy";
 
 export type PriceImportDateComparison = {
   status: "NO_BASELINE" | "NO_SOURCE_DATE" | "CURRENT" | "OLDER";
@@ -9,16 +10,19 @@ export type PriceImportDateComparison = {
   currentFileName: string | null;
 };
 
-export async function comparePriceImportDate(input: {
-  supplierId: string;
-  sourceDate: Date | null;
-  excludeImportId?: string | null;
-}): Promise<PriceImportDateComparison> {
-  const current = await prisma.priceImport.findFirst({
+export async function comparePriceImportDate(
+  input: {
+    supplierId: string;
+    sourceDate: Date | null;
+    excludeImportId?: string | null;
+  },
+  database: Pick<typeof prisma, "priceImport"> = prisma,
+): Promise<PriceImportDateComparison> {
+  const current = await database.priceImport.findFirst({
     where: {
       supplierId: input.supplierId,
-      status: PriceImportStatus.APPLIED,
-      sourceDate: { not: null },
+      status: { in: [PriceImportStatus.APPLIED, PriceImportStatus.REVIEW] },
+      sourceDate: { not: null, lte: priceToday() },
       ...(input.excludeImportId ? { id: { not: input.excludeImportId } } : {}),
     },
     select: {
