@@ -73,7 +73,7 @@ export function SharedProductSearch({product,enabled,canWrite,onSelect}:{
   if(!product.images?.length)missing.push("Фотографии");
   return <section className="panel">
     <h2>Заполнить пустые поля и подобрать фото</h2>
-    <p className="subtle">Не заполнено: {missing.join(", ")||"основные поля заполнены"}. Поиск использует сервис ProCosmetics; результат сначала поступает на проверку.</p>
+    <p className="subtle">Не заполнено: {missing.join(", ")||"основные поля заполнены"}. Сначала проверяется готовая карточка ProCosmetics по SKU и бренду, затем сайт производителя. Результат поступает на проверку.</p>
     {!enabled&&<p className="error" role="status">Поиск ещё не подключён: настройте адрес сервиса и общий серверный ключ.</p>}
     <div className="actions" style={{alignItems:"end"}}>
       <label className="editor-field" style={{minWidth:260,flex:1}}><span>Ссылка на товар (необязательно)</span>
@@ -91,7 +91,9 @@ export function SharedProductSearch({product,enabled,canWrite,onSelect}:{
     {result&&draft&&<div className="panel" style={{marginTop:14}}>
       <h3>Предложение · {result.confidence}% совпадения</h3>
       <p>Источник: <a href={result.sourceUrl} target="_blank" rel="noreferrer">{result.sourceUrl}</a></p>
-      <p className="subtle">{result.sourceType==="official_unverified"
+      <p className="subtle">{result.sourceType==="procosmetics_catalog"
+        ?"Данные найдены в существующей карточке ProCosmetics. Проверьте описание и фасовку."
+        :result.sourceType==="official_unverified"
         ?"Официальный сайт найден автоматически. Проверьте принадлежность бренду и фасовку."
         :"Проверьте источник, SKU и фасовку перед сохранением."}</p>
       {result.warnings?.map((warning,index)=><p className="import-warning" key={index}>{warning}</p>)}

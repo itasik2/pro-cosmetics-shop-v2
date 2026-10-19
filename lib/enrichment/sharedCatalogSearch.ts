@@ -22,6 +22,13 @@ export const sharedSearchInput = z.object({
 
 export async function searchSharedCatalogProduct(raw: unknown) {
   const input = sharedSearchInput.parse(raw);
+  if (!input.sourceUrl && input.product.brand) {
+    try {
+      const { findShopCatalogSource } = await import("./shopCatalogSource");
+      const stored = await findShopCatalogSource(input.product);
+      if (stored) return stored;
+    } catch { /* Search the manufacturer when the shop database is unavailable. */ }
+  }
   if (!process.env.OPENAI_API_KEY && !input.sourceUrl) throw new Error("openai_not_configured");
   const product: MatchableProduct = {
     name: input.product.title,
