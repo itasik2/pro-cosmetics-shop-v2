@@ -33,14 +33,16 @@ const product = (await request(api + "/v1/catalog/products", { method: "POST", h
     attributes: { volumeValue: 50, volumeUnit: "ml" } },
 }) }, 201)).data;
 await action({ action: "source", supplierCode: "TEST-ENRICH", name: "Synthetic supplier", sourceUrl: "https://fixture.example", sourceType: "OFFICIAL_SITE" });
-const job = await action({ action: "create", sku, supplierCode: "TEST-ENRICH", sourceUrl: "https://untrusted.invalid/product" });
+// Operator-supplied public URLs are allowed; private IPs must be rejected
+// before any network request, keeping this test strictly local.
+const job = await action({ action: "create", sku, supplierCode: "TEST-ENRICH", sourceUrl: "https://127.0.0.1/product" });
 assert.equal(job.status, "PENDING");
 const list = (await request(ai + "/v1/ai/enrichment/jobs?organizationId=" + org, { headers: apiHeaders })).data;
 assert.ok(list.some(item => item.id === job.id));
 const foreign = (await request(ai + "/v1/ai/enrichment/jobs?organizationId=unrelated-org", { headers: apiHeaders })).data;
 assert.equal(foreign.some(item => item.id === job.id), false);
 const failure = await action({ action: "run", id: job.id }, 400);
-assert.equal(failure.error, "source_domain_not_allowed");
+assert.equal(failure.error, "source_ip_blocked");
 const failedJob = (await request(ai + "/v1/ai/enrichment/jobs/" + job.id + "?organizationId=" + org, { headers: apiHeaders })).data;
 assert.equal(failedJob.status, "FAILED");
 assert.equal(failedJob.attempt, 1);
