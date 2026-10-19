@@ -1,4 +1,3 @@
-import { PriceImportStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { normalizeStoredVariants } from "@/lib/price-import/productVariants";
 import { photoSku, type VariantImageGroup } from "./variantImages";
@@ -38,12 +37,10 @@ export async function priceListImagesBySku(
   const rows = await prisma.priceImportRow.findMany({
     where: {
       productId: { in: ids },
-      import: {
-        status: PriceImportStatus.APPLIED,
-        ...(preferredImportId ? { id: preferredImportId } : {}),
-      },
+      appliedAt: { not: null },
+      ...(preferredImportId ? { importId: preferredImportId } : {}),
     },
-    orderBy: [{ import: { appliedAt: "desc" } }, { updatedAt: "desc" }],
+    orderBy: [{ import: { sourceDate: "desc" } }, { appliedAt: "desc" }],
     select: {
       productId: true,
       supplierSku: true,

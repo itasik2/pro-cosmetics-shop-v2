@@ -5,9 +5,7 @@ import { PriceImportStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/adminGuard";
-import {
-  ENRICHMENT_PRICE_IMPORT_COOKIE,
-} from "@/lib/enrichment/priceImportScope";
+import { ENRICHMENT_PRICE_IMPORT_COOKIE } from "@/lib/enrichment/priceImportScope";
 import { prisma } from "@/lib/prisma";
 
 const BodySchema = z.object({
@@ -30,8 +28,16 @@ export async function GET(req: Request) {
   if (forbidden) return forbidden;
 
   const imports = await prisma.priceImport.findMany({
-    where: { status: PriceImportStatus.APPLIED },
-    orderBy: [{ appliedAt: "desc" }, { createdAt: "desc" }],
+    where: {
+      OR: [
+        { status: PriceImportStatus.APPLIED },
+        {
+          status: PriceImportStatus.REVIEW,
+          rows: { some: { appliedAt: { not: null } } },
+        },
+      ],
+    },
+    orderBy: [{ sourceDate: "desc" }, { createdAt: "desc" }],
     take: 50,
     select: {
       id: true,
@@ -78,11 +84,23 @@ export async function POST(req: Request) {
   const importId = parsed.data.importId;
   if (importId !== "ALL") {
     const exists = await prisma.priceImport.findFirst({
-      where: { id: importId, status: PriceImportStatus.APPLIED },
+      where: {
+        id: importId,
+        OR: [
+          { status: PriceImportStatus.APPLIED },
+          {
+            status: PriceImportStatus.REVIEW,
+            rows: { some: { appliedAt: { not: null } } },
+          },
+        ],
+      },
       select: { id: true },
     });
     if (!exists) {
-      return NextResponse.json({ error: "price_import_not_found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "price_import_not_found" },
+        { status: 404 },
+      );
     }
   }
 

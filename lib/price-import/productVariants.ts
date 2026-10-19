@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { ParsedImportRow } from "./parsedRow";
+import { photoSku } from "../enrichment/variantImages";
 
 export type StoredProductVariant = {
   id: string;
@@ -199,9 +200,9 @@ export function makeImportedVariant(input: {
 }
 
 export function findVariantBySku(variants: StoredProductVariant[], sku: string | null | undefined) {
-  const wanted = clean(sku).toUpperCase();
+  const wanted = photoSku(sku);
   if (!wanted) return null;
-  return variants.find((variant) => clean(variant.sku).toUpperCase() === wanted) ?? null;
+  return variants.find((variant) => photoSku(variant.sku) === wanted) ?? null;
 }
 
 export function mergeImportedVariant(

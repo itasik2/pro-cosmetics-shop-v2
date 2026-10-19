@@ -15,8 +15,18 @@ export async function GET() {
     include: {
       supplier: true,
       _count: { select: { rows: true } },
+      rows: {
+        where: { appliedAt: { not: null } },
+        select: { id: true },
+        take: 1,
+      },
     },
   });
 
-  return NextResponse.json(imports);
+  return NextResponse.json(
+    imports.map(({ rows, ...item }) => ({
+      ...item,
+      hasAppliedRows: rows.length > 0,
+    })),
+  );
 }

@@ -1,6 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import PriceImportSummary from "./PriceImportSummary";
+import type {
+  PriceDecision,
+  PriceReconciliation,
+} from "@/lib/price-import/reconciliationPolicy";
 
 type ImportStatus = "UPLOADED" | "PARSING" | "REVIEW" | "APPLIED" | "FAILED";
 type RowAction = "CREATE" | "UPDATE" | "SKIP" | "ERROR" | "MANUAL_REVIEW";
@@ -43,6 +48,8 @@ type ImportRow = {
   selected: boolean;
   error: string | null;
   parsedData: ParsedData | null;
+  appliedAt: string | null;
+  priceDecision?: PriceDecision;
 };
 
 type DateComparison = {
@@ -72,6 +79,7 @@ type PriceImport = {
   supplier: { id: string; name: string; slug: string };
   rows: ImportRow[];
   dateComparison?: DateComparison | null;
+  reconciliation?: PriceReconciliation;
 };
 
 type ImportListItem = Omit<PriceImport, "rows"> & {
@@ -105,7 +113,9 @@ function formatDate(value: string | null | undefined) {
 function formatDay(value: string | null | undefined) {
   if (!value) return "не определена";
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "не определена" : date.toLocaleDateString("ru-RU");
+  return Number.isNaN(date.getTime())
+    ? "не определена"
+    : date.toLocaleDateString("ru-RU");
 }
 
 function normalizeLookup(value: string) {
@@ -113,7 +123,7 @@ function normalizeLookup(value: string) {
 }
 
 async function readJson(res: Response) {
-  return res.json().catch(() => ({} as any));
+  return res.json().catch(() => ({}) as any);
 }
 
 export default function PriceImportsClient({
@@ -134,6 +144,9 @@ export default function PriceImportsClient({
   const [saving, setSaving] = useState(false);
   const [applying, setApplying] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [sourceDate, setSourceDate] = useState("");
+  const [reviewDate, setReviewDate] = useState("");
+  const [rowFilter, setRowFilter] = useState("ALL");
 
   async function loadImports() {
     const res = await fetch("/api/admin/price-imports", { cache: "no-store" });
@@ -144,10 +157,42 @@ export default function PriceImportsClient({
     setBusy(true);
     setMessage(null);
     try {
-      const res = await fetch(`/api/admin/price-imports/${id}`, { cache: "no-store" });
-      const data = await readJson(res);
+      const res = await fetch(`/api/admin/price-imports/${id}`, {
+        cache: "no-store",
+      });
+      let data = await readJson(res);
       if (!res.ok) throw new Error(data?.error || String(res.status));
       setCurrent(data);
+      setReviewDate(data.sourceDate?.slice(0, 10) || "");
+      setRowFilter("ALL");
+      // Continue bounded server batches, including an interrupted previous upload.
+      while (
+        data.status === "REVIEW" &&
+        data.reconciliation?.automaticPending > 0
+      ) {
+        const previousCount = data.reconciliation.automaticPending;
+        setMessage(
+          `Автоматическое обновление цен: осталось ${previousCount} позиций…`,
+        );
+        const automatic = await fetch(`/api/admin/price-imports/${id}/apply`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ automatic: true }),
+        });
+        const result = await readJson(automatic);
+        if (!automatic.ok)
+          throw new Error(
+            result.message || result.error || String(automatic.status),
+          );
+        data = result.import;
+        setCurrent(data);
+        window.dispatchEvent(new Event("products-changed"));
+        if (
+          !data.reconciliation ||
+          data.reconciliation.automaticPending >= previousCount
+        )
+          break;
+      }
     } catch (error: any) {
       setMessage(`Ошибка загрузки импорта: ${error?.message || "unknown"}`);
     } finally {
@@ -197,6 +242,7 @@ export default function PriceImportsClient({
       form.append("priceMode", priceMode);
       form.append("markupPercent", markupPercent);
       form.append("roundingStep", roundingStep);
+      if (sourceDate) form.append("sourceDate", sourceDate);
 
       const res = await fetch("/api/admin/price-imports/upload", {
         method: "POST",
@@ -205,7 +251,9 @@ export default function PriceImportsClient({
       const data = await readJson(res);
 
       if (res.status === 409 && data?.importId) {
-        setMessage("Этот файл уже загружался для выбранного поставщика. Открыт существующий импорт.");
+        setMessage(
+          "Этот файл уже загружался для выбранного поставщика. Открыт существующий импорт.",
+        );
         await openImport(String(data.importId));
         await loadImports();
         return;
@@ -226,12 +274,17 @@ export default function PriceImportsClient({
     }
   }
 
-  function patchRow(id: string, patch: Partial<Pick<ImportRow, "selected" | "action">>) {
+  function patchRow(
+    id: string,
+    patch: Partial<Pick<ImportRow, "selected" | "action">>,
+  ) {
     setCurrent((value) =>
       value
         ? {
             ...value,
-            rows: value.rows.map((row) => (row.id === id ? { ...row, ...patch } : row)),
+            rows: value.rows.map((row) =>
+              row.id === id ? { ...row, ...patch } : row,
+            ),
           }
         : value,
     );
@@ -244,7 +297,8 @@ export default function PriceImportsClient({
             ...value,
             rows: value.rows.map((row) => ({
               ...row,
-              selected: row.action === "ERROR" ? false : selected,
+              selected:
+                row.action === "ERROR" || row.appliedAt ? false : selected,
             })),
           }
         : value,
@@ -257,19 +311,25 @@ export default function PriceImportsClient({
     if (showMessage) setMessage(null);
 
     try {
-      const res = await fetch(`/api/admin/price-imports/${current.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          rows: current.rows.map((row) => ({
-            id: row.id,
-            selected: row.selected,
-            action: row.action,
-          })),
-        }),
-      });
-      const data = await readJson(res);
-      if (!res.ok) throw new Error(data?.error || String(res.status));
+      const pending = current.rows.filter((row) => !row.appliedAt);
+      let data = current;
+      for (let offset = 0; offset < pending.length; offset += 1000) {
+        const res = await fetch(`/api/admin/price-imports/${current.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            rows: pending.slice(offset, offset + 1000).map((row) => ({
+              id: row.id,
+              selected: row.selected,
+              action: row.action,
+            })),
+          }),
+        });
+        const result = await readJson(res);
+        if (!res.ok)
+          throw new Error(result.message || result.error || String(res.status));
+        data = result;
+      }
       setCurrent(data);
       if (showMessage) setMessage("Настройки строк сохранены");
       return true;
@@ -285,13 +345,34 @@ export default function PriceImportsClient({
     if (!current || current.status !== "REVIEW") return;
 
     if (current.dateComparison?.status === "OLDER") {
-      const approved = confirm(
-        `Внимание: загруженный прайс от ${formatDay(current.dateComparison.sourceDate)} старше используемого прайса от ${formatDay(current.dateComparison.currentSourceDate)}. Применение может откатить цены назад. Всё равно применить этот прайс?`,
+      setMessage(
+        "Уже есть более свежий прайс поставщика. Старые цены не применяются.",
       );
-      if (!approved) return;
-    } else if (!confirm("Создать и обновить выбранные товары?")) {
       return;
     }
+    const decreases = current.rows.filter(
+      (row) =>
+        row.selected &&
+        !row.appliedAt &&
+        row.priceDecision?.kind === "DECREASE",
+    );
+    const prompt = decreases.length
+      ? `Подтвердить снижение цен для ${decreases.length} позиций?\n\n` +
+        decreases
+          .slice(0, 20)
+          .map(
+            (row) =>
+              `SKU ${row.supplierSku}: ${formatMoney(row.priceDecision?.previousPrice)} → ${formatMoney(row.priceDecision?.nextPrice)}`,
+          )
+          .join("\n") +
+        (decreases.length > 20
+          ? `\nЕщё ${decreases.length - 20} позиций — см. список снижений в таблице.`
+          : "") +
+        "\n\nОстальные выбранные позиции также будут применены."
+      : selectedCount
+        ? "Создать и обновить выбранные товары? Новые позиции получат пометку «Новинка»."
+        : "Завершить проверку прайса? Для пропущенных позиций текущие цены сохранятся.";
+    if (!confirm(prompt)) return;
 
     setApplying(true);
     setMessage(null);
@@ -301,13 +382,23 @@ export default function PriceImportsClient({
 
       const res = await fetch(`/api/admin/price-imports/${current.id}/apply`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          approvedDecreases: decreases.map((row) => ({
+            rowId: row.id,
+            previousPrice: row.priceDecision!.previousPrice,
+            nextPrice: row.priceDecision!.nextPrice,
+          })),
+        }),
       });
       const data = await readJson(res);
-      if (!res.ok) throw new Error(data?.error || String(res.status));
+      if (!res.ok)
+        throw new Error(data?.message || data?.error || String(res.status));
       setCurrent(data.import);
       setMessage(
-        `Готово: создано ${data.import.createdRows}, обновлено ${data.import.updatedRows}, ошибок ${data.import.errorRows}`,
+        `Готово: создано ${data.import.createdRows}, обновлено ${data.import.updatedRows}, ошибок ${data.import.errorRows}. Ожидают подтверждения снижений: ${data.import.reconciliation?.decreases || 0}.`,
       );
+      window.dispatchEvent(new Event("products-changed"));
       await loadImports();
     } catch (error: any) {
       setMessage(`Ошибка применения: ${error?.message || "unknown"}`);
@@ -317,23 +408,83 @@ export default function PriceImportsClient({
   }
 
   const selectedCount = useMemo(
-    () => current?.rows.filter((row) => row.selected).length ?? 0,
+    () =>
+      current?.rows.filter(
+        (row) =>
+          row.selected &&
+          !row.appliedAt &&
+          ["CREATE", "UPDATE"].includes(row.action),
+      ).length ?? 0,
     [current],
   );
+  const canFinishReview = Boolean(
+    current &&
+    current.rows.every(
+      (row) => row.appliedAt || ["SKIP", "ERROR"].includes(row.action),
+    ),
+  );
+
+  async function saveSourceDate() {
+    if (!current || !reviewDate) return;
+    setSaving(true);
+    setMessage(null);
+    try {
+      const res = await fetch(`/api/admin/price-imports/${current.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourceDate: reviewDate }),
+      });
+      const data = await readJson(res);
+      if (!res.ok)
+        throw new Error(data.message || data.error || String(res.status));
+      setCurrent(data);
+      await openImport(current.id);
+      setMessage(
+        "Дата прайса сохранена. Безопасные изменения цен применены автоматически.",
+      );
+      await loadImports();
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Не удалось сохранить дату",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const visibleRows =
+    current?.rows.filter(
+      (row) =>
+        rowFilter === "ALL" ||
+        (rowFilter === "DECREASE" && row.priceDecision?.kind === "DECREASE") ||
+        (rowFilter === "NEW" &&
+          (row.priceDecision?.wasNew ||
+            ["NEW", "NEW_VARIANT"].includes(row.priceDecision?.kind || "") ||
+            row.action === "CREATE")) ||
+        (rowFilter === "APPLIED" && row.appliedAt) ||
+        (rowFilter === "REVIEW" &&
+          !row.appliedAt &&
+          !["SKIP", "APPLIED", "INCREASE", "UNCHANGED"].includes(
+            row.priceDecision?.kind || "",
+          )),
+    ) || [];
 
   return (
     <div className="space-y-6 min-w-0">
       <div>
         <h1 className="text-2xl font-bold">Импорт прайсов</h1>
         <p className="mt-1 text-sm text-gray-500">
-          Поставщик и бренд указываются раздельно. Один PDF может содержать несколько
-          брендов, когда в таблице есть колонка «Бренд». Все новые товары создаются
-          неопубликованными.
+          Поставщик и бренд указываются раздельно. Один PDF может содержать
+          несколько брендов, когда в таблице есть колонка «Бренд». Все новые
+          товары создаются неопубликованными.
         </p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
-        <form onSubmit={upload} className="rounded-2xl border p-4 space-y-4 min-w-0">
+        <form
+          onSubmit={upload}
+          className="rounded-2xl border p-4 space-y-4 min-w-0"
+        >
           <h2 className="font-semibold">Загрузить прайс поставщика</h2>
 
           <div className="grid gap-3 md:grid-cols-2">
@@ -370,7 +521,9 @@ export default function PriceImportsClient({
               <select
                 className="w-full rounded-xl border px-3 py-2 bg-white"
                 value={parserMode}
-                onChange={(event) => changeParser(event.target.value as ParserMode)}
+                onChange={(event) =>
+                  changeParser(event.target.value as ParserMode)
+                }
               >
                 <option value="AUTO">Определить автоматически</option>
                 <option value="ANGIOPHARM_PDF">ANGIOPHARM PDF</option>
@@ -405,6 +558,22 @@ export default function PriceImportsClient({
             />
           </label>
 
+          <label className="block space-y-1">
+            <span className="text-sm text-gray-600">
+              Дата прайса, если её нет в файле или нужно исправить
+            </span>
+            <input
+              type="date"
+              value={sourceDate}
+              onChange={(event) => setSourceDate(event.target.value)}
+              className="rounded-xl border px-3 py-2"
+            />
+            <span className="block text-xs text-gray-500">
+              Свежесть определяется датой прайса, а не временем загрузки. Без
+              даты цены автоматически не меняются.
+            </span>
+          </label>
+
           <div className="grid gap-3 md:grid-cols-3">
             <label className="space-y-1">
               <span className="text-sm text-gray-600">Правило цены</span>
@@ -428,7 +597,9 @@ export default function PriceImportsClient({
                 className="w-full rounded-xl border px-3 py-2"
                 value={markupPercent}
                 disabled={priceMode !== "MARKUP_PERCENT"}
-                onChange={(event) => setMarkupPercent(event.target.value.replace(/[^\d]/g, ""))}
+                onChange={(event) =>
+                  setMarkupPercent(event.target.value.replace(/[^\d]/g, ""))
+                }
               />
             </label>
 
@@ -464,6 +635,7 @@ export default function PriceImportsClient({
                 key={item.id}
                 type="button"
                 onClick={() => openImport(item.id)}
+                disabled={busy || saving || applying}
                 className="w-full rounded-xl border p-3 text-left hover:bg-gray-50"
               >
                 <div className="flex items-start justify-between gap-2">
@@ -471,7 +643,8 @@ export default function PriceImportsClient({
                   <StatusBadge status={item.status} />
                 </div>
                 <div className="mt-1 text-xs text-gray-500">
-                  {item.supplier.name} • {formatDate(item.createdAt)} • строк: {item._count.rows}
+                  {item.supplier.name} • {formatDate(item.createdAt)} • строк:{" "}
+                  {item._count.rows}
                 </div>
               </button>
             ))}
@@ -482,18 +655,27 @@ export default function PriceImportsClient({
         </section>
       </div>
 
-      {message && <div className="rounded-xl border bg-gray-50 px-4 py-3 text-sm">{message}</div>}
+      {message && (
+        <div className="rounded-xl border bg-gray-50 px-4 py-3 text-sm">
+          {message}
+        </div>
+      )}
 
       {current && (
         <section className="space-y-4 min-w-0">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-xl font-semibold break-all">{current.fileName}</h2>
+                <h2 className="text-xl font-semibold break-all">
+                  {current.fileName}
+                </h2>
                 <StatusBadge status={current.status} />
               </div>
               <div className="mt-1 text-sm text-gray-500">
-                {current.supplier.name} • дата прайса: {current.sourceDate ? new Date(current.sourceDate).toLocaleDateString("ru-RU") : "не найдена"}
+                {current.supplier.name} • дата прайса:{" "}
+                {current.sourceDate
+                  ? new Date(current.sourceDate).toLocaleDateString("ru-RU")
+                  : "не найдена"}
               </div>
             </div>
 
@@ -502,6 +684,9 @@ export default function PriceImportsClient({
                 type="button"
                 className="rounded-xl border px-3 py-2 text-sm hover:bg-gray-50"
                 onClick={() => selectAll(true)}
+                disabled={
+                  busy || saving || applying || current.status !== "REVIEW"
+                }
               >
                 Выбрать всё
               </button>
@@ -509,12 +694,17 @@ export default function PriceImportsClient({
                 type="button"
                 className="rounded-xl border px-3 py-2 text-sm hover:bg-gray-50"
                 onClick={() => selectAll(false)}
+                disabled={
+                  busy || saving || applying || current.status !== "REVIEW"
+                }
               >
                 Снять всё
               </button>
               <button
                 type="button"
-                disabled={saving || current.status !== "REVIEW"}
+                disabled={
+                  busy || applying || saving || current.status !== "REVIEW"
+                }
                 className="rounded-xl border px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
                 onClick={() => saveRows(true)}
               >
@@ -522,23 +712,41 @@ export default function PriceImportsClient({
               </button>
               <button
                 type="button"
-                disabled={applying || current.status !== "REVIEW" || selectedCount === 0}
+                disabled={
+                  busy ||
+                  saving ||
+                  applying ||
+                  current.status !== "REVIEW" ||
+                  (selectedCount === 0 && !canFinishReview) ||
+                  !current.sourceDate ||
+                  current.dateComparison?.status === "OLDER"
+                }
                 className="rounded-xl bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
                 onClick={applyImport}
               >
-                {applying ? "Применение…" : `Применить (${selectedCount})`}
+                {applying
+                  ? "Применение…"
+                  : canFinishReview
+                    ? "Завершить проверку"
+                    : `Применить (${selectedCount})`}
               </button>
             </div>
           </div>
 
           {current.dateComparison?.status === "OLDER" ? (
             <div className="rounded-2xl border border-red-300 bg-red-50 p-4 text-sm text-red-900">
-              <div className="font-bold">Внимание: загружен более старый прайс</div>
-              <div className="mt-1">
-                Новый файл датирован {formatDay(current.dateComparison.sourceDate)}, а для этого поставщика уже используется прайс от {formatDay(current.dateComparison.currentSourceDate)}.
+              <div className="font-bold">
+                Внимание: загружен более старый прайс
               </div>
               <div className="mt-1">
-                Применение этого файла может вернуть старые цены. Перед применением потребуется отдельное подтверждение.
+                Новый файл датирован{" "}
+                {formatDay(current.dateComparison.sourceDate)}, а для этого
+                поставщика уже используется прайс от{" "}
+                {formatDay(current.dateComparison.currentSourceDate)}.
+              </div>
+              <div className="mt-1">
+                Старые цены не применяются. Текущие цены и остатки магазина
+                сохранены.
               </div>
               {current.dateComparison.currentFileName ? (
                 <div className="mt-1 text-xs text-red-700">
@@ -546,14 +754,74 @@ export default function PriceImportsClient({
                 </div>
               ) : null}
             </div>
-          ) : current.dateComparison?.status === "NO_SOURCE_DATE" && current.dateComparison.currentSourceDate ? (
+          ) : current.dateComparison?.status === "NO_SOURCE_DATE" &&
+            current.dateComparison.currentSourceDate ? (
             <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-              <div className="font-bold">Дата загруженного прайса не распознана</div>
+              <div className="font-bold">
+                Дата загруженного прайса не распознана
+              </div>
               <div className="mt-1">
-                Используемый прайс датирован {formatDay(current.dateComparison.currentSourceDate)}. Автоматически определить, новее ли загруженный файл, невозможно.
+                Используемый прайс датирован{" "}
+                {formatDay(current.dateComparison.currentSourceDate)}.
+                Автоматически определить, новее ли загруженный файл, невозможно.
               </div>
             </div>
           ) : null}
+
+          {current.status === "REVIEW" &&
+            !current.rows.some((row) => row.appliedAt) && (
+              <div className="flex flex-wrap items-end gap-3 rounded-xl border p-3">
+                <label className="space-y-1 text-sm">
+                  <span className="block">Подтвердить дату прайса</span>
+                  <input
+                    type="date"
+                    value={reviewDate}
+                    onChange={(event) => setReviewDate(event.target.value)}
+                    className="rounded-xl border px-3 py-2"
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="btn-secondary px-4 py-2 text-sm"
+                  disabled={
+                    busy ||
+                    saving ||
+                    applying ||
+                    !reviewDate ||
+                    reviewDate === current.sourceDate?.slice(0, 10)
+                  }
+                  onClick={saveSourceDate}
+                >
+                  Сохранить дату и сверить цены
+                </button>
+              </div>
+            )}
+
+          {current.reconciliation && (
+            <PriceImportSummary report={current.reconciliation} />
+          )}
+
+          <nav aria-label="Изменения в прайсе" className="flex flex-wrap gap-2">
+            {[
+              ["ALL", "Все позиции"],
+              ["DECREASE", "Снижения цен"],
+              ["NEW", "Новинки"],
+              ["APPLIED", "Применено"],
+              ["REVIEW", "Проверить"],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={rowFilter === value}
+                className={
+                  rowFilter === value ? "btn text-sm" : "btn-secondary text-sm"
+                }
+                onClick={() => setRowFilter(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
 
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
             <Stat label="Всего строк" value={current.totalRows} />
@@ -583,7 +851,7 @@ export default function PriceImportsClient({
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {current.rows.map((row) => {
+                {visibleRows.map((row) => {
                   const parsed = row.parsedData || {};
                   const warningText = [
                     ...(parsed.warnings || []),
@@ -591,13 +859,25 @@ export default function PriceImportsClient({
                   ].join(", ");
 
                   return (
-                    <tr key={row.id} className={row.action === "ERROR" ? "bg-red-50" : ""}>
+                    <tr
+                      key={row.id}
+                      className={row.action === "ERROR" ? "bg-red-50" : ""}
+                    >
                       <td className="p-3 align-top">
                         <input
                           type="checkbox"
                           checked={row.selected}
-                          disabled={current.status !== "REVIEW" || row.action === "ERROR"}
-                          onChange={(event) => patchRow(row.id, { selected: event.target.checked })}
+                          disabled={
+                            busy ||
+                            applying ||
+                            saving ||
+                            current.status !== "REVIEW" ||
+                            row.action === "ERROR" ||
+                            Boolean(row.appliedAt)
+                          }
+                          onChange={(event) =>
+                            patchRow(row.id, { selected: event.target.checked })
+                          }
                         />
                       </td>
                       <td className="p-3 align-top whitespace-nowrap">
@@ -607,38 +887,94 @@ export default function PriceImportsClient({
                         <select
                           className="rounded-lg border px-2 py-1 bg-white"
                           value={row.action}
-                          disabled={current.status !== "REVIEW" || row.action === "ERROR"}
+                          disabled={
+                            busy ||
+                            applying ||
+                            saving ||
+                            current.status !== "REVIEW" ||
+                            row.action === "ERROR" ||
+                            Boolean(row.appliedAt)
+                          }
                           onChange={(event) => {
                             const action = event.target.value as RowAction;
                             patchRow(row.id, {
                               action,
-                              selected: action !== "SKIP" && action !== "MANUAL_REVIEW",
+                              selected:
+                                action !== "SKIP" && action !== "MANUAL_REVIEW",
                             });
                           }}
                         >
                           <option value="CREATE">Создать</option>
                           <option value="UPDATE">Обновить</option>
                           <option value="SKIP">Пропустить</option>
-                          <option value="MANUAL_REVIEW">Проверить вручную</option>
-                          {row.action === "ERROR" && <option value="ERROR">Ошибка</option>}
+                          <option value="MANUAL_REVIEW">
+                            Проверить вручную
+                          </option>
+                          {row.action === "ERROR" && (
+                            <option value="ERROR">Ошибка</option>
+                          )}
                         </select>
                       </td>
-                      <td className="p-3 align-top font-medium">{parsed.brand || "—"}</td>
-                      <td className="p-3 align-top font-mono">{row.supplierSku || "—"}</td>
-                      <td className="p-3 align-top max-w-sm">
-                        <div className="font-medium">{parsed.normalizedName || parsed.originalName || "—"}</div>
-                        <div className="text-xs text-gray-500">{parsed.category || ""}</div>
-                        {parsed.priceImageUrl && <div className="mt-2 flex items-center gap-2">
-                          <img src={parsed.priceImageUrl} alt={"Фото SKU " + (row.supplierSku || "")} loading="lazy" className="h-16 w-16 rounded-lg border bg-white object-contain" />
-                          <span className="text-xs text-gray-500">Фото из прайса · SKU {row.supplierSku}</span>
-                        </div>}
+                      <td className="p-3 align-top font-medium">
+                        {parsed.brand || "—"}
                       </td>
-                      <td className="p-3 align-top whitespace-nowrap">{parsed.volumeLabel || "—"}</td>
-                      <td className="p-3 align-top whitespace-nowrap">{formatMoney(parsed.sourcePrice)}</td>
-                      <td className="p-3 align-top whitespace-nowrap">{formatMoney(parsed.salePrice)}</td>
-                      <td className="p-3 align-top">{parsed.productLineName || "—"}</td>
-                      <td className="p-3 align-top whitespace-nowrap">{row.confidence}%</td>
+                      <td className="p-3 align-top font-mono">
+                        {row.supplierSku || "—"}
+                      </td>
+                      <td className="p-3 align-top max-w-sm">
+                        <div className="font-medium">
+                          {parsed.normalizedName || parsed.originalName || "—"}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          {parsed.category || ""}
+                        </div>
+                        {parsed.priceImageUrl && (
+                          <div className="mt-2 flex items-center gap-2">
+                            <img
+                              src={parsed.priceImageUrl}
+                              alt={"Фото SKU " + (row.supplierSku || "")}
+                              loading="lazy"
+                              className="h-16 w-16 rounded-lg border bg-white object-contain"
+                            />
+                            <span className="text-xs text-gray-500">
+                              Фото из прайса · SKU {row.supplierSku}
+                            </span>
+                          </div>
+                        )}
+                      </td>
+                      <td className="p-3 align-top whitespace-nowrap">
+                        {parsed.volumeLabel || "—"}
+                      </td>
+                      <td className="p-3 align-top whitespace-nowrap">
+                        {formatMoney(parsed.sourcePrice)}
+                      </td>
+                      <td className="p-3 align-top whitespace-nowrap">
+                        {row.priceDecision?.previousPrice != null && (
+                          <span className="block text-xs text-gray-500">
+                            Было: {formatMoney(row.priceDecision.previousPrice)}
+                          </span>
+                        )}
+                        {formatMoney(
+                          row.priceDecision?.nextPrice ?? parsed.salePrice,
+                        )}
+                        {row.priceDecision?.sourceOnly && (
+                          <span className="block text-xs text-gray-500">
+                            Закупочная цена
+                          </span>
+                        )}
+                      </td>
+                      <td className="p-3 align-top">
+                        {parsed.productLineName || "—"}
+                      </td>
+                      <td className="p-3 align-top whitespace-nowrap">
+                        {row.confidence}%
+                      </td>
                       <td className="p-3 align-top text-xs text-gray-500 max-w-xs break-words">
+                        {row.priceDecision && (
+                          <p className="mb-1 font-medium text-gray-800">
+                            {row.priceDecision.message}
+                          </p>
+                        )}
                         {warningText || ACTION_LABEL[row.action]}
                       </td>
                     </tr>
