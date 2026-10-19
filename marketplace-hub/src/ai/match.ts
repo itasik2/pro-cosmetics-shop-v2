@@ -57,7 +57,9 @@ export function scoreProductMatch(
   score += Math.round(nameSimilarity * 20);
   if (nameSimilarity < 0.35) warnings.push("low_name_similarity");
 
-  const expectedSku = compact(product.sku || product.barcode);
+  // Price imports assign an internal SKU. An official product code can differ
+  // without indicating that this is another product.
+  const expectedSku = product.skuIsInternal ? "" : compact(product.sku);
   const foundSku = compact(extracted.sku);
   let sku: "match" | "mismatch" | "missing" = "missing";
   if (expectedSku && foundSku) {

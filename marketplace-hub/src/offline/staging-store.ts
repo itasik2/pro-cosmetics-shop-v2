@@ -1,4 +1,4 @@
-import { PrismaClient, type Prisma } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client";
 import {
   applyApprovedChanges,
   buildCardDiff,
@@ -79,13 +79,13 @@ export async function createChangeSet(input: {
   current: MasterCardInput;
   proposed: StagingPatch;
   createdBy?: string;
-}) {
+}, db: Pick<PrismaClient, "catalogChangeSet"> = prisma) {
   const current = masterCardSchema.parse(input.current);
   const diff = buildCardDiff(current, input.proposed);
 
   if (!diff.hasChanges) throw new Error("changeset_empty");
 
-  return prisma.catalogChangeSet.create({
+  return db.catalogChangeSet.create({
     data: {
       organizationId: input.organizationId,
       productId: input.productId,
@@ -100,8 +100,8 @@ export async function createChangeSet(input: {
         create: diff.changes.map((change) => ({
           field: change.field,
           risk: change.risk,
-          beforeValue: json(change.before),
-          afterValue: json(change.after),
+          beforeValue: change.before == null ? Prisma.JsonNull : json(change.before),
+          afterValue: change.after == null ? Prisma.JsonNull : json(change.after),
         })),
       },
     },
@@ -176,6 +176,12 @@ export async function rejectChangeSet(input: {
       },
       data: { status: "REJECTED", rejectedAt: now },
     });
+    if (changeSet.sourceType === "AI_ENRICHMENT" && changeSet.sourceRef && changeSet.productId) {
+      await tx.catalogEnrichmentProposal.updateMany({
+        where: { id: changeSet.sourceRef, productId: changeSet.productId, status: "PENDING" },
+        data: { status: "REJECTED" },
+      });
+    }
 
     return tx.catalogChangeSet.update({
       where: { id: input.id },
@@ -348,6 +354,12 @@ export async function applyChangeSet(input: {
     });
 
     const nextStatus = applied.fullyApplied ? "APPLIED" : "PARTIALLY_APPLIED";
+    if (applied.fullyApplied && changeSet.sourceType === "AI_ENRICHMENT" && changeSet.sourceRef && changeSet.productId) {
+      await tx.catalogEnrichmentProposal.updateMany({
+        where: { id: changeSet.sourceRef, productId: changeSet.productId, status: "PENDING" },
+        data: { status: "APPLIED", appliedAt: now },
+      });
+    }
     await tx.catalogChangeSet.update({
       where: { id: changeSet.id },
       data: {
