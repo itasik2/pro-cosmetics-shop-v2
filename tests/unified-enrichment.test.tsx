@@ -10,6 +10,7 @@ import {
 import { collectProposalPhotos } from "../lib/enrichment/prepareProposalPhotos";
 import { removeProposalVariant } from "../lib/enrichment/removeProposalVariant";
 import { applyProductEnrichmentProposalUniversal } from "../lib/enrichment/applyProposalUniversal";
+import { proposalApplySchema } from "../lib/enrichment/proposalApplyInput";
 import {
   removedVariantSkus,
   shouldSkipRemovedVariant,
@@ -355,6 +356,95 @@ const remove = {
   variantId: "small",
   sku: "MV16",
 };
+
+test("applying an editor proposal without a common photo saves text and each SKU photo", async () => {
+  const f = deletionFixture();
+  const plan = automaticPhotoPlan(f.state.product, {
+    variantImageCandidates: [groups[1]],
+  });
+  assert.equal(plan.imageUrl, null);
+  const parsed = proposalApplySchema.parse(
+    JSON.parse(
+      JSON.stringify({
+        mode: "ALL",
+        imageUrl: plan.imageUrl,
+        variantImages: plan.variantImages,
+      }),
+    ),
+  );
+  assert.equal(parsed.mode, "ALL");
+  assert.equal(parsed.imageUrl, null);
+  const before = structuredClone(f.state.product);
+  const result = await applyProductEnrichmentProposalUniversal(
+    {
+      proposalId: "proposal",
+      ...parsed,
+      mode: "ALL",
+    },
+    {
+      database: f.database,
+      loadPriceImages: async () => new Map(),
+      importImage: async ({ sourceUrl }) => {
+        assert.equal(sourceUrl, groups[1].candidates[0].url);
+        return { id: "photo", url: "https://media.example/AG16.jpg" } as any;
+      },
+    },
+  );
+  assert.equal(f.state.proposals[0].status, "APPLIED");
+  assert.equal(
+    f.state.product.shortDescription,
+    f.state.proposals[0].shortDescription,
+  );
+  assert.equal(f.state.product.description, f.state.proposals[0].description);
+  assert.equal(
+    result.proposal?.product.description,
+    f.state.product.description,
+  );
+  assert.equal(f.state.product.image, before.image);
+  assert.equal(f.state.product.variants[0].image, undefined);
+  assert.equal(
+    f.state.product.variants[1].image,
+    "https://media.example/AG16.jpg",
+  );
+  assert.equal(f.state.product.supplierSku, before.supplierSku);
+  assert.equal(f.state.product.price, before.price);
+  assert.equal(f.state.product.stock, before.stock);
+  assert.deepEqual(
+    f.state.product.variants.map(({ id, label, sku, price, stock }: any) => ({
+      id,
+      label,
+      sku,
+      price,
+      stock,
+    })),
+    before.variants,
+  );
+});
+
+test("photo selection accepts an unchanged common photo but still rejects malformed variant assignments", () => {
+  for (const imageUrl of [
+    null,
+    undefined,
+    "",
+    "https://brand.example/photo.jpg",
+  ])
+    assert.equal(
+      proposalApplySchema.safeParse({ mode: "ALL", imageUrl }).success,
+      true,
+    );
+  for (const body of [
+    { imageUrl: 1 },
+    { imageUrl: "not-a-url" },
+    { variantImages: [{ variantId: "large", sku: "", imageUrl: null }] },
+    {
+      variantImages: [
+        { variantId: "large", sku: "AG16", imageUrl: "/local.jpg" },
+      ],
+    },
+    { stock: -1 },
+  ])
+    assert.equal(proposalApplySchema.safeParse(body).success, false);
+});
 
 test("deleting the primary variant then applying the remaining SKU photo and stock succeeds", async () => {
   const f = deletionFixture();

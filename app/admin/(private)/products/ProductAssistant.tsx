@@ -8,6 +8,7 @@ import {
 import { adminVariants } from "@/lib/adminProductVariants";
 import { automaticPhotoPlan } from "@/lib/enrichment/automaticPhotos";
 import type { VariantImageSelection } from "@/lib/enrichment/variantImages";
+import type { ProposalApplyInput } from "@/lib/enrichment/proposalApplyInput";
 import type { Product } from "./productTypes";
 
 type Proposal = {
@@ -229,7 +230,11 @@ export default function ProductAssistant({
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ mode, imageUrl, variantImages }),
+            body: JSON.stringify({
+              mode,
+              imageUrl,
+              variantImages,
+            } satisfies ProposalApplyInput),
           },
         ),
       );

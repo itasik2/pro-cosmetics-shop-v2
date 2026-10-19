@@ -11,6 +11,7 @@ import {
   VariantPhotoPicker,
 } from "@/components/VariantPhotoPicker";
 import { photoSku } from "@/lib/enrichment/variantImages";
+import { isUsablePhoto } from "@/lib/enrichment/photoQuality";
 
 import {
   Children,
@@ -815,6 +816,10 @@ export default function AdminProductsClient() {
                         form.image ||
                         "/seed/cleanser.jpg";
                       const uploadingThis = variantUploadingId === variant.id;
+                      const ownImage = String(variant.image || "").trim();
+                      const isPrimary =
+                        isUsablePhoto(ownImage) &&
+                        form.image.trim() === ownImage;
 
                       return (
                         <div
@@ -924,6 +929,23 @@ export default function AdminProductsClient() {
                             </div>
 
                             <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                className="btn-secondary min-h-10 px-3 py-2 text-sm disabled:opacity-50"
+                                disabled={
+                                  !isUsablePhoto(ownImage) || uploadingThis
+                                }
+                                aria-pressed={isPrimary}
+                                aria-label={`Сделать фото варианта ${variant.label || index + 1}${variant.sku ? ` (SKU ${variant.sku})` : ""} главным`}
+                                onClick={() => {
+                                  setField("image", ownImage);
+                                  setMsg(
+                                    "Главное фото выбрано. Нажмите «Сохранить», чтобы применить его к товару.",
+                                  );
+                                }}
+                              >
+                                {isPrimary ? "Главное фото" : "Сделать главным"}
+                              </button>
                               <label className="inline-flex items-center px-3 py-2 rounded-xl border hover:bg-gray-50 cursor-pointer text-sm">
                                 <input
                                   type="file"

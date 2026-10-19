@@ -3,36 +3,15 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { requireAdmin } from "@/lib/adminGuard";
 import { finalizeProductEnrichmentText } from "@/lib/enrichment/applyProposal";
 import {
   applyProductEnrichmentProposalUniversal,
   type ProposalApplyMode,
 } from "@/lib/enrichment/applyProposalUniversal";
+import { proposalApplySchema } from "@/lib/enrichment/proposalApplyInput";
 
 type Params = { params: Promise<{ id: string }> };
-
-const BodySchema = z.object({
-  mode: z
-    .enum(["ALL", "DESCRIPTION", "DESCRIPTION_FINAL", "IMAGE", "INVENTORY"])
-    .default("ALL"),
-  imageUrl: z.string().url().max(3000).optional().or(z.literal("")),
-  variantImages: z
-    .array(
-      z.object({
-        variantId: z.string().min(1).max(150),
-        sku: z.string().min(1).max(150),
-        imageUrl: z.string().url().max(3000).nullable(),
-      }),
-    )
-    .max(30)
-    .optional(),
-  stock: z.number().int().min(0).max(1_000_000).optional(),
-  variantStocks: z
-    .record(z.string(), z.number().int().min(0).max(1_000_000))
-    .optional(),
-});
 
 function errorResponse(error: unknown) {
   const message = String(
@@ -98,10 +77,17 @@ export async function POST(req: Request, props: Params) {
   const forbidden = await requireAdmin();
   if (forbidden) return forbidden;
 
-  const parsed = BodySchema.safeParse(await req.json().catch(() => ({})));
+  const parsed = proposalApplySchema.safeParse(
+    await req.json().catch(() => ({})),
+  );
   if (!parsed.success) {
     return NextResponse.json(
-      { error: "validation", issues: parsed.error.issues },
+      {
+        error: "validation",
+        message:
+          "Не удалось применить данные: проверьте выбранные фото и остатки вариантов.",
+        issues: parsed.error.issues,
+      },
       { status: 400 },
     );
   }
