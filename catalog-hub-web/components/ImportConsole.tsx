@@ -38,6 +38,7 @@ export function ImportConsole(){
  const [priceRule,setPriceRule]=useState<PriceRule>(DEFAULT_PRICE_RULE);
  const [preview,setPreview]=useState<Preview|null>(null);
  const [selected,setSelected]=useState<number[]>([]);
+ const [categoryFilter,setCategoryFilter]=useState("");
  const [confirmed,setConfirmed]=useState(false);
  const [busy,setBusy]=useState(false);
  const [error,setError]=useState("");
@@ -442,10 +443,22 @@ export function ImportConsole(){
          {Object.entries(statusLabel).map(([key,value])=>
            <span className="badge" key={key}>{value}: {preview.counts[key]||0}</span>)}
        </div>
+       <label className="editor-field" style={{maxWidth:320,marginBottom:12}}>
+         <span>Фильтр строк по категории прайса</span>
+         <select className="input" value={categoryFilter} onChange={e=>setCategoryFilter(e.target.value)}>
+           <option value="">Все категории</option>
+           <option value="__empty__">Без категории</option>
+           {[...new Set(preview.universalCatalog.products.map(p=>p.card.categoryKey).filter((key):key is string=>Boolean(key)))].sort()
+             .map(key=><option value={key} key={key}>{key}</option>)}
+         </select>
+       </label>
        <div className="table-wrap import-table">
          <table><thead><tr><th>Выбор</th><th>Строка / SKU</th><th>Товар</th><th>Цена, ₸</th>
            <th>Сопоставление</th><th>Изменения / замечания</th><th>Остаток файла</th></tr></thead>
-           <tbody>{preview.review.map(row=>{
+           <tbody>{preview.review.filter(row=>{
+             const key=preview.universalCatalog.products[row.index]?.card.categoryKey;
+             return !categoryFilter || (categoryFilter==="__empty__" ? !key : key===categoryFilter);
+           }).map(row=>{
              const allowed=row.status==="UPDATE"||row.status==="CREATE";
              return <tr key={row.index}>
                <td><input aria-label={"Выбрать строку "+row.rowNumber} type="checkbox"
@@ -467,6 +480,12 @@ export function ImportConsole(){
                  {preview.universalCatalog.products[row.index]?.enrichment.missingFields.length>0&&<div className="subtle">
                    Не хватает в прайсе: {preview.universalCatalog.products[row.index].enrichment.missingFields.map(f=>ENRICHMENT_LABELS[f]).join(", ")}
                  </div>}
+                 {(()=>{const related=preview.universalCatalog.products[row.index]?.review.related;
+                   return related&&<div className="import-warning">
+                     {related.kind==="VARIANT"?"Возможные варианты":"Возможные дубли"}:
+                     {" "}{related.indices.map(i=>"№ "+preview.review[i].rowNumber).join(", ")}.
+                     {" "}{related.reason}
+                   </div>;})()}
                  {row.productId&&<Link href={"/ai?sku="+encodeURIComponent(preview.universalCatalog.products[row.index].identity.internalSku||row.sku)}>Обогатить карточку →</Link>}
                  {preview.format==="PDF"&&(()=>{
                    const source=preview.pdfSource?.[row.index];

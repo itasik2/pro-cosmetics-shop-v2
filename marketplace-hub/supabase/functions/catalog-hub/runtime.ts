@@ -696,6 +696,8 @@ async function listProducts(url: URL) {
   if (!organizationId) throw new Error("organizationId_required");
 
   const q = (url.searchParams.get("q") || "").trim();
+  const category = (url.searchParams.get("category") || "").trim();
+  const incomplete = url.searchParams.get("incomplete") === "true";
   const limit = Math.max(
     1,
     Math.min(100, Math.trunc(Number(url.searchParams.get("limit") || 50))),
@@ -723,6 +725,14 @@ async function listProducts(url: URL) {
       ), '[]'::json) AS "__inventory"
     FROM public."Product" p
     WHERE "organizationId" = ${organizationId}
+      AND (${category} = '' OR (${category} = '__uncategorized__' AND (p."categoryKey" IS NULL OR p."categoryKey" = '')) OR p."categoryKey" = ${category})
+      AND (NOT ${incomplete} OR p."categoryKey" IS NULL OR p."categoryKey" = ''
+        OR p."brand" IS NULL OR p."brand" = ''
+        OR p."shortDescription" IS NULL OR p."shortDescription" = ''
+        OR p."description" IS NULL OR p."description" = ''
+        OR p."application" IS NULL OR p."application" = ''
+        OR p."ingredients" IS NULL OR p."ingredients" = ''
+        OR p."images" IS NULL OR p."images"::text IN ('[]', 'null', '"[]"'))
       AND (
         ${q} = ''
         OR "sku" ILIKE ${pattern}
@@ -736,8 +746,16 @@ async function listProducts(url: URL) {
 
   const [{ count }] = await sql<{ count: number }[]>`
     SELECT count(*)::int AS count
-    FROM public."Product"
+    FROM public."Product" p
     WHERE "organizationId" = ${organizationId}
+      AND (${category} = '' OR (${category} = '__uncategorized__' AND (p."categoryKey" IS NULL OR p."categoryKey" = '')) OR p."categoryKey" = ${category})
+      AND (NOT ${incomplete} OR p."categoryKey" IS NULL OR p."categoryKey" = ''
+        OR p."brand" IS NULL OR p."brand" = ''
+        OR p."shortDescription" IS NULL OR p."shortDescription" = ''
+        OR p."description" IS NULL OR p."description" = ''
+        OR p."application" IS NULL OR p."application" = ''
+        OR p."ingredients" IS NULL OR p."ingredients" = ''
+        OR p."images" IS NULL OR p."images"::text IN ('[]', 'null', '"[]"'))
       AND (
         ${q} = ''
         OR "sku" ILIKE ${pattern}

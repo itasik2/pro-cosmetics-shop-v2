@@ -2,6 +2,7 @@ import type { ImportItem, Table } from "./import-parser";
 import type { Mapping } from "./import-types";
 import type { Reviewed } from "./import-review";
 import type { PriceRule } from "./import-pricing";
+import { suggestRelationships } from "./import-relationships";
 
 export const ENRICHMENT_LABELS = {
   brand: "Бренд", description: "Описание", categoryKey: "Категория",
@@ -32,6 +33,7 @@ export function buildUniversalCatalog(input: {
   items: ImportItem[]; review: Reviewed[]; originalRows: Array<Record<string, string>>;
 }) {
   const { table, mapping } = input;
+  const relationships = suggestRelationships(input.items);
   return {
     schema: "catalog-hub/supplier-draft", version: 1,
     purpose: "INTERNAL_REVIEW", // Contains purchase prices; never a marketplace feed.
@@ -59,7 +61,8 @@ export function buildUniversalCatalog(input: {
           })) },
         inventory: { supplierQuantity: item.stock ?? null, ownQuantity: null },
         provenance: { rowNumber: item.rowNumber, page: Number.isInteger(page) && page! > 0 ? page : null, fields },
-        review: { status: review.status, reasons: review.reasons },
+        review: { status: review.status, reasons: review.reasons,
+          related: relationships[index] },
         enrichment: { status: missing.length ? "NEEDS_ENRICHMENT" : "COMPLETE", missingFields: missing,
           searchQuery: [item.brand, item.title, volume?.raw].filter(Boolean).join(" "),
           sourcePriority: ["SUPPLIER_FILE", "OFFICIAL_SITE", "DISTRIBUTOR", "DISCOVERED_WEB"] },

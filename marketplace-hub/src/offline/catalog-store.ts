@@ -16,6 +16,7 @@ export const catalogListQuerySchema = z.object({
   organizationId: z.string().min(1),
   q: z.string().trim().optional(),
   incomplete: z.enum(["true", "false"]).optional(),
+  category: z.string().trim().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 });
@@ -194,26 +195,26 @@ export async function listCatalogProducts(raw: unknown) {
 
   const where: Prisma.ProductWhereInput = {
     organizationId: query.organizationId,
-    ...(query.incomplete === "true" ? {
-      OR: [
+    AND: [
+      ...(query.category ? [query.category === "__uncategorized__"
+        ? { OR: [{ categoryKey: null }, { categoryKey: "" }] }
+        : { categoryKey: query.category }] : []),
+      ...(query.incomplete === "true" ? [{ OR: [
+        { categoryKey: null }, { categoryKey: "" },
         ...(["brand", "shortDescription", "description", "application", "ingredients"] as const)
           .flatMap(field => [{ [field]: null }, { [field]: "" }]),
         { images: { equals: [] } },
         { images: { equals: Prisma.DbNull } },
-      ],
-    } : {}),
-    ...(q
-      ? {
-          AND: [
+      ] }] : []),
+      ...(q ? [
             { OR: [
-              { sku: { contains: q, mode: "insensitive" } },
-              { title: { contains: q, mode: "insensitive" } },
-              { brand: { contains: q, mode: "insensitive" } },
-              { barcode: { contains: q, mode: "insensitive" } },
+              { sku: { contains: q, mode: "insensitive" as const } },
+              { title: { contains: q, mode: "insensitive" as const } },
+              { brand: { contains: q, mode: "insensitive" as const } },
+              { barcode: { contains: q, mode: "insensitive" as const } },
             ] },
-          ],
-        }
-      : {}),
+          ] : []),
+    ],
   };
 
   const [items, total] = await prisma.$transaction([

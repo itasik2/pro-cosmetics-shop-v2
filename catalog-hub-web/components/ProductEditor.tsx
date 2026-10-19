@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import type { HubProduct } from "@/lib/hub";
+import { SharedProductSearch } from "@/components/SharedProductSearch";
 
 type Values = {
   title: string;
@@ -49,7 +50,9 @@ function formatAttributes(value: unknown): string {
 
 type Category = {key:string;name:string;isActive:boolean;productCount:number};
 type Suggestion = { key:string;score:number;reason:string };
-export function ProductEditor({ product, categories }: { product: HubProduct; categories: Category[] }) {
+export function ProductEditor({ product, categories, searchEnabled, canWrite }: {
+  product: HubProduct; categories: Category[]; searchEnabled: boolean; canWrite: boolean;
+}) {
   const [form, setForm] = useState<Values>({
     title: product.title || "",
     barcode: product.barcode || "",
@@ -233,6 +236,15 @@ export function ProductEditor({ product, categories }: { product: HubProduct; ca
           <span>Характеристики (JSON)</span>
           <textarea className="editor-json" rows={5} value={form.attributes} onChange={(event) => update("attributes", event.target.value)} />
         </label>
+      </div>
+      <div style={{marginTop:14}}>
+        <SharedProductSearch product={product} enabled={searchEnabled} canWrite={canWrite}
+          onSelect={proposal=>{
+            for(const [key,value] of Object.entries(proposal)){
+              if(key==="images") update("images",(value as string[]).join("\n"));
+              else update(key as keyof Values,String(value));
+            }
+          }}/>
       </div>
       <p className="subtle">SKU и складские остатки защищены от прямого редактирования. Для них предусмотрены отдельные операции. Изменённых полей: {dirty.size}.</p>
       {error && <div role="alert" className="error">{error}</div>}

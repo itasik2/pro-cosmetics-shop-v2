@@ -1,6 +1,5 @@
 import { hubFetch, organizationId, safeHub, type HubProduct } from "@/lib/hub";
 import { ProductEditor } from "@/components/ProductEditor";
-import { SharedProductSearch } from "@/components/SharedProductSearch";
 import { StockAdjustment } from "@/components/StockAdjustment";
 import { isLocalReadOnly } from "@/lib/local-mode";
 import Link from "next/link";
@@ -23,13 +22,11 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
         <p>{product.brand || "Без бренда"} · {product.categoryKey || "Без категории"}</p></div>
       <Link className="button" href="/catalog">← Каталог</Link>
     </div>
-    <ProductEditor product={product} categories={categories.ok ? categories.data.categories : []} />
+    <ProductEditor product={product} categories={categories.ok ? categories.data.categories : []}
+      canWrite={!isLocalReadOnly()}
+      searchEnabled={Boolean(process.env.PRO_COSMETICS_SHARED_ENRICHMENT_URL &&
+        (process.env.CATALOG_HUB_SHARED_ENRICHMENT_TOKEN?.length || 0) >= 32)} />
     {!categories.ok && <p className="error" role="alert">Справочник категорий недоступен: {categories.error}</p>}
-    <div style={{marginTop:14}}>
-      <SharedProductSearch product={product} canWrite={!isLocalReadOnly()}
-        enabled={Boolean(process.env.PRO_COSMETICS_SHARED_ENRICHMENT_URL &&
-          (process.env.CATALOG_HUB_SHARED_ENRICHMENT_TOKEN?.length || 0) >= 32)} />
-    </div>
     <div style={{marginTop:14}}>
       {warehouses.ok ? <StockAdjustment product={product} warehouses={warehouses.data} />
         : <section className="panel"><h2>Остатки</h2><p>На складе: {product.totals.stock} · Доступно: {product.totals.available}</p>
