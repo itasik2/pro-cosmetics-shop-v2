@@ -28,7 +28,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
     <div style={{marginTop:14}}>
       <SharedProductSearch product={product} canWrite={!isLocalReadOnly()}
         enabled={Boolean(process.env.PRO_COSMETICS_SHARED_ENRICHMENT_URL &&
-          process.env.CATALOG_HUB_SHARED_ENRICHMENT_TOKEN)} />
+          (process.env.CATALOG_HUB_SHARED_ENRICHMENT_TOKEN?.length || 0) >= 32)} />
     </div>
     <div style={{marginTop:14}}>
       {warehouses.ok ? <StockAdjustment product={product} warehouses={warehouses.data} />
