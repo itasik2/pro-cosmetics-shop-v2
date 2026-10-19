@@ -33,8 +33,8 @@ export default function CatalogHubPullClient(){
       body:JSON.stringify({sku:row.sku,hubUpdatedAt:row.hubUpdatedAt,localUpdatedAt:row.localUpdatedAt,
         updatePrices,confirmed:true})});
       const body=await response.json();if(!response.ok)throw new Error(body.error||"apply_failed");
-      setMessage(`${row.sku}: обновлено ${body.fields.map((key:string)=>labels[key]||key).join(", ")}.`);
       await load();
+      setMessage(`${row.sku}: обновлено ${body.fields.map((key:string)=>labels[key]||key).join(", ")}.`);
     }catch(e){setError(e instanceof Error?e.message:"apply_failed");}
     finally{setBusy(false);}
   }

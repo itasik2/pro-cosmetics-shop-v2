@@ -5,24 +5,7 @@ import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/adminGuard";
 import { prisma } from "@/lib/prisma";
 import { getCatalogHubShadowConfig, getCatalogHubSnapshot, type CatalogHubSnapshotItem } from "@/lib/catalogHubClient";
-
-function plan(hub:CatalogHubSnapshotItem, local:{shortDescription:string|null;description:string;image:string;category:string;
-  price:number;sourcePrice:number|null},updatePrices=false){
-  const changes:Record<string,string|number>={};
-  if(!local.shortDescription?.trim()&&hub.shortDescription?.trim())changes.shortDescription=hub.shortDescription.trim();
-  if((!local.description?.trim()||local.description.trim()==="Описание готовится")&&hub.description?.trim()){
-    changes.description=[hub.description,hub.application&&`Применение\n${hub.application}`,
-      hub.ingredients&&`Состав\n${hub.ingredients}`].filter(Boolean).join("\n\n");
-  }
-  if((!local.image||local.image.startsWith("/seed/"))&&hub.images?.[0])changes.image=hub.images[0];
-  if((!local.category||local.category==="Без категории")&&hub.categoryKey?.trim())changes.category=hub.categoryKey.trim();
-  if(updatePrices){
-    if(hub.price&&hub.price>0&&hub.price!==local.price)changes.price=hub.price;
-    if(hub.purchasePrice!==null&&hub.purchasePrice>=0&&hub.purchasePrice!==local.sourcePrice)
-      changes.sourcePrice=hub.purchasePrice;
-  }
-  return changes;
-}
+import { planCatalogHubPull } from "@/lib/catalogHubPullPlan";
 
 async function state(){
   const config=getCatalogHubShadowConfig();
@@ -54,9 +37,9 @@ export async function GET(){
         status:local?"MATCH":"REVIEW_MATCH",
         before:local?{shortDescription:local.shortDescription,description:local.description,image:local.image,
           category:local.category,price:local.price,sourcePrice:local.sourcePrice}:null,
-        changes:local?plan(hub,local):{},
-        priceChange:local?plan(hub,local,true).price??null:null,
-        purchaseChange:local?plan(hub,local,true).sourcePrice??null:null};
+        changes:local?planCatalogHubPull(hub,local):{},
+        priceChange:local?planCatalogHubPull(hub,local,true).price??null:null,
+        purchaseChange:local?planCatalogHubPull(hub,local,true).sourcePrice??null:null};
     })},{headers:{"cache-control":"no-store"}});
   }catch(error){return NextResponse.json({error:error instanceof Error?error.message:"pull_failed"},{status:502});}
 }
@@ -76,7 +59,7 @@ export async function POST(request:Request){
     const local=match(hub,products);
     if(!local||local.updatedAt.toISOString()!==body.localUpdatedAt)
       return NextResponse.json({error:"shop_changed_refresh_preview"},{status:409});
-    const changes=plan(hub,local,body.updatePrices);
+    const changes=planCatalogHubPull(hub,local,body.updatePrices);
     if(!Object.keys(changes).length)return NextResponse.json({error:"no_changes"},{status:409});
     const result=await prisma.product.updateMany({where:{id:local.id,updatedAt:local.updatedAt},data:changes});
     if(result.count!==1)return NextResponse.json({error:"shop_changed_refresh_preview"},{status:409});
