@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { catalogPath, hubFetch, organizationId, safeHub, type HubList, type HubProduct } from "@/lib/hub";
 import { money } from "@/lib/format";
+import { BatchEnrichment } from "@/components/BatchEnrichment";
 
 export default async function CatalogPage({
   searchParams,
@@ -53,6 +54,9 @@ export default async function CatalogPage({
               : <Link className="button" href={"/catalog?" + new URLSearchParams({...(q ? {q} : {}), ...(category ? {category} : {}), incomplete:"true"}).toString()}>Требуют заполнения</Link>}
           </div>
           {result.data.items.length === 0 && <p className="empty">{incomplete ? "Карточек с пустыми полями или без фото не найдено." : "Товары не найдены."}</p>}
+          {Boolean(process.env.PRO_COSMETICS_SHARED_ENRICHMENT_URL &&
+            (process.env.CATALOG_HUB_SHARED_ENRICHMENT_TOKEN?.length || 0)>=32) &&
+            <BatchEnrichment products={result.data.items} />}
           <div className="table-wrap">
             <table>
               <thead><tr><th>Товар</th><th>SKU</th><th>Заполнение</th><th>Категория</th><th>Закупка</th><th>Цена</th><th>Доступно</th></tr></thead>
