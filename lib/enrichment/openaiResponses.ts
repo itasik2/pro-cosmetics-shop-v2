@@ -496,6 +496,45 @@ export async function findOfficialProductUrl(input: {
   return { ...result, url };
 }
 
+// Shared Catalog Hub requests have no ProCosmetics supplier record yet. Find
+// the manufacturer's domain first, then search for the exact product there.
+export async function findOfficialBrandSite(input: {
+  product: MatchableProduct;
+}): Promise<{ domain: string | null; confidence: number }> {
+  const brand = input.product.brand?.name?.trim();
+  if (!brand) return { domain: null, confidence: 0 };
+  const raw = await requestStructured({
+    schemaName: "shared_official_brand_site",
+    schema: {
+      type: "object", additionalProperties: false,
+      required: ["found", "url", "confidence", "reason"],
+      properties: {
+        found: { type: "boolean" }, url: { type: ["string", "null"] },
+        confidence: { type: "integer", minimum: 0, maximum: 100 },
+        reason: { type: "string" },
+      },
+    },
+    system: "Найди официальный сайт производителя косметического бренда. Не принимай магазин, дистрибьютора, маркетплейс, социальную сеть или одноимённую компанию другого профиля за производителя. Если связь с брендом не подтверждена, верни found=false.",
+    user: `Бренд: ${brand}\nТовар: ${input.product.name}`,
+    tools: [{ type: "web_search", search_context_size: "low" }],
+    timeoutMs: 15_000,
+  });
+  const result = SearchResultSchema.parse(raw);
+  if (!result.found || !result.url || result.confidence < 70)
+    return { domain: null, confidence: 0 };
+  try {
+    const url = new URL(result.url);
+    const domain = normalizeDomain(url.hostname).replace(/^www\./, "");
+    if (!["https:", "http:"].includes(url.protocol) || url.username || url.password ||
+      url.port || !domain.includes(".") || domain === "localhost" ||
+      domain.endsWith(".local") || isIP(domain) || blockedExternalDomain(domain))
+      return { domain: null, confidence: 0 };
+    return { domain, confidence: result.confidence };
+  } catch {
+    return { domain: null, confidence: 0 };
+  }
+}
+
 export async function findExternalProductUrl(input: {
   product: MatchableProduct;
   officialDomainsTried?: string[];
