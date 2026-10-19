@@ -1,25 +1,23 @@
 import { z } from "zod";
+import { discoverProductSource } from "./discovery.js";
 import { extractProductFromHtml } from "./extract.js";
 import { scoreProductMatch } from "./match.js";
-import {
-  safeFetchHtml,
-  sourcePolicyForUrl,
-} from "./network.js";
+import { safeFetchHtml, sourcePolicyForUrl } from "./network.js";
+import { knownOfficialDomains } from "./official-sources.js";
 import {
   fallbackProductCopy,
   findExternalProductUrl,
+  findOfficialBrandSite,
   findOfficialProductUrl,
   generateProductCopy,
 } from "./openai.js";
 import { evaluateEnrichmentProposal } from "./policy.js";
-import type {
-  AllowedSourcePolicy,
-  CatalogProductInput,
-} from "./types.js";
+import type { AllowedSourcePolicy, CatalogProductInput } from "./types.js";
 
 export const enrichmentRequestSchema = z.object({
   product: z.object({
     sku: z.string().trim().min(1),
+    skuIsInternal: z.boolean().optional(),
     title: z.string().trim().min(1),
     brand: z.string().trim().optional(),
     barcode: z.string().trim().optional(),
@@ -61,55 +59,65 @@ export async function buildEnrichmentProposal(raw: EnrichmentRequest) {
   const policies: AllowedSourcePolicy[] = [...input.sources];
 
   let sourceUrl = input.sourceUrl?.trim() || "";
-  let search:
-    | {
-        stage: "official" | "external";
-        confidence: number;
-        reason: string;
-      }
-    | null = null;
+  let search: {
+    stage: "official" | "official_unverified" | "external";
+    confidence: number;
+    reason: string;
+    officialFailure?: string;
+  } | null = null;
 
   if (!sourceUrl && input.discoverIfMissing) {
     const officialDomains = policies
       .filter((policy) => policy.sourceType === "OFFICIAL_SITE")
       .map((policy) => policy.domain);
 
-    if (officialDomains.length) {
-      const official = await findOfficialProductUrl({
-        product,
-        allowedDomains: officialDomains,
-      });
-
-      if (official.found && official.url) {
-        sourceUrl = official.url;
-        search = {
-          stage: "official",
-          confidence: official.confidence,
-          reason: official.reason,
-        };
-      }
-    }
-
-    if (!sourceUrl && input.allowExternalSearch) {
-      const external = await findExternalProductUrl({
-        product,
-        officialDomainsTried: officialDomains,
-      });
-
-      if (external.found && external.url) {
-        sourceUrl = external.url;
-        policies.push(exactPolicy(sourceUrl));
-        search = {
-          stage: "external",
-          confidence: external.confidence,
-          reason: external.reason,
-        };
+    const discovered = await discoverProductSource({
+      hasOfficialSources: officialDomains.length > 0,
+      allowExternalSearch: input.allowExternalSearch,
+      official: () =>
+        findOfficialProductUrl({ product, allowedDomains: officialDomains }),
+      unconfiguredOfficial: product.brand?.trim() ? async () => {
+        const known = knownOfficialDomains(product.brand);
+        if (known.length) {
+          const found = await findOfficialProductUrl({ product, allowedDomains: known });
+          if (found.found && found.url) return {
+            ...found, domain: new URL(found.url).hostname.replace(/^www\./, ""),
+          };
+        }
+        const site = await findOfficialBrandSite({ product });
+        if (!site.found || !site.domain) return { ...site, domain: null };
+        const found = await findOfficialProductUrl({ product, allowedDomains: [site.domain] });
+        return { ...found, domain: site.domain };
+      } : undefined,
+      external: () =>
+        findExternalProductUrl({
+          product,
+          officialDomainsTried: officialDomains,
+        }),
+    });
+    if (discovered) {
+      sourceUrl = discovered.url;
+      search = discovered.search;
+      if (search.stage === "external") policies.push(exactPolicy(sourceUrl));
+      if (search.stage === "official_unverified" && discovered.officialDomain) {
+        policies.push({ domain: discovered.officialDomain, allowSubdomains: true,
+          sourceType: "DISCOVERED_WEB" });
       }
     }
   }
 
   if (!sourceUrl) throw new Error("source_url_required");
 
+  // An operator-supplied product URL is an explicit source selection. Constrain
+  // fetching to its exact hostname; safeFetchHtml still rejects private IPs,
+  // unsafe DNS results and redirects to other hosts.
+  if (
+    sourceUrl &&
+    input.sourceUrl &&
+    !sourcePolicyForUrl(policies, sourceUrl)
+  ) {
+    policies.push(exactPolicy(sourceUrl));
+  }
   const initialPolicy = sourcePolicyForUrl(policies, sourceUrl);
   if (!initialPolicy) throw new Error("source_domain_not_allowed");
 
@@ -144,6 +152,8 @@ export async function buildEnrichmentProposal(raw: EnrichmentRequest) {
     ...match.warnings,
     ...copy.warnings,
     ...generationWarnings,
+    ...(search?.stage === "official_unverified"
+      ? ["unverified_official_site_manual_review_required"] : []),
     ...(finalPolicy.sourceType !== "OFFICIAL_SITE"
       ? ["external_source_manual_review_required"]
       : []),

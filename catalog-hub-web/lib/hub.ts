@@ -1,5 +1,7 @@
 import "server-only";
 import { headers } from "next/headers";
+import { isLocalReadOnly, isMutation } from "./local-mode";
+import { hubBaseForPath } from "./api-routing";
 
 const baseUrl = String(process.env.CATALOG_HUB_API_URL || "").replace(/\/$/, "");
 const apiKey = String(process.env.CATALOG_HUB_API_KEY || "");
@@ -67,13 +69,21 @@ export async function hubFetch<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
+  if (isLocalReadOnly() && isMutation(init?.method)) {
+    throw new Error("local_read_only_mode: изменение данных отключено. Используйте тестовый проект Supabase и осознанно включите CATALOG_HUB_LOCAL_WRITE_ENABLED=true.");
+  }
   if (!baseUrl) throw new Error("CATALOG_HUB_API_URL not configured");
-  const oidcToken = (await getRequestOidcToken()) || String(process.env.VERCEL_OIDC_TOKEN || "");
+  // Local requests cannot obtain a Vercel-signed runtime identity.
+  // Prefer the explicitly configured Catalog Hub key, even if an old
+  // VERCEL_OIDC_TOKEN leaked into the local shell environment.
+  const oidcToken = (process.env.NODE_ENV === "development" || process.env.CATALOG_HUB_LOCAL_MODE === "true")
+    ? ""
+    : (await getRequestOidcToken()) || String(process.env.VERCEL_OIDC_TOKEN || "");
   if (!oidcToken && !apiKey && path.startsWith("/v1/")) {
     throw new Error("catalog_hub_server_auth_not_configured");
   }
 
-  const response = await fetch(baseUrl + path, {
+  const response = await fetch(hubBaseForPath(path, process.env) + path, {
     ...init,
     cache: "no-store",
     headers: {
@@ -113,6 +123,7 @@ export async function safeHub<T>(request: Promise<T>) {
 
 export function catalogPath(params?: {
   q?: string;
+  incomplete?: boolean;
   limit?: number;
   offset?: number;
 }) {
@@ -122,5 +133,6 @@ export function catalogPath(params?: {
     offset: String(params?.offset ?? 0),
   });
   if (params?.q) search.set("q", params.q);
+  if (params?.incomplete) search.set("incomplete", "true");
   return "/v1/catalog/products?" + search.toString();
 }

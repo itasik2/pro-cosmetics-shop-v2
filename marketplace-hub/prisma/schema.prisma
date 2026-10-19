@@ -696,3 +696,12 @@ model CatalogCategory {
   @@unique([organizationId,key],map:"catalog_category_key_unique")
   @@index([organizationId,isActive,name],map:"catalog_category_active")
 }
+
+model CatalogApiKey {
+  id         String   @id
+  name       String
+  keyHash    String
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  lastUsedAt DateTime?
+}

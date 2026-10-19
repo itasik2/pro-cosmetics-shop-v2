@@ -81,7 +81,7 @@ function volumeKey(volume: ParsedVolume) {
 function parseVolumesFromText(value: string) {
   const text = normalize(value);
   const volumes = new Map<string, ParsedVolume>();
-  const pattern = /(\d+(?:[.,]\d+)?)\s*(мл|ml|г|гр|g)\b/gi;
+  const pattern = /(\d+(?:[.,]\d+)?)\s*(мл|ml|гр|г|g)(?=$|[^\p{L}\p{N}])/giu;
 
   for (const match of text.matchAll(pattern)) {
     const amount = Math.round(Number(match[1].replace(",", ".")));

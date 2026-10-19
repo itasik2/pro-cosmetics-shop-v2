@@ -47,25 +47,32 @@ function getOutputText(data: unknown) {
   return "";
 }
 
-async function requestStructured(input: {
-  schemaName: string;
-  schema: Record<string, unknown>;
-  system: string;
-  user: string;
-  tools?: Record<string, unknown>[];
-  timeoutMs?: number;
-}) {
+export async function requestStructured(
+  input: {
+    schemaName: string;
+    schema: Record<string, unknown>;
+    system: string;
+    user: string;
+    tools?: Record<string, unknown>[];
+    timeoutMs?: number;
+    profile?: "search" | "copy";
+  },
+  fetcher: typeof fetch = fetch,
+) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("openai_not_configured");
 
   const controller = new AbortController();
-  const timer = setTimeout(
+  const timeout = setTimeout(
     () => controller.abort(),
     Math.max(1_000, input.timeoutMs ?? 30_000),
   );
 
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
+    const model = process.env.OPENAI_ENRICHMENT_MODEL || "gpt-6-luna";
+    const search = input.profile === "search";
+    const bounded = Boolean(input.profile);
+    const response = await fetcher("https://api.openai.com/v1/responses", {
       method: "POST",
       signal: controller.signal,
       headers: {
@@ -73,7 +80,18 @@ async function requestStructured(input: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: process.env.OPENAI_ENRICHMENT_MODEL || "gpt-6-luna",
+        model,
+        ...(bounded
+          ? { store: false, max_output_tokens: search ? 3_000 : 2_500 }
+          : {}),
+        ...(bounded && /^gpt-(?:5|6)(?:[.-]|$)/.test(model)
+          ? {
+              reasoning: {
+                effort: !search && model === "gpt-6-luna" ? "none" : "low",
+              },
+            }
+          : {}),
+        ...(search ? { max_tool_calls: 3, tool_choice: "required" } : {}),
         input: [
           {
             role: "system",
@@ -97,7 +115,7 @@ async function requestStructured(input: {
     });
 
     const data = await response.json().catch(() => ({}));
-
+    if (controller.signal.aborted) throw new Error("openai_timeout");
     if (!response.ok) {
       const message =
         data && typeof data === "object"
@@ -106,6 +124,17 @@ async function requestStructured(input: {
       throw new Error(`openai_http_${response.status}:${message}`);
     }
 
+    if (data.status === "incomplete")
+      throw new Error("openai_incomplete_output");
+    if (
+      search &&
+      (!Array.isArray(data.output) ||
+        !data.output.some(
+          (item: { type?: string; status?: string }) =>
+            item?.type === "web_search_call" && item.status === "completed",
+        ))
+    )
+      throw new Error("openai_search_not_run");
     const text = getOutputText(data);
     if (!text) throw new Error("openai_empty_output");
 
@@ -115,12 +144,14 @@ async function requestStructured(input: {
       throw new Error("openai_invalid_json");
     }
   } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
+    if (
+      controller.signal.aborted ||
+      (error instanceof Error && error.name === "AbortError")
+    )
       throw new Error("openai_timeout");
-    }
     throw error;
   } finally {
-    clearTimeout(timer);
+    clearTimeout(timeout);
   }
 }
 
@@ -137,7 +168,8 @@ function productLabel(product: CatalogProductInput) {
   return [
     `Бренд: ${product.brand || "не указан"}`,
     `Название: ${product.title}`,
-    `SKU: ${product.sku || "не указан"}`,
+    product.skuIsInternal ? `Внутренний SKU (не артикул производителя): ${product.sku}`
+      : `SKU: ${product.sku || "не указан"}`,
     `Штрихкод: ${product.barcode || "не указан"}`,
     `Категория: ${product.categoryKey || "не указана"}`,
     `Объём: ${product.volumeValue && product.volumeUnit ? `${product.volumeValue} ${product.volumeUnit}` : "не указан"}`,
@@ -206,7 +238,9 @@ export async function findOfficialProductUrl(input: {
   product: CatalogProductInput;
   allowedDomains: string[];
 }) {
-  const domains = [...new Set(input.allowedDomains.map(normalizeDomain))].filter(Boolean);
+  const domains = [
+    ...new Set(input.allowedDomains.map(normalizeDomain)),
+  ].filter(Boolean);
   if (!domains.length) throw new Error("allowed_domains_required");
 
   const raw = await requestStructured({
@@ -223,14 +257,22 @@ export async function findOfficialProductUrl(input: {
       },
     },
     system:
-      "Найди прямую страницу конкретного товара только на разрешённых официальных доменах. Проверяй бренд, SKU, штрихкод, название и объём. Не возвращай категории, поиск, корзину или другой товар. Если точного совпадения нет, found=false.",
+      "Найди прямую страницу конкретного товара только на разрешённых доменах. Проверяй бренд, штрихкод, название и объём. Внутренний SKU магазина может отличаться от артикула производителя. Не возвращай категории, поиск, корзину или другой товар. Если точного совпадения нет, found=false.",
     user: `${productLabel(input.product)}\n\nРазрешённые домены: ${domains.join(", ")}`,
-    tools: [{ type: "web_search", search_context_size: "low" }],
-    timeoutMs: 15_000,
+    tools: [
+      {
+        type: "web_search",
+        search_context_size: "low",
+        filters: { allowed_domains: domains },
+      },
+    ],
+    profile: "search",
+    timeoutMs: 40_000,
   });
 
   const result = SearchResultSchema.parse(raw);
-  if (!result.found || !result.url) return { ...result, found: false, url: null };
+  if (!result.found || !result.url)
+    return { ...result, found: false, url: null };
 
   const url = validatedAllowedUrl(result.url, domains);
   if (!url) {
@@ -243,6 +285,38 @@ export async function findOfficialProductUrl(input: {
   }
 
   return { ...result, url };
+}
+
+export async function findOfficialBrandSite(input: { product: CatalogProductInput }) {
+  const brand = input.product.brand?.trim();
+  if (!brand) return { found: false, url: null, domain: null, confidence: 0,
+    reason: "Бренд товара не указан." };
+
+  const raw = await requestStructured({
+    schemaName: "catalog_hub_brand_site",
+    schema: {
+      type: "object", additionalProperties: false,
+      required: ["found", "url", "confidence", "reason"],
+      properties: {
+        found: { type: "boolean" },
+        url: { type: ["string", "null"] },
+        confidence: { type: "integer", minimum: 0, maximum: 100 },
+        reason: { type: "string" },
+      },
+    },
+    system: "Найди официальный сайт производителя указанного бренда косметики. Не считай официальным сайтом магазин, дистрибьютора, маркетплейс, социальную сеть, страницу отзывов или одноимённую компанию другого профиля. Подтверди связь бренда с сайтом по поисковым результатам. Если связь неясна, found=false. Верни главную страницу официального сайта.",
+    user: `Бренд: ${brand}\nНазвание товара для контекста: ${input.product.title}`,
+    tools: [{ type: "web_search", search_context_size: "medium" }],
+    profile: "search", timeoutMs: 40_000,
+  });
+
+  const result = SearchResultSchema.parse(raw);
+  const url = result.found && result.url ? validatedExternalUrl(result.url) : null;
+  if (!url || result.confidence < 60) return {
+    found: false, url: null, domain: null, confidence: 0,
+    reason: "Официальный сайт бренда не удалось подтвердить.",
+  };
+  return { ...result, url, domain: new URL(url).hostname.replace(/^www\./, "") };
 }
 
 export async function findExternalProductUrl(input: {
@@ -266,11 +340,13 @@ export async function findExternalProductUrl(input: {
       "Официальная страница не найдена. Найди прямую страницу точно этого товара у надёжного дистрибьютора или профессионального магазина. Не используй маркетплейсы, соцсети, блоги, отзывы, агрегаторы и страницы поиска. SKU/штрихкод — сильнейшее подтверждение. Если точного совпадения нет, found=false.",
     user: `${productLabel(input.product)}\n\nОфициальные домены уже проверены: ${(input.officialDomainsTried || []).join(", ") || "нет"}`,
     tools: [{ type: "web_search", search_context_size: "medium" }],
-    timeoutMs: 20_000,
+    profile: "search",
+    timeoutMs: 40_000,
   });
 
   const result = SearchResultSchema.parse(raw);
-  if (!result.found || !result.url) return { ...result, found: false, url: null };
+  if (!result.found || !result.url)
+    return { ...result, found: false, url: null };
 
   const url = validatedExternalUrl(result.url);
   if (!url) {
@@ -342,6 +418,7 @@ export async function generateProductCopy(input: {
       sourceUrl: input.sourceUrl,
       extracted: input.extracted,
     }),
+    profile: "copy",
     timeoutMs: 20_000,
   });
 

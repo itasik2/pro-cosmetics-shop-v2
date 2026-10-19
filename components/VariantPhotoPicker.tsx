@@ -1,5 +1,5 @@
 "use client";
-import { useState, type ReactNode } from "react";
+import React, { useState, type ReactNode } from "react";
 import { adminVariants, type AdminVariant } from "../lib/adminProductVariants";
 import { isUsablePhoto } from "../lib/enrichment/photoQuality";
 import {

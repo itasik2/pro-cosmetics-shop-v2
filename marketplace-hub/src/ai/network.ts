@@ -10,6 +10,35 @@ type SafeFetchOptions = {
   maxRedirects?: number;
 };
 
+type FetchDependencies = {
+  fetcher?: typeof fetch;
+  resolveHostname?: (
+    hostname: string,
+  ) => Promise<Array<{ address: string; family: number }>>;
+};
+
+async function untilAbort<T>(
+  promise: Promise<T>,
+  signal: AbortSignal,
+): Promise<T> {
+  if (signal.aborted) {
+    void promise.catch(() => undefined);
+    throw new Error("source_timeout");
+  }
+  let onAbort: () => void = () => {};
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        onAbort = () => reject(new Error("source_timeout"));
+        signal.addEventListener("abort", onAbort, { once: true });
+      }),
+    ]);
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+}
+
 export type SafeFetchResult = {
   buffer: Buffer;
   contentType: string;
@@ -100,6 +129,7 @@ function isBlockedAddress(address: string) {
 async function assertSafeUrl(
   rawUrl: string,
   policies: AllowedSourcePolicy[],
+  resolveHostname: NonNullable<FetchDependencies["resolveHostname"]>,
 ) {
   let url: URL;
   try {
@@ -111,7 +141,8 @@ async function assertSafeUrl(
   if (url.protocol !== "https:" && url.protocol !== "http:") {
     throw new Error("unsupported_source_protocol");
   }
-  if (url.username || url.password) throw new Error("source_credentials_not_allowed");
+  if (url.username || url.password)
+    throw new Error("source_credentials_not_allowed");
   if (
     (url.protocol === "https:" && url.port && url.port !== "443") ||
     (url.protocol === "http:" && url.port && url.port !== "80")
@@ -127,7 +158,7 @@ async function assertSafeUrl(
     throw new Error("source_ip_blocked");
   }
 
-  const addresses = await lookup(hostname, { all: true, verbatim: true });
+  const addresses = await resolveHostname(hostname);
   if (!addresses.length) throw new Error("source_dns_not_found");
   if (addresses.some((entry) => isBlockedAddress(entry.address))) {
     throw new Error("source_dns_blocked");
@@ -137,116 +168,162 @@ async function assertSafeUrl(
   return url;
 }
 
-async function readLimitedBody(response: Response, maxBytes: number) {
+async function readLimitedBody(
+  response: Response,
+  maxBytes: number,
+  signal: AbortSignal,
+) {
+  if (signal.aborted) throw new Error("source_timeout");
   const declaredLength = Number(response.headers.get("content-length") || 0);
   if (declaredLength > maxBytes) throw new Error("source_response_too_large");
   if (!response.body) return Buffer.alloc(0);
 
   const reader = response.body.getReader();
-  const chunks: Buffer[] = [];
+  const onAbort = () => {
+    void reader.cancel().catch(() => undefined);
+  };
+  signal.addEventListener("abort", onAbort, { once: true });
+  const chunks: Uint8Array[] = [];
   let total = 0;
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (!value) continue;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
 
-    total += value.byteLength;
-    if (total > maxBytes) {
-      await reader.cancel().catch(() => undefined);
-      throw new Error("source_response_too_large");
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new Error("source_response_too_large");
+      }
+      chunks.push(value);
     }
-    chunks.push(Buffer.from(value));
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+    reader.releaseLock();
   }
 
-  return Buffer.concat(chunks, total);
+  if (signal.aborted) throw new Error("source_timeout");
+
+  return Buffer.concat(
+    chunks.map((chunk) => Buffer.from(chunk)),
+    total,
+  );
 }
 
 export async function safeFetchExternal(
   rawUrl: string,
   options: SafeFetchOptions,
+  dependencies: FetchDependencies = {},
 ): Promise<SafeFetchResult> {
   const timeoutMs = Math.max(1000, options.timeoutMs ?? 12_000);
   const maxRedirects = Math.min(5, Math.max(0, options.maxRedirects ?? 3));
   let currentUrl = rawUrl;
+  const fetcher = dependencies.fetcher ?? fetch;
+  const resolveHostname =
+    dependencies.resolveHostname ??
+    ((hostname: string) => lookup(hostname, { all: true, verbatim: true }));
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
-  for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount += 1) {
-    const url = await assertSafeUrl(currentUrl, options.policies);
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        method: "GET",
-        redirect: "manual",
-        cache: "no-store",
-        signal: controller.signal,
-        headers: {
-          "User-Agent": USER_AGENT,
-          Accept: options.acceptedContentTypes.join(", "),
-        },
-      });
-    } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") {
-        throw new Error("source_timeout");
-      }
-      throw new Error(
-        `source_fetch_failed:${error instanceof Error ? error.message : String(error)}`,
-      );
-    } finally {
-      clearTimeout(timer);
-    }
-
-    if ([301, 302, 303, 307, 308].includes(response.status)) {
-      if (redirectCount >= maxRedirects) {
-        throw new Error("source_too_many_redirects");
-      }
-      const location = response.headers.get("location");
-      if (!location) throw new Error("source_redirect_without_location");
-      currentUrl = new URL(location, url).toString();
-      continue;
-    }
-
-    if (!response.ok) throw new Error(`source_http_${response.status}`);
-
-    const contentType = (response.headers.get("content-type") || "")
-      .split(";", 1)[0]
-      .trim()
-      .toLowerCase();
-
-    if (
-      !options.acceptedContentTypes.some(
-        (type) => contentType === type || contentType.startsWith(`${type}+`),
-      )
+  try {
+    for (
+      let redirectCount = 0;
+      redirectCount <= maxRedirects;
+      redirectCount += 1
     ) {
-      throw new Error(
-        `source_content_type_not_allowed:${contentType || "unknown"}`,
+      if (controller.signal.aborted) throw new Error("source_timeout");
+      const url = await untilAbort(
+        assertSafeUrl(currentUrl, options.policies, resolveHostname),
+        controller.signal,
       );
+
+      let response: Response;
+      try {
+        response = await untilAbort(
+          fetcher(url, {
+            method: "GET",
+            redirect: "manual",
+            cache: "no-store",
+            signal: controller.signal,
+            headers: {
+              "User-Agent": USER_AGENT,
+              Accept: options.acceptedContentTypes.join(", "),
+            },
+          }),
+          controller.signal,
+        );
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError")
+          throw new Error("source_timeout");
+        throw new Error(
+          `source_fetch_failed:${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+
+      if ([301, 302, 303, 307, 308].includes(response.status)) {
+        if (redirectCount >= maxRedirects) {
+          throw new Error("source_too_many_redirects");
+        }
+        const location = response.headers.get("location");
+        if (!location) throw new Error("source_redirect_without_location");
+        if (response.body)
+          await untilAbort(
+            response.body.cancel().catch(() => undefined),
+            controller.signal,
+          );
+        currentUrl = new URL(location, url).toString();
+        continue;
+      }
+
+      const contentType = (response.headers.get("content-type") || "")
+        .split(";", 1)[0]
+        .trim()
+        .toLowerCase();
+
+      if (!response.ok) {
+        throw new Error(`source_http_${response.status}`);
+      }
+      if (
+        !options.acceptedContentTypes.some(
+          (type) => contentType === type || contentType.startsWith(`${type}+`),
+        )
+      ) {
+        throw new Error(
+          `source_content_type_not_allowed:${contentType || "unknown"}`,
+        );
+      }
+
+      const buffer = await untilAbort(
+        readLimitedBody(response, options.maxBytes, controller.signal),
+        controller.signal,
+      );
+      const headers: Record<string, string> = {};
+      response.headers.forEach((value, key) => {
+        headers[key] = value;
+      });
+
+      return {
+        buffer,
+        contentType,
+        finalUrl: url.toString(),
+        status: response.status,
+        headers,
+      };
     }
 
-    const buffer = await readLimitedBody(response, options.maxBytes);
-    const headers: Record<string, string> = {};
-    response.headers.forEach((value, key) => {
-      headers[key] = value;
-    });
-
-    return {
-      buffer,
-      contentType,
-      finalUrl: url.toString(),
-      status: response.status,
-      headers,
-    };
+    throw new Error("source_fetch_failed");
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error("source_timeout");
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+    controller.abort();
   }
-
-  throw new Error("source_fetch_failed");
 }
 
-export function safeFetchHtml(
-  url: string,
-  policies: AllowedSourcePolicy[],
-) {
+export function safeFetchHtml(url: string, policies: AllowedSourcePolicy[]) {
   return safeFetchExternal(url, {
     policies,
     maxBytes: 2 * 1024 * 1024,
@@ -256,10 +333,7 @@ export function safeFetchHtml(
   });
 }
 
-export function safeFetchImage(
-  url: string,
-  policies: AllowedSourcePolicy[],
-) {
+export function safeFetchImage(url: string, policies: AllowedSourcePolicy[]) {
   return safeFetchExternal(url, {
     policies,
     maxBytes: 20 * 1024 * 1024,
