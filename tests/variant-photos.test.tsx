@@ -363,6 +363,34 @@ test("official catalog lookup follows product links, never search thumbnails or 
   );
 });
 
+test("photo lookup skips excluded saved URL aliases and retains exact price-list photos", async () => {
+  const result = await searchVariantPhotos(
+    {
+      product,
+      variant: { sku: "RG06", label: "75 мл" },
+      knownUrl:
+        "https://brand.example/index.php?route=product/product&product_id=471#gallery",
+      excludedUrls: [
+        "https://brand.example/index.php?product_id=471&route=product%2Fproduct",
+      ],
+      officialDomains: [],
+      policies: [],
+      catalogOnly: true,
+      priceCandidates: [{ url: "/media/price-RG06.jpg", source: "PRICE_LIST" }],
+    },
+    {
+      official: async () => assert.fail("catalog-only lookup must not call AI"),
+      external: async () => assert.fail("catalog-only lookup must not call AI"),
+      fetchHtml: async () =>
+        assert.fail("excluded URL aliases must not be fetched"),
+    },
+  );
+  assert.equal(result.status, "FOUND");
+  assert.deepEqual(result.candidates, [
+    { url: "/media/price-RG06.jpg", source: "PRICE_LIST" },
+  ]);
+});
+
 test("AG01 and MV09 are found through the official SKU catalog without requiring AI", async () => {
   const parent = {
     ...product,

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { resolveProductSource, sourceUrlKey } from "./resolveProductSource";
 import {
   EnrichmentJobStatus,
   ProductSourceStatus,
@@ -33,11 +34,7 @@ import {
   selectorsFromJson,
   toAllowedPolicies,
 } from "./sourcePolicies";
-import {
-  DISCOVERY_BUDGET_MS,
-  discoverWithFallback,
-  remainingTime,
-} from "./timeBudget";
+import { DISCOVERY_BUDGET_MS, remainingTime } from "./timeBudget";
 
 type RunInput = {
   productId: string;
@@ -61,20 +58,6 @@ function jsonObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
-}
-
-function recoverableAutomaticSourceError(message: string) {
-  return (
-    [
-      "source_timeout",
-      "source_dns_not_found",
-      "source_redirect_without_location",
-      "source_too_many_redirects",
-    ].includes(message) ||
-    message.startsWith("source_fetch_failed:") ||
-    message.startsWith("source_content_type_not_allowed:") ||
-    /^source_http_(?:403|404|410|429|5\d\d)$/.test(message)
-  );
 }
 
 export async function runProductEnrichment(input: RunInput) {
@@ -186,207 +169,145 @@ export async function runProductEnrichment(input: RunInput) {
           .filter(Boolean),
       ),
     ].slice(0, 10);
-    const excludedSourceUrlSet = new Set(excludedSourceUrls);
+    const excludedSourceUrlSet = new Set(excludedSourceUrls.map(sourceUrlKey));
     const explicitSourceUrl = input.sourceUrl?.trim() || "";
-    let sourceUrl =
+    const initialUrl =
       explicitSourceUrl ||
-      (product.sourceUrl && !excludedSourceUrlSet.has(product.sourceUrl.trim())
+      (product.sourceUrl &&
+      !excludedSourceUrlSet.has(sourceUrlKey(product.sourceUrl))
         ? product.sourceUrl.trim()
         : "") ||
-      product.sources.find((source) => !excludedSourceUrlSet.has(source.url))
-        ?.url ||
+      product.sources.find(
+        (source) => !excludedSourceUrlSet.has(sourceUrlKey(source.url)),
+      )?.url ||
       "";
-    let searchResult: Record<string, unknown> | null = null;
 
-    async function discoverSource(excludedUrls: string[] = []) {
-      if (
-        searchableProduct.supplierSku &&
-        officialDomains.length &&
-        deadlineAt - Date.now() > 45_000
-      ) {
-        const direct = await searchVariantPhotos({
-          product: searchableProduct,
-          variant: {
-            sku: searchableProduct.supplierSku,
-            label:
-              searchableProduct.volumeValue && searchableProduct.volumeUnit
-                ? `${searchableProduct.volumeValue} ${searchableProduct.volumeUnit}`
-                : "",
-          },
-          officialDomains,
-          policies: toAllowedPolicies(allowedSources),
-          priceCandidates: [],
-          catalogOnly: true,
-          deadlineAt: Math.min(deadlineAt - 40_000, Date.now() + 30_000),
-        });
-        const url = direct.candidates.find(
-          (candidate) =>
-            candidate.sourceUrl && !excludedUrls.includes(candidate.sourceUrl),
-        )?.sourceUrl;
-        if (url)
-          return {
-            url,
-            result: {
-              searchStage: "official",
-              reason: "exact_sku_catalog",
-              found: true,
+    const resolved = await resolveProductSource({
+      initialUrl,
+      explicit: Boolean(explicitSourceUrl),
+      discover: input.discoverIfMissing !== false,
+      excludedUrls: excludedSourceUrls,
+      deadlineAt,
+      stages: [
+        {
+          stage: "catalog",
+          find: async (excludedUrls) => {
+            if (
+              !searchableProduct.supplierSku ||
+              !officialDomains.length ||
+              deadlineAt - Date.now() <= 45_000
+            )
+              return null;
+            const direct = await searchVariantPhotos({
+              product: searchableProduct,
+              variant: {
+                sku: searchableProduct.supplierSku,
+                label:
+                  searchableProduct.volumeValue && searchableProduct.volumeUnit
+                    ? `${searchableProduct.volumeValue} ${searchableProduct.volumeUnit}`
+                    : "",
+              },
+              officialDomains,
+              policies: toAllowedPolicies(allowedSources),
+              priceCandidates: [],
+              excludedUrls,
+              catalogOnly: true,
+              deadlineAt: Math.min(deadlineAt - 40_000, Date.now() + 30_000),
+            });
+            const url =
+              direct.candidates.find((candidate) => candidate.sourceUrl)
+                ?.sourceUrl || null;
+            return {
               url,
-              confidence: 100,
-            },
-          };
-      }
-      const discovered = await discoverWithFallback(
-        async () =>
-          officialDomains.length
-            ? findOfficialProductUrl({
-                product: searchableProduct,
-                allowedDomains: officialDomains,
-                excludedUrls,
-                timeoutMs: remainingTime(deadlineAt, 40_000),
-              })
-            : null,
-        () =>
-          findExternalProductUrl({
-            product: searchableProduct,
-            officialDomainsTried: officialDomains,
-            excludedUrls,
-            timeoutMs: remainingTime(deadlineAt, 40_000),
-          }),
-      );
-      if (discovered.url && discovered.result.searchStage === "external") {
-        const discoveredSource = await ensureDiscoveredSupplierSource({
-          supplierId: supplier.id,
-          url: discovered.url,
-        });
-        if (
-          !allowedSources.some((source) => source.id === discoveredSource.id)
-        ) {
-          allowedSources.push(discoveredSource);
+              found: Boolean(url),
+              confidence: url ? 100 : 0,
+              reason: url
+                ? "exact_sku_catalog"
+                : direct.status === "INCOMPLETE"
+                  ? "catalog_lookup_incomplete"
+                  : "catalog_not_found",
+            };
+          },
+        },
+        {
+          stage: "official",
+          find: (excludedUrls) =>
+            officialDomains.length
+              ? findOfficialProductUrl({
+                  product: searchableProduct,
+                  allowedDomains: officialDomains,
+                  excludedUrls,
+                  timeoutMs: remainingTime(deadlineAt, 40_000),
+                })
+              : Promise.resolve(null),
+        },
+        {
+          stage: "external",
+          find: (excludedUrls) =>
+            findExternalProductUrl({
+              product: searchableProduct,
+              officialDomainsTried: officialDomains,
+              excludedUrls,
+              timeoutMs: remainingTime(deadlineAt, 40_000),
+            }),
+        },
+      ],
+      inspect: async (url, stage) => {
+        if (stage === "external") {
+          const discoveredSource = await ensureDiscoveredSupplierSource({
+            supplierId: supplier.id,
+            url,
+          });
+          if (
+            !allowedSources.some((source) => source.id === discoveredSource.id)
+          )
+            allowedSources.push(discoveredSource);
         }
-      }
-      return discovered;
-    }
-
-    if (!sourceUrl && input.discoverIfMissing !== false) {
-      const discovered = await discoverSource(excludedSourceUrls);
-      searchResult = discovered.result;
-      if (!discovered.url) throw new Error("product_page_not_found");
-      sourceUrl = discovered.url;
-    }
-
-    if (!sourceUrl) throw new Error("source_url_required");
-
-    let requestedSource = findSourceForUrl(allowedSources, sourceUrl);
-    if (!requestedSource) throw new Error("source_domain_not_allowed");
-
-    let fetched;
-    try {
-      fetched = await safeFetchHtml(
-        sourceUrl,
-        toAllowedPolicies(allowedSources),
-        { timeoutMs: remainingTime(deadlineAt, 12_000) },
-      );
-    } catch (error) {
-      const message = errorMessage(error);
-      const staleAutomaticSource =
-        !explicitSourceUrl &&
-        input.discoverIfMissing !== false &&
-        recoverableAutomaticSourceError(message);
-
-      if (!staleAutomaticSource) throw error;
-
-      const staleUrl = sourceUrl;
-      await prisma.product.update({
-        where: { id: product.id },
-        data: { sourceUrl: null },
-      });
-
-      const discovered = await discoverSource([
-        ...excludedSourceUrls,
-        staleUrl,
-      ]);
-      searchResult = {
-        ...discovered.result,
-        retryReason: message,
-        staleUrl,
-      };
-
-      if (!discovered.url || discovered.url === staleUrl) {
-        throw new Error("product_page_not_found_after_stale_source");
-      }
-
-      sourceUrl = discovered.url;
-      requestedSource = findSourceForUrl(allowedSources, sourceUrl);
-      if (!requestedSource) throw new Error("source_domain_not_allowed");
-      fetched = await safeFetchHtml(
-        sourceUrl,
-        toAllowedPolicies(allowedSources),
-        { timeoutMs: remainingTime(deadlineAt, 12_000) },
-      );
-    }
-
-    let finalSource =
-      findSourceForUrl(allowedSources, fetched.finalUrl) || requestedSource;
-    let extracted = extractProductFromHtml({
-      buffer: fetched.buffer,
-      finalUrl: fetched.finalUrl,
-      selectors: selectorsFromJson(finalSource.selectors),
-      expectedSku: product.supplierSku,
-    });
-    let match = scoreProductMatch(product, extracted);
-
-    if (
-      match.confidence === 0 &&
-      !explicitSourceUrl &&
-      input.discoverIfMissing !== false
-    ) {
-      const rejectedUrl = fetched.finalUrl;
-      const rejectedMatch = match.evidence;
-      const discovered = await discoverSource([
-        ...excludedSourceUrls,
-        rejectedUrl,
-      ]);
-      searchResult = {
-        ...discovered.result,
-        retryReason: "product_match_zero_confidence",
-        rejectedUrl,
-        rejectedMatch,
-      };
-
-      if (discovered.url && discovered.url !== rejectedUrl) {
-        sourceUrl = discovered.url;
-        requestedSource = findSourceForUrl(allowedSources, sourceUrl);
+        const requestedSource = findSourceForUrl(allowedSources, url);
         if (!requestedSource) throw new Error("source_domain_not_allowed");
-
-        try {
-          fetched = await safeFetchHtml(
-            sourceUrl,
-            toAllowedPolicies(allowedSources),
-            { timeoutMs: remainingTime(deadlineAt, 12_000) },
-          );
-        } catch (error) {
-          const message = errorMessage(error);
-          if (recoverableAutomaticSourceError(message)) {
-            throw new Error("product_match_zero_confidence");
-          }
-          throw error;
-        }
-
-        finalSource =
+        const fetched = await safeFetchHtml(
+          url,
+          toAllowedPolicies(allowedSources),
+          {
+            timeoutMs: remainingTime(deadlineAt, 12_000),
+          },
+        );
+        const finalSource =
           findSourceForUrl(allowedSources, fetched.finalUrl) || requestedSource;
-        extracted = extractProductFromHtml({
+        const extracted = extractProductFromHtml({
           buffer: fetched.buffer,
           finalUrl: fetched.finalUrl,
           selectors: selectorsFromJson(finalSource.selectors),
           expectedSku: product.supplierSku,
         });
-        match = scoreProductMatch(product, extracted);
-      }
-    }
-
-    if (match.confidence === 0) {
-      throw new Error("product_match_zero_confidence");
-    }
+        const match = scoreProductMatch(product, extracted);
+        if (match.confidence === 0)
+          throw new Error("product_match_zero_confidence");
+        return { fetched, finalSource, extracted, match };
+      },
+      onRejected: async ({ url, reason }) => {
+        // A dead saved URL must not be picked again on the next attempt.
+        await prisma.product.updateMany({
+          where: { id: product.id, sourceUrl: url },
+          data: { sourceUrl: null },
+        });
+        await prisma.productSource.updateMany({
+          where: { productId: product.id, url },
+          data: {
+            status: /^source_http_(?:404|410)$/.test(reason)
+              ? ProductSourceStatus.UNAVAILABLE
+              : ProductSourceStatus.ERROR,
+            httpStatus: /^source_http_\d+$/.test(reason)
+              ? Number(reason.slice("source_http_".length))
+              : null,
+            lastCheckedAt: new Date(),
+            error: reason.slice(0, 1000),
+          },
+        });
+      },
+    });
+    const { fetched, finalSource, extracted, match } = resolved.value;
+    const searchResult = resolved.searchResult;
 
     const contentHash = createHash("sha256")
       .update(fetched.buffer)
