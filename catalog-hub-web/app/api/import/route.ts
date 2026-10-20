@@ -239,7 +239,7 @@ export async function POST(request:NextRequest) {
  }
  if(data.get("confirmed")!=="yes")return responseError("confirmation_required");
  if(isLocalReadOnly())return responseError("local_read_only_mode: сохранение товаров отключено до подключения тестовой базы.",403);
- if(!state.supplierId)return responseError("supplier_required");
+ if(!state.supplierId&&process.env.CATALOG_HUB_LOCAL_MODE!=="true")return responseError("supplier_required");
  const signature=data.get("fingerprint");
  if(typeof signature!=="string"||!equalSignature(signature,fingerprint))
    return responseError("preview_expired_or_catalog_changed",409);
@@ -252,7 +252,8 @@ export async function POST(request:NextRequest) {
  const candidates=selected.map(i=>review[i as number]);
  if(candidates.some(r=>!["CREATE","UPDATE"].includes(r.status)&&
       !(r.status==="SAME"&&r.priceDecision==="REVIEW_FIRST")||
-    ["NO_DATE","FUTURE","OLDER","BLOCKED"].includes(r.priceDecision)))
+    (process.env.CATALOG_HUB_LOCAL_MODE!=="true"&&
+      ["NO_DATE","FUTURE","OLDER","BLOCKED"].includes(r.priceDecision))))
    return responseError("selection_has_conflicts_or_unsafe_price",409);
  const results:Array<{rowNumber:number;sku:string;status:string;id?:string;error?:string}>=[];
  for(const item of candidates){

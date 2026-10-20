@@ -281,7 +281,7 @@ export function ImportConsole({localMode=false}:{localMode?:boolean}){
    }catch(e){setHistoryError(e instanceof Error?e.message:"history_delete_failed");}
    finally{setHistoryBusy(false);}
  }
- const valid=preview?.review.filter(safeSelectable)||[];
+ const valid=preview?.review.filter(r=>localMode?["CREATE","UPDATE"].includes(r.status):safeSelectable(r))||[];
  const chosen=preview?.review.filter(r=>selected.includes(r.index))||[];
  const newChosen=chosen.filter(r=>r.status==="CREATE").length;
  function changePriceRule(patch:Partial<PriceRule>){
@@ -571,7 +571,7 @@ export function ImportConsole({localMode=false}:{localMode?:boolean}){
              const key=preview.universalCatalog.products[row.index]?.card.categoryKey;
              return !categoryFilter || (categoryFilter==="__empty__" ? !key : key===categoryFilter);
            }).map(row=>{
-             const allowed=safeSelectable(row);
+             const allowed=localMode?["CREATE","UPDATE"].includes(row.status):safeSelectable(row);
              return <tr key={row.index}>
                <td><input aria-label={"Выбрать строку "+row.rowNumber} type="checkbox"
                  disabled={!allowed||busy||pdfNeedsRefresh}
