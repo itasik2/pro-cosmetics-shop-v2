@@ -1,9 +1,21 @@
 "use client";
 import ProductFiltersBar from "./ProductFiltersBar";
 import ProductAssistant from "./ProductAssistant";
+import ProductPriceSources from "./ProductPriceSources";
+import ProductSelectionBar from "./ProductSelectionBar";
+import { requestProductActions } from "./productActions";
+import {
+  PRODUCT_EDITOR_EVENT,
+  type ProductEditorRequest,
+} from "./productEditorEvents";
+import type {
+  ProductAction,
+  ProductActionResult,
+} from "@/lib/adminProductActions";
 import {
   emptyProductFilters,
   productMatchesFilters,
+  selectedVisibleProducts,
   type ProductFilters,
 } from "@/lib/adminProductFilters";
 import {
@@ -151,12 +163,20 @@ export default function AdminProductsClient() {
     ...emptyProductFilters,
   });
   const [editorOpen, setEditorOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState("");
+  const [actionFailures, setActionFailures] = useState<
+    ProductActionResult["failures"]
+  >([]);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const editorScrollRef = useRef<HTMLDivElement>(null);
   const editorFormId = useId();
   const variantsRef = useRef<HTMLDivElement>(null);
   const assistantRef = useRef<HTMLDivElement>(null);
-  const openingSection = useRef<"details" | "variants">("details");
+  const openingSection = useRef<"details" | "variants" | "assistant">(
+    "details",
+  );
   const initialForm = useRef(JSON.stringify(emptyForm));
 
   useEffect(() => {
@@ -167,6 +187,8 @@ export default function AdminProductsClient() {
     document.body.style.overflow = "hidden";
     if (openingSection.current === "variants")
       variantsRef.current?.scrollIntoView({ block: "start" });
+    else if (openingSection.current === "assistant")
+      assistantRef.current?.scrollIntoView({ block: "start" });
     else editorScrollRef.current?.scrollTo({ top: 0 });
     return () => {
       dialog.close();
@@ -188,7 +210,12 @@ export default function AdminProductsClient() {
 
   async function load() {
     const productResponse = await fetch("/api/products", { cache: "no-store" });
-    if (productResponse.ok) setItems(await productResponse.json());
+    if (productResponse.ok) {
+      const products = (await productResponse.json()) as Product[];
+      setItems(products);
+      const activeIds = new Set(products.map((product) => product.id));
+      setSelectedIds((current) => current.filter((id) => activeIds.has(id)));
+    }
   }
 
   useEffect(() => {
@@ -205,6 +232,7 @@ export default function AdminProductsClient() {
     const onSearch = (event: Event) => {
       const value = (event as CustomEvent<string>).detail || "";
       setSearchQuery(value);
+      setSelectedIds([]);
     };
 
     const savedSearch =
@@ -400,7 +428,11 @@ export default function AdminProductsClient() {
 
       setItems((current) => [
         ...current.filter((product) => product.id !== data.id),
-        data,
+        {
+          ...data,
+          priceSources: current.find((product) => product.id === data.id)
+            ?.priceSources,
+        },
       ]);
       if (publishNow) {
         setEditorOpen(false);
@@ -427,22 +459,10 @@ export default function AdminProductsClient() {
     }
   }
 
-  async function remove(id: string) {
-    if (!confirm("Удалить товар?")) return;
-
-    const response = await fetch(`/api/products/${id}`, { method: "DELETE" });
-    if (response.ok) {
-      if (editing === id) {
-        setEditing(null);
-        setForm(emptyForm);
-      }
-      await load();
-    } else {
-      setMsg("Не удалось удалить товар");
-    }
-  }
-
-  function edit(product: Product, section: "details" | "variants" = "details") {
+  function edit(
+    product: Product,
+    section: "details" | "variants" | "assistant" = "details",
+  ) {
     setEditing(product.id);
     const nextForm = {
       name: product.name || "",
@@ -494,6 +514,38 @@ export default function AdminProductsClient() {
   const editingProduct = items.find((product) => product.id === editing);
   const dirty = JSON.stringify(form) !== initialForm.current;
 
+  useEffect(() => {
+    const openRequestedProduct = (event: Event) => {
+      const request = (event as CustomEvent<ProductEditorRequest>).detail;
+      if (!request?.product?.id) return;
+      if (busy || toolBusy || uploading || variantUploadingId || bulkBusy)
+        return;
+      if (
+        editorOpen &&
+        dirty &&
+        !window.confirm("Открыть другой товар без сохранения изменений?")
+      )
+        return;
+      setItems((current) => [
+        ...current.filter((product) => product.id !== request.product.id),
+        request.product,
+      ]);
+      edit(request.product, request.section);
+      setAssistantVersion((current) => current + 1);
+    };
+    window.addEventListener(PRODUCT_EDITOR_EVENT, openRequestedProduct);
+    return () =>
+      window.removeEventListener(PRODUCT_EDITOR_EVENT, openRequestedProduct);
+  }, [
+    busy,
+    toolBusy,
+    uploading,
+    variantUploadingId,
+    bulkBusy,
+    editorOpen,
+    dirty,
+  ]);
+
   const filteredItems = useMemo(
     () =>
       items.filter(
@@ -503,6 +555,47 @@ export default function AdminProductsClient() {
       ),
     [items, searchQuery, filters],
   );
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const selectedProducts = selectedVisibleProducts(filteredItems, selectedSet);
+
+  async function actOnProducts(
+    action: ProductAction,
+    products = selectedProducts,
+  ) {
+    if (!products.length || bulkBusy || editorOpen) return;
+    const confirmation =
+      action === "delete"
+        ? `Удалить товаров: ${products.length}? Карточки и их варианты будут удалены без возможности восстановления.`
+        : `Снять с публикации товаров: ${products.length}? Карточки сохранятся в черновиках.`;
+    if (!window.confirm(confirmation)) return;
+    setBulkBusy(true);
+    setBulkProgress(`Обработано: 0 из ${products.length}`);
+    setActionFailures([]);
+    setMsg(null);
+    try {
+      const result = await requestProductActions(action, products, (done) =>
+        setBulkProgress(`Обработано: ${done} из ${products.length}`),
+      );
+      const processed = new Set(result.processedIds);
+      setItems((current) =>
+        action === "delete"
+          ? current.filter((product) => !processed.has(product.id))
+          : current.map((product) =>
+              processed.has(product.id)
+                ? { ...product, isPublished: false }
+                : product,
+            ),
+      );
+      setSelectedIds(result.failures.map((failure) => failure.id));
+      setActionFailures(result.failures);
+      setMsg(
+        `${action === "delete" ? "Удалено" : "Снято с публикации"}: ${result.processedIds.length} из ${products.length}.${result.failures.length ? " Необработанные товары оставлены выбранными." : ""}`,
+      );
+      window.dispatchEvent(new Event("products-changed"));
+    } finally {
+      setBulkBusy(false);
+    }
+  }
 
   const filterOptions = useMemo(
     () => ({
@@ -523,6 +616,22 @@ export default function AdminProductsClient() {
         ...new Map(
           items.flatMap((p) =>
             p.supplier ? [[p.supplier.id, p.supplier] as const] : [],
+          ),
+        ).values(),
+      ].sort((a, b) => a.name.localeCompare(b.name, "ru")),
+      priceSources: [
+        ...new Map(
+          items.flatMap((product) =>
+            (product.priceSources || []).map(
+              (source) =>
+                [
+                  source.importId,
+                  {
+                    id: source.importId,
+                    name: `${source.fileName}${source.sourceDate ? ` · ${new Date(source.sourceDate).toLocaleDateString("ru-RU", { timeZone: "Asia/Almaty" })}` : ""}`,
+                  },
+                ] as const,
+            ),
           ),
         ).values(),
       ].sort((a, b) => a.name.localeCompare(b.name, "ru")),
@@ -617,6 +726,9 @@ export default function AdminProductsClient() {
             ref={editorScrollRef}
             className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6"
           >
+            {editingProduct && (
+              <ProductPriceSources sources={editingProduct.priceSources} />
+            )}
             {editorOpen && editingProduct && (
               <div ref={assistantRef} className="scroll-mt-4">
                 <ProductAssistant
@@ -1107,15 +1219,36 @@ export default function AdminProductsClient() {
               Карточки, варианты и остатки в одном списке.
             </p>
           </div>
-          <button type="button" className="btn shrink-0" onClick={addProduct}>
+          <button
+            type="button"
+            className="btn shrink-0"
+            disabled={bulkBusy}
+            onClick={addProduct}
+          >
             + Добавить товар
           </button>
         </div>
-        <ProductFiltersBar
-          value={filters}
-          onChange={setFilters}
-          brands={brands}
-          {...filterOptions}
+        <fieldset disabled={bulkBusy} className="min-w-0">
+          <ProductFiltersBar
+            value={filters}
+            onChange={(value) => {
+              setFilters(value);
+              setSelectedIds([]);
+            }}
+            brands={brands}
+            {...filterOptions}
+          />
+        </fieldset>
+        <ProductSelectionBar
+          total={filteredItems.length}
+          selected={selectedProducts.length}
+          busy={bulkBusy}
+          progress={bulkProgress}
+          onSelectAll={() =>
+            setSelectedIds(filteredItems.map((product) => product.id))
+          }
+          onClear={() => setSelectedIds([])}
+          onAction={(action) => void actOnProducts(action)}
         />
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="text-sm text-gray-500">
@@ -1127,8 +1260,25 @@ export default function AdminProductsClient() {
             {msg}
           </p>
         )}
+        {actionFailures.length > 0 && (
+          <div
+            role="alert"
+            className="max-h-60 overflow-y-auto rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+          >
+            <ul className="space-y-1">
+              {actionFailures.map((failure) => (
+                <li key={failure.id}>
+                  {failure.name}: {failure.message}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
-        <div className="grid grid-cols-1 gap-3">
+        <fieldset
+          disabled={bulkBusy}
+          className="grid min-w-0 grid-cols-1 gap-3"
+        >
           {filteredItems.map((product) => {
             const { variants } = adminStockSummary(product);
             const variantsCount = variants.length;
@@ -1141,10 +1291,23 @@ export default function AdminProductsClient() {
             return (
               <div
                 key={product.id}
-                className="min-w-0 rounded-2xl border bg-white p-4"
+                className={`min-w-0 rounded-2xl border bg-white p-4 ${selectedSet.has(product.id) ? "border-[var(--color-accent)] ring-1 ring-[var(--color-accent)]" : ""}`}
               >
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                   <div className="flex items-center gap-3 min-w-0">
+                    <input
+                      type="checkbox"
+                      className="h-5 w-5 shrink-0 accent-[var(--color-accent)]"
+                      aria-label={`Выбрать ${product.name}`}
+                      checked={selectedSet.has(product.id)}
+                      onChange={() =>
+                        setSelectedIds((current) =>
+                          current.includes(product.id)
+                            ? current.filter((id) => id !== product.id)
+                            : [...current, product.id],
+                        )
+                      }
+                    />
                     <VariantPhotoPreview
                       src={product.image}
                       alt={product.name}
@@ -1192,14 +1355,15 @@ export default function AdminProductsClient() {
                             ? ` • SKU ${product.supplierSku}`
                             : ""}
                           {product.sourcePrice != null
-                            ? ` • прайс ${Number(product.sourcePrice).toLocaleString("ru-RU")} ₸`
+                            ? ` • цена в прайсе ${Number(product.sourcePrice).toLocaleString("ru-RU")} ₸`
                             : ""}
                         </div>
                       )}
+                      <ProductPriceSources sources={product.priceSources} />
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap gap-2 w-full sm:w-auto sm:flex-nowrap sm:justify-end">
+                  <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:max-w-sm sm:shrink-0 sm:justify-end">
                     <button
                       className="btn"
                       onClick={() => edit(product)}
@@ -1207,9 +1371,18 @@ export default function AdminProductsClient() {
                     >
                       Редактировать
                     </button>
+                    {!isUsablePhoto(product.image) && (
+                      <button
+                        className="btn-secondary"
+                        onClick={() => edit(product, "assistant")}
+                        type="button"
+                      >
+                        Найти фото / ИИ
+                      </button>
+                    )}
                     <button
-                      className="btn"
-                      onClick={() => remove(product.id)}
+                      className="btn-secondary"
+                      onClick={() => void actOnProducts("delete", [product])}
                       type="button"
                     >
                       Удалить
@@ -1234,7 +1407,7 @@ export default function AdminProductsClient() {
                 : "По выбранным фильтрам и поиску ничего не найдено"}
             </div>
           )}
-        </div>
+        </fieldset>
       </div>
     </div>
   );

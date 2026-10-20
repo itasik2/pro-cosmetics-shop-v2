@@ -87,6 +87,7 @@ type ImportListItem = Omit<PriceImport, "rows"> & {
 };
 
 type Props = {
+  initialImportId?: string;
   initialSuppliers: SupplierOption[];
   initialBrands: BrandOption[];
 };
@@ -127,6 +128,7 @@ async function readJson(res: Response) {
 }
 
 export default function PriceImportsClient({
+  initialImportId,
   initialSuppliers,
   initialBrands,
 }: Props) {
@@ -153,7 +155,7 @@ export default function PriceImportsClient({
     if (res.ok) setImports(await res.json());
   }
 
-  async function openImport(id: string) {
+  async function openImport(id: string, resumeAutomatic = true) {
     setBusy(true);
     setMessage(null);
     try {
@@ -167,6 +169,7 @@ export default function PriceImportsClient({
       setRowFilter("ALL");
       // Continue bounded server batches, including an interrupted previous upload.
       while (
+        resumeAutomatic &&
         data.status === "REVIEW" &&
         data.reconciliation?.automaticPending > 0
       ) {
@@ -201,8 +204,10 @@ export default function PriceImportsClient({
   }
 
   useEffect(() => {
-    loadImports();
-  }, []);
+    void loadImports();
+    // Opening provenance is read-only; it must not resume automatic writes.
+    if (initialImportId) void openImport(initialImportId, false);
+  }, [initialImportId]);
 
   function changeSupplier(value: string) {
     setSupplierName(value);
@@ -419,9 +424,9 @@ export default function PriceImportsClient({
   );
   const canFinishReview = Boolean(
     current &&
-    current.rows.every(
-      (row) => row.appliedAt || ["SKIP", "ERROR"].includes(row.action),
-    ),
+      current.rows.every(
+        (row) => row.appliedAt || ["SKIP", "ERROR"].includes(row.action),
+      ),
   );
 
   async function saveSourceDate() {

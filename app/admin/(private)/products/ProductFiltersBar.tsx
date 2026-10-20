@@ -11,6 +11,7 @@ export default function ProductFiltersBar({
   categories,
   brands,
   suppliers,
+  priceSources,
 }: {
   value: ProductFilters;
   onChange: (value: ProductFilters) => void;
@@ -18,6 +19,7 @@ export default function ProductFiltersBar({
   categories: { value: string; label: string }[];
   brands: { id: string; name: string }[];
   suppliers: { id: string; name: string }[];
+  priceSources: { id: string; name: string }[];
 }) {
   function set<K extends keyof ProductFilters>(
     key: K,
@@ -54,7 +56,7 @@ export default function ProductFiltersBar({
           </button>
         ))}
       </div>
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
         <select
           aria-label="Категория товаров"
           value={value.category}
@@ -89,6 +91,19 @@ export default function ProductFiltersBar({
         >
           <option value="">Все поставщики</option>
           {suppliers.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.name}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="Прайс товаров"
+          value={value.priceImport}
+          onChange={(e) => set("priceImport", e.target.value)}
+          className="min-w-0 rounded-xl border bg-white p-2 text-sm"
+        >
+          <option value="">Все прайсы</option>
+          {priceSources.map((item) => (
             <option key={item.id} value={item.id}>
               {item.name}
             </option>

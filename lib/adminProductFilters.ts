@@ -6,6 +6,7 @@ export type ProductFilters = {
   category: string;
   brand: string;
   supplier: string;
+  priceImport: string;
   stock: "all" | "available" | "empty";
   content:
     | "all"
@@ -22,6 +23,7 @@ export const emptyProductFilters: ProductFilters = {
   category: "",
   brand: "",
   supplier: "",
+  priceImport: "",
   stock: "all",
   content: "all",
 };
@@ -33,6 +35,7 @@ type Product = {
   variants?: unknown;
   brandId: string | null;
   supplier?: { id: string } | null;
+  priceSources?: { importId: string }[];
   image: string;
   description?: string | null;
   shortDescription?: string | null;
@@ -53,6 +56,13 @@ export function productMatchesFilters(
     return false;
   if (filters.brand && product.brandId !== filters.brand) return false;
   if (filters.supplier && product.supplier?.id !== filters.supplier)
+    return false;
+  if (
+    filters.priceImport &&
+    !product.priceSources?.some(
+      (source) => source.importId === filters.priceImport,
+    )
+  )
     return false;
   const total = adminStockSummary(product).total;
   if (filters.stock === "available" && total <= 0) return false;
@@ -82,4 +92,11 @@ export function productMatchesFilters(
     default:
       return true;
   }
+}
+
+export function selectedVisibleProducts<T extends { id: string }>(
+  products: T[],
+  selectedIds: ReadonlySet<string>,
+) {
+  return products.filter((product) => selectedIds.has(product.id));
 }

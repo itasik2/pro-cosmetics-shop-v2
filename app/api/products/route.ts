@@ -9,6 +9,7 @@ import { slugify } from "@/lib/slug";
 import { uniqueSlug } from "@/lib/uniqueSlug";
 import { formatProductName } from "@/lib/productNames";
 import { variantStockTotal } from "@/lib/productStock";
+import { productPriceSources } from "@/lib/productPriceSources";
 
 const ProductSchema = z.object({
   name: z.string().min(2),
@@ -73,6 +74,21 @@ export async function GET(req: Request) {
       variants: true,
       brand: { select: { id: true, name: true } },
       supplier: { select: { id: true, name: true } },
+      importRows: {
+        where: { appliedAt: { not: null } },
+        distinct: ["supplierSku"],
+        orderBy: [
+          { import: { sourceDate: { sort: "desc", nulls: "last" } } },
+          { appliedAt: "desc" },
+        ],
+        select: {
+          supplierSku: true,
+          rowNumber: true,
+          pageNumber: true,
+          appliedAt: true,
+          import: { select: { id: true, fileName: true, sourceDate: true } },
+        },
+      },
       enrichmentProposals: {
         where: { status: "APPLIED" },
         orderBy: { appliedAt: "desc" },
@@ -86,7 +102,12 @@ export async function GET(req: Request) {
     },
   });
 
-  return NextResponse.json(rows);
+  return NextResponse.json(
+    rows.map(({ importRows, ...product }) => ({
+      ...product,
+      priceSources: productPriceSources(product, importRows),
+    })),
+  );
 }
 
 export async function POST(req: Request) {
@@ -104,10 +125,7 @@ export async function POST(req: Request) {
       });
 
       if (!brand) {
-        return NextResponse.json(
-          { error: "brand_not_found" },
-          { status: 400 },
-        );
+        return NextResponse.json({ error: "brand_not_found" }, { status: 400 });
       }
     }
 
@@ -147,9 +165,6 @@ export async function POST(req: Request) {
     }
 
     console.error("POST /api/products", error);
-    return NextResponse.json(
-      { error: "failed_to_create" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "failed_to_create" }, { status: 500 });
   }
 }

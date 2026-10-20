@@ -336,6 +336,7 @@ test("filter controls expose publication counts, labels and reset", () => {
       categories={[]}
       brands={[]}
       suppliers={[]}
+      priceSources={[]}
     />,
   );
   assert.match(html, /Черновики · 5/);

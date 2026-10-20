@@ -1,3 +1,5 @@
+import type { ProductPriceSource } from "@/lib/productPriceSources";
+
 export type Product = {
   id: string;
   name: string;
@@ -6,6 +8,7 @@ export type Product = {
   supplier?: { id: string; name: string } | null;
   supplierSku?: string | null;
   sourcePrice?: number | null;
+  priceSources?: ProductPriceSource[];
   shortDescription?: string | null;
   description?: string;
   image: string;
