@@ -20,7 +20,7 @@ export function BatchEnrichment({products}:{products:HubProduct[]}) {
           body:JSON.stringify({productId:product.id,allowExternalSearch:false})});
         const found=await response.json().catch(()=>null) as Search & {error?:string};
         if(!response.ok)throw new Error(found?.error||"search_failed");
-        if(found.confidence<90||!["official_unverified","procosmetics_catalog"].includes(found.sourceType)){
+        if(found.confidence<90||!["official_unverified"].includes(found.sourceType)){
           setResults(previous=>[...previous,{title:product.title,state:"Источник или совпадение требуют ручной проверки"}]);
           continue;
         }

@@ -24,8 +24,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
     </div>
     <ProductEditor product={product} categories={categories.ok ? categories.data.categories : []}
       canWrite={!isLocalReadOnly()}
-      searchEnabled={Boolean(process.env.PRO_COSMETICS_SHARED_ENRICHMENT_URL &&
-        (process.env.CATALOG_HUB_SHARED_ENRICHMENT_TOKEN?.length || 0) >= 32)} />
+      searchEnabled={Boolean(process.env.OPENAI_API_KEY)} />
     {!categories.ok && <p className="error" role="alert">Справочник категорий недоступен: {categories.error}</p>}
     <div style={{marginTop:14}}>
       {warehouses.ok ? <StockAdjustment product={product} warehouses={warehouses.data} />
