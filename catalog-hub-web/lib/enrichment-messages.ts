@@ -18,8 +18,6 @@ export function enrichmentErrorMessage(cause: unknown) {
     return "Источник не найден. Укажите ссылку на товар, настройте сайт производителя или разрешите поиск у других продавцов.";
   if (message === "openai_not_configured")
     return "Для автоматического поиска в сети нужен OPENAI_API_KEY в настройках сервера. Можно указать прямую ссылку на товар без ИИ-поиска.";
-  if (message === "shared_search_not_configured")
-    return "Поиск ProCosmetics ещё не подключён к Catalog Hub. Настройте серверный адрес и общий секрет.";
   if (message === "product_page_not_found")
     return "Страница товара не найдена. Укажите точную ссылку или разрешите поиск у других продавцов.";
   if (message === "product_match_not_confirmed")
