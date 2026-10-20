@@ -78,7 +78,7 @@ export async function searchSharedCatalogProduct(raw: unknown) {
       application: copy.application.slice(0, 4_000),
       ingredients: copy.ingredients.slice(0, 4_000),
     },
-    images: extracted.images.filter(url => /^https?:\/\//i.test(url)).slice(0, 8),
+    images: extracted.images.filter(url => Boolean(validatedExternalProductUrl(url))).slice(0, 8),
     warnings: [...new Set([...match.warnings, ...copy.warnings,
       ...(stage === "official_unverified" ? ["unverified_official_site_manual_review_required"] : []),
       ...(stage === "external" ? ["external_source_manual_review_required"] : []),

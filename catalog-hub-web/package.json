@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test lib/*.test.ts",
+    "test": "node --import tsx --test lib/*.test.ts lib/official-search/*.test.ts",
     "local:init": "node scripts/local-init.mjs",
     "local:check": "node scripts/local-check.mjs",
     "local:dev": "node scripts/local-dev.mjs",
@@ -21,19 +21,20 @@
   },
   "dependencies": {
     "cheerio": "1.2.0",
-    "zod": "3.23.8",
+    "fast-xml-parser": "^5.2.5",
     "next": "15.5.24",
+    "pdfjs-dist": "4.10.38",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "fast-xml-parser": "^5.2.5",
     "read-excel-file": "^9.3.10",
-    "pdfjs-dist": "4.10.38"
+    "undici": "^7.30.1",
+    "zod": "3.23.8"
   },
   "devDependencies": {
     "@types/node": "^20.19.23",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
-    "typescript": "^5.6.2",
-    "tsx": "^4.20.3"
+    "tsx": "^4.20.3",
+    "typescript": "^5.6.2"
   }
 }

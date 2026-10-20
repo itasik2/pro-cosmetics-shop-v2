@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import {
   catalogPath,
   hubFetch,
-  organizationId,
   type HubList,
   type HubProduct,
 } from "@/lib/hub";
@@ -13,11 +12,9 @@ export async function GET() {
   const result = {
     ok: false,
     service: "catalog-hub-web",
-    organizationId,
     backend: false,
     auth: false,
     catalog: false,
-    catalogTotal: null as number | null,
   };
 
   try {
@@ -31,12 +28,11 @@ export async function GET() {
   }
 
   try {
-    const catalog = await hubFetch<HubList<HubProduct>>(
+    await hubFetch<HubList<HubProduct>>(
       catalogPath({ limit: 1, offset: 0 }),
     );
     result.auth = true;
     result.catalog = true;
-    result.catalogTotal = catalog.pagination.total;
     result.ok = true;
 
     return NextResponse.json(result, {
