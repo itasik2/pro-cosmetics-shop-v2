@@ -9,10 +9,13 @@ export const revalidate = 0;
 type PageProps = {
   searchParams?: Promise<{
     step?: string | string[];
+    importId?: string;
   }>;
 };
 
-function normalizeStep(value: string | string[] | undefined): PriceWorkflowStep {
+function normalizeStep(
+  value: string | string[] | undefined,
+): PriceWorkflowStep {
   const step = Array.isArray(value) ? value[0] : value;
   if (step === "enrichment" || step === "publication") return "enrichment";
   return "import";
@@ -36,6 +39,11 @@ export default async function Page(props: PageProps) {
   return (
     <PriceWorkflowClient
       initialStep={normalizeStep(searchParams?.step)}
+      initialImportId={
+        typeof searchParams?.importId === "string"
+          ? searchParams.importId
+          : undefined
+      }
       initialSuppliers={suppliers}
       initialBrands={brands}
     />

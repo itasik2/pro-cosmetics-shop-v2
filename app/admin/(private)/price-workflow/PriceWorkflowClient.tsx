@@ -25,6 +25,7 @@ type BrandOption = {
 
 type Props = {
   initialStep: PriceWorkflowStep;
+  initialImportId?: string;
   initialSuppliers: SupplierOption[];
   initialBrands: BrandOption[];
 };
@@ -53,6 +54,7 @@ const STEPS: Array<{
 
 export default function PriceWorkflowClient({
   initialStep,
+  initialImportId,
   initialSuppliers,
   initialBrands,
 }: Props) {
@@ -129,6 +131,7 @@ export default function PriceWorkflowClient({
         {step === "import" && (
           <div className="space-y-6">
             <PriceImportsClient
+              initialImportId={initialImportId}
               initialSuppliers={initialSuppliers}
               initialBrands={initialBrands}
             />

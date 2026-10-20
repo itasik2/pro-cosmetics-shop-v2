@@ -1,18 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { VariantPhotoPreview } from "@/components/VariantPhotoPicker";
+import { isUsablePhoto } from "@/lib/enrichment/photoQuality";
+import ProductPriceSources from "./ProductPriceSources";
+import { requestProductEditor } from "./productEditorEvents";
+import { requestProductActions } from "./productActions";
+import type { Product as CatalogProduct } from "./productTypes";
 
-type Product = {
-  id: string;
-  name: string;
-  description: string;
-  image: string;
-  category: string;
-  price: number;
-  stock: number;
-  isPublished: boolean;
-  brand?: { name: string } | null;
-  supplier?: { name: string } | null;
+type Product = CatalogProduct & {
   enrichmentProposals: Array<{
     id: string;
     status: string;
@@ -34,7 +30,7 @@ export default function DraftProductsPublisher() {
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  async function load() {
+  async function load(resetStock = false) {
     setLoading(true);
     try {
       const response = await fetch("/api/products?publicationQueue=1", {
@@ -43,7 +39,11 @@ export default function DraftProductsPublisher() {
       const data = await response.json().catch(() => null);
       if (!response.ok || !Array.isArray(data)) {
         throw new Error(
-          String(data?.message || data?.error || "Не удалось загрузить очередь публикации"),
+          String(
+            data?.message ||
+              data?.error ||
+              "Не удалось загрузить очередь публикации",
+          ),
         );
       }
 
@@ -52,7 +52,8 @@ export default function DraftProductsPublisher() {
       setStockValues((current) => {
         const next: Record<string, string> = {};
         for (const product of rows) {
-          next[product.id] = current[product.id] ?? String(product.stock);
+          next[product.id] =
+            (!resetStock && current[product.id]) || String(product.stock);
         }
         return next;
       });
@@ -72,6 +73,9 @@ export default function DraftProductsPublisher() {
 
   useEffect(() => {
     void load();
+    const onChanged = () => void load(true);
+    window.addEventListener("products-changed", onChanged);
+    return () => window.removeEventListener("products-changed", onChanged);
   }, []);
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
@@ -95,6 +99,35 @@ export default function DraftProductsPublisher() {
         ? current.filter((id) => id !== productId)
         : [...current, productId],
     );
+  }
+
+  async function deleteProducts(products: Product[]) {
+    if (busyKey || !products.length) return;
+    if (
+      !window.confirm(
+        `Удалить товаров: ${products.length}? Карточки и их варианты будут удалены без возможности восстановления.`,
+      )
+    )
+      return;
+    setBusyKey("bulk:delete");
+    setSuccess(null);
+    setErrors({});
+    try {
+      const result = await requestProductActions("delete", products, () => {});
+      setSelectedIds(result.failures.map((failure) => failure.id));
+      setErrors(
+        Object.fromEntries(
+          result.failures.map((failure) => [failure.id, failure.message]),
+        ),
+      );
+      setSuccess(
+        `Удалено: ${result.processedIds.length} из ${products.length}.`,
+      );
+      await load();
+      window.dispatchEvent(new Event("products-changed"));
+    } finally {
+      setBusyKey(null);
+    }
   }
 
   async function patchProduct(product: Product, action: "stock" | "publish") {
@@ -145,7 +178,9 @@ export default function DraftProductsPublisher() {
   async function publishSelected() {
     if (selectedIds.length === 0 || busyKey) return;
 
-    const selectedProducts = items.filter((product) => selectedSet.has(product.id));
+    const selectedProducts = items.filter((product) =>
+      selectedSet.has(product.id),
+    );
     const prepared = selectedProducts.map((product) => ({
       product,
       stock: parseStock(stockValues[product.id] ?? String(product.stock)),
@@ -156,7 +191,8 @@ export default function DraftProductsPublisher() {
       setErrors((current) => {
         const next = { ...current };
         for (const item of invalid) {
-          next[item.product.id] = "Количество должно быть целым числом от 0 и выше.";
+          next[item.product.id] =
+            "Количество должно быть целым числом от 0 и выше.";
         }
         return next;
       });
@@ -182,7 +218,9 @@ export default function DraftProductsPublisher() {
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
-          throw new Error(String(data.message || data.error || response.status));
+          throw new Error(
+            String(data.message || data.error || response.status),
+          );
         }
         published += 1;
       } catch (error) {
@@ -225,171 +263,231 @@ export default function DraftProductsPublisher() {
               </span>
             </div>
             <p className="mt-1 text-xs text-gray-500">
-              Готовые после одобрения товары. Разверните блок только когда нужна публикация.
+              Одобренные черновики. Недостающие фото и описание можно заполнить
+              в редакторе с ИИ.
             </p>
           </div>
-          <span className="shrink-0 text-sm text-gray-500 group-open:hidden">Развернуть ↓</span>
-          <span className="hidden shrink-0 text-sm text-gray-500 group-open:inline">Свернуть ↑</span>
+          <span className="shrink-0 text-sm text-gray-500 group-open:hidden">
+            Развернуть ↓
+          </span>
+          <span className="hidden shrink-0 text-sm text-gray-500 group-open:inline">
+            Свернуть ↑
+          </span>
         </summary>
 
         <div className="space-y-4 border-t p-4">
           <p className="text-xs text-gray-500">
-            Можно опубликовать один товар отдельно либо выбрать несколько и опубликовать их одной кнопкой.
+            Можно опубликовать один товар отдельно либо выбрать несколько и
+            опубликовать их одной кнопкой.
           </p>
 
-      {!loading && items.length > 0 && (
-        <div className="flex flex-col gap-3 rounded-xl border bg-gray-50 p-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              className="rounded-xl border bg-white px-3 py-2 text-sm hover:bg-gray-50"
-              disabled={Boolean(busyKey)}
-              onClick={() => setSelectedIds(items.map((product) => product.id))}
-            >
-              Выбрать все
-            </button>
-            <button
-              type="button"
-              className="rounded-xl border bg-white px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
-              disabled={selectedIds.length === 0 || Boolean(busyKey)}
-              onClick={() => setSelectedIds([])}
-            >
-              Снять выбор
-            </button>
-            <span className="text-sm text-gray-600">
-              Выбрано: {selectedIds.length} из {items.length}
-              {allSelected ? " · все" : ""}
-            </span>
-          </div>
-
-          <button
-            type="button"
-            className="rounded-xl bg-black px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
-            disabled={selectedIds.length === 0 || Boolean(busyKey)}
-            onClick={() => void publishSelected()}
-          >
-            {busyKey === "bulk:publish"
-              ? "Публикация…"
-              : `Опубликовать выбранные${selectedIds.length ? ` (${selectedIds.length})` : ""}`}
-          </button>
-        </div>
-      )}
-
-      {loading ? (
-        <div className="text-sm text-gray-500">Загрузка очереди…</div>
-      ) : items.length === 0 ? (
-        <div className="rounded-xl border border-dashed p-4 text-sm text-gray-500">
-          Готовых товаров пока нет. Сначала примените фото и описание полностью на
-          шаге «Фото, описание и количество».
-        </div>
-      ) : (
-        <div className="grid gap-3 md:grid-cols-2">
-          {items.map((product) => {
-            const approvalDate = product.enrichmentProposals[0]?.appliedAt;
-            const stockBusy = busyKey === `${product.id}:stock`;
-            const publishBusy = busyKey === `${product.id}:publish`;
-            const selected = selectedSet.has(product.id);
-
-            return (
-              <div
-                key={product.id}
-                className={`rounded-xl border p-3 space-y-3 ${selected ? "border-black ring-1 ring-black" : ""}`}
-              >
-                <div className="flex items-start gap-3">
-                  <label className="mt-1 flex shrink-0 items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={selected}
-                      disabled={Boolean(busyKey)}
-                      onChange={() => toggleSelected(product.id)}
-                      className="h-5 w-5"
-                      aria-label={`Выбрать ${product.name}`}
-                    />
-                  </label>
-                  <img
-                    src={product.image}
-                    alt=""
-                    className="h-20 w-20 shrink-0 rounded-lg border object-contain bg-white"
-                  />
-                  <div className="min-w-0">
-                    <div className="font-medium break-words">{product.name}</div>
-                    <div className="mt-1 text-xs text-gray-500">
-                      {product.brand?.name || "Без бренда"} •{" "}
-                      {product.supplier?.name || "Без поставщика"} •{" "}
-                      {Number(product.price).toLocaleString("ru-RU")} ₸
-                    </div>
-                    <div className="mt-1 text-xs text-emerald-700">
-                      Фото и описание одобрены
-                      {approvalDate
-                        ? ` · ${new Date(approvalDate).toLocaleString("ru-RU")}`
-                        : ""}
-                    </div>
-                  </div>
-                </div>
-
-                <label className="block text-sm">
-                  <span className="block mb-1 text-gray-600">Количество на складе</span>
-                  <input
-                    type="number"
-                    min={0}
-                    step={1}
-                    inputMode="numeric"
-                    value={stockValues[product.id] ?? String(product.stock)}
-                    onChange={(event) =>
-                      setStockValues((current) => ({
-                        ...current,
-                        [product.id]: event.target.value,
-                      }))
-                    }
-                    className="w-full rounded-xl border px-3 py-2"
-                  />
-                </label>
-
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    className="px-3 py-2 rounded-xl border disabled:opacity-50"
-                    disabled={Boolean(busyKey)}
-                    onClick={() => void patchProduct(product, "stock")}
-                  >
-                    {stockBusy ? "Сохранение…" : "Сохранить количество"}
-                  </button>
-                  <button
-                    type="button"
-                    className="px-3 py-2 rounded-xl bg-black text-white disabled:opacity-50"
-                    disabled={Boolean(busyKey)}
-                    onClick={() => void patchProduct(product, "publish")}
-                  >
-                    {publishBusy ? "Публикация…" : "Опубликовать"}
-                  </button>
-                </div>
-
-                {errors[product.id] && (
-                  <div className="rounded-lg bg-red-50 p-2 text-sm text-red-700">
-                    {errors[product.id]}
-                  </div>
-                )}
+          {!loading && items.length > 0 && (
+            <div className="flex flex-col gap-3 rounded-xl border bg-gray-50 p-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  className="btn-secondary min-h-10 px-3 py-2 text-sm"
+                  disabled={Boolean(busyKey)}
+                  onClick={() =>
+                    setSelectedIds(items.map((product) => product.id))
+                  }
+                >
+                  Выбрать все
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary min-h-10 px-3 py-2 text-sm disabled:opacity-50"
+                  disabled={selectedIds.length === 0 || Boolean(busyKey)}
+                  onClick={() => setSelectedIds([])}
+                >
+                  Снять выбор
+                </button>
+                <span className="text-sm text-gray-600">
+                  Выбрано: {selectedIds.length} из {items.length}
+                  {allSelected ? " · все" : ""}
+                </span>
               </div>
-            );
-          })}
-        </div>
-      )}
 
-      {errors.queue && (
-        <div className="rounded-lg bg-red-50 p-2 text-sm text-red-700">
-          {errors.queue}
-        </div>
-      )}
-      {errors.bulk && (
-        <div className="rounded-lg bg-red-50 p-2 text-sm text-red-700">
-          {errors.bulk}
-        </div>
-      )}
-      {success && (
-        <div className="rounded-lg bg-emerald-50 p-2 text-sm text-emerald-800">
-          {success}
-        </div>
-      )}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="btn-secondary min-h-10 px-3 py-2 text-sm"
+                  disabled={!selectedIds.length || Boolean(busyKey)}
+                  onClick={() =>
+                    void deleteProducts(
+                      items.filter((product) => selectedSet.has(product.id)),
+                    )
+                  }
+                >
+                  {busyKey === "bulk:delete"
+                    ? "Удаление…"
+                    : "Удалить выбранные"}
+                </button>
+                <button
+                  type="button"
+                  className="btn min-h-10 px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-40"
+                  disabled={selectedIds.length === 0 || Boolean(busyKey)}
+                  onClick={() => void publishSelected()}
+                >
+                  {busyKey === "bulk:publish"
+                    ? "Публикация…"
+                    : `Опубликовать выбранные${selectedIds.length ? ` (${selectedIds.length})` : ""}`}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {loading ? (
+            <div className="text-sm text-gray-500">Загрузка очереди…</div>
+          ) : items.length === 0 ? (
+            <div className="rounded-xl border border-dashed p-4 text-sm text-gray-500">
+              Готовых товаров пока нет. Сначала примените фото и описание
+              полностью на шаге «Фото, описание и количество».
+            </div>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2">
+              {items.map((product) => {
+                const approvalDate = product.enrichmentProposals[0]?.appliedAt;
+                const stockBusy = busyKey === `${product.id}:stock`;
+                const publishBusy = busyKey === `${product.id}:publish`;
+                const selected = selectedSet.has(product.id);
+                const hasPhoto = isUsablePhoto(product.image);
+
+                return (
+                  <div
+                    key={product.id}
+                    className={`min-w-0 rounded-xl border p-3 space-y-3 ${selected ? "border-[var(--color-accent)] ring-1 ring-[var(--color-accent)]" : ""}`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <label className="mt-1 flex shrink-0 items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          disabled={Boolean(busyKey)}
+                          onChange={() => toggleSelected(product.id)}
+                          className="h-5 w-5"
+                          aria-label={`Выбрать ${product.name}`}
+                        />
+                      </label>
+                      <VariantPhotoPreview
+                        src={product.image}
+                        alt=""
+                        className="h-20 w-20 shrink-0 rounded-lg border object-contain bg-white"
+                      />
+                      <div className="min-w-0">
+                        <div className="font-medium break-words">
+                          {product.name}
+                        </div>
+                        <div className="mt-1 text-xs text-gray-500">
+                          {product.brand?.name || "Без бренда"} •{" "}
+                          {product.supplier?.name || "Без поставщика"} •{" "}
+                          {Number(product.price).toLocaleString("ru-RU")} ₸
+                        </div>
+                        <div className="mt-1 text-xs text-gray-500">
+                          Данные ранее одобрены
+                          {approvalDate
+                            ? ` · ${new Date(approvalDate).toLocaleString("ru-RU")}`
+                            : ""}
+                        </div>
+                        <ProductPriceSources sources={product.priceSources} />
+                      </div>
+                    </div>
+
+                    {!hasPhoto && (
+                      <p className="rounded-lg bg-amber-50 p-2 text-sm text-amber-800">
+                        Нет фотографии. Нажмите «Редактировать / ИИ», чтобы
+                        найти фото и описание по SKU в прайсах и на сайте
+                        поставщика.
+                      </p>
+                    )}
+
+                    <label className="block text-sm">
+                      <span className="block mb-1 text-gray-600">
+                        Количество на складе
+                      </span>
+                      <input
+                        type="number"
+                        min={0}
+                        step={1}
+                        inputMode="numeric"
+                        disabled={Boolean(busyKey)}
+                        value={stockValues[product.id] ?? String(product.stock)}
+                        onChange={(event) =>
+                          setStockValues((current) => ({
+                            ...current,
+                            [product.id]: event.target.value,
+                          }))
+                        }
+                        className="w-full rounded-xl border px-3 py-2"
+                      />
+                    </label>
+
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="btn-secondary min-h-10 px-3 py-2"
+                        disabled={Boolean(busyKey)}
+                        onClick={() => requestProductEditor(product)}
+                      >
+                        Редактировать / ИИ
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-secondary min-h-10 px-3 py-2 disabled:opacity-50"
+                        disabled={Boolean(busyKey)}
+                        onClick={() => void patchProduct(product, "stock")}
+                      >
+                        {stockBusy ? "Сохранение…" : "Сохранить количество"}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn min-h-10 px-3 py-2 disabled:opacity-50"
+                        disabled={Boolean(busyKey) || !hasPhoto}
+                        title={
+                          !hasPhoto
+                            ? "Сначала добавьте фотографию через редактор"
+                            : undefined
+                        }
+                        onClick={() => void patchProduct(product, "publish")}
+                      >
+                        {publishBusy ? "Публикация…" : "Опубликовать"}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-secondary min-h-10 px-3 py-2"
+                        disabled={Boolean(busyKey)}
+                        onClick={() => void deleteProducts([product])}
+                      >
+                        Удалить
+                      </button>
+                    </div>
+
+                    {errors[product.id] && (
+                      <div className="rounded-lg bg-red-50 p-2 text-sm text-red-700">
+                        {errors[product.id]}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {errors.queue && (
+            <div className="rounded-lg bg-red-50 p-2 text-sm text-red-700">
+              {errors.queue}
+            </div>
+          )}
+          {errors.bulk && (
+            <div className="rounded-lg bg-red-50 p-2 text-sm text-red-700">
+              {errors.bulk}
+            </div>
+          )}
+          {success && (
+            <div className="rounded-lg bg-emerald-50 p-2 text-sm text-emerald-800">
+              {success}
+            </div>
+          )}
         </div>
       </details>
     </section>
