@@ -13,6 +13,7 @@ import {
   officialCatalogSearchUrls,
 } from "./officialCatalogSearch";
 import { variantPhotoSearchIssue } from "./clientMessages";
+import { sourceUrlKey } from "./resolveProductSource";
 
 type SearchResult = { found: boolean; url: string | null };
 type Dependencies = {
@@ -65,6 +66,7 @@ export async function searchVariantPhotos(
     priceCandidates: VariantImageCandidate[];
     deadlineAt?: number;
     catalogOnly?: boolean;
+    excludedUrls?: string[];
   },
   dependencies: Dependencies = {
     official: findOfficialProductUrl,
@@ -78,10 +80,12 @@ export async function searchVariantPhotos(
   const deadlineAt = input.deadlineAt ?? Date.now() + 140_000;
   const candidates: VariantImageCandidate[] = [];
   const errors: string[] = [];
-  const tried = new Set<string>();
+  const tried = new Set<string>(input.excludedUrls || []);
+  const triedKeys = new Set([...tried].map(sourceUrlKey));
   async function inspect(url: string, discovered = false, until = deadlineAt) {
-    if (tried.has(url)) return false;
+    if (triedKeys.has(sourceUrlKey(url))) return false;
     tried.add(url);
+    triedKeys.add(sourceUrlKey(url));
     try {
       if (
         ["procosmetics.kz", "www.procosmetics.kz"].includes(
