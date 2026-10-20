@@ -11,6 +11,7 @@ import {buildUniversalCatalog} from "@/lib/universal-catalog";
 import {parsePriceRule,priceImportItems,type PriceRule} from "@/lib/import-pricing";
 import {defaultImportMapping,isJeudermPriceList} from "@/lib/import-price-preset";
 import {dateFromFileName,previousAppliedDate} from "@/lib/import-date";
+import {decideImportPrice,missingSupplierPositions,validSourceDate,type ImportPolicyRow} from "@/lib/import-policy";
 
 export const dynamic="force-dynamic";
 export const runtime="nodejs";
@@ -18,6 +19,7 @@ export const maxDuration=60;
 
 type Catalog={items:Existing[];total:number};
 type Categories={categories:Array<{key:string;isActive:boolean}>};
+type Supplier={id:string;isActive:boolean};
 const MAPPED_FIELDS=new Set<Field>([
  "sku","barcode","title","brand","volume","purchasePrice","price","description","categoryKey","stock"
 ]);
@@ -33,10 +35,10 @@ function secret(){
 function fileHash(file:File) {
  return file.arrayBuffer().then(buffer=>createHash("sha256").update(Buffer.from(buffer)).digest("hex"));
 }
-function digest(fileDigest:string,mapping:Mapping,priceRule:PriceRule,review:ReturnType<typeof evaluateImport>){
+function digest(fileDigest:string,mapping:Mapping,priceRule:PriceRule,review:ImportPolicyRow[],supplierId:string|null,sourceDate:string|null){
  const data=JSON.stringify({
-   org:organizationId,fileDigest,mapping,priceRule,
-   rows:review.map(x=>[x.rowNumber,x.sku,x.barcode,x.productId,x.status,x.currentUpdatedAt,x.proposed,x.changes])
+   org:organizationId,fileDigest,mapping,priceRule,supplierId,sourceDate,
+   rows:review.map(x=>[x.rowNumber,x.sku,x.barcode,x.productId,x.status,x.currentUpdatedAt,x.priceDecision,x.proposed,x.changes])
  });
  return createHmac("sha256",secret()).update(data).digest("hex");
 }
@@ -108,6 +110,9 @@ async function prepare(request:NextRequest){
    ?defaultImportMapping(fileName,table.format,table.headers,autoMapping(table.headers))
    :mappingFrom(suppliedMapping,table.headers);
  const priceRule=parsePriceRule(data.get("priceRule")??storedPriceRule);
+ const rawSupplier=data.get("supplierId");
+ const supplierId=typeof rawSupplier==="string"&&rawSupplier?rawSupplier:null;
+ if(supplierId&&supplierId.length>128)throw new Error("invalid_supplier");
  const effectiveMapping=priceRule.mode==="PRICE_AS_IS"?mapping:{...mapping,price:undefined};
  const items=priceImportItems(mapImport(table,effectiveMapping),priceRule);
  // PDF booklets have two unlabeled commercial amounts. Require an explicit
@@ -120,11 +125,39 @@ async function prepare(request:NextRequest){
      }
    }
  }
- const [currentCatalog,categories]=await Promise.all([
+ const [currentCatalog,categories,suppliers]=await Promise.all([
    hubFetch<Catalog>("/v1/catalog/snapshot?organizationId="+encodeURIComponent(organizationId)),
    hubFetch<Categories>("/v1/categories?organizationId="+encodeURIComponent(organizationId)),
+   process.env.CATALOG_HUB_LOCAL_MODE==="true"?Promise.resolve([] as Supplier[]):
+     hubFetch<Supplier[]>("/v1/suppliers?organizationId="+encodeURIComponent(organizationId)),
  ]);
- const review=evaluateImport(items,currentCatalog.items,categories.categories.filter(c=>c.isActive).map(c=>c.key));
+ if(supplierId&&!suppliers.some(s=>s.id===supplierId&&s.isActive))throw new Error("supplier_not_found");
+ if(!supplierId&&process.env.CATALOG_HUB_LOCAL_MODE!=="true")throw new Error("supplier_required");
+ const preliminary=evaluateImport(items,currentCatalog.items,categories.categories.filter(c=>c.isActive).map(c=>c.key),supplierId||undefined);
+ const enteredDate=data.get("sourceDate");
+ const sourceDate=typeof enteredDate==="string"&&enteredDate?enteredDate:dateFromFileName(fileName);
+ if(sourceDate&&!validSourceDate(sourceDate))throw new Error("invalid_source_date");
+ const byId=new Map(currentCatalog.items.map(p=>[p.id,p]));
+ const review:ImportPolicyRow[]=preliminary.map(row=>({
+   ...row,priceDecision:decideImportPrice(row,row.productId?byId.get(row.productId):undefined,supplierId,sourceDate),
+ }));
+ if(supplierId){
+   const supplierSkuToProduct=new Map<string,string>();
+   for(const product of currentCatalog.items){
+     for(const link of product.supplierLinks||[]){
+       if(link.supplierId===supplierId&&link.supplierSku)
+         supplierSkuToProduct.set(link.supplierSku.trim().toUpperCase(),product.id);
+     }
+   }
+   for(const row of review){
+     const suppliedSku=mapping.sku?originalRows[row.index]?.[mapping.sku]?.trim():null;
+     const linked=suppliedSku&&supplierSkuToProduct.get(suppliedSku.toUpperCase());
+     if(linked&&linked!==row.productId){
+       row.status="CONFLICT";row.priceDecision="BLOCKED";
+       row.reasons.push("Артикул поставщика уже привязан к другой карточке");
+     }
+   }
+ }
  if(priceRule.mode==="SOURCE_ONLY"){
    for(const row of review){
      if(row.status==="CREATE"){
@@ -139,7 +172,7 @@ async function prepare(request:NextRequest){
      row.identity.internalSku=currentCatalog.items.find(p=>p.id===row.identity.productId)?.sku||row.identity.internalSku;
    }
  }
- const sourceBase=createHash("sha256").update(hash+JSON.stringify(mapping)).digest("hex").slice(0,32);
+ const sourceBase=createHash("sha256").update(hash+JSON.stringify(mapping)+(supplierId||"")+(sourceDate||"")).digest("hex").slice(0,32);
  let profileId:string|null=null;
  if(process.env.CATALOG_HUB_LOCAL_MODE==="true"){
    const requested=data.get("profileId")||historyProfileId;
@@ -149,14 +182,15 @@ async function prepare(request:NextRequest){
      else if(data.get("profileId"))throw new Error("supplier_profile_not_found");
    }
  }
- const sourceDate=dateFromFileName(fileName);
  const appliedDate=process.env.CATALOG_HUB_LOCAL_MODE==="true"
    ?previousAppliedDate(await listLocalImportHistory(organizationId),profileId):null;
  const olderThanApplied=Boolean(sourceDate&&appliedDate&&sourceDate<appliedDate);
  const {rows:_parsedRows,...tableMetadata}=table;
  const snapshot:LocalImportSnapshot={table:tableMetadata,originalRows,fileSha256:hash,mapping,skuOverrides,priceRule};
- return {data,fileName,table,mapping,priceRule,review,sourceBase,profileId,sourceDate,appliedDate,olderThanApplied,universalCatalog,snapshot,
-   fingerprint:digest(hash,mapping,priceRule,review)};
+ const missingPositions=missingSupplierPositions(review,currentCatalog.items,supplierId,sourceDate);
+ return {data,fileName,fileSha256:hash,table,mapping,priceRule,review,sourceBase,profileId,supplierId,sourceDate,
+   appliedDate,olderThanApplied,missingPositions,universalCatalog,snapshot,byId,
+   fingerprint:digest(hash,mapping,priceRule,review,supplierId,sourceDate)};
 }
 export async function POST(request:NextRequest) {
  if(!isSameOrigin(request))return responseError("invalid_origin",403);
@@ -188,7 +222,8 @@ export async function POST(request:NextRequest) {
      format:table.format,fileName:state.fileName,headers:table.headers,mapping,priceRule,review,counts,fingerprint,
      jeudermPriceRule:isJeudermPriceList(state.fileName,table.format,table.headers),
      historyId,historyWarning,pdfSkuOverrides:state.snapshot.skuOverrides,
-     sourceDate:state.sourceDate,appliedDate:state.appliedDate,olderThanApplied:state.olderThanApplied,
+     supplierId:state.supplierId,sourceDate:state.sourceDate,appliedDate:state.appliedDate,
+     olderThanApplied:state.olderThanApplied,missingPositions:state.missingPositions,
      universalCatalog:state.universalCatalog,
      warnings:table.warnings||[],pageCount:table.pageCount||null,
      pdfSource:table.format==="PDF"?table.rows.map((x,index)=>({
@@ -199,13 +234,12 @@ export async function POST(request:NextRequest) {
      })):[],
      needsManualSku:table.needsManualSku||false,
      canApply:!isLocalReadOnly(),
-     note:"Normalized rows are stored locally for history replay; source files are not stored. Stock remains informational."
+     note:"Проверяйте спорные цены и исчезнувшие позиции. Остатки в файле носят справочный характер."
    },{headers:{"cache-control":"no-store"}});
  }
  if(data.get("confirmed")!=="yes")return responseError("confirmation_required");
- if(state.olderThanApplied&&data.get("acceptOlderPrice")!=="yes")
-   return responseError("older_price_confirmation_required",409);
  if(isLocalReadOnly())return responseError("local_read_only_mode: сохранение товаров отключено до подключения тестовой базы.",403);
+ if(!state.supplierId)return responseError("supplier_required");
  const signature=data.get("fingerprint");
  if(typeof signature!=="string"||!equalSignature(signature,fingerprint))
    return responseError("preview_expired_or_catalog_changed",409);
@@ -216,16 +250,43 @@ export async function POST(request:NextRequest) {
     selected.some(v=>!Number.isInteger(v)||v<0||v>=review.length)||
     new Set(selected).size!==selected.length)return responseError("select_up_to_20_rows");
  const candidates=selected.map(i=>review[i as number]);
- if(candidates.some(r=>!["CREATE","UPDATE"].includes(r.status)))return responseError("selection_has_conflicts",409);
+ if(candidates.some(r=>!["CREATE","UPDATE"].includes(r.status)&&
+      !(r.status==="SAME"&&r.priceDecision==="REVIEW_FIRST")||
+    ["NO_DATE","FUTURE","OLDER","BLOCKED"].includes(r.priceDecision)))
+   return responseError("selection_has_conflicts_or_unsafe_price",409);
  const results:Array<{rowNumber:number;sku:string;status:string;id?:string;error?:string}>=[];
  for(const item of candidates){
   try{
-   if(item.status==="UPDATE"){
+   if(item.priceDecision==="AUTO_INCREASE"&&item.productId){
+     const current=state.byId.get(item.productId)!;
+     const changed=Object.fromEntries(item.changes.filter(c=>c.field==="price"||c.field==="purchasePrice")
+       .map(c=>[c.field,c.after]));
+     const applied=await hubFetch<{id:string}>("/v1/price-import/auto",{
+       method:"POST",body:JSON.stringify({organizationId,supplierId:state.supplierId,
+         productId:item.productId,sku:item.sku,title:current.title,brand:current.brand,
+         sourceDate:state.sourceDate,fileName:state.fileName,fileSha256:state.fileSha256,...changed}),
+     });
+     results.push({rowNumber:item.rowNumber,sku:item.sku,status:"AUTO_APPLIED",id:applied.id});
+   }else if(item.status==="UPDATE"||item.status==="SAME"){
+     const current=state.byId.get(item.productId!)!;
+     const proposed:Record<string,unknown>=Object.fromEntries(item.changes.map(c=>[c.field,c.after]));
+     if(state.sourceDate){
+       proposed.attributes={...(current.attributes||{}),supplierImport:{
+         ...(current.attributes?.supplierImport&&typeof current.attributes.supplierImport==="object"
+           ?current.attributes.supplierImport as Record<string,unknown>:{}),
+         ...state.universalCatalog.source,
+         ...state.universalCatalog.products[item.index].provenance,
+         supplierId:state.supplierId,
+         supplierSku:state.universalCatalog.products[item.index].identity.supplierSku,
+         sourceDate:state.sourceDate,
+         sha256:state.fileSha256,
+       }};
+     }
      const staged=await hubFetch<{id:string;status:string}>("/v1/staging/changesets",{
        method:"POST",body:JSON.stringify({
          organizationId,productId:item.productId,
          sourceType:"IMPORT",sourceRef:"supplierfile:"+state.sourceBase+":"+item.index,
-         proposed:Object.fromEntries(item.changes.map(c=>[c.field,c.after])),
+         proposed,
        }),
      });
      results.push({rowNumber:item.rowNumber,sku:item.sku,status:"STAGED",id:staged.id});
@@ -233,9 +294,11 @@ export async function POST(request:NextRequest) {
      // No stock is created, even when the supplier file contains a quantity.
      const created=await hubFetch<{id:string}>("/v1/catalog/products",{
        method:"POST",body:JSON.stringify({
-         organizationId,card:{
+         organizationId,supplierId:state.supplierId,
+         supplierSku:state.universalCatalog.products[item.index].identity.supplierSku,card:{
            sku:item.sku,title:item.title,
            attributes:{
+             newArrival:true,
              ...(state.universalCatalog.products[item.index].card.variant?{
                volumeValue:state.universalCatalog.products[item.index].card.variant!.value,
                volumeUnit:state.universalCatalog.products[item.index].card.variant!.unit,
@@ -243,6 +306,7 @@ export async function POST(request:NextRequest) {
              supplierImport:{
                ...state.universalCatalog.source,
                ...state.universalCatalog.products[item.index].provenance,
+               supplierId:state.supplierId,sourceDate:state.sourceDate,sha256:state.fileSha256,
                supplierSku:state.universalCatalog.products[item.index].identity.supplierSku,
                sourceAmounts:state.universalCatalog.products[item.index].prices.sourceAmounts,
              },
@@ -266,6 +330,16 @@ export async function POST(request:NextRequest) {
   }
  }
  let historyWarning:string|null=null;
+ if(process.env.CATALOG_HUB_LOCAL_MODE!=="true"&&state.supplierId&&state.sourceDate){
+   try{
+     await hubFetch("/v1/price-import/history",{method:"POST",body:JSON.stringify({
+       organizationId,supplierId:state.supplierId,filename:state.fileName,sourceDate:state.sourceDate,
+       rows:results.map(row=>({rowNumber:row.rowNumber,sku:row.sku,status:row.status,
+         ...(row.status==="STAGED"?{changeSetId:row.id}:{productId:row.id}),error:row.error})),
+     })});
+   }catch(e){console.error("price_import_history_failed",e);
+     historyWarning="Результат применения не сохранился в истории импорта.";}
+ }
  if(process.env.CATALOG_HUB_LOCAL_MODE==="true"){
    try{
      await recordLocalImportEvent({
@@ -281,6 +355,6 @@ export async function POST(request:NextRequest) {
  }
  return NextResponse.json({
    results,partial:results.some(r=>r.status==="ERROR"),historyWarning,
-   reminder:"STAGED means saved to Changes for manual approval. CREATED means a new product was created with zero stock."
+   reminder:"Повышения с подтверждённым SKU и поставщиком применены. Спорные изменения ожидают проверки. Новые товары созданы с нулевым остатком."
  },{headers:{"cache-control":"no-store"}});
 }

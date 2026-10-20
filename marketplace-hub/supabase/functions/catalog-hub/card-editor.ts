@@ -261,8 +261,34 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
         }
         const after = { ...before };
         const proposed = readJsonObject(cs.proposed);
+        if (cs.sourceType === "IMPORT" && (approved.includes("price") || approved.includes("purchasePrice")) &&
+            Object.prototype.hasOwnProperty.call(proposed, "attributes") && !approved.includes("attributes"))
+          fail("import_price_requires_source_approval", 409);
         for (const field of approved) after[field] = proposed[field];
         if (!after.title || typeof after.title !== "string") fail("invalid_title");
+        let supplierId: string | null = null;
+        let supplierSku: string | null = null;
+        if (cs.sourceType === "IMPORT" && approved.includes("attributes")) {
+          const attributes = readJsonObject(after.attributes);
+          // Existing staged imports predate supplier provenance; keep them reviewable.
+          const provenance = attributes.supplierImport == null ? null : readJsonObject(attributes.supplierImport);
+          if (provenance) {
+          supplierId = requiredId(provenance.supplierId, "supplierId");
+          supplierSku = typeof provenance.supplierSku === "string" && provenance.supplierSku.trim()
+            ? provenance.supplierSku.trim() : null;
+          if (typeof provenance.sourceDate !== "string" ||
+              !/^\d{4}-\d{2}-\d{2}$/.test(provenance.sourceDate) ||
+              Number.isNaN(Date.parse(provenance.sourceDate))) fail("import_source_invalid", 409);
+          const suppliers = await tx`SELECT "id" FROM public."Supplier" WHERE "id"=${supplierId}
+            AND "organizationId"=${organizationId} AND "isActive"=true LIMIT 1`;
+          if (!suppliers.length) fail("supplier_not_found", 404);
+          if (supplierSku) {
+            const conflicts = await tx`SELECT "productId" FROM public."SupplierProduct" WHERE "supplierId"=${supplierId}
+              AND "supplierSku"=${supplierSku} AND "productId"<>${cs.productId} LIMIT 1`;
+            if (conflicts.length) fail("supplier_sku_already_linked", 409);
+          }
+          }
+        }
         await tx`INSERT INTO public."ProductRevision"
           ("id","productId","changeSetId","reason","snapshot","createdBy","createdAt")
           VALUES (${crypto.randomUUID()},${cs.productId},${id},'CHANGESET_APPLY',
@@ -282,6 +308,14 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
           "images"=CASE WHEN ${approved.includes("images")} THEN ${tx.json(after.images)}::jsonb ELSE "images" END,
           "updatedAt"=now()
           WHERE "id"=${cs.productId} AND "organizationId"=${organizationId}`;
+        if (supplierId) {
+          await tx`INSERT INTO public."SupplierProduct" ("id","supplierId","productId","supplierSku",
+            "purchasePrice","lastSeenAt","createdAt","updatedAt") VALUES
+            (${crypto.randomUUID()},${supplierId},${cs.productId},${supplierSku},
+             ${after.purchasePrice as number|null},now(),now(),now())
+            ON CONFLICT ("supplierId","productId") DO UPDATE SET "supplierSku"=EXCLUDED."supplierSku",
+              "purchasePrice"=EXCLUDED."purchasePrice","lastSeenAt"=now(),"updatedAt"=now()`;
+        }
         for (const field of approved) {
           await tx`UPDATE public."CatalogFieldChange" SET "status"='APPLIED',
             "appliedBy"='catalog-hub-ui',"appliedAt"=now(),"updatedAt"=now()

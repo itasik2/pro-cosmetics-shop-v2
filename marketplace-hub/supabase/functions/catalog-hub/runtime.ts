@@ -1,4 +1,5 @@
 import { handleCardEditor } from "./card-editor.ts";
+import { handlePriceImport } from "./price-import-api.ts";
 import { handleInventory } from "./inventory-api.ts";
 import { handleCategories } from "./categories-api.ts";
 import { handleRepricing } from "./repricing-api.ts";
@@ -267,6 +268,8 @@ function optionalNonNegativeInt(value: unknown) {
 async function createProduct(body: any) {
   const organizationId = optionalString(body?.organizationId);
   const warehouseId = optionalString(body?.warehouseId);
+  const supplierId = optionalString(body?.supplierId);
+  const supplierSku = optionalString(body?.supplierSku);
   const card = body?.card ?? {};
   const sku = optionalString(card.sku);
   const title = optionalString(card.title);
@@ -300,6 +303,12 @@ async function createProduct(body: any) {
       LIMIT 1
     `;
     if (!warehouse.length) throw new Error("warehouse_not_found");
+  }
+  if (supplierId) {
+    if (supplierSku && supplierSku.length > 100) throw new Error("supplier_sku_invalid");
+    const suppliers = await sql`SELECT "id" FROM public."Supplier" WHERE "id"=${supplierId}
+      AND "organizationId"=${organizationId} AND "isActive"=true LIMIT 1`;
+    if (!suppliers.length) throw new Error("supplier_not_found");
   }
 
   const id = crypto.randomUUID();
@@ -343,6 +352,12 @@ async function createProduct(body: any) {
           ${now}
         )
       `;
+      if (supplierId) {
+        await tx`INSERT INTO public."SupplierProduct" ("id","supplierId","productId","supplierSku",
+          "barcode","purchasePrice","lastSeenAt","createdAt","updatedAt")
+          VALUES (${crypto.randomUUID()},${supplierId},${id},${supplierSku},${optionalString(card.barcode)},
+          ${purchasePrice},now(),now(),now())`;
+      }
 
       if (warehouseId && stock !== null) {
         await tx`
@@ -445,6 +460,7 @@ async function catalogSnapshot(url: URL) {
       images: unknown;
       purchasePrice: number | null;
       price: number | null;
+      supplierLinks: unknown;
       stock: number;
       available: number;
       createdAt: string | Date;
@@ -466,6 +482,8 @@ async function catalogSnapshot(url: URL) {
       p."images",
       p."purchasePrice",
       p."basePrice" AS "price",
+      COALESCE((SELECT json_agg(json_build_object('supplierId',sp."supplierId",'supplierSku',sp."supplierSku"))
+        FROM public."SupplierProduct" sp WHERE sp."productId"=p."id"),'[]'::json) AS "supplierLinks",
       COALESCE(SUM(i."onHand"), 0)::int AS "stock",
       COALESCE(
         SUM(GREATEST(i."onHand" - i."reserved" - i."safetyStock", 0)),
@@ -820,6 +838,9 @@ Deno.serve(async (req: Request) => {
 
     const cardEditor = await handleCardEditor(req, route, url, sql);
     if (cardEditor) return cardEditor;
+
+    const priceImport = await handlePriceImport(req, route, url, sql);
+    if (priceImport) return priceImport;
 
     if (route === "/v1/catalog/product-options" && req.method === "GET") {
       return json(await listProductOptions(url));
