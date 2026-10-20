@@ -68,6 +68,9 @@ export async function GET(req: Request) {
         select: {
           id: true,
           name: true,
+          brandId: true,
+          volumeValue: true,
+          volumeUnit: true,
           supplierSku: true,
           image: true,
           shortDescription: true,

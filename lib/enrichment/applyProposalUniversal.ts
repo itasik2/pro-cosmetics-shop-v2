@@ -103,17 +103,26 @@ export async function applyProductEnrichmentProposalUniversal(
     imageGroups(facts.variantImageCandidates),
     priceVariantGroups(proposal.productId, variants, priceImages),
   );
-  validateVariantImages(variants, selections, groups);
+  validateVariantImages(variants, selections, groups, proposal.product);
   const commonUrl = applyPhotos ? String(input.imageUrl || "").trim() : "";
   // A verified photo for the current primary SKU can also be its common photo.
   const commonFromPrimarySku = primarySkuPhotoCandidates(
     {
-      id: proposal.productId,
-      supplierSku: proposal.product.supplierSku,
+      ...proposal.product,
       variants,
     },
     facts,
   ).some((candidate) => candidate.url === commonUrl);
+  const namedCommonPhoto = [
+    ...imageGroups(facts.productImageCandidates),
+    ...imageGroups(facts.variantImageCandidates),
+  ].some((group) =>
+    group.candidates.some(
+      (candidate) => candidate.url === commonUrl && candidate.identityKey,
+    ),
+  );
+  if (namedCommonPhoto && !commonFromPrimarySku)
+    throw new Error("product_changed_refresh");
   if (input.mode === "IMAGE" && !commonUrl && !selections.length)
     throw new Error("proposal_image_missing");
   if (
@@ -211,6 +220,10 @@ export async function applyProductEnrichmentProposalUniversal(
         updatedAt: true,
         supplierSku: true,
         image: true,
+        name: true,
+        brandId: true,
+        volumeValue: true,
+        volumeUnit: true,
       },
     });
     const currentVariants = normalizeStoredVariants(current.variants);
@@ -218,14 +231,16 @@ export async function applyProductEnrichmentProposalUniversal(
       commonFromPrimarySku &&
       !primarySkuPhotoCandidates(
         {
+          ...current,
           id: proposal.productId,
-          supplierSku: current.supplierSku,
           variants: currentVariants,
         },
         facts,
       ).some((candidate) => candidate.url === commonUrl)
     )
-      throw new Error("variant_sku_changed");
+      throw new Error(
+        namedCommonPhoto ? "product_changed_refresh" : "variant_sku_changed",
+      );
     if (
       input.automatic &&
       commonUrl &&
@@ -245,7 +260,7 @@ export async function applyProductEnrichmentProposalUniversal(
         ))
     )
       throw new Error("product_changed_refresh");
-    validateVariantImages(currentVariants, selections, groups);
+    validateVariantImages(currentVariants, selections, groups, current);
     let nextVariants = assignVariantImages(currentVariants, prepared);
     if (applyInventory)
       nextVariants = nextVariants.map((variant) => ({

@@ -187,7 +187,16 @@ export async function processCatalogAutopilotProposal(
       });
       const current = await prisma.product.findUniqueOrThrow({
         where: { id: proposal.productId },
-        select: { id: true, image: true, supplierSku: true, variants: true },
+        select: {
+          id: true,
+          name: true,
+          brandId: true,
+          volumeValue: true,
+          volumeUnit: true,
+          image: true,
+          supplierSku: true,
+          variants: true,
+        },
       });
       const plan = automaticPhotoPlan(
         { ...current, variants: normalizeStoredVariants(current.variants) },

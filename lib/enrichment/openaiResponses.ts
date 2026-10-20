@@ -2,6 +2,7 @@ import { isIP } from "node:net";
 import { z } from "zod";
 import type { ExtractedProductData } from "./extractProduct";
 import type { MatchableProduct } from "./matchProduct";
+import { isSyntheticSupplierSku } from "./photoIdentity";
 
 const SearchResultSchema = z.object({
   found: z.boolean(),
@@ -251,7 +252,7 @@ function productLabel(product: MatchableProduct) {
   const brand =
     product.brand?.name || product.supplier?.name || "бренд не указан";
   const supplierSku = String(product.supplierSku || "").trim();
-  const searchableSku = /^JD-[A-Z0-9]{6,}$/i.test(supplierSku)
+  const searchableSku = isSyntheticSupplierSku(supplierSku)
     ? "не указан"
     : supplierSku || "не указан";
 

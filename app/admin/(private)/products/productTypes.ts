@@ -7,6 +7,8 @@ export type Product = {
   brand?: { id?: string; name: string } | null;
   supplier?: { id: string; name: string } | null;
   supplierSku?: string | null;
+  volumeValue?: number | null;
+  volumeUnit?: string | null;
   sourcePrice?: number | null;
   priceSources?: ProductPriceSource[];
   shortDescription?: string | null;

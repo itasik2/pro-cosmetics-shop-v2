@@ -1,7 +1,9 @@
 import type { ExtractedProductData } from "./extractProduct";
+import { isSyntheticSupplierSku } from "./photoIdentity";
 
 export type MatchableProduct = {
   name: string;
+  brandId?: string | null;
   category?: string | null;
   productLineName?: string | null;
   supplierSku: string | null;
@@ -36,10 +38,6 @@ function normalize(value: unknown) {
 
 function compact(value: unknown) {
   return normalize(value).replace(/\s+/g, "");
-}
-
-function isInternalSyntheticSku(value: unknown) {
-  return /^JD-[A-Z0-9]{6,}$/i.test(String(value || "").trim());
 }
 
 function tokenSet(value: string) {
@@ -121,7 +119,7 @@ export function scoreProductMatch(
   score += Math.round(nameSimilarity * 15);
   if (nameSimilarity < 0.35) warnings.push("low_name_similarity");
 
-  const syntheticSupplierSku = isInternalSyntheticSku(product.supplierSku);
+  const syntheticSupplierSku = isSyntheticSupplierSku(product.supplierSku);
   const expectedSku = compact(
     syntheticSupplierSku
       ? product.barcode

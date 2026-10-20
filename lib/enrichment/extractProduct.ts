@@ -1,6 +1,10 @@
 import * as cheerio from "cheerio";
 import { photoSku } from "./variantImages";
 import { isProductPhoto } from "./photoQuality";
+import {
+  matchesNamedPhotoProduct,
+  type NamePhotoProduct,
+} from "./photoIdentity";
 
 export type SourceSelectors = {
   title?: string;
@@ -419,6 +423,46 @@ export function extractImagesForSku(input: {
     });
     if (photoSku(extracted.sku) === wanted) images.push(...extracted.images);
   }
+  return [...new Set(images.filter(isLikelyProductImage))].slice(0, 12);
+}
+
+export function extractImagesForNamedProduct(input: {
+  buffer: Buffer;
+  finalUrl: string;
+  product: NamePhotoProduct;
+}) {
+  const $ = cheerio.loadBuffer(input.buffer, {
+    encoding: { defaultEncoding: "utf-8" },
+  });
+  const products = parseJsonLdScripts($).filter((node) =>
+    typeIncludesProduct(node["@type"]),
+  );
+  const extracted = extractProductFromHtml(input);
+  const images: string[] = [];
+  for (const node of products) {
+    const offers = Array.isArray(node.offers) ? node.offers : [node.offers];
+    if (
+      node.hasVariant ||
+      offers.length > 1 ||
+      offers.some((offer) => Number(toObject(offer)?.offerCount) > 1)
+    )
+      continue;
+    const source = {
+      title: cleanText(node.name),
+      brand:
+        readBrand(node.brand) ||
+        (products.length === 1 ? extracted.brand : null),
+      description:
+        cleanText(node.description) ||
+        (products.length === 1 ? extracted.description : null),
+    };
+    if (!matchesNamedPhotoProduct(input.product, source)) continue;
+    collectImageValues(node.image, input.finalUrl, images);
+    // Only the single matching product may supply its unscoped main gallery.
+    if (products.length === 1) images.push(...extracted.images);
+  }
+  if (!products.length && matchesNamedPhotoProduct(input.product, extracted))
+    images.push(...extracted.images);
   return [...new Set(images.filter(isLikelyProductImage))].slice(0, 12);
 }
 

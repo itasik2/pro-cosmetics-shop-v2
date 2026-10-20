@@ -20,6 +20,7 @@ import { searchVariantPhotos } from "../lib/enrichment/variantPhotoSearch";
 import { sanitizeProposalTitle } from "../lib/enrichment/proposalText";
 import { evaluateCatalogAutopilotProposal } from "../lib/enrichment/catalogAutopilotPolicy";
 import type { VariantImageGroup } from "../lib/enrichment/variantImages";
+import { namePhotoKey } from "../lib/enrichment/photoIdentity";
 
 const variants = [
   { id: "small", label: "7", sku: "MV16", price: 1500, stock: 3 },
@@ -581,6 +582,188 @@ test("a primary SKU changed during upload cannot receive the old SKU photo even 
   assert.equal(f.state.product.variants[0].image, undefined);
   assert.equal(f.state.product.image, "/seed/cream.jpg");
   assert.equal(f.state.product.stock, 2);
+  assert.equal(f.state.proposals[0].status, "PENDING");
+});
+
+function namedApplicationFixture() {
+  const f = deletionFixture();
+  Object.assign(f.state.product, {
+    name: "Demela Molecular Cream",
+    brandId: "jeuderm",
+    brand: { name: "JeuDerm" },
+    supplierSku: "JD-01ABCDE",
+    volumeValue: 50,
+    volumeUnit: "ml",
+    image: "",
+    variants: [],
+  });
+  const candidate = {
+    url: "https://brand.example/demela-50.jpg",
+    source: "WEB" as const,
+    identityKey: namePhotoKey(f.state.product),
+  };
+  f.state.proposals[0].images = [candidate.url];
+  f.state.proposals[0].facts = {
+    productImageCandidates: [
+      {
+        variantId: "product:p",
+        sku: f.state.product.supplierSku,
+        candidates: [candidate],
+      },
+    ],
+  };
+  return {
+    ...f,
+    get state() {
+      return f.state;
+    },
+    candidate,
+  };
+}
+
+test("applying a verified name-based common photo saves text and preserves price, stock and publication", async () => {
+  for (const sku of ["JD-01ABCDE", null]) {
+    const f = namedApplicationFixture();
+    f.state.product.supplierSku = sku;
+    f.state.proposals[0].facts.productImageCandidates[0].sku = sku || "";
+    const plan = automaticPhotoPlan(
+      f.state.product,
+      f.state.proposals[0].facts,
+    );
+    assert.equal(plan.imageUrl, f.candidate.url);
+    const before = structuredClone(f.state.product);
+    await applyProductEnrichmentProposalUniversal(
+      {
+        proposalId: "proposal",
+        mode: "ALL",
+        imageUrl: plan.imageUrl,
+      },
+      {
+        database: f.database,
+        importImage: async () =>
+          ({ id: "media", url: "https://media.example/demela.jpg" }) as any,
+      },
+    );
+    assert.equal(f.state.product.image, "https://media.example/demela.jpg");
+    assert.equal(f.state.product.description, f.state.proposals[0].description);
+    assert.equal(f.state.product.price, before.price);
+    assert.equal(f.state.product.stock, before.stock);
+    assert.equal(f.state.product.isPublished, before.isPublished);
+    assert.equal(f.state.proposals[0].status, "APPLIED");
+  }
+});
+
+test("legacy proposal image arrays cannot bypass a stale name, brand or volume fingerprint", async () => {
+  for (const change of [
+    { name: "Demela Molecular Oil" },
+    { brandId: "different-brand" },
+    { volumeValue: 150 },
+  ]) {
+    const f = namedApplicationFixture();
+    Object.assign(f.state.product, change);
+    assert.equal(
+      automaticPhotoPlan(f.state.product, f.state.proposals[0].facts).imageUrl,
+      null,
+    );
+    await assert.rejects(
+      applyProductEnrichmentProposalUniversal(
+        {
+          proposalId: "proposal",
+          mode: "ALL",
+          imageUrl: f.candidate.url,
+        },
+        {
+          database: f.database,
+          importImage: async () => {
+            throw new Error("must not upload");
+          },
+        },
+      ),
+      /product_changed_refresh/,
+    );
+    assert.equal(f.state.product.image, "");
+    assert.equal(f.state.proposals[0].status, "PENDING");
+  }
+});
+
+test("identity changed during a named-photo upload rolls back text, photo and proposal status", async () => {
+  for (const change of [
+    { name: "Demela Molecular Oil" },
+    { brandId: "different-brand" },
+    { volumeValue: 150 },
+  ]) {
+    const f = namedApplicationFixture();
+    await assert.rejects(
+      applyProductEnrichmentProposalUniversal(
+        {
+          proposalId: "proposal",
+          mode: "ALL",
+          imageUrl: f.candidate.url,
+        },
+        {
+          database: f.database,
+          importImage: async () => {
+            Object.assign(f.state.product, change);
+            return {
+              id: "media",
+              url: "https://media.example/demela.jpg",
+            } as any;
+          },
+        },
+      ),
+      /product_changed_refresh/,
+    );
+    assert.equal(f.state.product.description, undefined);
+    assert.equal(f.state.product.image, "");
+    assert.equal(f.state.proposals[0].status, "PENDING");
+  }
+});
+
+test("a synthetic-SKU variant cannot receive a named photo after its label changes during upload", async () => {
+  const f = namedApplicationFixture();
+  const variant = {
+    id: "cream50",
+    sku: "JD-01ABCDE",
+    label: "50 ml",
+    price: 1500,
+    stock: 5,
+  };
+  f.state.product.variants = [variant];
+  f.candidate.identityKey = namePhotoKey(f.state.product, variant);
+  f.state.proposals[0].facts = {
+    variantImageCandidates: [
+      { variantId: variant.id, sku: variant.sku, candidates: [f.candidate] },
+    ],
+  };
+  await assert.rejects(
+    applyProductEnrichmentProposalUniversal(
+      {
+        proposalId: "proposal",
+        mode: "ALL",
+        variantImages: [
+          {
+            variantId: variant.id,
+            sku: variant.sku,
+            imageUrl: f.candidate.url,
+          },
+        ],
+      },
+      {
+        database: f.database,
+        loadPriceImages: async () => new Map(),
+        importImage: async () => {
+          f.state.product.variants[0].label = "150 ml";
+          return {
+            id: "media",
+            url: "https://media.example/demela.jpg",
+          } as any;
+        },
+      },
+    ),
+    /variant_image_not_allowed/,
+  );
+  assert.equal(f.state.product.variants[0].image, undefined);
+  assert.equal(f.state.product.description, undefined);
   assert.equal(f.state.proposals[0].status, "PENDING");
 });
 
