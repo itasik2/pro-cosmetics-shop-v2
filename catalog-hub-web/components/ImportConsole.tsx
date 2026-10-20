@@ -2,12 +2,13 @@
 import {useEffect,useState} from "react";
 import Link from "next/link";
 import {FIELD_LABELS,type Field,type Mapping} from "@/lib/import-types";
-import type {Reviewed} from "@/lib/import-review";
 import {draftPdfSkuOverrides,duplicatePdfSkuGroups,validPrefix} from "@/lib/pdf-sku-drafts";
 import {ENRICHMENT_LABELS,type UniversalCatalog} from "@/lib/universal-catalog";
 import {DEFAULT_PRICE_RULE,type PriceRule} from "@/lib/import-pricing";
+import {dateFromFileName} from "@/lib/import-date";
+import type {ImportPolicyRow,MissingPosition} from "@/lib/import-policy";
 type Preview={
- format:string;headers:string[];mapping:Mapping;review:Reviewed[];
+ format:string;headers:string[];mapping:Mapping;review:ImportPolicyRow[];
  priceRule:PriceRule;
  jeudermPriceRule?:boolean;
  counts:Record<string,number>;fingerprint:string;note:string;canApply:boolean;
@@ -15,6 +16,7 @@ type Preview={
  historyId?:string|null;fileName?:string;pdfSkuOverrides?:Record<number,string>;
  historyWarning?:string|null;
  sourceDate?:string|null;appliedDate?:string|null;olderThanApplied?:boolean;
+ supplierId?:string|null;missingPositions?:MissingPosition[];
  universalCatalog:UniversalCatalog;
  pdfSource?:Array<{index:number;page:string;volume:string;price1:string;price2:string}>;
 };
@@ -23,13 +25,26 @@ type Applied={results:ItemResult[];partial:boolean;reminder:string;historyWarnin
 type SupplierProfile = {id:string;name:string;notes:string;mapping:Mapping;updatedAt:string};
 type ImportLog = {id:string;profileId:string|null;fileName:string;format:string;
  action:"PREVIEW"|"APPLY";result:string;totalRows:number;selectedRows:number;createdAt:string;hasSnapshot?:boolean};
+type RemoteSupplier={id:string;name:string;code:string;isActive:boolean};
+type RemoteProfile={id:string;supplierId:string;name:string;mapping:Mapping;fileType:string};
+type RemoteLog={id:string;supplierId:string;supplierName:string;filename:string;status:string;rowCount:number;createdAt:string};
 
 const fields=Object.keys(FIELD_LABELS) as Field[];
 const statusLabel:Record<string,string>={
  CREATE:"Новый товар",UPDATE:"Изменение",SAME:"Без изменений",
  DUPLICATE:"Дубликат файла",CONFLICT:"Конфликт",INVALID:"Ошибка",
 };
-export function ImportConsole(){
+const priceLabels:Record<ImportPolicyRow["priceDecision"],string>={
+ AUTO_INCREASE:"Повышение: автоматически",REVIEW_DECREASE:"Снижение: на проверку",
+ REVIEW_FIRST:"Первый прайс: на проверку",REVIEW_IDENTITY:"Проверьте идентичность",
+ REVIEW_SAME_DATE:"Дата не новее: на проверку",OLDER:"Устаревший прайс: заблокировано",
+ NO_DATE:"Дата не указана: заблокировано",FUTURE:"Дата в будущем: заблокировано",
+ REVIEW_OTHER:"Другие поля: на проверку",NEW:"Новый товар",UNCHANGED:"Без изменений",BLOCKED:"Нужна проверка данных",
+};
+const selectable=(row:ImportPolicyRow)=>["CREATE","UPDATE"].includes(row.status)||row.status==="SAME"&&row.priceDecision==="REVIEW_FIRST";
+const safeSelectable=(row:ImportPolicyRow)=>selectable(row)&&
+ !["OLDER","NO_DATE","FUTURE","BLOCKED"].includes(row.priceDecision);
+export function ImportConsole({localMode=false}:{localMode?:boolean}){
  const [file,setFile]=useState<File|null>(null);
  const [fileInputKey,setFileInputKey]=useState(0);
  const [historyId,setHistoryId]=useState<string|null>(null);
@@ -56,6 +71,15 @@ export function ImportConsole(){
  const [profileError,setProfileError]=useState("");
  const [profileMessage,setProfileMessage]=useState("");
  const [profileBusy,setProfileBusy]=useState(false);
+ const [suppliers,setSuppliers]=useState<RemoteSupplier[]>([]);
+ const [remoteProfiles,setRemoteProfiles]=useState<RemoteProfile[]>([]);
+ const [remoteHistory,setRemoteHistory]=useState<RemoteLog[]>([]);
+ const [supplierId,setSupplierId]=useState("");
+ const [supplierName,setSupplierName]=useState("");
+ const [remoteProfileId,setRemoteProfileId]=useState("");
+ const [remoteProfileName,setRemoteProfileName]=useState("");
+ const [sourceDate,setSourceDate]=useState("");
+ const [remoteError,setRemoteError]=useState("");
  const [pdfSkus,setPdfSkus]=useState<Record<number,string>>({});
  const [pdfNeedsRefresh,setPdfNeedsRefresh]=useState(false);
  const [pdfSkuPrefix,setPdfSkuPrefix]=useState("JDR");
@@ -91,6 +115,47 @@ export function ImportConsole(){
    }catch{ /* Profiles remain optional when not running on Ubuntu. */ }
  }
  useEffect(()=>{void refreshLocal()},[]);
+
+ async function refreshRemote(){
+  if(localMode)return;
+  try{
+   const responses=await Promise.all(["suppliers","profiles","remote-history"].map(path=>
+     fetch("/api/import/"+path,{cache:"no-store"})));
+   const [foundSuppliers,foundProfiles,foundHistory]=await Promise.all(responses.map(r=>r.json()));
+   if(responses.some(r=>!r.ok))throw new Error(String(foundSuppliers?.error||foundProfiles?.error||foundHistory?.error||"supplier_data_unavailable"));
+   setSuppliers(foundSuppliers);setRemoteProfiles(foundProfiles);setRemoteHistory(foundHistory);
+  }catch(e){setRemoteError(e instanceof Error?e.message:"supplier_data_unavailable");}
+ }
+ useEffect(()=>{void refreshRemote()},[localMode]);
+
+ async function createSupplier(){
+  if(!supplierName.trim())return;
+  setProfileBusy(true);setRemoteError("");
+  try{
+   const response=await fetch("/api/import/suppliers",{method:"POST",headers:{"content-type":"application/json"},
+     body:JSON.stringify({name:supplierName.trim(),code:"supplier-"+crypto.randomUUID().slice(0,12)})});
+   const result=await response.json();
+   if(!response.ok)throw new Error(String(result.error||"supplier_create_failed"));
+   setSupplierId(result.id);setSupplierName("");setPreview(null);setSelected([]);
+   await refreshRemote();
+  }catch(e){setRemoteError(e instanceof Error?e.message:"supplier_create_failed");}
+  finally{setProfileBusy(false);}
+ }
+ async function saveRemoteProfile(){
+  if(!supplierId||!remoteProfileName.trim()||!Object.values(mapping).some(Boolean)){
+   setRemoteError("Выберите поставщика, название профиля и сопоставьте колонки.");return;
+  }
+  setProfileBusy(true);setRemoteError("");
+  try{
+   const response=await fetch("/api/import/profiles",{method:"POST",headers:{"content-type":"application/json"},
+    body:JSON.stringify({id:remoteProfileId||undefined,supplierId,name:remoteProfileName,
+      fileType:preview?.format||"AUTO",mapping})});
+   const result=await response.json();
+   if(!response.ok)throw new Error(String(result.error||"profile_save_failed"));
+   setRemoteProfileId(result.id);await refreshRemote();
+  }catch(e){setRemoteError(e instanceof Error?e.message:"profile_save_failed");}
+  finally{setProfileBusy(false);}
+ }
 
  function loadProfile(id:string){
    const profile=profiles.find(p=>p.id===id);
@@ -152,16 +217,13 @@ export function ImportConsole(){
     if(headers.length||Object.values(mapping).some(Boolean))data.set("mapping",JSON.stringify(mapping));
     data.set("priceRule",JSON.stringify(priceRule));
     if(profileId)data.set("profileId",profileId);
+    if(supplierId)data.set("supplierId",supplierId);
+    if(sourceDate)data.set("sourceDate",sourceDate);
     if((file?.name.toLowerCase().endsWith(".pdf")||(!file&&preview?.format==="PDF")))
       data.set("skuOverrides",JSON.stringify(pdfSkus));
   }
   if(action==="apply"){
     if(!preview){setBusy(false);return;}
-    if(preview.olderThanApplied){
-      const approved=window.confirm(`Прайс от ${preview.sourceDate} старше ранее применённого прайса от ${preview.appliedDate}. Применение может вернуть прежние цены. Продолжить?`);
-      if(!approved){setBusy(false);return;}
-      data.set("acceptOlderPrice","yes");
-    }
     data.set("fingerprint",preview.fingerprint);
     data.set("selected",JSON.stringify(selected));
     data.set("confirmed",confirmed?"yes":"no");
@@ -176,6 +238,7 @@ export function ImportConsole(){
       setHeaders(shown.headers);
       setMapping(shown.mapping);
       setPriceRule(shown.priceRule);
+      setSourceDate(shown.sourceDate||"");
       setPdfSkus(shown.pdfSkuOverrides||{});
       if(sourceHistoryId){
         setFile(null);setFileInputKey(key=>key+1);
@@ -188,11 +251,13 @@ export function ImportConsole(){
       setConfirmed(false);
       setPdfNeedsRefresh(false);
       await refreshLocal();
+      await refreshRemote();
     }else{
       setApplied(result as Applied);setSelected([]);setConfirmed(false);
       // Never permit a second application from a stale preview.
       setPreview(null);
       await refreshLocal();
+      await refreshRemote();
     }
   }catch(e){setError(e instanceof Error?e.message:"Не удалось обработать файл");}
   finally{setBusy(false);}
@@ -216,7 +281,7 @@ export function ImportConsole(){
    }catch(e){setHistoryError(e instanceof Error?e.message:"history_delete_failed");}
    finally{setHistoryBusy(false);}
  }
- const valid=preview?.review.filter(r=>r.status==="CREATE"||r.status==="UPDATE")||[];
+ const valid=preview?.review.filter(r=>localMode?["CREATE","UPDATE"].includes(r.status):safeSelectable(r))||[];
  const chosen=preview?.review.filter(r=>selected.includes(r.index))||[];
  const newChosen=chosen.filter(r=>r.status==="CREATE").length;
  function changePriceRule(patch:Partial<PriceRule>){
@@ -232,7 +297,43 @@ export function ImportConsole(){
  return <div className="page">
    <div className="page-head"><div><h1>Импорт каталогов поставщиков</h1>
      <p>PDF-каталоги с карточками товаров, Excel (XLSX), CSV, TSV, XML/YML и JSON. Сопоставление и проверка перед применением.</p></div></div>
-   <section className="panel">
+   {!localMode&&<section className="panel">
+     <h2>Поставщик и профиль прайса</h2>
+     <p className="subtle">Выберите поставщика. Сохранённый профиль повторно применит сопоставление колонок; дата прайса определяет порядок изменения цен.</p>
+     <div className="editor-grid">
+       <label className="editor-field"><span>Поставщик</span>
+         <select className="input" value={supplierId} onChange={e=>{
+           setSupplierId(e.target.value);setRemoteProfileId("");setPreview(null);setSelected([]);setConfirmed(false);
+         }}><option value="">Выберите поставщика</option>
+           {suppliers.filter(s=>s.isActive).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+         </select>
+       </label>
+       <label className="editor-field"><span>Добавить поставщика</span>
+         <input className="input" value={supplierName} maxLength={120} placeholder="Название"
+           onChange={e=>setSupplierName(e.target.value)}/>
+       </label>
+       <div className="actions"><button className="button" type="button" disabled={!supplierName.trim()||profileBusy}
+         onClick={()=>void createSupplier()}>Создать поставщика</button></div>
+       <label className="editor-field"><span>Профиль колонок</span>
+         <select className="input" value={remoteProfileId} onChange={e=>{
+           const profile=remoteProfiles.find(p=>p.id===e.target.value&&p.supplierId===supplierId);
+           setRemoteProfileId(profile?.id||"");setRemoteProfileName(profile?.name||"");
+           if(profile)setMapping(profile.mapping);
+           setPreview(null);setSelected([]);
+         }}><option value="">Новый профиль</option>
+           {remoteProfiles.filter(p=>p.supplierId===supplierId).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+         </select>
+       </label>
+       <label className="editor-field"><span>Название профиля</span>
+         <input className="input" value={remoteProfileName} maxLength={120} placeholder="Например, еженедельный Excel"
+           onChange={e=>setRemoteProfileName(e.target.value)}/>
+       </label>
+       <div className="actions"><button className="button" type="button" disabled={profileBusy||!supplierId}
+         onClick={()=>void saveRemoteProfile()}>Сохранить текущие колонки</button></div>
+     </div>
+     {remoteError&&<div className="error" role="alert">{remoteError}</div>}
+   </section>}
+   {localMode&&<section className="panel">
      <h2>Локальные профили поставщиков</h2>
      <p className="subtle">Сохраняйте названия поставщиков и соответствие колонок на этом компьютере.
        Профили и история находятся только в папке <code>.local-data</code> на Ubuntu.
@@ -263,7 +364,7 @@ export function ImportConsole(){
      </div>
      {profileMessage&&<p role="status" className="subtle">{profileMessage}</p>}
      {profileError&&<div className="error" role="alert">{profileError}</div>}
-   </section>
+   </section>}
    <section className="panel" style={{marginTop:14}}>
      <h2>1. Выберите файл</h2>
      <p className="subtle">XLSX/CSV/XML/JSON — до 2 МБ и 200 строк; PDF с текстовым слоем — до 8 МБ, 30 страниц и 400 строк.
@@ -271,12 +372,20 @@ export function ImportConsole(){
      <label className="editor-field"><span>Файл поставщика</span>
        <input key={fileInputKey} className="input" type="file" accept=".pdf,.xlsx,.csv,.tsv,.xml,.yml,.json"
          onChange={e=>{
-           setFile(e.target.files?.[0]||null);setHistoryId(null);setPreview(null);setHeaders([]);
-           setMapping(profileId?mapping:{});setSelected([]);setConfirmed(false);setApplied(null);setError("");
+           const next=e.target.files?.[0]||null;
+           setFile(next);setSourceDate(next?dateFromFileName(next.name)||"":"");
+           setHistoryId(null);setPreview(null);setHeaders([]);
+           setMapping(profileId||remoteProfileId?mapping:{});setSelected([]);setConfirmed(false);setApplied(null);setError("");
            setPdfSkus({});setPdfNeedsRefresh(false);setPdfSkuMessage("");
            setPageImages([]);setImagesFound(0);setImagesError("");setImagePage(1);
          }}/>
      </label>
+     <label className="editor-field" style={{maxWidth:240,marginTop:12}}><span>Дата прайса</span>
+       <input className="input" type="date" value={sourceDate} onChange={e=>{
+         setSourceDate(e.target.value);setPreview(null);setSelected([]);
+       }}/>
+     </label>
+     <p className="subtle">Дата из имени файла подставляется автоматически. Проверьте её перед применением.</p>
      {!file&&historyId&&preview&&<p className="subtle">Из истории: {preview.fileName}. Исходный файл не сохранён.</p>}
      <div style={{marginTop:15}}>
        <h3>Правило цены</h3>
@@ -339,11 +448,14 @@ export function ImportConsole(){
        <p className="subtle">Правило цены: {preview.priceRule.mode==="MARKUP_PERCENT"
          ?`закупочная + ${preview.priceRule.markupPercent}%, округление до ${preview.priceRule.roundingStep} ₸`
          :preview.priceRule.mode==="SOURCE_ONLY"?"только закупочная цена":"розничная цена из выбранной колонки"}.</p>
-       {preview.olderThanApplied&&<div className="import-warning" role="alert">
-         Прайс от {preview.sourceDate} старше применённого прайса этого поставщика от {preview.appliedDate}.
-         Перед применением потребуется отдельное подтверждение.
+       {!preview.sourceDate&&<div className="import-warning" role="alert">Укажите дату прайса и обновите предпросмотр: цены без даты заблокированы.</div>}
+       {Boolean(preview.missingPositions?.length)&&<div className="import-warning" role="status">
+         <strong>Отсутствуют в этом файле: {preview.missingPositions?.length}.</strong>
+         <p>Проверьте, что это полный прайс поставщика. Товары и остатки автоматически не удаляются.</p>
+         <details><summary>Показать позиции</summary>
+           {preview.missingPositions?.map(p=><div key={p.id}>{p.sku} — {p.title} · остаток {p.stock} · цена {p.price??"—"} ₸</div>)}
+         </details>
        </div>}
-       {!preview.sourceDate&&<p className="subtle">Дата прайса не определена по имени файла: сравнение с предыдущим прайсом недоступно.</p>}
        {preview.format==="PDF"&&<div className="import-warning" role="status">
          {preview.jeudermPriceRule
            ?"JeuDerm: «Цена 1» — закупочная, «Цена 2» — готовая розничная. Сопоставление можно изменить вручную."
@@ -361,7 +473,7 @@ export function ImportConsole(){
        {preview.format==="PDF"&&file&&<div className="panel" style={{padding:15,marginTop:12,marginBottom:12}}>
          <h3>Фотографии товаров из PDF — просмотр</h3>
          <p className="subtle">
-           Используется извлечение встроенных фотографий из ProCosmetics.
+           Встроенные фотографии извлекаются из PDF для просмотра.
            Изображения загружаются только для выбранной страницы и показываются здесь.
            Фотографии не сохраняются и не прикрепляются к товарам автоматически.
          </p>
@@ -459,7 +571,7 @@ export function ImportConsole(){
              const key=preview.universalCatalog.products[row.index]?.card.categoryKey;
              return !categoryFilter || (categoryFilter==="__empty__" ? !key : key===categoryFilter);
            }).map(row=>{
-             const allowed=row.status==="UPDATE"||row.status==="CREATE";
+             const allowed=localMode?["CREATE","UPDATE"].includes(row.status):safeSelectable(row);
              return <tr key={row.index}>
                <td><input aria-label={"Выбрать строку "+row.rowNumber} type="checkbox"
                  disabled={!allowed||busy||pdfNeedsRefresh}
@@ -499,6 +611,7 @@ export function ImportConsole(){
                <td><div>Закупочная: {row.proposed.purchasePrice??"—"}</div>
                  <div>Розничная: {row.proposed.price??(preview.priceRule.mode==="SOURCE_ONLY"?"без изменений":"—")}</div></td>
                <td><strong>{statusLabel[row.status]}</strong>
+                 <div className="subtle">{priceLabels[row.priceDecision]}</div>
                  <div className="subtle">{row.matchedBy? "Совпадение: "+row.matchedBy:""}</div></td>
                <td>
                  {row.changes.map(c=><div className="import-change" key={c.field}>
@@ -521,8 +634,8 @@ export function ImportConsole(){
        <h2>3. Подтвердить выбранные строки</h2>
        <p className="subtle">Выбрано: {selected.length}. Новых товаров: {newChosen};
          изменений: {chosen.filter(r=>r.status==="UPDATE").length}.</p>
-       <p className="subtle">Новые товары создаются сразу, но с нулевым остатком.
-         Изменения существующих карточек попадают в очередь на согласование.
+       <p className="subtle">Новые товары создаются с нулевым остатком. Проверенные повышения применяются сразу;
+         снижения и остальные изменения попадают в очередь на согласование.
          Максимум 20 строк за операцию. В случае ошибки уже выполненные строки не откатываются.</p>
        {!preview.canApply&&<p className="error" role="status">
          Локальный режим только чтения: сохранение отключено. Можно проверить прайс, сопоставление и профили поставщиков.
@@ -541,7 +654,16 @@ export function ImportConsole(){
        </div>
      </section>
    </>}
-   {history.length>0&&<section className="panel" style={{marginTop:14}}>
+   {!localMode&&remoteHistory.length>0&&<section className="panel" style={{marginTop:14}}>
+     <h2>История применённых прайсов</h2>
+     <p className="subtle">Сохраняются результат по строкам и дата применения. Исходный файл для повторной проверки понадобится загрузить снова.</p>
+     <div className="list">{remoteHistory.filter(entry=>!supplierId||entry.supplierId===supplierId).map(entry=><div className="list-row" key={entry.id}>
+       <div><strong>{entry.filename}</strong> · {entry.supplierName}
+         <div className="subtle">{entry.rowCount} строк · {new Date(entry.createdAt).toLocaleString("ru-RU")}</div></div>
+       <span className="badge">{entry.status}</span>
+     </div>)}</div>
+   </section>}
+   {localMode&&history.length>0&&<section className="panel" style={{marginTop:14}}>
      <h2>Локальная история загрузок</h2>
      <p className="subtle">Для новых записей локально сохраняются распознанные строки и сопоставление колонок. Исходные файлы и фотографии не сохраняются. При открытии история заново сравнивается с текущим каталогом; товары не создаются до вашего подтверждения.</p>
      <div className="actions" style={{marginBottom:12}}>

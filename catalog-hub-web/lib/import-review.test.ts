@@ -23,6 +23,14 @@ test("unique barcode matches even when supplied supplier SKU differs",()=>{
  assert.equal(x.matchedBy,"BARCODE");assert.equal(x.productId,"p1");
  assert.equal("sku" in x.proposed,false);
 });
+test("supplier-specific SKU finds the linked product without a barcode",()=>{
+ const linked={...product,supplierLinks:[{supplierId:"supplier-1",supplierSku:"SUPPLIER-CODE"}]};
+ const x=evaluateImport([{...row,sku:"SUPPLIER-CODE",barcode:""}],[linked],["Осветление"],"supplier-1")[0];
+ assert.equal(x.status,"UPDATE");assert.equal(x.productId,"p1");
+ assert.equal(x.matchedBy,"SUPPLIER_SKU");
+ const another=evaluateImport([{...row,sku:"SUPPLIER-CODE",barcode:""}],[linked],["Осветление"],"supplier-2")[0];
+ assert.equal(another.status,"CREATE");
+});
 test("conflicting SKU and barcode are blocked",()=>{
  const second={...product,id:"p2",sku:"JD-OTHER",barcode:"5555555555555"};
  const x=evaluateImport([{...row,barcode:"5555555555555"}],[product,second],["Осветление"])[0];
