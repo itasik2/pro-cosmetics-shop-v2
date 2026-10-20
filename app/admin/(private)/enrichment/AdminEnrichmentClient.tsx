@@ -84,6 +84,9 @@ type Proposal = {
   product: {
     id: string;
     name: string;
+    brandId: string | null;
+    volumeValue: number | null;
+    volumeUnit: string | null;
     supplierSku: string | null;
     image: string;
     shortDescription: string | null;

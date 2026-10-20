@@ -22,6 +22,7 @@ import {
   photoSku,
 } from "@/lib/enrichment/variantImages";
 import { searchVariantPhotos } from "@/lib/enrichment/variantPhotoSearch";
+import { photoCandidateIsCurrent } from "@/lib/enrichment/photoIdentity";
 const Body = z.object({
   variantId: z.string().min(1).max(150),
   sku: z.string().min(1).max(150),
@@ -114,8 +115,10 @@ export async function POST(
       await prisma.$transaction(async (tx) => {
         const current = await tx.product.findUniqueOrThrow({
           where: { id },
-          select: { variants: true },
+          select: { variants: true, updatedAt: true },
         });
+        if (+current.updatedAt !== +product.updatedAt)
+          throw new Error("product_changed_refresh");
         const fresh = normalizeStoredVariants(current.variants).find(
           (item) => item.id === variant.id,
         );
@@ -140,7 +143,15 @@ export async function POST(
             item.variantId === variant.id &&
             photoSku(item.sku) === photoSku(group.sku),
         );
-        group = mergeImageGroups([group], previous)[0];
+        group = mergeImageGroups(
+          previous.map((item) => ({
+            ...item,
+            candidates: item.candidates.filter((candidate) =>
+              photoCandidateIsCurrent(candidate, product, variant),
+            ),
+          })),
+          [group],
+        )[0];
         const written = await tx.productEnrichmentProposal.updateMany({
           where: {
             id: proposal.id,

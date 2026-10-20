@@ -3,6 +3,11 @@ import React, { useState, type ReactNode } from "react";
 import { adminVariants, type AdminVariant } from "../lib/adminProductVariants";
 import { isUsablePhoto } from "../lib/enrichment/photoQuality";
 import {
+  hasManufacturerSku,
+  photoCandidateIsCurrent,
+  type NamePhotoProduct,
+} from "../lib/enrichment/photoIdentity";
+import {
   imageGroups,
   photoSku,
   variantDisplayImage,
@@ -82,6 +87,7 @@ export function VariantPhotoPicker({
   const [found, setFound] = useState<VariantImageCandidate[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const searchByName = !hasManufacturerSku(variant.sku);
   const photos = found || candidates;
   const selected =
     value && photoSku(value.sku) === photoSku(variant.sku) ? value : undefined;
@@ -129,8 +135,8 @@ export function VariantPhotoPicker({
           ? (details || "Поиск не завершён. Повторите попытку позже.") +
               " Текущее фото и ранее найденные варианты сохранены."
           : result.candidates?.length
-            ? "Фото для SKU " +
-              variant.sku +
+            ? "Фото для " +
+              (searchByName ? variant.label : "SKU " + variant.sku) +
               (proposalId
                 ? " выбрано. Примените карточку."
                 : " найдено. Выберите подходящее.")
@@ -181,7 +187,11 @@ export function VariantPhotoPicker({
           onClick={() => void search()}
           className="ml-auto rounded-lg border bg-white px-3 py-2 text-xs disabled:opacity-40"
         >
-          {busy ? "Поиск…" : "Найти фото по SKU"}
+          {busy
+            ? "Поиск…"
+            : searchByName
+              ? "Найти фото по названию"
+              : "Найти фото по SKU"}
         </button>
       </div>
       {!variant.sku && (
@@ -277,7 +287,7 @@ export function VariantPhotosReview({
   onRemove,
   onBusyChange,
 }: {
-  product: { id: string; image: string; variants: unknown };
+  product: NamePhotoProduct & { id: string; image: string; variants: unknown };
   proposalId: string;
   facts: unknown;
   value: VariantImageSelection[];
@@ -311,13 +321,15 @@ export function VariantPhotosReview({
           proposalId={proposalId}
           variant={variant}
           commonImage={commonImage || product.image}
-          candidates={
-            groups.find(
+          candidates={groups
+            .find(
               (group) =>
                 group.variantId === variant.id &&
                 photoSku(group.sku) === photoSku(variant.sku),
-            )?.candidates
-          }
+            )
+            ?.candidates.filter((candidate) =>
+              photoCandidateIsCurrent(candidate, product, variant),
+            )}
           value={value.find((selection) => selection.variantId === variant.id)}
           disabled={disabled}
           onBusyChange={onBusyChange}

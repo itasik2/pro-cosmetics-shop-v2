@@ -1,9 +1,14 @@
 // Client-safe types and identity checks shared by the editor and enrichment.
+import {
+  photoCandidateIsCurrent,
+  type NamePhotoProduct,
+} from "./photoIdentity";
 export type VariantImageCandidate = {
   url: string;
   source: "WEB" | "PRICE_LIST";
   sourceUrl?: string;
   rowNumber?: number;
+  identityKey?: string;
 };
 export type VariantImageGroup = {
   variantId: string;
@@ -15,7 +20,12 @@ export type VariantImageSelection = {
   sku: string;
   imageUrl: string | null;
 };
-export type ImageVariant = { id: string; sku?: string; image?: string };
+export type ImageVariant = {
+  id: string;
+  sku?: string;
+  image?: string;
+  label?: string;
+};
 
 export function photoSku(value: unknown) {
   // Preserve punctuation: AV-02 and AV02 can be different supplier identifiers.
@@ -73,6 +83,7 @@ export function validateVariantImages(
   variants: ImageVariant[],
   selections: VariantImageSelection[],
   groups: VariantImageGroup[],
+  product?: NamePhotoProduct,
 ) {
   const seen = new Set<string>();
   for (const selection of selections) {
@@ -91,7 +102,11 @@ export function validateVariantImages(
         group.variantId === variant.id &&
         photoSku(group.sku) === photoSku(variant.sku) &&
         group.candidates.some(
-          (candidate) => candidate.url === selection.imageUrl,
+          (candidate) =>
+            candidate.url === selection.imageUrl &&
+            (!candidate.identityKey ||
+              (product &&
+                photoCandidateIsCurrent(candidate, product, variant))),
         ),
     );
     if (!allowed) throw new Error("variant_image_not_allowed");

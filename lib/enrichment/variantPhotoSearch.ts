@@ -1,6 +1,11 @@
 import type { MatchableProduct } from "./matchProduct";
 import { scoreProductMatch } from "./matchProduct";
-import { extractImagesForSku, extractProductFromHtml } from "./extractProduct";
+import {
+  extractImagesForSku,
+  extractImagesForNamedProduct,
+  extractProductFromHtml,
+} from "./extractProduct";
+import { hasManufacturerSku, namePhotoKey } from "./photoIdentity";
 import {
   findOfficialProductUrl,
   findExternalProductUrl,
@@ -33,7 +38,7 @@ export function productForVariant(
     /^\d+(?:[.,]\d+)?$/.test(variant.label.trim()) && product.volumeUnit
       ? variant.label.trim() + " " + product.volumeUnit
       : variant.label;
-  const volume = label.match(
+  const volume = (label || product.name).match(
     /(\d+(?:[.,]\d+)?)\s*(мл|ml|л|l|г|гр\.?|g|кг|kg)(?=$|\s|[()])/iu,
   );
   const unit = volume?.[2].toLowerCase();
@@ -76,7 +81,10 @@ export async function searchVariantPhotos(
 ) {
   const product = productForVariant(input.product, input.variant);
   const sku = input.variant.sku || "";
-  if (!photoSku(sku)) throw new Error("variant_sku_required");
+  const byName = !hasManufacturerSku(sku);
+  if (byName && (!input.product.name || !input.product.brand?.name))
+    throw new Error("photo_product_identity_required");
+  if (byName) product.supplierSku = null;
   const deadlineAt = input.deadlineAt ?? Date.now() + 140_000;
   const candidates: VariantImageCandidate[] = [];
   const errors: string[] = [];
@@ -108,16 +116,23 @@ export async function searchVariantPhotos(
         expectedSku: sku,
       });
       const match = scoreProductMatch(product, extracted);
-      const images = extractImagesForSku({
-        buffer: fetched.buffer,
-        finalUrl: fetched.finalUrl,
-        sku,
-        brand: product.brand?.name || product.supplier?.name,
-      });
+      const images = byName
+        ? extractImagesForNamedProduct({
+            buffer: fetched.buffer,
+            finalUrl: fetched.finalUrl,
+            product,
+          })
+        : extractImagesForSku({
+            buffer: fetched.buffer,
+            finalUrl: fetched.finalUrl,
+            sku,
+            brand: product.brand?.name || product.supplier?.name,
+          });
       if (
-        photoSku(extracted.sku) !== photoSku(sku) ||
-        match.evidence.brand === "mismatch" ||
-        match.evidence.volume === "mismatch"
+        !byName &&
+        (photoSku(extracted.sku) !== photoSku(sku) ||
+          match.evidence.brand === "mismatch" ||
+          match.evidence.volume === "mismatch")
       )
         return false;
       candidates.push(
@@ -125,6 +140,9 @@ export async function searchVariantPhotos(
           url: image,
           source: "WEB" as const,
           sourceUrl: fetched.finalUrl,
+          ...(byName
+            ? { identityKey: namePhotoKey(input.product, input.variant) }
+            : {}),
         })),
       );
       return images.length > 0;
@@ -133,7 +151,7 @@ export async function searchVariantPhotos(
       return false;
     }
   }
-  // First reuse a saved page only if it actually identifies this SKU.
+  // Reuse a saved page only after checking the SKU or exact name and size.
   for (const url of [
     ...new Set(
       [...(input.knownUrls || []), input.knownUrl].filter(
@@ -143,8 +161,7 @@ export async function searchVariantPhotos(
   ].slice(0, 3)) {
     if (await inspect(url)) break;
   }
-  const searchable = !/^JD-[A-Z0-9]{6,}$/i.test(sku);
-  if (!candidates.length && searchable) {
+  if (!candidates.length && !byName) {
     const catalogDeadline = Math.min(deadlineAt, Date.now() + 35_000);
     for (const url of officialCatalogSearchUrls(input.officialDomains, sku)) {
       try {
@@ -163,7 +180,7 @@ export async function searchVariantPhotos(
       }
     }
   }
-  if (!candidates.length && searchable && !input.catalogOnly) {
+  if (!candidates.length && !input.catalogOnly) {
     for (const stage of ["official", "external"] as const) {
       if (stage === "official" && !input.officialDomains.length) continue;
       try {

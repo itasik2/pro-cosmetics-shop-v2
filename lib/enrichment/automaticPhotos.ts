@@ -5,9 +5,13 @@ import {
   type VariantImageSelection,
 } from "./variantImages";
 import { isProductPhoto, isUsablePhoto } from "./photoQuality";
+import {
+  photoCandidateIsCurrent,
+  type NamePhotoProduct,
+} from "./photoIdentity";
 
-type Variant = { id: string; sku?: string; image?: string };
-type PhotoProduct = {
+type Variant = { id: string; sku?: string; image?: string; label?: string };
+type PhotoProduct = NamePhotoProduct & {
   id: string;
   supplierSku?: string | null;
   variants: Variant[];
@@ -31,7 +35,10 @@ export function primarySkuPhotoCandidates(
       ? (facts as Record<string, unknown>)
       : {};
   const sku = photoSku(product.supplierSku || product.variants[0]?.sku);
-  if (!sku) return [];
+  if (!sku && product.variants.length) return [];
+  const primaryVariant = sku
+    ? product.variants.find((variant) => photoSku(variant.sku) === sku)
+    : undefined;
   const groups = [
     ...imageGroups(data.productImageCandidates).filter(
       (group) => group.variantId === "product:" + product.id,
@@ -46,9 +53,13 @@ export function primarySkuPhotoCandidates(
   ].filter((group) => photoSku(group.sku) === sku);
   return [
     ...new Map(
-      rankedCandidates(groups.flatMap((group) => group.candidates)).map(
-        (candidate) => [candidate.url, candidate],
-      ),
+      rankedCandidates(
+        groups
+          .flatMap((group) => group.candidates)
+          .filter((candidate) =>
+            photoCandidateIsCurrent(candidate, product, primaryVariant),
+          ),
+      ).map((candidate) => [candidate.url, candidate]),
     ).values(),
   ];
 }
@@ -73,7 +84,11 @@ export function automaticPhotoPlan(
           item.variantId === variant.id &&
           photoSku(item.sku) === photoSku(variant.sku),
       );
-      const image = rankedCandidates(group?.candidates || [])[0];
+      const image = rankedCandidates(
+        (group?.candidates || []).filter((candidate) =>
+          photoCandidateIsCurrent(candidate, product, variant),
+        ),
+      )[0];
       return image && variant.sku
         ? [{ variantId: variant.id, sku: variant.sku, imageUrl: image.url }]
         : [];

@@ -19,6 +19,7 @@ import {
   toAllowedPolicies,
 } from "./sourcePolicies";
 import type { AllowedSourcePolicy } from "./network";
+import { hasManufacturerSku, photoCandidateIsCurrent } from "./photoIdentity";
 
 type PhotoProduct = MatchableProduct & {
   id: string;
@@ -44,24 +45,40 @@ export async function collectProposalPhotos(
     input.product.volumeValue && input.product.volumeUnit
       ? `${input.product.volumeValue} ${input.product.volumeUnit}`
       : "";
-  const existing = mergeImageGroups(input.groups, input.productGroups || []);
+  const existing = mergeImageGroups(
+    input.groups,
+    input.productGroups || [],
+  ).map((group) => ({
+    ...group,
+    candidates: group.candidates.filter((candidate) =>
+      photoCandidateIsCurrent(
+        candidate,
+        input.product,
+        variants.find((variant) => variant.id === group.variantId) || {
+          label: primaryLabel,
+        },
+      ),
+    ),
+  }));
   const targets = [
     ...variants.filter((variant) => !isUsablePhoto(variant.image)),
     ...(!isUsablePhoto(input.product.image) &&
-    primarySku &&
+    (!variants.length || primarySku) &&
     !variants.some((variant) => photoSku(variant.sku) === photoSku(primarySku))
-      ? [{ id: primaryId, sku: primarySku, label: primaryLabel }]
+      ? [{ id: primaryId, sku: primarySku || "", label: primaryLabel }]
       : []),
   ].filter(
     (target) =>
-      target.sku &&
+      (target.sku || (target.id === primaryId && input.product.brand?.name)) &&
       !existing.some(
         (group) =>
           group.variantId === target.id &&
           photoSku(group.sku) === photoSku(target.sku) &&
           group.candidates.some(
             (candidate) =>
-              candidate.source === "WEB" && isProductPhoto(candidate.url),
+              candidate.source === "WEB" &&
+              isProductPhoto(candidate.url) &&
+              photoCandidateIsCurrent(candidate, input.product, target),
           ),
       ),
   );
@@ -87,7 +104,7 @@ export async function collectProposalPhotos(
             previous?.candidates.filter(
               (item) => item.source === "PRICE_LIST",
             ) || [],
-          catalogOnly: true,
+          catalogOnly: hasManufacturerSku(target.sku),
           deadlineAt: input.deadlineAt,
         });
         if (photoSku(result.sku) !== photoSku(target.sku)) {
@@ -96,7 +113,7 @@ export async function collectProposalPhotos(
         }
         found.push({
           variantId: target.id,
-          sku: target.sku!,
+          sku: target.sku || "",
           candidates: result.candidates,
         });
         issues.push(...result.issues.map((issue) => issue.code));
@@ -121,6 +138,7 @@ export async function collectProposalPhotos(
       (group) => group.variantId === primaryId,
     ),
     photoAutomation: {
+      version: 2,
       checkedAt: new Date().toISOString(),
       issues: [...new Set(issues)],
       incomplete: cursor < targets.length,
@@ -172,9 +190,12 @@ export async function prepareProposalPhotos(
     !Array.isArray(proposal.facts)
       ? (proposal.facts as Record<string, unknown>)
       : {};
-  const previous = facts.photoAutomation as { checkedAt?: string } | undefined;
+  const previous = facts.photoAutomation as
+    | { checkedAt?: string; version?: number }
+    | undefined;
   if (
     options.automatic &&
+    previous?.version === 2 &&
     previous?.checkedAt &&
     Date.now() - new Date(previous.checkedAt).getTime() < 24 * 60 * 60 * 1000
   ) {
