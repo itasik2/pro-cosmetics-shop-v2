@@ -25,7 +25,11 @@ export function photoComparisonText(value: unknown) {
 }
 
 export function isSyntheticSupplierSku(value: unknown) {
-  return /^(?:JD|JDR)-[A-Z0-9]{6,}$/i.test(String(value ?? "").trim());
+  const sku = String(value ?? "").trim();
+  return (
+    /^(?:JD|JDR)-[A-Z0-9]{6,}$/i.test(sku) ||
+    /^INT-PRICE-[A-F0-9]{12}$/i.test(sku)
+  );
 }
 
 export function hasManufacturerSku(value: unknown) {

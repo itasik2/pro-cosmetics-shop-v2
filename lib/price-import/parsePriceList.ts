@@ -2,6 +2,7 @@ import { parseAngiopharmPdf } from "./angiopharmPdf";
 import { parseGenericPdf } from "./genericPdf";
 import { parseJeudermPdf } from "./jeudermPdf";
 import { parseMesalteraPdf } from "./mesalteraPdf";
+import { parseTablePdf } from "./tablePdf";
 import type { ParsedPriceRow, PriceParseResult, PriceParserMode } from "./types";
 
 function normalizeParserMode(value: unknown): PriceParserMode {
@@ -207,6 +208,8 @@ export async function parsePriceListPdf(input: {
     return withFileNameDate(parsed, input.fileName);
   }
 
+  const table = await parseTablePdf({ bytes: input.bytes, fileName: input.fileName, defaultBrand });
+  if (table) return withFileNameDate(table, input.fileName);
   const parsed = await parseGenericPdf({
     bytes: input.bytes,
     defaultBrand,

@@ -34,6 +34,7 @@ import {
   readPriceImport,
 } from "@/lib/price-import/reconciliation";
 import { dateBlock, sourceDay } from "@/lib/price-import/reconciliationPolicy";
+import { priceImportFailureMessage } from "@/lib/price-import/clientMessages";
 
 const MAX_FILE_SIZE = 12 * 1024 * 1024;
 
@@ -502,8 +503,8 @@ export async function POST(req: Request) {
         const previousBrand = exactSkuExisting?.brand?.name || null;
         const rebrandDetected = Boolean(
           exactSkuExisting &&
-          previousBrand &&
-          normalizeLookup(previousBrand) !== normalizeLookup(row.brand),
+            previousBrand &&
+            normalizeLookup(previousBrand) !== normalizeLookup(row.brand),
         );
         const retailRestricted =
           priceMode === "PRICE_AS_IS" &&
@@ -512,6 +513,9 @@ export async function POST(req: Request) {
           !row.brand ||
           !row.supplierSku ||
           retailRestricted ||
+          row.warnings.includes("ai_layout_review_required") ||
+          (priceMode === "PRICE_AS_IS" &&
+            row.warnings.includes("recommended_price_missing")) ||
           row.warnings.includes("brand_not_found") ||
           row.warnings.includes("duplicate_sku_in_file");
         const action = requiresManualReview
@@ -639,7 +643,11 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json(
-      { error: "price_import_failed", message, retryable: true },
+      {
+        error: "price_import_failed",
+        message: priceImportFailureMessage(message),
+        retryable: true,
+      },
       { status: 422 },
     );
   }
