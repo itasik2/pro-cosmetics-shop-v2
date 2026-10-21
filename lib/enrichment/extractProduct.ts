@@ -430,6 +430,7 @@ export function extractImagesForNamedProduct(input: {
   buffer: Buffer;
   finalUrl: string;
   product: NamePhotoProduct;
+  confirmedBrand?: string;
 }) {
   const $ = cheerio.loadBuffer(input.buffer, {
     encoding: { defaultEncoding: "utf-8" },
@@ -455,13 +456,22 @@ export function extractImagesForNamedProduct(input: {
       description:
         cleanText(node.description) ||
         (products.length === 1 ? extracted.description : null),
+      retailer: metaContent($, "meta[property='og:site_name']"),
+      confirmedBrand: products.length === 1 ? input.confirmedBrand : undefined,
     };
     if (!matchesNamedPhotoProduct(input.product, source)) continue;
     collectImageValues(node.image, input.finalUrl, images);
     // Only the single matching product may supply its unscoped main gallery.
     if (products.length === 1) images.push(...extracted.images);
   }
-  if (!products.length && matchesNamedPhotoProduct(input.product, extracted))
+  if (
+    !products.length &&
+    matchesNamedPhotoProduct(input.product, {
+      ...extracted,
+      retailer: metaContent($, "meta[property='og:site_name']"),
+      confirmedBrand: input.confirmedBrand,
+    })
+  )
     images.push(...extracted.images);
   return [...new Set(images.filter(isLikelyProductImage))].slice(0, 12);
 }

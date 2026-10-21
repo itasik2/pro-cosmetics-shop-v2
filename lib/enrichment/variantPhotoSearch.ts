@@ -16,6 +16,8 @@ import { photoSku, type VariantImageCandidate } from "./variantImages";
 import {
   catalogProductUrls,
   officialCatalogSearchUrls,
+  namedBrandCatalogUrls,
+  catalogConfirmsProductBrand,
 } from "./officialCatalogSearch";
 import { variantPhotoSearchIssue } from "./clientMessages";
 import { sourceUrlKey } from "./resolveProductSource";
@@ -88,6 +90,10 @@ export async function searchVariantPhotos(
   const deadlineAt = input.deadlineAt ?? Date.now() + 140_000;
   const candidates: VariantImageCandidate[] = [];
   const errors: string[] = [];
+  const brandCatalogs = new Map<
+    string,
+    ReturnType<Dependencies["fetchHtml"]>
+  >();
   const tried = new Set<string>(input.excludedUrls || []);
   const triedKeys = new Set([...tried].map(sourceUrlKey));
   async function inspect(url: string, discovered = false, until = deadlineAt) {
@@ -116,7 +122,7 @@ export async function searchVariantPhotos(
         expectedSku: sku,
       });
       const match = scoreProductMatch(product, extracted);
-      const images = byName
+      let images = byName
         ? extractImagesForNamedProduct({
             buffer: fetched.buffer,
             finalUrl: fetched.finalUrl,
@@ -128,6 +134,50 @@ export async function searchVariantPhotos(
             sku,
             brand: product.brand?.name || product.supplier?.name,
           });
+      if (byName && !images.length) {
+        const brand = product.brand!.name;
+        const pendingBrandImages = extractImagesForNamedProduct({
+          buffer: fetched.buffer,
+          finalUrl: fetched.finalUrl,
+          product,
+          confirmedBrand: brand,
+        });
+        if (pendingBrandImages.length) {
+          for (const catalogUrl of namedBrandCatalogUrls(
+            fetched.buffer,
+            fetched.finalUrl,
+            brand,
+            product.name,
+          )) {
+            try {
+              let request = brandCatalogs.get(catalogUrl);
+              if (!request) {
+                if (brandCatalogs.size >= 4) break;
+                request = dependencies.fetchHtml(catalogUrl, policies, {
+                  timeoutMs: remainingTime(until, 8_000),
+                });
+                brandCatalogs.set(catalogUrl, request);
+              }
+              const catalog = await request;
+              if (
+                catalogConfirmsProductBrand(
+                  catalog.buffer,
+                  catalog.finalUrl,
+                  fetched.finalUrl,
+                  brand,
+                )
+              ) {
+                images = pendingBrandImages;
+                break;
+              }
+            } catch (error) {
+              errors.push(
+                error instanceof Error ? error.message : String(error),
+              );
+            }
+          }
+        }
+      }
       if (
         !byName &&
         (photoSku(extracted.sku) !== photoSku(sku) ||
@@ -181,7 +231,9 @@ export async function searchVariantPhotos(
     }
   }
   if (!candidates.length && !input.catalogOnly) {
-    for (const stage of ["official", "external"] as const) {
+    const stages: ("official" | "external")[] = ["official", "external"];
+    if (byName) stages.push("external");
+    for (const stage of stages) {
       if (stage === "official" && !input.officialDomains.length) continue;
       try {
         const timeoutMs = remainingTime(deadlineAt, 40_000);
@@ -192,13 +244,16 @@ export async function searchVariantPhotos(
                 allowedDomains: input.officialDomains,
                 excludedUrls: [...tried],
                 timeoutMs,
+                purpose: "PHOTO",
               })
             : await dependencies.external({
                 product,
                 officialDomainsTried: input.officialDomains,
                 excludedUrls: [...tried],
                 timeoutMs,
+                purpose: "PHOTO",
               });
+        if (!found.found && stage === "external") break;
         if (found.found && found.url && (await inspect(found.url, true))) break;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
