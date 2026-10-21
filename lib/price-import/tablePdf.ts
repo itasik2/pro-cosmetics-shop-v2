@@ -35,6 +35,23 @@ function text(items: PdfTableItem[]) {
 function center(item: PdfTableItem) {
   return item.top - item.height / 2;
 }
+function documentDate(pages: PdfTablePage[]) {
+  for (const page of pages) {
+    for (const match of text(page.items).matchAll(
+      /\b([0-3]\d)[./-]([01]\d)[./-](20\d{2})\b/g,
+    )) {
+      const [, day, month, year] = match;
+      const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+      if (
+        date.getUTCFullYear() === Number(year) &&
+        date.getUTCMonth() === Number(month) - 1 &&
+        date.getUTCDate() === Number(day)
+      )
+        return `${year}-${month}-${day}`;
+    }
+  }
+  return null;
+}
 function boundaries(page: PdfTablePage, x: number) {
   return unique(
     page.horizontal
@@ -191,6 +208,7 @@ export async function parseTablePages(
     .map((page) => ({ page, layout: headerLayout(page) }))
     .find((value) => value.layout);
   if (!first?.layout) return null;
+  const sourceDate = documentDate(pages);
   let layout = first.layout;
   let brand = clean(input.defaultBrand || "");
   const evidence = pages
@@ -391,7 +409,7 @@ export async function parseTablePages(
         productLineCode: null,
         productLineName: null,
         category,
-        sourceDate: null,
+        sourceDate,
         confidence: ai ? 80 : 95,
         warnings: rowWarnings,
       });
@@ -410,7 +428,7 @@ export async function parseTablePages(
     }
   return {
     parserId: "TABLE_PDF",
-    sourceDate: null,
+    sourceDate,
     pageCount: pages.length,
     rows,
     warnings,

@@ -223,9 +223,10 @@ test("ambiguous rows stop the import and provider errors produce actionable mess
   );
 });
 
-function samplePdf(sourcePrice = "1200") {
+function samplePdf(sourcePrice = "1200", sourceDate = "") {
   const content = [
     "0.5 w",
+    ...(sourceDate ? [`BT /F1 8 Tf 20 190 Td (${sourceDate}) Tj ET`] : []),
     ...[
       [20, 20, 580, 20],
       [20, 100, 580, 100],
@@ -294,4 +295,20 @@ test("the real PDF pipeline reads vector rules, preserves a reusable buffer and 
       }),
     /pdf_table_row_incomplete/,
   );
+});
+
+test("ruled PDFs preserve valid document dates on the import and every row without a dated filename", async () => {
+  const parsed = await parsePriceListPdf({
+    bytes: samplePdf("1200", "Price valid from 31.02.2026 / 17.07.2026"),
+    fileName: "supplier-catalog.pdf",
+    defaultBrand: "Skinosophy",
+  });
+  assert.equal(parsed.sourceDate, "2026-07-17");
+  assert.ok(parsed.rows.every((row) => row.sourceDate === "2026-07-17"));
+  const undated = await parsePriceListPdf({
+    bytes: samplePdf("1200", "31.02.2026"),
+    fileName: "supplier-catalog.pdf",
+    defaultBrand: "Skinosophy",
+  });
+  assert.equal(undated.sourceDate, null);
 });
