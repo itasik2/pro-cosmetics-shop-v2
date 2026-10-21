@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { Fragment, useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import type { HubProduct } from "@/lib/hub";
 import { SharedProductSearch } from "@/components/SharedProductSearch";
 
@@ -53,6 +54,7 @@ type Suggestion = { key:string;score:number;reason:string };
 export function ProductEditor({ product, categories, searchEnabled, canWrite }: {
   product: HubProduct; categories: Category[]; searchEnabled: boolean; canWrite: boolean;
 }) {
+  const router=useRouter();
   const [form, setForm] = useState<Values>({
     title: product.title || "",
     barcode: product.barcode || "",
@@ -73,11 +75,14 @@ export function ProductEditor({ product, categories, searchEnabled, canWrite }: 
   const [suggestBusy, setSuggestBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [success,setSuccess]=useState("");
+  const [version,setVersion]=useState(product.updatedAt);
 
   function update(key: keyof Values, value: string) {
     setForm((prev) => ({ ...prev, [key]: value }));
     setDirty((prev) => new Set(prev).add(key));
     setError("");
+    setSuccess("");
   }
 
   async function suggestCategory() {
@@ -147,21 +152,27 @@ export function ProductEditor({ product, categories, searchEnabled, canWrite }: 
       }
       proposed.images = images;
     }
+    const changedLabels=Object.keys(proposed).map(key=>textInputs.find(([field])=>field===key)?.[1]||
+      ({purchasePrice:"Закупочная цена",price:"Розничная цена",images:"Фотографии",attributes:"Характеристики"} as Record<string,string>)[key]||key);
+    if(!window.confirm(`Сохранить изменения товара ${product.sku}?\n\n${changedLabels.join(", ")}`))return;
     setBusy(true);
     try {
-      const response = await fetch("/api/catalog/changes", {
+      const response = await fetch("/api/catalog/save", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ productId: product.id, proposed }),
+        body: JSON.stringify({ productId: product.id, expectedUpdatedAt:version, proposed }),
       });
       const data = await response.json().catch(() => null);
       if (!response.ok) throw new Error(String(data?.error || "Не удалось сохранить изменения"));
-      window.location.assign("/changes/" + encodeURIComponent(data.id));
+      setVersion(data.updatedAt);
+      setDirty(new Set());
+      setSuccess("Изменения сохранены в карточке.");
+      router.refresh();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      setError(message === "changeset_empty" ? "Изменений нет." : message);
-      setBusy(false);
-    }
+      setError(message === "changeset_empty" ? "Изменений нет." :
+        message === "product_changed_reload" ? "Карточка изменилась. Обновите страницу перед сохранением." : message);
+    } finally {setBusy(false);}
   }
 
   return (
@@ -169,13 +180,16 @@ export function ProductEditor({ product, categories, searchEnabled, canWrite }: 
       <div className="editor-heading">
         <div>
           <h2>Карточка товара</h2>
-          <p className="subtle">Редактируйте поля и фотографии здесь. При сохранении вы увидите изменения по полям перед их применением.</p>
+          <p className="subtle">Исправьте нужные данные и сохраните карточку после подтверждения.</p>
         </div>
         <span className="badge">{product.sku}</span>
       </div>
       <div className="editor-grid">
         {textInputs.map(([key, label]) => (
-          <label className={["description","application","ingredients","shortDescription"].includes(key) ? "editor-field wide" : "editor-field"} key={key}>
+          <Fragment key={key}>
+          {(key==="title"||key==="shortDescription")&&<h3 className="editor-section-title">
+            {key==="title"?"Основное":"Описание и применение"}</h3>}
+          <label className={["description","application","ingredients","shortDescription"].includes(key) ? "editor-field wide" : "editor-field"}>
             <span>{label}</span>
             {key === "categoryKey" ? (
               <select className="input" value={form.categoryKey}
@@ -196,6 +210,7 @@ export function ProductEditor({ product, categories, searchEnabled, canWrite }: 
                 onChange={(event) => update(key, event.target.value)} required={key === "title"} />
             )}
           </label>
+          </Fragment>
         ))}
         <div className="editor-field wide">
           <div className="actions">
@@ -203,7 +218,7 @@ export function ProductEditor({ product, categories, searchEnabled, canWrite }: 
               {suggestBusy ? "Определение…" : "Предложить категорию"}
             </button>
           </div>
-          <p className="subtle">Подбор по правилам и тексту товара — это подсказка, не автоматическая классификация и не категория Kaspi.</p>
+          <p className="subtle">Проверьте предложенную категорию перед сохранением.</p>
           {suggestStatus && <p className="subtle" role="status">{suggestStatus}</p>}
           {suggestions.length > 0 && <div className="category-suggestions">
             {suggestions.map(s => <button className="button" type="button" key={s.key}
@@ -212,6 +227,7 @@ export function ProductEditor({ product, categories, searchEnabled, canWrite }: 
             </button>)}
           </div>}
         </div>
+        <h3 className="editor-section-title">Цены</h3>
         <label className="editor-field">
           <span>Закупочная цена, ₸</span>
           <input className="input" type="number" min="0" step="1" value={form.purchasePrice} onChange={(event) => update("purchasePrice", event.target.value)} />
@@ -220,22 +236,28 @@ export function ProductEditor({ product, categories, searchEnabled, canWrite }: 
           <span>Розничная цена, ₸</span>
           <input className="input" type="number" min="1" step="1" value={form.price} onChange={(event) => update("price", event.target.value)} />
         </label>
+        <h3 className="editor-section-title">Фотографии</h3>
         <label className="editor-field wide">
           <span>Ссылки на изображения (по одной в строке)</span>
           <textarea rows={4} value={form.images} onChange={(event) => update("images", event.target.value)} />
-          <span className="subtle">Можно добавить ссылку вручную или выбрать фото из ИИ-предложений ниже.</span>
+          <span className="subtle">Первая фотография — главная. Можно добавить ссылку или выбрать фото из поиска ниже.</span>
           <div className="enrichment-images" style={{marginTop:10}}>
-            {form.images.split(/\r?\n/).map((src) => src.trim())
-              .filter((src) => /^https?:\/\/[^ ]+$/i.test(src))
-              .map((src) => <img key={src} src={src} alt={form.title + " — фото товара"}
-                loading="lazy" style={{width:140,height:140,objectFit:"contain"}} />)}
+            {form.images.split(/\r?\n/).map(src=>src.trim()).filter(Boolean).map((src,index,urls)=><div className="product-photo" key={src+index}>
+              {/^(https?:\/\/)[^ ]+$/i.test(src)&&<img src={src} alt={form.title+" — фото "+(index+1)} loading="lazy"/>}
+              <span className="subtle">{index===0?"Главное фото":"Фото "+(index+1)}</span>
+              {index>0&&<button type="button" className="button" onClick={()=>update("images",[src,...urls.filter((_,i)=>i!==index)].join("\n"))}>Сделать главным</button>}
+              <button type="button" className="button" onClick={()=>update("images",urls.filter((_,i)=>i!==index).join("\n"))}>Убрать</button>
+            </div>)}
             {!form.images.trim() && <span className="subtle">Фото пока нет</span>}
           </div>
         </label>
-        <label className="editor-field wide">
-          <span>Характеристики (JSON)</span>
-          <textarea className="editor-json" rows={5} value={form.attributes} onChange={(event) => update("attributes", event.target.value)} />
-        </label>
+        <details className="editor-advanced">
+          <summary>Дополнительные характеристики</summary>
+          <p className="subtle">Служебные данные прайса и характеристики товара. Изменяйте JSON только при необходимости.</p>
+          <label className="editor-field"><span>Характеристики (JSON)</span>
+            <textarea className="editor-json" rows={5} value={form.attributes} onChange={(event) => update("attributes", event.target.value)} />
+          </label>
+        </details>
       </div>
       <div style={{marginTop:14}}>
         <SharedProductSearch product={product} enabled={searchEnabled} canWrite={canWrite}
@@ -246,9 +268,10 @@ export function ProductEditor({ product, categories, searchEnabled, canWrite }: 
             }
           }}/>
       </div>
-      <p className="subtle">SKU и складские остатки защищены от прямого редактирования. Для них предусмотрены отдельные операции. Изменённых полей: {dirty.size}.</p>
+      <p className="subtle">SKU и складские остатки изменяются отдельно. Несохранённых полей: {dirty.size}.</p>
+      {success&&<p className="stock-success" role="status">{success}</p>}
       {error && <div role="alert" className="error">{error}</div>}
-      <div className="actions"><button type="submit" className="button primary" disabled={busy || dirty.size === 0}>{busy ? "Сохранение…" : "Сохранить на проверку →"}</button></div>
+      <div className="actions"><button type="submit" className="button primary" disabled={!canWrite||busy||dirty.size===0}>{busy ? "Сохранение…" : "Сохранить карточку"}</button></div>
     </form>
   );
 }

@@ -128,5 +128,22 @@ assert.equal(deleted.deleted,1);
 await request(ui+"/api/import",{
  method:"POST",headers:httpHeaders,body:historyMultipart(preview.historyId,"preview"),expected:400
 });
+const manualBefore=(await snapshot()).items.find(p=>p.sku==="TEST-LOCAL-001");
+const manualDescription="Проверка ручного сохранения карточки "+randomBytes(4).toString("hex");
+const saved=(await request(ui+"/api/catalog/save",{
+ method:"POST",headers:{...httpHeaders,"content-type":"application/json"},
+ body:JSON.stringify({productId:manualBefore.id,expectedUpdatedAt:manualBefore.updatedAt,
+  proposed:{description:manualDescription}})
+})).data;
+assert.equal(saved.status,"APPLIED");
+const manualAfter=(await snapshot()).items.find(p=>p.id===manualBefore.id);
+assert.equal(manualAfter.description,manualDescription);
+assert.equal(manualAfter.price,old.price,"Editing description must not overwrite the price");
+await request(ui+"/api/catalog/save",{
+ method:"POST",headers:{...httpHeaders,"content-type":"application/json"},
+ body:JSON.stringify({productId:manualBefore.id,expectedUpdatedAt:manualBefore.updatedAt,
+  proposed:{description:"Устаревшая правка"}}),expected:409
+});
 console.log("PASS: preview, history replay with fresh catalog, staged update, created product, stock=0, selected history deletion.");
+console.log("PASS: manual card save is atomic and rejects stale edits.");
 console.log("Only localhost API used; no production Supabase writes.");

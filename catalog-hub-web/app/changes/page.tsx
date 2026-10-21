@@ -8,7 +8,7 @@ type ChangeSet = { id:string; sku:string; sourceType:string; status:string; crea
 export default async function ChangesPage() {
   const result = await safeHub(hubFetch<ChangeSet[]>("/v1/staging/changesets?organizationId="+organizationId+"&limit=100"));
   return <div className="page">
-    <div className="page-head"><div><h1>Изменения</h1><p>Preview → Approve → Apply. Цена и остаток не меняются без явного подтверждения.</p></div></div>
+    <div className="page-head"><div><h1>Предложения</h1><p>Проверьте импорт и данные ИИ, затем примените предложение целиком.</p></div></div>
     {!result.ok ? <div className="error">{result.error}</div> : result.data.length === 0 ? <div className="panel empty">Очередь изменений пуста.</div> :
       <div className="table-wrap"><table><thead><tr><th>Товар</th><th>Источник</th><th>Поля</th><th>Риск</th><th>Статус</th><th>Создан</th></tr></thead><tbody>
         {result.data.map(cs => {
