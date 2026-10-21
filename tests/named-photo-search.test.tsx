@@ -118,6 +118,15 @@ test("retailer brand metadata needs independent product-specific brand evidence"
     description: null,
   };
   assert.equal(matchesNamedPhotoProduct(reformProduct, source), false);
+  for (const patch of [
+    { title: "JeuDerm Reform Age DNA Cream, 110 ml" },
+    { description: "JeuDerm products are also available in our shop." },
+  ]) {
+    assert.equal(
+      matchesNamedPhotoProduct(reformProduct, { ...source, ...patch }),
+      false,
+    );
+  }
   assert.equal(
     matchesNamedPhotoProduct(reformProduct, {
       ...source,

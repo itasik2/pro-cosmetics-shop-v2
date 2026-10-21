@@ -155,15 +155,16 @@ export function matchesNamedPhotoProduct(
   const brand = normalized(product.brand?.name);
   if (!brand || !product.name || !source.title) return false;
   const actualBrand = normalized(source.brand);
+  const catalogBrandConfirmed = normalized(source.confirmedBrand) === brand;
   const contextualBrand =
-    normalized(source.confirmedBrand) === brand ||
+    catalogBrandConfirmed ||
     normalized(source.title + " " + source.description).includes(brand);
   // A seller's own name in schema.org brand is not a manufacturer conflict,
   // but it still needs product-specific brand evidence, never the global menu.
   if (
     actualBrand &&
     actualBrand !== brand &&
-    (!samePhotoBrand(source.brand, source.retailer) || !contextualBrand)
+    (!samePhotoBrand(source.brand, source.retailer) || !catalogBrandConfirmed)
   )
     return false;
   if (!actualBrand && !contextualBrand) return false;
