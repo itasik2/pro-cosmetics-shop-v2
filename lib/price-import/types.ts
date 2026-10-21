@@ -32,7 +32,12 @@ export type EmbeddedPriceImage = {
 };
 
 export type PriceParseResult = {
-  parserId: "ANGIOPHARM_PDF" | "MESALTERA_PDF" | "JEUDERM_PDF" | "GENERIC_PDF";
+  parserId:
+    | "ANGIOPHARM_PDF"
+    | "MESALTERA_PDF"
+    | "JEUDERM_PDF"
+    | "GENERIC_PDF"
+    | "TABLE_PDF";
   sourceDate: string | null;
   pageCount: number;
   rows: ParsedPriceRow[];

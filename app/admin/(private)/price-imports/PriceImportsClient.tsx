@@ -269,7 +269,7 @@ export default function PriceImportsClient({
 
       await openImport(String(data.import?.id || ""));
       setMessage(
-        `Распознано строк: ${data.import?.totalRows ?? 0}. Шаблон: ${data.parser?.id || "неизвестен"}.`,
+        `Распознано строк: ${data.import?.totalRows ?? 0}. ${data.parser?.warnings?.includes("ai_layout_analyzed") ? "ИИ определил структуру; проверьте предложенные строки." : data.parser?.id === "TABLE_PDF" ? "Распознана таблица с сохранением артикулов, объёмов и отдельных цен." : `Шаблон: ${data.parser?.id || "неизвестен"}.`}`,
       );
       await loadImports();
     } catch (error: any) {
