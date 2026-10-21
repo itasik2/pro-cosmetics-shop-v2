@@ -54,7 +54,11 @@ export function catalogProductUrls(buffer: Buffer, finalUrl: string) {
 }
 
 function compactBrand(value: string) {
-  return value.toLocaleLowerCase("ru-RU").replace(/[^\p{L}\p{N}]+/gu, "");
+  return value
+    .normalize("NFKD")
+    .replace(/\p{M}+/gu, "")
+    .toLocaleLowerCase("ru-RU")
+    .replace(/[^\p{L}\p{N}]+/gu, "");
 }
 
 // A retailer may put its own name in Product.brand. Confirm membership in its

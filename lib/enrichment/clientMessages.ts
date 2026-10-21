@@ -35,6 +35,22 @@ export function enrichmentFailureMessage(code: string) {
 
 export function variantPhotoSearchIssue(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
+  const rejectionMessages: Record<string, string> = {
+    photo_identity_missing:
+      "На странице источника недостаточно данных для проверки товара.",
+    photo_brand_unconfirmed:
+      "Не удалось подтвердить бренд товара на странице источника.",
+    photo_name_mismatch:
+      "Название или вид средства на странице источника не совпадает с карточкой.",
+    photo_volume_ambiguous:
+      "На странице несколько объёмов или вариантов; принадлежность фото не подтверждена.",
+    photo_volume_mismatch:
+      "Объём на странице источника не совпадает с карточкой или не указан.",
+    photo_images_missing:
+      "Подходящая страница найдена, но фото товара на ней не обнаружено.",
+  };
+  if (Object.prototype.hasOwnProperty.call(rejectionMessages, message))
+    return { code: message, message: rejectionMessages[message] };
   if (/openai_not_configured/.test(message))
     return {
       code: "ai_not_configured",
@@ -76,6 +92,47 @@ export function variantPhotoSearchIssue(error: unknown) {
     code: "search_failed",
     message: "Поиск фото не завершён. Повторите попытку позже.",
   };
+}
+
+export function proposalPhotoSearchMessages(facts: unknown) {
+  if (!facts || typeof facts !== "object" || Array.isArray(facts)) return [];
+  const automation = (facts as Record<string, unknown>).photoAutomation;
+  if (
+    !automation ||
+    typeof automation !== "object" ||
+    Array.isArray(automation)
+  )
+    return [];
+  const { issues, incomplete } = automation as Record<string, unknown>;
+  const messages: Record<string, string> = {
+    ai_not_configured: "Поиск ИИ не настроен. Проверьте серверный ключ OpenAI.",
+    ai_access_denied:
+      "Сервис ИИ отклонил доступ. Проверьте ключ и права проекта OpenAI.",
+    ai_limit:
+      "Достигнут лимит сервиса ИИ. Проверьте квоту и повторите поиск позже.",
+    ai_request_rejected:
+      "Сервис ИИ отклонил запрос. Проверьте настройки модели поиска.",
+    search_timeout:
+      "Источник или ИИ не ответил вовремя. Повторите поиск позже.",
+    source_unavailable:
+      "Не удалось открыть сайт поставщика. Повторите поиск позже.",
+    ai_unavailable: "ИИ не завершил поиск. Повторите попытку позже.",
+  };
+  const codes = Array.isArray(issues)
+    ? issues.filter((code): code is string => typeof code === "string")
+    : [];
+  return [
+    ...new Set([
+      ...codes.map((code) =>
+        Object.prototype.hasOwnProperty.call(messages, code)
+          ? messages[code]
+          : variantPhotoSearchIssue(code).message,
+      ),
+      ...(incomplete
+        ? ["Поиск не успел проверить все варианты. Повторите подбор фото."]
+        : []),
+    ]),
+  ];
 }
 
 export function canRetryEnrichment(product: {

@@ -138,7 +138,7 @@ export async function collectProposalPhotos(
       (group) => group.variantId === primaryId,
     ),
     photoAutomation: {
-      version: 3,
+      version: 4,
       checkedAt: new Date().toISOString(),
       issues: [...new Set(issues)],
       incomplete: cursor < targets.length,
@@ -195,7 +195,7 @@ export async function prepareProposalPhotos(
     | undefined;
   if (
     options.automatic &&
-    previous?.version === 3 &&
+    previous?.version === 4 &&
     previous?.checkedAt &&
     Date.now() - new Date(previous.checkedAt).getTime() < 24 * 60 * 60 * 1000
   ) {

@@ -15,6 +15,14 @@ function normalized(value: unknown) {
     .replace(/[^\p{L}\p{N}]+/gu, "");
 }
 
+function photoText(value: unknown) {
+  return String(value ?? "")
+    .normalize("NFKD")
+    .replace(/\p{M}+/gu, "")
+    .toLocaleLowerCase("ru-RU")
+    .replace(/ё/g, "е");
+}
+
 export function isSyntheticSupplierSku(value: unknown) {
   return /^(?:JD|JDR)-[A-Z0-9]{6,}$/i.test(String(value ?? "").trim());
 }
@@ -100,17 +108,26 @@ const PHOTO_PRODUCT_TYPES = new Map<string, string>(
 );
 
 export function photoNameParts(value: string, brand = "") {
-  const words =
-    volumeFree(value)
-      .toLocaleLowerCase("ru-RU")
-      .match(/[\p{L}\p{N}]+/gu) || [];
+  const words = photoText(volumeFree(value)).match(/[\p{L}\p{N}]+/gu) || [];
+  const tokens = words
+    .filter((word) => !PHOTO_PRODUCT_TYPES.has(word))
+    .map((word) => (word === "днк" ? "dna" : word));
+  const brandKey = normalized(photoText(brand));
+  // Remove the complete brand, including spaced spellings such as Jeu Derm.
+  for (let start = 0; brandKey && start < tokens.length; start++) {
+    for (let end = start + 1; end <= tokens.length; end++) {
+      const part = tokens.slice(start, end).join("");
+      if (part === brandKey) {
+        tokens.splice(start, end - start);
+        start--;
+        break;
+      }
+      if (part.length >= brandKey.length) break;
+    }
+  }
   return {
-    name: normalized(
-      words
-        .filter((word) => !PHOTO_PRODUCT_TYPES.has(word))
-        .map((word) => (word === "днк" ? "dna" : word))
-        .join(" "),
-    ).replaceAll(normalized(brand), ""),
+    name: normalized(tokens.join(" ")).replaceAll(brandKey, ""),
+    tokens,
     types: [
       ...new Set(
         words.flatMap((word) =>
@@ -122,7 +139,46 @@ export function photoNameParts(value: string, brand = "") {
 }
 
 export function samePhotoBrand(left: unknown, right: unknown) {
-  return Boolean(normalized(left)) && normalized(left) === normalized(right);
+  const key = normalized(photoText(left));
+  return Boolean(key) && key === normalized(photoText(right));
+}
+
+function oneExtraLetter(left: string, right: string) {
+  const [short, long] =
+    left.length < right.length ? [left, right] : [right, left];
+  if (long.length !== short.length + 1) return false;
+  let index = 0;
+  while (index < short.length && short[index] === long[index]) index++;
+  return short.slice(index) === long.slice(index + 1);
+}
+
+function matchesPhotoNameTypo(
+  expected: ReturnType<typeof photoNameParts>,
+  actual: ReturnType<typeof photoNameParts>,
+) {
+  if (
+    expected.name.length < 12 ||
+    !expected.types.length ||
+    expected.tokens.length < 3 ||
+    expected.tokens.length !== actual.tokens.length
+  )
+    return false;
+  const changed = expected.tokens.flatMap((word, i) =>
+    word !== actual.tokens[i] ? [i] : [],
+  );
+  if (changed.length !== 1) return false;
+  const index = changed[0];
+  const stable = expected.tokens.filter((_, i) => i !== index);
+  if (new Set(stable).size < 2 || !stable.some((word) => word.length >= 4))
+    return false;
+  const left = expected.tokens[index];
+  const right = actual.tokens[index];
+  // Never fuzz short model codes, numbers, forms or word substitutions.
+  return (
+    Math.min(left.length, right.length) >= 6 &&
+    /^[\p{L}]+$/u.test(left + right) &&
+    oneExtraLetter(left, right)
+  );
 }
 
 function volumes(value: string) {
@@ -142,7 +198,7 @@ function volumes(value: string) {
   });
 }
 
-export function matchesNamedPhotoProduct(
+export function namedPhotoProductIssue(
   product: NamePhotoProduct,
   source: {
     title: string | null;
@@ -152,13 +208,16 @@ export function matchesNamedPhotoProduct(
     confirmedBrand?: string | null;
   },
 ) {
-  const brand = normalized(product.brand?.name);
-  if (!brand || !product.name || !source.title) return false;
-  const actualBrand = normalized(source.brand);
-  const catalogBrandConfirmed = normalized(source.confirmedBrand) === brand;
+  const brand = normalized(photoText(product.brand?.name));
+  if (!brand || !product.name || !source.title) return "photo_identity_missing";
+  const actualBrand = normalized(photoText(source.brand));
+  const catalogBrandConfirmed =
+    normalized(photoText(source.confirmedBrand)) === brand;
   const contextualBrand =
     catalogBrandConfirmed ||
-    normalized(source.title + " " + source.description).includes(brand);
+    normalized(photoText(source.title + " " + source.description)).includes(
+      brand,
+    );
   // A seller's own name in schema.org brand is not a manufacturer conflict,
   // but it still needs product-specific brand evidence, never the global menu.
   if (
@@ -166,8 +225,8 @@ export function matchesNamedPhotoProduct(
     actualBrand !== brand &&
     (!samePhotoBrand(source.brand, source.retailer) || !catalogBrandConfirmed)
   )
-    return false;
-  if (!actualBrand && !contextualBrand) return false;
+    return "photo_brand_unconfirmed";
+  if (!actualBrand && !contextualBrand) return "photo_brand_unconfirmed";
   const expected = photoNameParts(product.name, product.brand?.name);
   const actual = photoNameParts(
     source.title.split(/\||[–—]|\s-\s/)[0],
@@ -175,16 +234,25 @@ export function matchesNamedPhotoProduct(
   );
   if (
     expected.name.length < 6 ||
-    expected.name !== actual.name ||
     expected.types.join(",") !== actual.types.join(",")
   )
-    return false;
+    return "photo_name_mismatch";
+  if (
+    expected.name !== actual.name &&
+    !(
+      (actualBrand === brand || catalogBrandConfirmed) &&
+      product.volumeValue &&
+      product.volumeUnit &&
+      matchesPhotoNameTypo(expected, actual)
+    )
+  )
+    return "photo_name_mismatch";
   const titleVolumes = [...new Set(volumes(source.title))];
   const sourceVolumes = titleVolumes.length
     ? titleVolumes
     : [...new Set(volumes(source.description || ""))];
   // A shared 50/150 ml gallery cannot identify a particular price-list row.
-  if (sourceVolumes.length > 1) return false;
+  if (sourceVolumes.length > 1) return "photo_volume_ambiguous";
   if (product.volumeValue && product.volumeUnit) {
     const unit = normalized(product.volumeUnit);
     const mass = ["г", "гр", "g", "кг", "kg"].includes(unit);
@@ -193,7 +261,14 @@ export function matchesNamedPhotoProduct(
       sourceVolumes[0] !==
       `${product.volumeValue * multiplier}:${mass ? "g" : "ml"}`
     )
-      return false;
+      return "photo_volume_mismatch";
   }
-  return true;
+  return null;
+}
+
+export function matchesNamedPhotoProduct(
+  product: NamePhotoProduct,
+  source: Parameters<typeof namedPhotoProductIssue>[1],
+) {
+  return namedPhotoProductIssue(product, source) === null;
 }

@@ -90,6 +90,7 @@ export async function searchVariantPhotos(
   const deadlineAt = input.deadlineAt ?? Date.now() + 140_000;
   const candidates: VariantImageCandidate[] = [];
   const errors: string[] = [];
+  const rejections = new Set<string>();
   const brandCatalogs = new Map<
     string,
     ReturnType<Dependencies["fetchHtml"]>
@@ -122,11 +123,13 @@ export async function searchVariantPhotos(
         expectedSku: sku,
       });
       const match = scoreProductMatch(product, extracted);
+      const pageIssues = new Set<string>();
       let images = byName
         ? extractImagesForNamedProduct({
             buffer: fetched.buffer,
             finalUrl: fetched.finalUrl,
             product,
+            issues: pageIssues,
           })
         : extractImagesForSku({
             buffer: fetched.buffer,
@@ -185,6 +188,8 @@ export async function searchVariantPhotos(
           match.evidence.volume === "mismatch")
       )
         return false;
+      if (byName && !images.length)
+        pageIssues.forEach((issue) => rejections.add(issue));
       candidates.push(
         ...images.map((image) => ({
           url: image,
@@ -272,7 +277,7 @@ export async function searchVariantPhotos(
   ].slice(0, 12);
   const issues = [
     ...new Map(
-      errors.map((error) => {
+      [...errors, ...rejections].map((error) => {
         const issue = variantPhotoSearchIssue(error);
         return [issue.code, issue] as const;
       }),
