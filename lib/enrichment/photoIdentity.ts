@@ -15,10 +15,11 @@ function normalized(value: unknown) {
     .replace(/[^\p{L}\p{N}]+/gu, "");
 }
 
-function photoText(value: unknown) {
+export function photoComparisonText(value: unknown) {
   return String(value ?? "")
     .normalize("NFKD")
-    .replace(/\p{M}+/gu, "")
+    .replace(/(\p{Script=Latin})\p{M}+/gu, "$1")
+    .normalize("NFC")
     .toLocaleLowerCase("ru-RU")
     .replace(/ё/g, "е");
 }
@@ -108,11 +109,12 @@ const PHOTO_PRODUCT_TYPES = new Map<string, string>(
 );
 
 export function photoNameParts(value: string, brand = "") {
-  const words = photoText(volumeFree(value)).match(/[\p{L}\p{N}]+/gu) || [];
+  const words =
+    photoComparisonText(volumeFree(value)).match(/[\p{L}\p{N}]+/gu) || [];
   const tokens = words
     .filter((word) => !PHOTO_PRODUCT_TYPES.has(word))
     .map((word) => (word === "днк" ? "dna" : word));
-  const brandKey = normalized(photoText(brand));
+  const brandKey = normalized(photoComparisonText(brand));
   // Remove the complete brand, including spaced spellings such as Jeu Derm.
   for (let start = 0; brandKey && start < tokens.length; start++) {
     for (let end = start + 1; end <= tokens.length; end++) {
@@ -139,8 +141,8 @@ export function photoNameParts(value: string, brand = "") {
 }
 
 export function samePhotoBrand(left: unknown, right: unknown) {
-  const key = normalized(photoText(left));
-  return Boolean(key) && key === normalized(photoText(right));
+  const key = normalized(photoComparisonText(left));
+  return Boolean(key) && key === normalized(photoComparisonText(right));
 }
 
 function oneExtraLetter(left: string, right: string) {
@@ -208,16 +210,16 @@ export function namedPhotoProductIssue(
     confirmedBrand?: string | null;
   },
 ) {
-  const brand = normalized(photoText(product.brand?.name));
+  const brand = normalized(photoComparisonText(product.brand?.name));
   if (!brand || !product.name || !source.title) return "photo_identity_missing";
-  const actualBrand = normalized(photoText(source.brand));
+  const actualBrand = normalized(photoComparisonText(source.brand));
   const catalogBrandConfirmed =
-    normalized(photoText(source.confirmedBrand)) === brand;
+    normalized(photoComparisonText(source.confirmedBrand)) === brand;
   const contextualBrand =
     catalogBrandConfirmed ||
-    normalized(photoText(source.title + " " + source.description)).includes(
-      brand,
-    );
+    normalized(
+      photoComparisonText(source.title + " " + source.description),
+    ).includes(brand);
   // A seller's own name in schema.org brand is not a manufacturer conflict,
   // but it still needs product-specific brand evidence, never the global menu.
   if (

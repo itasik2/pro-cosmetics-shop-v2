@@ -10,6 +10,7 @@ import { extractImagesForNamedProduct } from "../lib/enrichment/extractProduct";
 import {
   matchesNamedPhotoProduct,
   namePhotoKey,
+  samePhotoBrand,
 } from "../lib/enrichment/photoIdentity";
 import { searchVariantPhotos } from "../lib/enrichment/variantPhotoSearch";
 import { collectProposalPhotos } from "../lib/enrichment/prepareProposalPhotos";
@@ -627,6 +628,47 @@ const cleanserProduct = {
   supplierSku: "JD-0L2MGHY",
   volumeValue: 150,
 };
+
+test("Latin accent folding preserves distinct Cyrillic names and brands", () => {
+  assert.equal(samePhotoBrand("JeuDérm", "JeuDerm"), true);
+  assert.equal(samePhotoBrand("Май", "Маи"), false);
+  assert.equal(samePhotoBrand("Маи\u0306", "Май"), true);
+  const source = {
+    title: "Маи Care Cream 50 ml",
+    brand: "JeuDerm",
+    description: null,
+  };
+  assert.equal(
+    matchesNamedPhotoProduct({ ...product, name: "Май Care Cream" }, source),
+    false,
+  );
+  assert.equal(
+    matchesNamedPhotoProduct(
+      { ...product, name: "Маи\u0306 Care Cream" },
+      { ...source, title: "Май Care Cream 50 ml" },
+    ),
+    true,
+  );
+  assert.equal(
+    matchesNamedPhotoProduct(
+      { ...product, brand: { name: "Май" } },
+      { title: product.name + " 50 ml", brand: "Маи", description: null },
+    ),
+    false,
+  );
+  const collection = Buffer.from(
+    '<main><h1>Май</h1><div class="product-grid"><a href="/products/cream">Cream</a></div></main>',
+  );
+  assert.equal(
+    catalogConfirmsProductBrand(
+      collection,
+      "https://brand.example/collections/may",
+      "https://brand.example/products/cream",
+      "Маи",
+    ),
+    false,
+  );
+});
 
 test("a single extra letter in a long name requires matching brand, form, size and two stable words", () => {
   const source = {
