@@ -35,6 +35,10 @@ import {
   toAllowedPolicies,
 } from "./sourcePolicies";
 import { DISCOVERY_BUDGET_MS, remainingTime } from "./timeBudget";
+import {
+  recoverStaleEnrichmentJobs,
+  STALE_ENRICHMENT_MS,
+} from "./recoverStaleJobs";
 
 type RunInput = {
   productId: string;
@@ -62,21 +66,8 @@ function jsonObject(value: unknown): Record<string, unknown> {
 
 export async function runProductEnrichment(input: RunInput) {
   const deadlineAt = input.deadlineAt ?? Date.now() + DISCOVERY_BUDGET_MS;
-  const staleBefore = new Date(Date.now() - 30 * 60 * 1000);
-  await prisma.enrichmentJob.updateMany({
-    where: {
-      productId: input.productId,
-      status: {
-        in: [EnrichmentJobStatus.PENDING, EnrichmentJobStatus.RUNNING],
-      },
-      updatedAt: { lt: staleBefore },
-    },
-    data: {
-      status: EnrichmentJobStatus.FAILED,
-      finishedAt: new Date(),
-      error: "stale_enrichment_job_recovered",
-    },
-  });
+  const staleBefore = new Date(Date.now() - STALE_ENRICHMENT_MS);
+  await recoverStaleEnrichmentJobs(prisma, [input.productId]);
 
   const activeJob = await prisma.enrichmentJob.findFirst({
     where: {

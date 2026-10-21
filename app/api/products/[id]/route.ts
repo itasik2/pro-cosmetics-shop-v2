@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { invalidateChangedSkuImages } from "@/lib/enrichment/variantImages";
 import { normalizeStoredVariants } from "@/lib/price-import/productVariants";
 import { prisma } from "@/lib/prisma";
+import { recoverStaleEnrichmentJobs } from "@/lib/enrichment/recoverStaleJobs";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/adminGuard";
 import { formatProductName } from "@/lib/productNames";
@@ -63,6 +64,7 @@ export async function PUT(req: Request, props: Params) {
   try {
     const parsed = ProductSchema.parse(await req.json());
     if (parsed.publishNow) parsed.isPublished = true;
+    await recoverStaleEnrichmentJobs(prisma, [params.id]);
     const current = await prisma.product.findUnique({
       where: { id: params.id },
       select: {
