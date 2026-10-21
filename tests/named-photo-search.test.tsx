@@ -1,6 +1,8 @@
 import React from "react";
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import ProductAssistant from "../app/admin/(private)/products/ProductAssistant";
 import { VariantPhotoPicker } from "../components/VariantPhotoPicker";
@@ -12,6 +14,10 @@ import {
 import { searchVariantPhotos } from "../lib/enrichment/variantPhotoSearch";
 import { collectProposalPhotos } from "../lib/enrichment/prepareProposalPhotos";
 import { automaticPhotoPlan } from "../lib/enrichment/automaticPhotos";
+import {
+  namedBrandCatalogUrls,
+  catalogConfirmsProductBrand,
+} from "../lib/enrichment/officialCatalogSearch";
 
 const product = {
   id: "cream",
@@ -60,6 +66,259 @@ function fetched(buffer: Buffer, finalUrl = pageUrl) {
     headers: {},
   };
 }
+
+const reformUrl =
+  "https://tmbeautybrands.com/products/reform-age-dna-cream-110-ml";
+const creamCatalogUrl = "https://tmbeautybrands.com/collections/creams-jeuderm";
+const reformPage = readFileSync(
+  resolve("tests/fixtures/reform-age-retailer.html"),
+);
+const creamCatalogPage = readFileSync(
+  resolve("tests/fixtures/jeuderm-cream-collection.html"),
+);
+const reformProduct = {
+  ...product,
+  name: "Reform Age DNA Крем",
+  volumeValue: 110,
+};
+
+test("Russian product types match English names while model, form and size remain exact", () => {
+  const source = {
+    title: "JeuDerm Reform Age DNA Cream, 110 ml",
+    brand: "JeuDerm",
+    description: null,
+  };
+  for (const name of [
+    "Reform Age DNA Крем",
+    "Крем Reform Age DNA",
+    "ReformAge DNA cream",
+  ]) {
+    assert.equal(
+      matchesNamedPhotoProduct({ ...reformProduct, name }, source),
+      true,
+    );
+  }
+  for (const title of [
+    "JeuDerm Reform Age DNA Cream, 50 ml",
+    "JeuDerm Reform Age Intensive Cream, 110 ml",
+    "JeuDerm Reform Age DNA Gel, 110 ml",
+  ]) {
+    assert.equal(
+      matchesNamedPhotoProduct(reformProduct, { ...source, title }),
+      false,
+    );
+  }
+});
+
+test("retailer brand metadata needs independent product-specific brand evidence", () => {
+  const source = {
+    title: "Reform Age DNA Cream, 110 ml",
+    brand: "T.M. Beauty Brands LTD",
+    retailer: "T.M. Beauty Brands LTD",
+    description: null,
+  };
+  assert.equal(matchesNamedPhotoProduct(reformProduct, source), false);
+  assert.equal(
+    matchesNamedPhotoProduct(reformProduct, {
+      ...source,
+      confirmedBrand: "JeuDerm",
+    }),
+    true,
+  );
+  assert.equal(
+    matchesNamedPhotoProduct(reformProduct, {
+      ...source,
+      brand: "Different Manufacturer",
+      confirmedBrand: "JeuDerm",
+    }),
+    false,
+  );
+  assert.equal(
+    matchesNamedPhotoProduct(
+      { ...reformProduct, volumeValue: 50 },
+      { ...source, confirmedBrand: "JeuDerm" },
+    ),
+    false,
+  );
+});
+
+test("brand collections confirm actual product membership, excluding navigation, cart and recommendations", () => {
+  assert.deepEqual(
+    namedBrandCatalogUrls(reformPage, reformUrl, "JeuDerm", reformProduct.name),
+    [creamCatalogUrl, "https://tmbeautybrands.com/collections/jeuderm-1"],
+  );
+  assert.equal(
+    catalogConfirmsProductBrand(
+      creamCatalogPage,
+      creamCatalogUrl,
+      reformUrl,
+      "JeuDerm",
+    ),
+    true,
+  );
+  assert.equal(
+    catalogConfirmsProductBrand(
+      creamCatalogPage,
+      creamCatalogUrl,
+      reformUrl.replace("110", "50"),
+      "JeuDerm",
+    ),
+    false,
+  );
+  assert.equal(
+    catalogConfirmsProductBrand(
+      creamCatalogPage,
+      creamCatalogUrl,
+      reformUrl,
+      "AnotherBrand",
+    ),
+    false,
+  );
+  assert.equal(
+    catalogConfirmsProductBrand(
+      creamCatalogPage,
+      creamCatalogUrl,
+      reformUrl.replace("tmbeautybrands.com", "other.example"),
+      "JeuDerm",
+    ),
+    false,
+  );
+  for (const place of [
+    "header",
+    "nav",
+    'div class="recommendations"',
+    'div class="cart-recommendations"',
+  ]) {
+    const tag = place.split(" ")[0];
+    const buffer = Buffer.from(
+      `<title>JeuDerm Creams</title><main><${place}><div class="product-grid-item"><a href="${reformUrl}">Related item</a></div></${tag}></main>`,
+    );
+    assert.equal(
+      catalogConfirmsProductBrand(
+        buffer,
+        creamCatalogUrl,
+        reformUrl,
+        "JeuDerm",
+      ),
+      false,
+    );
+  }
+});
+
+test("the reported Reform Age 110 ml case finds the product's own photo through its brand catalog without AI", async () => {
+  const requested: string[] = [];
+  const photos = await collectProposalPhotos(
+    {
+      product: reformProduct,
+      groups: [],
+      knownUrl: reformUrl,
+      officialDomains: [],
+      policies: [],
+      deadlineAt: Date.now() + 5000,
+    },
+    async (input) =>
+      searchVariantPhotos(input, {
+        official: async () => {
+          throw new Error("AI must not be needed");
+        },
+        external: async () => {
+          throw new Error("AI must not be needed");
+        },
+        fetchHtml: async (url) => {
+          requested.push(url);
+          assert.ok(url === reformUrl || url === creamCatalogUrl);
+          return fetched(
+            url === reformUrl ? reformPage : creamCatalogPage,
+            url,
+          );
+        },
+      }),
+  );
+  assert.deepEqual(requested, [reformUrl, creamCatalogUrl]);
+  const plan = automaticPhotoPlan(reformProduct, photos);
+  assert.equal(
+    plan.imageUrl,
+    "https://tmbeautybrands.com/cdn/shop/files/DNAcream110ml.png?v=1790148018&width=1920",
+  );
+  assert.equal(
+    automaticPhotoPlan({ ...reformProduct, volumeValue: 50 }, photos).imageUrl,
+    null,
+  );
+  assert.deepEqual(photos.photoAutomation.issues, []);
+});
+
+test("a seller's global brand menu cannot validate a product absent from that brand catalog", async () => {
+  const result = await searchVariantPhotos(
+    {
+      product: reformProduct,
+      variant: { label: "110 ml", sku: reformProduct.supplierSku },
+      knownUrl: reformUrl,
+      officialDomains: [],
+      policies: [],
+      priceCandidates: [],
+      catalogOnly: true,
+    },
+    {
+      official: async () => {
+        throw new Error("must not run");
+      },
+      external: async () => {
+        throw new Error("must not run");
+      },
+      fetchHtml: async (url) =>
+        fetched(
+          url === reformUrl
+            ? reformPage
+            : Buffer.from(
+                '<title>JeuDerm</title><main><div class="product-grid-item"><a href="/products/different-cream">Other cream</a></div></main>',
+              ),
+          url,
+        ),
+    },
+  );
+  assert.equal(result.status, "NOT_FOUND");
+  assert.deepEqual(result.candidates, []);
+});
+
+test("photo-only discovery excludes a rejected size and retries a different external source", async () => {
+  let attempts = 0;
+  const rightUrl = "https://brand.example/reform-110";
+  const wrongUrl = "https://brand.example/reform-50";
+  const result = await searchVariantPhotos(
+    {
+      product: reformProduct,
+      variant: { label: "110 ml", sku: reformProduct.supplierSku },
+      officialDomains: [],
+      policies: [],
+      priceCandidates: [],
+    },
+    {
+      official: async () => {
+        throw new Error("no official domains");
+      },
+      external: async (input) => {
+        assert.equal(input.purpose, "PHOTO");
+        if (attempts++) assert.ok(input.excludedUrls?.includes(wrongUrl));
+        return { found: true, url: attempts === 1 ? wrongUrl : rightUrl };
+      },
+      fetchHtml: async (url) =>
+        fetched(
+          page(
+            productNode({
+              name: `JeuDerm Reform Age DNA Cream ${url === wrongUrl ? 50 : 110} ml`,
+              image: url === wrongUrl ? "/wrong-50.jpg" : "/correct-110.jpg",
+            }),
+          ),
+          url,
+        ),
+    },
+  );
+  assert.equal(attempts, 2);
+  assert.equal(
+    result.candidates[0].url,
+    "https://brand.example/correct-110.jpg",
+  );
+});
 
 test("internal price codes use name, brand and exact volume; a sibling size or brand is rejected", () => {
   const source = {
@@ -253,7 +512,7 @@ test("automatic named photo discovery works for standalone products and preserve
       },
     );
     assert.equal(searched, 1);
-    assert.equal(photos.photoAutomation.version, 2);
+    assert.equal(photos.photoAutomation.version, 3);
     assert.equal(automaticPhotoPlan(current, photos).imageUrl, photoUrl);
     assert.deepEqual(photos.variantImageCandidates, []);
   }

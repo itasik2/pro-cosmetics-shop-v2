@@ -59,6 +59,72 @@ function volumeFree(value: string) {
   );
 }
 
+const PHOTO_PRODUCT_TYPES = new Map<string, string>(
+  Object.entries({
+    крем: "cream",
+    кремы: "cream",
+    cream: "cream",
+    creams: "cream",
+    маска: "mask",
+    маски: "mask",
+    mask: "mask",
+    masks: "mask",
+    тоник: "toner",
+    тонер: "toner",
+    toner: "toner",
+    toners: "toner",
+    эмульсия: "emulsion",
+    emulsion: "emulsion",
+    emulsions: "emulsion",
+    сыворотка: "serum",
+    serum: "serum",
+    serums: "serum",
+    масло: "oil",
+    oil: "oil",
+    oils: "oil",
+    гель: "gel",
+    gel: "gel",
+    gels: "gel",
+    бальзам: "balm",
+    balm: "balm",
+    balms: "balm",
+    флюид: "fluid",
+    fluid: "fluid",
+    fluids: "fluid",
+    пенка: "foam",
+    пена: "foam",
+    foam: "foam",
+    cleanser: "cleanser",
+    cleansers: "cleanser",
+  }),
+);
+
+export function photoNameParts(value: string, brand = "") {
+  const words =
+    volumeFree(value)
+      .toLocaleLowerCase("ru-RU")
+      .match(/[\p{L}\p{N}]+/gu) || [];
+  return {
+    name: normalized(
+      words
+        .filter((word) => !PHOTO_PRODUCT_TYPES.has(word))
+        .map((word) => (word === "днк" ? "dna" : word))
+        .join(" "),
+    ).replaceAll(normalized(brand), ""),
+    types: [
+      ...new Set(
+        words.flatMap((word) =>
+          PHOTO_PRODUCT_TYPES.get(word) ? [PHOTO_PRODUCT_TYPES.get(word)!] : [],
+        ),
+      ),
+    ].sort(),
+  };
+}
+
+export function samePhotoBrand(left: unknown, right: unknown) {
+  return Boolean(normalized(left)) && normalized(left) === normalized(right);
+}
+
 function volumes(value: string) {
   const expanded = value.replace(
     /(\d+(?:[.,]\d+)?)\s*\/\s*(\d+(?:[.,]\d+)?)\s*(мл|ml|гр|г|g|кг|kg|л|l)(?=$|[^\p{L}\p{N}])/giu,
@@ -82,22 +148,36 @@ export function matchesNamedPhotoProduct(
     title: string | null;
     brand: string | null;
     description: string | null;
+    retailer?: string | null;
+    confirmedBrand?: string | null;
   },
 ) {
   const brand = normalized(product.brand?.name);
   if (!brand || !product.name || !source.title) return false;
   const actualBrand = normalized(source.brand);
-  if (actualBrand && actualBrand !== brand) return false;
+  const contextualBrand =
+    normalized(source.confirmedBrand) === brand ||
+    normalized(source.title + " " + source.description).includes(brand);
+  // A seller's own name in schema.org brand is not a manufacturer conflict,
+  // but it still needs product-specific brand evidence, never the global menu.
   if (
-    !actualBrand &&
-    !normalized(source.title + " " + source.description).includes(brand)
+    actualBrand &&
+    actualBrand !== brand &&
+    (!samePhotoBrand(source.brand, source.retailer) || !contextualBrand)
   )
     return false;
-  const expected = normalized(volumeFree(product.name)).replaceAll(brand, "");
-  const actual = normalized(
-    volumeFree(source.title).split(/\||[–—]|\s-\s/)[0],
-  ).replaceAll(brand, "");
-  if (expected.length < 6 || expected !== actual) return false;
+  if (!actualBrand && !contextualBrand) return false;
+  const expected = photoNameParts(product.name, product.brand?.name);
+  const actual = photoNameParts(
+    source.title.split(/\||[–—]|\s-\s/)[0],
+    product.brand?.name,
+  );
+  if (
+    expected.name.length < 6 ||
+    expected.name !== actual.name ||
+    expected.types.join(",") !== actual.types.join(",")
+  )
+    return false;
   const titleVolumes = [...new Set(volumes(source.title))];
   const sourceVolumes = titleVolumes.length
     ? titleVolumes
