@@ -9,6 +9,7 @@ import { requireAdmin } from "@/lib/adminGuard";
 import { runProductEnrichment } from "@/lib/enrichment/runProductEnrichment";
 import { sleep } from "@/lib/enrichment/openaiRetry";
 import { prisma } from "@/lib/prisma";
+import { recoverStaleEnrichmentJobs } from "@/lib/enrichment/recoverStaleJobs";
 import {
   DISCOVERY_BUDGET_MS,
   remainingTime,
@@ -92,6 +93,7 @@ export async function POST(req: Request, props: Params) {
     );
   }
 
+  await recoverStaleEnrichmentJobs(prisma, [params.id]);
   const product = await prisma.product.findUnique({
     where: { id: params.id },
     select: { id: true, supplierId: true },

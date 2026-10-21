@@ -1266,11 +1266,29 @@ export default function AdminProductsClient() {
             className="max-h-60 overflow-y-auto rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"
           >
             <ul className="space-y-1">
-              {actionFailures.map((failure) => (
-                <li key={failure.id}>
-                  {failure.name}: {failure.message}
-                </li>
-              ))}
+              {actionFailures.map((failure) => {
+                const product = items.find((item) => item.id === failure.id);
+                return (
+                  <li
+                    key={failure.id}
+                    className="flex flex-wrap items-center gap-2"
+                  >
+                    <span>
+                      {failure.name}: {failure.message}
+                    </span>
+                    {product && (
+                      <button
+                        type="button"
+                        className="btn-secondary px-3 py-1 text-xs"
+                        disabled={bulkBusy}
+                        onClick={() => edit(product)}
+                      >
+                        Открыть товар
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </div>
         )}

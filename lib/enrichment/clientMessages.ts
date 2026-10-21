@@ -1,5 +1,7 @@
 export function enrichmentFailureMessage(code: string) {
   const messages: Record<string, string> = {
+    stale_enrichment_job_recovered:
+      "Предыдущий поиск прервался и был остановлен. Можно повторить поиск или продолжить редактирование.",
     openai_timeout:
       "Поиск не успел получить ответ ИИ. Повторите попытку позже или укажите точный адрес товара.",
     enrichment_timeout:

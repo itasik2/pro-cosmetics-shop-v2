@@ -4,6 +4,7 @@ export const maxDuration = 300;
 
 import { NextResponse } from "next/server";
 import { runCatalogAutopilot } from "@/lib/enrichment/catalogAutopilot";
+import { recoverStaleEnrichmentJobs } from "@/lib/enrichment/recoverStaleJobs";
 
 function authorize(req: Request) {
   const secret = process.env.CRON_SECRET?.trim();
@@ -27,6 +28,7 @@ async function run(req: Request) {
   if (forbidden) return forbidden;
 
   try {
+    await recoverStaleEnrichmentJobs();
     const result = await runCatalogAutopilot();
 
     return NextResponse.json({ ok: true, ...result });

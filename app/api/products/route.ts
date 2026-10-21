@@ -10,6 +10,7 @@ import { uniqueSlug } from "@/lib/uniqueSlug";
 import { formatProductName } from "@/lib/productNames";
 import { variantStockTotal } from "@/lib/productStock";
 import { productPriceSources } from "@/lib/productPriceSources";
+import { recoverStaleEnrichmentJobs } from "@/lib/enrichment/recoverStaleJobs";
 
 const ProductSchema = z.object({
   name: z.string().min(2),
@@ -29,6 +30,7 @@ const ProductSchema = z.object({
 export async function GET(req: Request) {
   const forbidden = await requireAdmin();
   if (forbidden) return forbidden;
+  await recoverStaleEnrichmentJobs();
 
   const publicationQueue =
     new URL(req.url).searchParams.get("publicationQueue") === "1";

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { prisma } from "./prisma";
+import { recoverStaleEnrichmentJobs } from "./enrichment/recoverStaleJobs";
 
 export const productActionSchema = z
   .object({
@@ -41,6 +42,7 @@ export async function applyProductActions(
     try {
       await database.$transaction(
         async (tx) => {
+          await recoverStaleEnrichmentJobs(tx, [id]);
           const product = await tx.product.findUnique({
             where: { id },
             select: {

@@ -15,6 +15,10 @@ import {
 import { requestProductActions } from "../app/admin/(private)/products/productActions";
 import ProductPriceSources from "../app/admin/(private)/products/ProductPriceSources";
 import ProductSelectionBar from "../app/admin/(private)/products/ProductSelectionBar";
+import {
+  recoverStaleEnrichmentJobs,
+  STALE_ENRICHMENT_MS,
+} from "../lib/enrichment/recoverStaleJobs";
 
 const appliedRow = (
   sku: string,
@@ -189,6 +193,17 @@ function actionFixture() {
     image: "/media/photo.jpg",
     variants: [{ sku: id, stock: 8 }],
   }));
+  let jobs = [
+    {
+      id: "job",
+      productId: "running",
+      status: "RUNNING",
+      updatedAt: new Date(),
+      scheduledAt: new Date(),
+      finishedAt: null,
+      error: null,
+    },
+  ];
   const writes: string[] = [];
   const database = {
     $transaction: async (
@@ -197,11 +212,29 @@ function actionFixture() {
     ) => {
       assert.equal(options.isolationLevel, "Serializable");
       const draft = structuredClone(state);
+      let draftJobs = structuredClone(jobs);
       const result = await callback({
         product: {
           findUnique: async ({ where }: any) =>
             draft.find((row) => row.id === where.id) ?? null,
           updateMany: async ({ where, data }: any) => {
+            if (where.enrichmentStatus === "RUNNING") {
+              const matches = draft.filter(
+                (row) =>
+                  (!where.id || where.id.in.includes(row.id)) &&
+                  row.enrichmentStatus === where.enrichmentStatus &&
+                  +row.updatedAt < +where.updatedAt.lt &&
+                  !draftJobs.some(
+                    (job) =>
+                      job.productId === row.id &&
+                      where.enrichmentJobs.none.status.in.includes(job.status),
+                  ),
+              );
+              matches.forEach((row) =>
+                Object.assign(row, data, { updatedAt: new Date() }),
+              );
+              return { count: matches.length };
+            }
             assert.deepEqual(data, { isPublished: false });
             const row = draft.find(
               (row) =>
@@ -219,22 +252,51 @@ function actionFixture() {
             );
             if (index < 0 || where.id === "race") return { count: 0 };
             draft.splice(index, 1);
+            draftJobs = draftJobs.filter((job) => job.productId !== where.id);
             writes.push(where.id);
             return { count: 1 };
           },
         },
         enrichmentJob: {
           findFirst: async ({ where }: any) =>
-            where.productId === "running" ? { id: "job" } : null,
+            draftJobs.find(
+              (job) =>
+                job.productId === where.productId &&
+                where.status.in.includes(job.status),
+            ) || null,
+          updateMany: async ({ where, data }: any) => {
+            const matches = draftJobs.filter(
+              (job) =>
+                (!where.productId ||
+                  where.productId.in.includes(job.productId)) &&
+                +job.updatedAt < +where.updatedAt.lt &&
+                where.OR.some(
+                  (part: any) =>
+                    job.status === part.status &&
+                    (!part.scheduledAt ||
+                      +job.scheduledAt < +part.scheduledAt.lt),
+                ),
+            );
+            matches.forEach((job) => Object.assign(job, data));
+            return { count: matches.length };
+          },
         },
       });
       state = draft;
+      jobs = draftJobs;
       return result;
     },
   } as unknown as NonNullable<Parameters<typeof applyProductActions>[1]>;
   return {
     database,
     writes,
+    recover: (ids?: string[], now = new Date()) =>
+      database.$transaction((tx) => recoverStaleEnrichmentJobs(tx, ids, now), {
+        isolationLevel: "Serializable",
+      }),
+    get jobs() {
+      return jobs;
+    },
     get state() {
       return state;
     },
@@ -280,6 +342,153 @@ test("bulk delete reports each failure, blocks active AI/merged cards and detect
   assert.deepEqual(
     fixture.state.map((row) => row.id),
     ["b", "merged", "running", "race"],
+  );
+});
+
+test("a month-old WH03 search expires and unpublish preserves product content and inventory", async () => {
+  const fixture = actionFixture();
+  const row = fixture.state.find((row) => row.id === "running")!;
+  row.enrichmentStatus = "RUNNING";
+  fixture.jobs[0].updatedAt = new Date(Date.now() - 38 * 24 * 60 * 60 * 1000);
+  const before = structuredClone(row);
+  const result = await applyProductActions(
+    { action: "unpublish", ids: [row.id] },
+    fixture.database,
+  );
+  assert.deepEqual(result, { processedIds: [row.id], failures: [] });
+  const after = fixture.state.find((product) => product.id === row.id)!;
+  assert.deepEqual(
+    { ...after, updatedAt: before.updatedAt },
+    { ...before, isPublished: false, enrichmentStatus: "FAILED" },
+  );
+  assert.equal(fixture.jobs[0].status, "FAILED");
+  assert.equal(fixture.jobs[0].error, "stale_enrichment_job_recovered");
+  assert.ok(fixture.jobs[0].finishedAt);
+});
+
+test("an expired search cannot permanently prevent deleting the selected product", async () => {
+  const fixture = actionFixture();
+  fixture.state.find((row) => row.id === "running")!.enrichmentStatus =
+    "RUNNING";
+  fixture.jobs[0].updatedAt = new Date(
+    Date.now() - STALE_ENRICHMENT_MS - 60_000,
+  );
+  assert.deepEqual(
+    await applyProductActions(
+      { action: "delete", ids: ["running"] },
+      fixture.database,
+    ),
+    { processedIds: ["running"], failures: [] },
+  );
+  assert.ok(!fixture.state.some((row) => row.id === "running"));
+  assert.ok(!fixture.jobs.length);
+  assert.deepEqual(fixture.writes, ["running"]);
+});
+
+test("recovery releases only old orphan claims and keeps fresh claims and newer jobs locked", async () => {
+  const fixture = actionFixture();
+  const old = fixture.state.find((row) => row.id === "a")!;
+  const fresh = fixture.state.find((row) => row.id === "b")!;
+  old.enrichmentStatus = fresh.enrichmentStatus = "RUNNING";
+  fresh.updatedAt = new Date();
+  fixture.state.find((row) => row.id === "running")!.enrichmentStatus =
+    "RUNNING";
+  const result = await applyProductActions(
+    { action: "unpublish", ids: ["a", "b", "running"] },
+    fixture.database,
+  );
+  assert.deepEqual(result.processedIds, ["a"]);
+  assert.deepEqual(
+    result.failures.map((row) => row.id),
+    ["b", "running"],
+  );
+  assert.equal(fixture.jobs[0].status, "RUNNING");
+  assert.equal(
+    fixture.state.find((row) => row.id === "running")!.enrichmentStatus,
+    "RUNNING",
+  );
+});
+
+test("an intentionally scheduled pending job is protected while an overdue abandoned job expires", async () => {
+  for (const future of [true, false]) {
+    const fixture = actionFixture();
+    fixture.state.find((row) => row.id === "running")!.enrichmentStatus =
+      "RUNNING";
+    const old = new Date(Date.now() - STALE_ENRICHMENT_MS - 60_000);
+    Object.assign(fixture.jobs[0], {
+      status: "PENDING",
+      updatedAt: old,
+      scheduledAt: future ? new Date(Date.now() + 60_000) : old,
+    });
+    const result = await applyProductActions(
+      { action: "unpublish", ids: ["running"] },
+      fixture.database,
+    );
+    assert.equal(result.processedIds.length, future ? 0 : 1);
+    assert.equal(fixture.jobs[0].status, future ? "PENDING" : "FAILED");
+  }
+});
+
+test("recovery is scoped and idempotent; an empty explicit scope never becomes all products", async () => {
+  const fixture = actionFixture();
+  fixture.state.find((row) => row.id === "running")!.enrichmentStatus =
+    "RUNNING";
+  fixture.jobs[0].updatedAt = new Date(
+    Date.now() - STALE_ENRICHMENT_MS - 60_000,
+  );
+  assert.deepEqual(await fixture.recover([]), {
+    expiredJobs: 0,
+    unlockedProducts: 0,
+  });
+  assert.deepEqual(await fixture.recover(["a"]), {
+    expiredJobs: 0,
+    unlockedProducts: 0,
+  });
+  assert.equal(fixture.jobs[0].status, "RUNNING");
+  assert.deepEqual(await fixture.recover(["running"]), {
+    expiredJobs: 1,
+    unlockedProducts: 1,
+  });
+  assert.deepEqual(await fixture.recover(["running"]), {
+    expiredJobs: 0,
+    unlockedProducts: 0,
+  });
+});
+
+test("failed conditional writes roll back recovery with the product action", async () => {
+  const fixture = actionFixture();
+  fixture.state.find((row) => row.id === "race")!.enrichmentStatus = "RUNNING";
+  const before = structuredClone(fixture.state);
+  const result = await applyProductActions(
+    { action: "unpublish", ids: ["race"] },
+    fixture.database,
+  );
+  assert.deepEqual(result.processedIds, []);
+  assert.match(result.failures[0].message, /изменился/);
+  assert.deepEqual(fixture.state, before);
+});
+
+test("a new running job retains its claim when an older job for the same product expires", async () => {
+  const fixture = actionFixture();
+  fixture.state.find((row) => row.id === "running")!.enrichmentStatus =
+    "RUNNING";
+  fixture.jobs[0].updatedAt = new Date(
+    Date.now() - STALE_ENRICHMENT_MS - 60_000,
+  );
+  fixture.jobs.push({
+    ...fixture.jobs[0],
+    id: "new-job",
+    updatedAt: new Date(),
+  });
+  assert.deepEqual(await fixture.recover(["running"]), {
+    expiredJobs: 1,
+    unlockedProducts: 0,
+  });
+  assert.equal(fixture.jobs[0].status, "FAILED");
+  assert.equal(fixture.jobs[1].status, "RUNNING");
+  assert.equal(
+    fixture.state.find((row) => row.id === "running")!.enrichmentStatus,
+    "RUNNING",
   );
 });
 

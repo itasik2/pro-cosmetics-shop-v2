@@ -9,6 +9,7 @@ import { isUsablePhoto } from "@/lib/enrichment/photoQuality";
 import { photoSku } from "@/lib/enrichment/variantImages";
 import { requireAdmin } from "@/lib/adminGuard";
 import { prisma } from "@/lib/prisma";
+import { recoverStaleEnrichmentJobs } from "@/lib/enrichment/recoverStaleJobs";
 import {
   baseProductName,
   normalizeStoredVariants,
@@ -248,6 +249,7 @@ export async function POST(req: Request) {
     );
   }
 
+  await recoverStaleEnrichmentJobs(prisma, productIds);
   const products = await prisma.product.findMany({
     where: { id: { in: productIds } },
     select: productSelect,
