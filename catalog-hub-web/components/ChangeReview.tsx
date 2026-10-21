@@ -34,42 +34,38 @@ export function ChangeReview({
   fields: ReviewField[];
 }) {
   const router = useRouter();
-  const [selected, setSelected] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [confirmApply, setConfirmApply] = useState(false);
   const onPreview = status === "PREVIEW";
   const onApproved = status === "APPROVED";
+  const partiallyApproved=onApproved&&fields.some(f=>f.status!=="APPROVED");
 
-  function toggle(field: string) {
-    setSelected((old) => old.includes(field) ? old.filter((item) => item !== field) : [...old, field]);
-    setError("");
-  }
-  async function action(name: "approve" | "apply" | "reject") {
-    if (name === "approve" && !selected.length) {
-      setError("Отметьте поля, изменения которых нужно подтвердить.");
-      return;
-    }
-    if (name === "apply" && !confirmApply) {
-      setError("Подтвердите применение изменений к товару.");
-      return;
-    }
+  async function action(name: "confirm" | "reject") {
+    if(name==="confirm"&&!window.confirm(`Применить изменения к товару?\n\n${fields.map(f=>names[f.field]||f.field).join(", ")}`))return;
     setBusy(true);
     setError("");
     try {
-      const response = await fetch("/api/catalog/changes/" + encodeURIComponent(id), {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: name, approvedFields: selected }),
-      });
-      const data = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(String(data?.error || "Ошибка операции"));
+      const send=async (operation:"approve"|"apply"|"reject")=>{
+        const response=await fetch("/api/catalog/changes/"+encodeURIComponent(id),{
+          method:"POST",headers:{"content-type":"application/json"},
+          body:JSON.stringify({action:operation,
+            approvedFields:operation==="approve"?fields.map(f=>f.field):[]}),
+        });
+        const data=await response.json().catch(()=>null);
+        if(!response.ok)throw new Error(String(data?.error||"Ошибка операции"));
+      };
+      if(name==="reject")await send("reject");
+      else {
+        if(onPreview)await send("approve");
+        await send("apply");
+      }
       router.refresh();
     } catch (e) {
       const message = e instanceof Error ? e.message : "Ошибка сохранения";
       setError(message === "changeset_stale"
         ? "Карточка изменилась после создания черновика. Создайте новый черновик из актуальных данных."
         : message);
+      router.refresh();
     } finally {
       setBusy(false);
     }
@@ -78,51 +74,35 @@ export function ChangeReview({
   return (
     <>
       <section className="panel">
-        <h2>Изменения по полям</h2>
-        <p className="subtle">Для подтверждения выберите нужные поля. Цены и фотографии требуют отдельной отметки.</p>
+        <h2>Предложение для карточки</h2>
+        <p className="subtle">{fields.length} изменений. Раскройте поле, если хотите сравнить значения.</p>
         <div className="review-fields">
           {fields.map((entry) => (
-            <div className="review-field" key={entry.field}>
-              <div className="review-field-head">
-                <label className="review-check">
-                  {onPreview && <input type="checkbox" checked={selected.includes(entry.field)} disabled={busy}
-                    onChange={() => toggle(entry.field)} />}
+            <details className="review-field" key={entry.field}>
+              <summary className="review-field-head">
                   <strong>{names[entry.field] || entry.field}</strong>
-                </label>
-                <span className={"badge " + (entry.risk === "HIGH" ? "bad" : entry.risk === "MEDIUM" ? "warn" : "good")}>{entry.risk}</span>
+                {entry.risk === "HIGH" && <span className="badge bad">Цена</span>}
                 <span className="badge">{entry.status}</span>
-              </div>
+              </summary>
               <div className="review-diff">
                 <div><span className="subtle">Было</span><pre>{describe(entry.beforeValue)}</pre></div>
                 <div><span className="subtle">Предлагается</span><pre>{describe(entry.afterValue)}</pre></div>
               </div>
-            </div>
+            </details>
           ))}
         </div>
       </section>
 
       {(onPreview || onApproved) && <section className="panel review-actions">
-        <h2>{onPreview ? "Подтверждение" : "Применение к каталогу"}</h2>
-        {onPreview ? (
-          <div className="actions">
-            <button type="button" className="button primary" disabled={busy || !selected.length}
-              onClick={() => action("approve")}>Подтвердить выбранные поля ({selected.length})</button>
-            <button type="button" className="button" disabled={busy} onClick={() => action("reject")}>Отклонить черновик</button>
-          </div>
-        ) : (
-          <>
-            <label className="review-check">
-              <input type="checkbox" checked={confirmApply} disabled={busy}
-                onChange={(event) => setConfirmApply(event.target.checked)} />
-              Подтверждаю внесение одобренных изменений в Master Card
-            </label>
-            <div className="actions">
-              <button type="button" className="button primary" disabled={busy || !confirmApply}
-                onClick={() => action("apply")}>{busy ? "Применение…" : "Применить к товару"}</button>
-              <button type="button" className="button" disabled={busy} onClick={() => action("reject")}>Отклонить</button>
-            </div>
-          </>
-        )}
+        <h2>Подтверждение</h2>
+        <p className="subtle">{partiallyApproved
+          ?"Этот черновик был одобрен частично: применятся только ранее выбранные поля."
+          :"Подтверждение применит всё предложение целиком. Для отдельных исправлений откройте карточку товара."}</p>
+        <div className="actions">
+          <button type="button" className="button primary" disabled={busy||!fields.length}
+            onClick={() => action("confirm")}>{busy?"Применение…":"Подтвердить и применить"}</button>
+          <button type="button" className="button" disabled={busy} onClick={() => action("reject")}>Отклонить предложение</button>
+        </div>
         {error && <div className="error" role="alert">{error}</div>}
       </section>}
     </>

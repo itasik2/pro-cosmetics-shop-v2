@@ -121,6 +121,13 @@ tr:last-child td { border-bottom:0; }
 .editor-field { display:flex; flex-direction:column; gap:6px; min-width:0; }
 .editor-field > span { color:var(--muted); font-size:12px; font-weight:600; }
 .editor-field.wide { grid-column:1/-1; }
+.editor-section-title { grid-column:1/-1; margin:12px 0 0; font-size:15px; }
+.editor-advanced { grid-column:1/-1; padding:12px; border:1px solid var(--line); border-radius:10px; }
+.editor-advanced summary { cursor:pointer; font-weight:600; }
+.editor-advanced .editor-field { margin-top:12px; }
+.product-photo {display:flex; flex-direction:column; align-items:center; gap:7px; width:164px; padding:10px; border:1px solid var(--line); border-radius:10px;}
+.product-photo img {width:140px; height:140px; object-fit:contain;}
+.product-photo .button {width:100%; font-size:12px;}
 .editor-field textarea { line-height:1.5; resize:vertical; }
 .editor-json { font-family:Consolas,monospace; }
 .editor-panel .actions { margin-top:16px; }
@@ -128,6 +135,10 @@ tr:last-child td { border-bottom:0; }
 .review-fields { display:grid; gap:12px; margin-top:18px; }
 .review-field { padding:14px; border:1px solid var(--line); border-radius:12px; }
 .review-field-head { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+.review-field summary { cursor:pointer; list-style:none; }
+.review-field summary::-webkit-details-marker { display:none; }
+.review-field summary::after { content:"Показать сравнение"; margin-left:auto; color:var(--muted); font-size:12px; }
+.review-field[open] summary::after { content:"Скрыть сравнение"; }
 .review-check { display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer; }
 .review-check input { width:16px; height:16px; accent-color:var(--accent); }
 .review-diff { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:12px; }

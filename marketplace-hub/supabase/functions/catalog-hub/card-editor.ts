@@ -128,6 +128,53 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
   const action = route.match(/^\/v1\/staging\/changesets\/([a-f0-9-]{36})\/(approve|apply|reject)$/i);
 
   try {
+    if (route === "/v1/catalog/manual-save" && req.method === "POST") {
+      const body = await parseBody(req);
+      const organizationId = requiredId(body.organizationId, "organizationId");
+      const productId = requiredId(body.productId, "productId");
+      const expectedUpdatedAt = requiredId(body.expectedUpdatedAt, "expectedUpdatedAt");
+      if (!Number.isFinite(Date.parse(expectedUpdatedAt)) ||
+          new Date(expectedUpdatedAt).toISOString() !== expectedUpdatedAt) fail("invalid_product_version");
+      const proposed = normalizePatch(body.proposed);
+      const result = await sql.begin(async (tx) => {
+        const products = await tx<Product[]>`SELECT *, "updatedAt"::text AS "snapshotVersion"
+          FROM public."Product" WHERE "id"=${productId} AND "organizationId"=${organizationId} FOR UPDATE`;
+        if (!products.length) fail("product_not_found", 404);
+        const product = products[0];
+        if (new Date(product.updatedAt).toISOString() !== expectedUpdatedAt) fail("product_changed_reload", 409);
+        const before = card(product);
+        const changed = fields.filter(field => Object.prototype.hasOwnProperty.call(proposed, field) &&
+          !same(before[field], proposed[field]));
+        if (!changed.length) fail("changeset_empty");
+        if (typeof proposed.categoryKey === "string") {
+          const categories = await tx`SELECT "key" FROM public."CatalogCategory" WHERE "organizationId"=${organizationId}
+            AND "key"=${proposed.categoryKey} AND "isActive"=true LIMIT 1`;
+          if (!categories.length) fail("category_not_in_dictionary");
+        }
+        const after: Record<string, unknown> = {...before,...proposed};
+        await tx`INSERT INTO public."ProductRevision"
+          ("id","productId","reason","snapshot","createdBy","createdAt") VALUES
+          (${crypto.randomUUID()},${productId},'MANUAL_CARD_EDIT',${tx.json(before)}::jsonb,'catalog-hub-ui',now())`;
+        await tx`UPDATE public."Product" SET
+          "title"=CASE WHEN ${changed.includes("title")} THEN ${after.title as string} ELSE "title" END,
+          "barcode"=CASE WHEN ${changed.includes("barcode")} THEN ${after.barcode as string|null} ELSE "barcode" END,
+          "brand"=CASE WHEN ${changed.includes("brand")} THEN ${after.brand as string|null} ELSE "brand" END,
+          "categoryKey"=CASE WHEN ${changed.includes("categoryKey")} THEN ${after.categoryKey as string|null} ELSE "categoryKey" END,
+          "shortDescription"=CASE WHEN ${changed.includes("shortDescription")} THEN ${after.shortDescription as string|null} ELSE "shortDescription" END,
+          "description"=CASE WHEN ${changed.includes("description")} THEN ${after.description as string|null} ELSE "description" END,
+          "application"=CASE WHEN ${changed.includes("application")} THEN ${after.application as string|null} ELSE "application" END,
+          "ingredients"=CASE WHEN ${changed.includes("ingredients")} THEN ${after.ingredients as string|null} ELSE "ingredients" END,
+          "purchasePrice"=CASE WHEN ${changed.includes("purchasePrice")} THEN ${after.purchasePrice as number|null} ELSE "purchasePrice" END,
+          "basePrice"=CASE WHEN ${changed.includes("price")} THEN ${after.price as number|null} ELSE "basePrice" END,
+          "attributes"=CASE WHEN ${changed.includes("attributes")} THEN ${tx.json(after.attributes)}::jsonb ELSE "attributes" END,
+          "images"=CASE WHEN ${changed.includes("images")} THEN ${tx.json(after.images)}::jsonb ELSE "images" END,
+          "updatedAt"=now() WHERE "id"=${productId} AND "organizationId"=${organizationId}`;
+        const updated = await tx`SELECT "updatedAt" FROM public."Product" WHERE "id"=${productId}`;
+        return {id:productId,status:"APPLIED",changedFields:changed,
+          updatedAt:new Date(updated[0].updatedAt).toISOString()};
+      });
+      return json(result);
+    }
     if (route === "/v1/staging/changesets" && req.method === "POST") {
       const body = await parseBody(req);
       const organizationId = requiredId(body.organizationId, "organizationId");
