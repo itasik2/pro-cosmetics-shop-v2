@@ -10,10 +10,12 @@ import { extractImagesForNamedProduct } from "../lib/enrichment/extractProduct";
 import {
   matchesNamedPhotoProduct,
   namePhotoKey,
+  samePhotoBrand,
 } from "../lib/enrichment/photoIdentity";
 import { searchVariantPhotos } from "../lib/enrichment/variantPhotoSearch";
 import { collectProposalPhotos } from "../lib/enrichment/prepareProposalPhotos";
 import { automaticPhotoPlan } from "../lib/enrichment/automaticPhotos";
+import { proposalPhotoSearchMessages } from "../lib/enrichment/clientMessages";
 import {
   namedBrandCatalogUrls,
   catalogConfirmsProductBrand,
@@ -521,7 +523,7 @@ test("automatic named photo discovery works for standalone products and preserve
       },
     );
     assert.equal(searched, 1);
-    assert.equal(photos.photoAutomation.version, 3);
+    assert.equal(photos.photoAutomation.version, 4);
     assert.equal(automaticPhotoPlan(current, photos).imageUrl, photoUrl);
     assert.deepEqual(photos.variantImageCandidates, []);
   }
@@ -612,4 +614,248 @@ test("admin controls explain name-based discovery for an internal price code", (
     />,
   );
   assert.match(variantHtml, /Найти фото по названию/);
+});
+
+const cleanserUrl =
+  "https://7hmedical.com/products/jeu-derm-reform-age-intensive-mild-cleanser-150ml";
+const cleanserCatalogUrl = "https://7hmedical.com/collections/koreansk-hudvard";
+const cleanserPhoto =
+  "https://7hmedical.com/cdn/shop/files/reformage_mild_cleanser.png?v=1720160649";
+const cleanserProduct = {
+  ...product,
+  id: "cleanser",
+  name: "Reforme Age Mild Cleanser",
+  supplierSku: "JD-0L2MGHY",
+  volumeValue: 150,
+};
+
+test("Latin accent folding preserves distinct Cyrillic names and brands", () => {
+  assert.equal(samePhotoBrand("JeuDérm", "JeuDerm"), true);
+  assert.equal(samePhotoBrand("Май", "Маи"), false);
+  assert.equal(samePhotoBrand("Маи\u0306", "Май"), true);
+  const source = {
+    title: "Маи Care Cream 50 ml",
+    brand: "JeuDerm",
+    description: null,
+  };
+  assert.equal(
+    matchesNamedPhotoProduct({ ...product, name: "Май Care Cream" }, source),
+    false,
+  );
+  assert.equal(
+    matchesNamedPhotoProduct(
+      { ...product, name: "Маи\u0306 Care Cream" },
+      { ...source, title: "Май Care Cream 50 ml" },
+    ),
+    true,
+  );
+  assert.equal(
+    matchesNamedPhotoProduct(
+      { ...product, brand: { name: "Май" } },
+      { title: product.name + " 50 ml", brand: "Маи", description: null },
+    ),
+    false,
+  );
+  const collection = Buffer.from(
+    '<main><h1>Май</h1><div class="product-grid"><a href="/products/cream">Cream</a></div></main>',
+  );
+  assert.equal(
+    catalogConfirmsProductBrand(
+      collection,
+      "https://brand.example/collections/may",
+      "https://brand.example/products/cream",
+      "Маи",
+    ),
+    false,
+  );
+});
+
+test("a single extra letter in a long name requires matching brand, form, size and two stable words", () => {
+  const source = {
+    title: "JeuDérm Reform Age Mild Cleanser 150 ml",
+    brand: "JeuDérm",
+    description: null,
+  };
+  assert.equal(matchesNamedPhotoProduct(cleanserProduct, source), true);
+  assert.equal(
+    matchesNamedPhotoProduct(
+      { ...cleanserProduct, name: "Reform Age Mild Cleanser" },
+      { ...source, title: "JeuDerm Reforme Age Mild Cleanser 150 ml" },
+    ),
+    true,
+  );
+  for (const patch of [
+    { brand: "Another Brand" },
+    { title: "JeuDerm Reform Age Mild Cleanser 250 ml" },
+    { title: "JeuDerm Reform Age Mild Cleanser" },
+    { title: "JeuDerm Reform Age Mild Serum 150 ml" },
+    { title: "JeuDerm Reform Age Mildest Cleanser 150 ml" },
+    { title: "JeuDerm Reform Age Deep Cleanser 150 ml" },
+    { title: "JeuDerm Reforn Age Mild Cleanser 150 ml" },
+    { title: "JeuDerm Reform Age Mild Cleanser 50/150 ml" },
+    {
+      brand: null,
+      title: "Reform Age Mild Cleanser 150 ml",
+      description: "JeuDerm",
+    },
+  ])
+    assert.equal(
+      matchesNamedPhotoProduct(cleanserProduct, { ...source, ...patch }),
+      false,
+      JSON.stringify(patch),
+    );
+  assert.equal(
+    matchesNamedPhotoProduct({ ...cleanserProduct, volumeValue: null }, source),
+    false,
+  );
+  for (const [name, title] of [
+    ["Reform Age DNA Cream", "JeuDerm Reform Age DNAA Cream 150 ml"],
+    ["Reform Age B12 Cream", "JeuDerm Reform Age B13 Cream 150 ml"],
+    ["Reforme Age Cleanser", "JeuDerm Reform Age Cleanser 150 ml"],
+    ["Reforme Age Age Cleanser", "JeuDerm Reform Age Age Cleanser 150 ml"],
+  ])
+    assert.equal(
+      matchesNamedPhotoProduct(
+        { ...cleanserProduct, name },
+        { ...source, title },
+      ),
+      false,
+      name,
+    );
+});
+
+test("saved Mild Cleanser source resolves the price-list typo only after independent brand-catalog confirmation", async () => {
+  const productPage = readFileSync(
+    resolve("tests/fixtures/mild-cleanser-retailer.html"),
+  );
+  const catalogPage = readFileSync(
+    resolve("tests/fixtures/jeuderm-cleanser-collection.html"),
+  );
+  const requested: string[] = [];
+  const photos = await collectProposalPhotos(
+    {
+      product: cleanserProduct,
+      groups: [],
+      knownUrl: cleanserUrl,
+      officialDomains: [],
+      policies: [{ domain: "7hmedical.com", allowSubdomains: false }],
+      deadlineAt: Date.now() + 5000,
+    },
+    (input) =>
+      searchVariantPhotos(input, {
+        official: async () => {
+          throw new Error("saved source should resolve without AI");
+        },
+        external: async () => {
+          throw new Error("saved source should resolve without AI");
+        },
+        fetchHtml: async (url) => {
+          requested.push(url);
+          assert.ok([cleanserUrl, cleanserCatalogUrl].includes(url));
+          return fetched(url === cleanserUrl ? productPage : catalogPage, url);
+        },
+      }),
+  );
+  assert.deepEqual(requested, [cleanserUrl, cleanserCatalogUrl]);
+  assert.deepEqual(photos.photoAutomation.issues, []);
+  assert.equal(
+    automaticPhotoPlan(cleanserProduct, photos).imageUrl,
+    cleanserPhoto,
+  );
+  assert.equal(
+    automaticPhotoPlan({ ...cleanserProduct, volumeValue: 250 }, photos)
+      .imageUrl,
+    null,
+  );
+  assert.equal(
+    automaticPhotoPlan({ ...cleanserProduct, name: "Another Cleanser" }, photos)
+      .imageUrl,
+    null,
+  );
+  const unverified = await searchVariantPhotos(
+    {
+      product: cleanserProduct,
+      variant: { sku: cleanserProduct.supplierSku, label: "150 ml" },
+      knownUrl: cleanserUrl,
+      officialDomains: [],
+      policies: [],
+      priceCandidates: [],
+      catalogOnly: true,
+    },
+    {
+      official: async () => ({ found: false, url: null }),
+      external: async () => ({ found: false, url: null }),
+      fetchHtml: async (url) =>
+        fetched(
+          url === cleanserUrl
+            ? productPage
+            : Buffer.from(
+                catalogPage
+                  .toString()
+                  .replace("JEUDERM - Avancerad", "OTHERBRAND - Avancerad"),
+              ),
+          url,
+        ),
+    },
+  );
+  assert.equal(unverified.status, "NOT_FOUND");
+  assert.deepEqual(unverified.candidates, []);
+  assert.deepEqual(
+    unverified.issues.map((issue) => issue.code),
+    ["photo_brand_unconfirmed"],
+  );
+});
+
+test("rejected photo pages report safe reasons that survive proposal storage and reload", async () => {
+  const result = await searchVariantPhotos(
+    {
+      product,
+      variant,
+      knownUrl: pageUrl,
+      officialDomains: [],
+      policies: [],
+      priceCandidates: [],
+      catalogOnly: true,
+    },
+    {
+      official: async () => ({ found: false, url: null }),
+      external: async () => ({ found: false, url: null }),
+      fetchHtml: async () =>
+        fetched(
+          page(productNode({ name: "JeuDerm Demela Molecular Cream 150 ml" })),
+        ),
+    },
+  );
+  assert.equal(result.status, "NOT_FOUND");
+  assert.deepEqual(
+    result.issues.map((issue) => issue.code),
+    ["photo_volume_mismatch"],
+  );
+  assert.match(
+    proposalPhotoSearchMessages({
+      photoAutomation: { issues: ["photo_volume_mismatch"] },
+    })[0],
+    /Объём/,
+  );
+  const messages = proposalPhotoSearchMessages({
+    photoAutomation: {
+      issues: ["ai_limit", "ai_limit", "openai_http_401:private-body"],
+      incomplete: true,
+    },
+  });
+  assert.equal(messages.length, 3);
+  assert.match(messages[0], /лимит/);
+  assert.ok(!messages.join(" ").includes("private-body"));
+  assert.match(messages[2], /все варианты/);
+  assert.deepEqual(proposalPhotoSearchMessages(null), []);
+  assert.deepEqual(
+    proposalPhotoSearchMessages({ photoAutomation: { issues: "invalid" } }),
+    [],
+  );
+  assert.equal(
+    typeof proposalPhotoSearchMessages({
+      photoAutomation: { issues: ["__proto__", "constructor"] },
+    })[0],
+    "string",
+  );
 });

@@ -1,5 +1,5 @@
 import * as cheerio from "cheerio";
-import { photoNameParts } from "./photoIdentity";
+import { photoComparisonText, photoNameParts } from "./photoIdentity";
 
 // These official stores use OpenCart. Query their catalog directly before
 // asking the AI to discover a page; never construct a guessed image URL.
@@ -54,7 +54,7 @@ export function catalogProductUrls(buffer: Buffer, finalUrl: string) {
 }
 
 function compactBrand(value: string) {
-  return value.toLocaleLowerCase("ru-RU").replace(/[^\p{L}\p{N}]+/gu, "");
+  return photoComparisonText(value).replace(/[^\p{L}\p{N}]+/gu, "");
 }
 
 // A retailer may put its own name in Product.brand. Confirm membership in its

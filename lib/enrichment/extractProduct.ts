@@ -1,10 +1,7 @@
 import * as cheerio from "cheerio";
 import { photoSku } from "./variantImages";
 import { isProductPhoto } from "./photoQuality";
-import {
-  matchesNamedPhotoProduct,
-  type NamePhotoProduct,
-} from "./photoIdentity";
+import { namedPhotoProductIssue, type NamePhotoProduct } from "./photoIdentity";
 
 export type SourceSelectors = {
   title?: string;
@@ -431,6 +428,7 @@ export function extractImagesForNamedProduct(input: {
   finalUrl: string;
   product: NamePhotoProduct;
   confirmedBrand?: string;
+  issues?: Set<string>;
 }) {
   const $ = cheerio.loadBuffer(input.buffer, {
     encoding: { defaultEncoding: "utf-8" },
@@ -446,8 +444,10 @@ export function extractImagesForNamedProduct(input: {
       node.hasVariant ||
       offers.length > 1 ||
       offers.some((offer) => Number(toObject(offer)?.offerCount) > 1)
-    )
+    ) {
+      input.issues?.add("photo_volume_ambiguous");
       continue;
+    }
     const source = {
       title: cleanText(node.name),
       brand:
@@ -459,21 +459,31 @@ export function extractImagesForNamedProduct(input: {
       retailer: metaContent($, "meta[property='og:site_name']"),
       confirmedBrand: products.length === 1 ? input.confirmedBrand : undefined,
     };
-    if (!matchesNamedPhotoProduct(input.product, source)) continue;
+    const issue = namedPhotoProductIssue(input.product, source);
+    if (issue) {
+      input.issues?.add(issue);
+      continue;
+    }
     collectImageValues(node.image, input.finalUrl, images);
     // Only the single matching product may supply its unscoped main gallery.
     if (products.length === 1) images.push(...extracted.images);
   }
-  if (
-    !products.length &&
-    matchesNamedPhotoProduct(input.product, {
+  if (!products.length) {
+    const issue = namedPhotoProductIssue(input.product, {
       ...extracted,
       retailer: metaContent($, "meta[property='og:site_name']"),
       confirmedBrand: input.confirmedBrand,
-    })
-  )
-    images.push(...extracted.images);
-  return [...new Set(images.filter(isLikelyProductImage))].slice(0, 12);
+    });
+    if (issue) input.issues?.add(issue);
+    else images.push(...extracted.images);
+  }
+  const accepted = [...new Set(images.filter(isLikelyProductImage))].slice(
+    0,
+    12,
+  );
+  if (!accepted.length && !input.issues?.size)
+    input.issues?.add("photo_images_missing");
+  return accepted;
 }
 
 export function extractProductFromHtml(input: {
