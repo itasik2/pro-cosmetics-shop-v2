@@ -4,16 +4,19 @@ export const maxDuration = 180;
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/adminGuard";
 import { prepareProposalPhotos } from "@/lib/enrichment/prepareProposalPhotos";
+import { z } from "zod";
 
 export async function POST(
-  _req: Request,
+  req: Request,
   props: { params: Promise<{ id: string }> },
 ) {
   const forbidden = await requireAdmin();
   if (forbidden) return forbidden;
   const { id } = await props.params;
+  const body = z.object({ resume: z.boolean().optional() }).safeParse(await req.json().catch(() => ({})));
+  if (!body.success) return NextResponse.json({ error: "validation" }, { status: 400 });
   try {
-    return NextResponse.json(await prepareProposalPhotos(id));
+    return NextResponse.json(await prepareProposalPhotos(id, { resume: body.data.resume }));
   } catch (error) {
     const code = error instanceof Error ? error.message : "photo_search_failed";
     return NextResponse.json(

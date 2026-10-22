@@ -166,10 +166,13 @@ export function mergeAutomaticSelections(
   automatic: VariantImageSelection[],
   current: VariantImageSelection[],
   variants: Variant[],
+  unchanged: Pick<VariantImageSelection, "variantId" | "sku">[] = [],
 ) {
   return [
     ...new Map(
-      [...automatic, ...current]
+      [...automatic.filter((selection) => !unchanged.some((item) =>
+        item.variantId === selection.variantId && photoSku(item.sku) === photoSku(selection.sku),
+      )), ...current]
         .filter((selection) =>
           variants.some(
             (variant) =>

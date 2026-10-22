@@ -14,6 +14,18 @@ export function productDisplayName(product: ProductNameIdentity) {
     ? product.variants.map((row) => row && typeof row === "object" ? row.sku : null)
     : [])].filter((sku): sku is string => typeof sku === "string" && Boolean(sku.trim()));
   let title = clean(product.name);
+  const variants = Array.isArray(product.variants) ? product.variants.filter((row) =>
+    row && typeof row === "object" && typeof row.id === "string" && typeof row.label === "string",
+  ) : [];
+  if (variants.length > 1) {
+    // Size belongs to the SKU selector, including when a brand follows it.
+    // Keep concentrations, SPF, ingredient doses (mg) and model identifiers.
+    title = title.replace(
+      /(^|[^\p{L}\p{N}/+.-])(?:(?:в\s+)?(?:саше|банка|банке|баночка|дой[-\s]?пак|флакон|туба|упаковка)\s+)?\d+(?:[.,]\d+)?(?:\s*[xх×]\s*\d+(?:[.,]\d+)?)?\s*(?:миллилитр(?:а|ов)?|мл|ml|литр(?:а|ов)?|л|l|килограмм(?:а|ов)?|кг|kg|грамм(?:а|ов)?|гр\.?|г|g|шт\.?|pcs|упак\.?|pack)(?=$|[^\p{L}\p{N}])(?!\s*(?:\/|на\s+)\s*\d)/giu,
+      (match, prefix: string, offset: number, full: string) =>
+        /(?:\/|(?:^|[^\p{L}\p{N}])на)\s*$/iu.test(full.slice(0, offset)) ? match : prefix,
+    );
+  }
   for (const sku of [...new Set(skus)].sort((a, b) => b.length - a.length)) {
     const pattern = [...sku.replace(/\s+/g, "")]
       .map((char) => char.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))

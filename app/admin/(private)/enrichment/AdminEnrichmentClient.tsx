@@ -5,6 +5,8 @@ import {
   VariantPhotosReview,
 } from "@/components/VariantPhotoPicker";
 import { productDisplayName } from "@/lib/productNames";
+import AutomaticProposalPhotos from "@/components/AutomaticProposalPhotos";
+import { prepareProposalPhotoBatches, type PreparedProposalPhotos } from "@/lib/enrichment/preparePhotosClient";
 import { ProposalTextEditor } from "@/components/ProposalTextEditor";
 import {
   applyProposalChange,
@@ -226,6 +228,7 @@ function autopilotReasonText(value: string) {
       "текст отредактирован вручную и ожидает одобрения",
     manual_variant_review_required:
       "вариант удалён вручную; проверьте карточку перед применением",
+    photo_search_pending: "автоматический подбор фото вариантов ещё продолжается",
     promotional_text_found: "обнаружены рекламные SEO-фразы",
     low_match_retry_required: "нужен повторный поиск источника",
     low_match_manual_review_required:
@@ -417,6 +420,9 @@ export default function AdminEnrichmentClient() {
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const proposalRequest = useRef(0);
   const autopilotStop = useRef(false);
+  const commonPhotoOverrides = useRef(new Set<string>());
+  const unchangedPhotos = useRef<Record<string, Pick<VariantImageSelection, "variantId" | "sku">[]>>({});
+  const [automaticPhotosBusy, setAutomaticPhotosBusy] = useState<Record<string, boolean>>({});
   const [stopRequested, setStopRequested] = useState(false);
   const [editingText, setEditingText] = useState<Record<string, boolean>>({});
   const [actionMessages, setActionMessages] = useState<Record<string, string>>(
@@ -499,7 +505,7 @@ export default function AdminEnrichmentClient() {
       Object.fromEntries(
         rows.map((proposal) => [
           proposal.id,
-          current[proposal.id] ??
+          commonPhotoOverrides.current.has(proposal.id) ? (current[proposal.id] || "") :
             automaticPhotoPlan(
               {
                 ...proposal.product,
@@ -521,9 +527,7 @@ export default function AdminEnrichmentClient() {
           ).variantImages;
           return [
             proposal.id,
-            current[proposal.id] === undefined
-              ? automatic
-              : mergeAutomaticSelections([], current[proposal.id], variants),
+            mergeAutomaticSelections(automatic, current[proposal.id] || [], variants, unchangedPhotos.current[proposal.id]),
           ];
         }),
       ),
@@ -798,15 +802,34 @@ export default function AdminEnrichmentClient() {
     }
   }
 
+  function chooseCommonPhoto(proposalId: string, image: string) {
+    commonPhotoOverrides.current.add(proposalId);
+    setSelectedImages((current) => ({ ...current, [proposalId]: image }));
+  }
+
+  function receivePreparedPhotos(proposal: Proposal, photos: PreparedProposalPhotos, preferBestCommon = false) {
+    const variants = proposalVariants(proposal.product.variants);
+    const plan = automaticPhotoPlan({ ...proposal.product, variants }, photos, { preferBestCommon });
+    setProposals((current) => current.map((row) => row.id === proposal.id ? {
+      ...row, facts: { ...((row.facts || {}) as Record<string, unknown>), ...photos },
+    } : row));
+    if (preferBestCommon) commonPhotoOverrides.current.add(proposal.id);
+    setSelectedImages((current) => !preferBestCommon && commonPhotoOverrides.current.has(proposal.id) ? current : ({
+      ...current, [proposal.id]: plan.imageUrl || "",
+    }));
+    setVariantImages((current) => ({ ...current, [proposal.id]: mergeAutomaticSelections(
+      plan.variantImages, current[proposal.id] || [], variants, unchangedPhotos.current[proposal.id],
+    ) }));
+  }
+
   async function preparePhotos(proposal: Proposal) {
     setBusyKey(`photos:${proposal.id}`);
     setActionMessages((current) => ({ ...current, [proposal.id]: "" }));
     try {
-      const response = await fetch(
-        `/api/admin/enrichment/proposals/${proposal.id}/photos`,
-        { method: "POST" },
-      );
-      const photos = await readResponse(response);
+      commonPhotoOverrides.current.delete(proposal.id);
+      const photos = await prepareProposalPhotoBatches(proposal.id, {
+        resume: false, onBatch: (result) => receivePreparedPhotos(proposal, result, true),
+      });
       const plan = automaticPhotoPlan(
         {
           ...proposal.product,
@@ -815,14 +838,6 @@ export default function AdminEnrichmentClient() {
         photos,
         { preferBestCommon: true },
       );
-      setSelectedImages((current) => ({
-        ...current,
-        [proposal.id]: plan.imageUrl || "",
-      }));
-      setVariantImages((current) => ({
-        ...current,
-        [proposal.id]: plan.variantImages,
-      }));
       publishProposalChange({ id: proposal.id, status: "PENDING" });
       setMessage(
         plan.imageUrl || plan.variantImages.length
@@ -853,6 +868,7 @@ export default function AdminEnrichmentClient() {
         },
       );
       await readResponse(response);
+      commonPhotoOverrides.current.delete(proposal.id);
       setSelectedImages((current) => {
         const next = { ...current };
         delete next[proposal.id];
@@ -1299,7 +1315,7 @@ export default function AdminEnrichmentClient() {
                 ? stringArray(proposal.images).filter(isProductPhoto)
                 : [];
             const selectedImage = selectedImages[proposal.id] || "";
-            const isBusy = Boolean(busyKey);
+            const isBusy = Boolean(busyKey) || automaticPhotosBusy[proposal.id];
             const variants = proposalVariants(proposal.product.variants);
             const evaluation = autopilotEvaluation(proposal.facts);
 
@@ -1348,6 +1364,16 @@ export default function AdminEnrichmentClient() {
                   </div>
                 </div>
 
+                {proposal.product.supplier && (
+                  <AutomaticProposalPhotos
+                    proposalId={proposal.id}
+                    product={{ ...proposal.product, variants }}
+                    facts={proposal.facts}
+                    disabled={Boolean(busyKey) || editingText[proposal.id]}
+                    onPrepared={(photos) => receivePreparedPhotos(proposal, photos)}
+                    onBusyChange={(busy) => setAutomaticPhotosBusy((current) => ({ ...current, [proposal.id]: busy }))}
+                  />
+                )}
                 {evaluation && (
                   <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
                     <div className="font-medium">
@@ -1406,12 +1432,7 @@ export default function AdminEnrichmentClient() {
                                 proposalId={proposal.id}
                                 disabled={isBusy}
                                 selected={selectedImage === image}
-                                onSelect={() =>
-                                  setSelectedImages((current) => ({
-                                    ...current,
-                                    [proposal.id]: image,
-                                  }))
-                                }
+                                onSelect={() => chooseCommonPhoto(proposal.id, image)}
                               />
                             ))}
                           </div>
@@ -1419,12 +1440,7 @@ export default function AdminEnrichmentClient() {
                             type="button"
                             disabled={isBusy}
                             className="mt-2 rounded-lg border px-3 py-1 text-xs"
-                            onClick={() =>
-                              setSelectedImages((current) => ({
-                                ...current,
-                                [proposal.id]: "",
-                              }))
-                            }
+                            onClick={() => chooseCommonPhoto(proposal.id, "")}
                           >
                             Оставить текущее фото
                           </button>
@@ -1436,9 +1452,7 @@ export default function AdminEnrichmentClient() {
                       proposalId={proposal.id}
                       facts={proposal.facts}
                       commonImage={selectedImage}
-                      onCommonImageChange={(imageUrl) => setSelectedImages((current) => ({
-                        ...current, [proposal.id]: imageUrl,
-                      }))}
+                      onCommonImageChange={(imageUrl) => chooseCommonPhoto(proposal.id, imageUrl)}
                       stocks={variantStockValues[proposal.id]}
                       value={variantImages[proposal.id] || []}
                       disabled={isBusy || editingText[proposal.id]}
@@ -1454,14 +1468,15 @@ export default function AdminEnrichmentClient() {
                       onRemove={(variant) =>
                         void removeVariant(proposal, variant)
                       }
-                      onChange={(value) => {
+                      onChange={(value, unchanged) => {
+                        if (unchanged) unchangedPhotos.current[proposal.id] = [...(unchangedPhotos.current[proposal.id] || []), unchanged];
                         setVariantImages((current) => ({
                           ...current,
                           [proposal.id]: value,
                         }));
                         if (!selectedImage && !isUsablePhoto(proposal.product.image)) {
                           const available = value.find((item) => item.imageUrl && isUsablePhoto(item.imageUrl))?.imageUrl;
-                          if (available) setSelectedImages((current) => ({ ...current, [proposal.id]: available }));
+                          if (available && !commonPhotoOverrides.current.has(proposal.id)) chooseCommonPhoto(proposal.id, available);
                         }
                       }}
                     />
