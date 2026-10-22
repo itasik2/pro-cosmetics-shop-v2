@@ -28,7 +28,7 @@ import {
   findExternalProductUrl,
   findOfficialProductUrl,
   generateProductDescription,
-  hasUsefulProductDetails,
+  needsRicherProductSource,
 } from "./openaiResponses";
 import {
   ensureDiscoveredSupplierSource,
@@ -283,9 +283,9 @@ export async function runProductEnrichment(input: RunInput) {
         const match = scoreProductMatch(product, extracted);
         if (match.confidence === 0)
           throw new Error("product_match_zero_confidence");
-        if (!hasUsefulProductDetails(extracted) ||
-          (stage === "saved" && !input.sourceUrl && input.discoverIfMissing !== false && officialDomains.length > 0 &&
-            finalSource.sourceType.toUpperCase() !== "OFFICIAL_SITE" && !extracted.application))
+        if (needsRicherProductSource(extracted,
+          stage === "saved" && !input.sourceUrl && input.discoverIfMissing !== false && officialDomains.length > 0 &&
+            finalSource.sourceType.toUpperCase() !== "OFFICIAL_SITE"))
           throw new Error("source_product_details_missing");
         return { fetched, finalSource, extracted, match };
       },

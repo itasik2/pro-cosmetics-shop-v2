@@ -149,6 +149,10 @@ export function hasUsefulProductDetails(extracted: ExtractedProductData) {
   });
 }
 
+export function needsRicherProductSource(extracted: ExtractedProductData, preferApplication = false) {
+  return !hasUsefulProductDetails(extracted) || (preferApplication && !customerProductCopy(extracted.application));
+}
+
 function getOutputText(data: unknown) {
   if (!data || typeof data !== "object") return "";
   const root = data as Record<string, unknown>;
@@ -790,19 +794,21 @@ export function fallbackDescription(
   const sourceDescription = normalizeDescriptionText(extracted.description);
   const description = customerProductCopy(removeEditorialBoilerplate(removePromotionalDescriptionSentences(sourceDescription)));
   const shortDescription = sanitizeShortDescription(description);
+  const application = customerProductCopy(extracted.application);
+  const ingredients = customerProductCopy(extracted.ingredients);
   return {
     shortDescription,
     description,
-    application: customerProductCopy(extracted.application),
-    ingredients: customerProductCopy(extracted.ingredients),
+    application,
+    ingredients,
     warnings: [
       "openai_not_configured",
       ...(!description ? ["description_missing"] : []),
       ...(sourceDescription && sourceDescription !== description
         ? ["promotional_description_removed"]
         : []),
-      ...(!extracted.application ? ["application_missing"] : []),
-      ...(!extracted.ingredients ? ["ingredients_missing"] : []),
+      ...(!application ? ["application_missing"] : []),
+      ...(!ingredients ? ["ingredients_missing"] : []),
     ],
   };
 }

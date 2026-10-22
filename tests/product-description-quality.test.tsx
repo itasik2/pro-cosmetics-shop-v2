@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import ProductDescription from "../components/ProductDescription";
 import { customerProductCopy, hasMissingProductData } from "../lib/productCopy";
 import { extractProductFromHtml } from "../lib/enrichment/extractProduct";
-import { generateProductDescription, hasUsefulProductDetails } from "../lib/enrichment/openaiResponses";
+import { fallbackDescription, generateProductDescription, hasUsefulProductDetails, needsRicherProductSource } from "../lib/enrichment/openaiResponses";
 import { proposalText } from "../lib/enrichment/proposalText";
 import { resolveProductSource } from "../lib/enrichment/resolveProductSource";
 import { tildaProductEdition, tildaVariantPhoto } from "../lib/enrichment/tildaCatalog";
@@ -98,6 +98,20 @@ test("AI output keeps confirmed product benefits and restores a source protocol 
     if (previous === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = previous;
   }
+});
+
+test("placeholder fields require official discovery and produce missing-field warnings after fallback cleanup", () => {
+  const extracted = { ...extractProductFromHtml({ buffer: tilda(accordion("Описание", benefit)), finalUrl: pageUrl }),
+    application: "Способ применения не указан.", ingredients: "Состав не подтверждён." };
+  assert.equal(hasUsefulProductDetails(extracted), true);
+  assert.equal(needsRicherProductSource(extracted, true), true);
+  assert.equal(needsRicherProductSource(extracted, false), false);
+  assert.equal(needsRicherProductSource({ ...extracted, application }, true), false);
+  const fallback = fallbackDescription(extracted);
+  assert.equal(fallback.application, "");
+  assert.equal(fallback.ingredients, "");
+  assert.ok(fallback.warnings.includes("application_missing"));
+  assert.ok(fallback.warnings.includes("ingredients_missing"));
 });
 
 test("a verified catalog edition can ground product text even when its own photo is absent", async () => {
