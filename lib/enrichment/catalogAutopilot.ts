@@ -185,6 +185,10 @@ export async function processCatalogAutopilotProposal(
       const photos = await prepareProposalPhotos(proposal.id, {
         automatic: true,
       });
+      if (photos.photoAutomation.incomplete) return {
+        proposalId: proposal.id, productId: proposal.productId,
+        status: "REVIEW", usedNetwork: true, reasons: ["photo_search_pending"],
+      };
       const current = await prisma.product.findUniqueOrThrow({
         where: { id: proposal.productId },
         select: {

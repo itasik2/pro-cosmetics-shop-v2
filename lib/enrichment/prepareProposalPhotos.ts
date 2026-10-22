@@ -9,7 +9,6 @@ import {
   type VariantImageGroup,
 } from "./variantImages";
 import { searchVariantPhotos } from "./variantPhotoSearch";
-import { isProductPhoto, isUsablePhoto } from "./photoQuality";
 import { hasManualProposalText } from "./proposalText";
 import { hasManualVariantChanges } from "./removedVariants";
 import { priceListImagesBySku, priceVariantGroups } from "./priceListImages";
@@ -21,6 +20,10 @@ import {
 import type { AllowedSourcePolicy } from "./network";
 import { photoCandidateIsCurrent } from "./photoIdentity";
 import { rateProposalPhotoGroups } from "./ratePhotoCandidates";
+import {
+  PHOTO_AUTOMATION_VERSION, VARIANT_PHOTO_BUDGET_MS, pendingPhotoTargets,
+  photoSearchAttempts, photoTargetKey,
+} from "./photoAutomation";
 
 type PhotoProduct = MatchableProduct & {
   id: string;
@@ -37,12 +40,13 @@ export async function collectProposalPhotos(
     officialDomains: string[];
     policies: AllowedSourcePolicy[];
     deadlineAt: number;
+    previousAutomation?: unknown;
+    maxTargets?: number;
   },
   search = searchVariantPhotos,
 ) {
   const variants = normalizeStoredVariants(input.product.variants);
   const primaryId = "product:" + input.product.id;
-  const primarySku = input.product.supplierSku || variants[0]?.sku;
   const primaryLabel =
     input.product.volumeValue && input.product.volumeUnit
       ? `${input.product.volumeValue} ${input.product.volumeUnit}`
@@ -62,34 +66,23 @@ export async function collectProposalPhotos(
       ),
     ),
   }));
-  const targets = [
-    ...variants.filter((variant) => !isUsablePhoto(variant.image)),
-    ...(!isUsablePhoto(input.product.image) &&
-    (!variants.length || primarySku) &&
-    !variants.some((variant) => photoSku(variant.sku) === photoSku(primarySku))
-      ? [{ id: primaryId, sku: primarySku || "", label: primaryLabel }]
-      : []),
-  ].filter(
-    (target) =>
-      (target.sku || (target.id === primaryId && input.product.brand?.name)) &&
-      !existing.some(
-        (group) =>
-          group.variantId === target.id &&
-          photoSku(group.sku) === photoSku(target.sku) &&
-          group.candidates.some(
-            (candidate) =>
-              candidate.source === "WEB" &&
-              isProductPhoto(candidate.url) &&
-              photoCandidateIsCurrent(candidate, input.product, target),
-          ),
-      ),
-  );
+  const currentProduct = { ...input.product, variants };
+  const attempts = new Map(photoSearchAttempts(input.previousAutomation).map((item) => [item.key, item]));
+  const targets = pendingPhotoTargets(currentProduct, {
+    variantImageCandidates: existing, photoAutomation: input.previousAutomation,
+  }).slice(0, input.maxTargets ?? Infinity);
   let cursor = 0;
   const found: VariantImageGroup[] = [];
   const issues: string[] = [];
   async function worker() {
     while (cursor < targets.length && Date.now() < input.deadlineAt - 1_000) {
       const target = targets[cursor++];
+      const fullBudget = input.deadlineAt - Date.now() >= VARIANT_PHOTO_BUDGET_MS - 5_000;
+      const key = photoTargetKey(currentProduct, target);
+      const recordAttempt = (incomplete: boolean) => attempts.set(key, { key,
+        // A short discovery budget must never cache an unfinished SKU for a day.
+        retryAt: new Date(Date.now() + (fullBudget ? (incomplete ? 15 * 60_000 : 24 * 60 * 60_000) : 0)).toISOString(),
+      });
       const previous = existing.find(
         (group) =>
           group.variantId === target.id &&
@@ -98,7 +91,7 @@ export async function collectProposalPhotos(
       try {
         const result = await search({
           product: input.product,
-          variant: target,
+          variant: { ...target, label: target.label || "" },
           knownUrl: input.product.sourceUrl,
           knownUrls: [input.knownUrl],
           officialDomains: input.officialDomains,
@@ -112,6 +105,7 @@ export async function collectProposalPhotos(
         });
         if (photoSku(result.sku) !== photoSku(target.sku)) {
           issues.push("variant_sku_changed");
+          recordAttempt(true);
           continue;
         }
         found.push({
@@ -120,8 +114,10 @@ export async function collectProposalPhotos(
           candidates: result.candidates,
         });
         issues.push(...result.issues.map((issue) => issue.code));
+        recordAttempt(result.status === "INCOMPLETE" || result.issues.length > 0);
       } catch {
         issues.push("photo_search_incomplete");
+        recordAttempt(true);
       }
     }
   }
@@ -129,6 +125,7 @@ export async function collectProposalPhotos(
     Array.from({ length: Math.min(2, targets.length) }, worker),
   );
   const all = mergeImageGroups(found, existing);
+  const automation = { version: PHOTO_AUTOMATION_VERSION, attempts: [...attempts.values()].slice(-500) };
   return {
     variantImageCandidates: all.filter((group) =>
       variants.some(
@@ -141,17 +138,19 @@ export async function collectProposalPhotos(
       (group) => group.variantId === primaryId,
     ),
     photoAutomation: {
-      version: 7,
+      ...automation,
       checkedAt: new Date().toISOString(),
       issues: [...new Set(issues)],
-      incomplete: cursor < targets.length,
+      incomplete: pendingPhotoTargets(currentProduct, {
+        variantImageCandidates: all, photoAutomation: automation,
+      }).length > 0,
     },
   };
 }
 
 export async function prepareProposalPhotos(
   proposalId: string,
-  options: { automatic?: boolean } = {},
+  options: { automatic?: boolean; resume?: boolean } = {},
 ) {
   const proposal = await prisma.productEnrichmentProposal.findUnique({
     where: { id: proposalId },
@@ -193,35 +192,33 @@ export async function prepareProposalPhotos(
     !Array.isArray(proposal.facts)
       ? (proposal.facts as Record<string, unknown>)
       : {};
-  const previous = facts.photoAutomation as
-    | { checkedAt?: string; version?: number; qualityIncomplete?: boolean }
-    | undefined;
+  const groups = mergeImageGroups(imageGroups(facts.variantImageCandidates), priceGroups);
   if (
-    options.automatic &&
-    previous?.version === 7 &&
-    !previous.qualityIncomplete &&
-    previous?.checkedAt &&
-    Date.now() - new Date(previous.checkedAt).getTime() < 24 * 60 * 60 * 1000
+    (options.automatic || options.resume) &&
+    !(facts.photoAutomation as { qualityIncomplete?: boolean } | null)?.qualityIncomplete &&
+    !pendingPhotoTargets({ ...product, variants }, {
+      ...facts, variantImageCandidates: groups,
+    }).length
   ) {
     return {
-      variantImageCandidates: imageGroups(facts.variantImageCandidates),
+      variantImageCandidates: groups,
       productImageCandidates: imageGroups(facts.productImageCandidates),
       images: Array.isArray(proposal.images) ? proposal.images : [],
+      photoAutomation: { ...((facts.photoAutomation || {}) as Record<string, unknown>), incomplete: false },
     };
   }
   const collected = await collectProposalPhotos({
     product,
-    groups: mergeImageGroups(
-      imageGroups(facts.variantImageCandidates),
-      priceGroups,
-    ),
+    groups,
     productGroups: imageGroups(facts.productImageCandidates),
     knownUrl: proposal.sourceUrl,
     officialDomains: sources
       .filter((source) => source.sourceType === "OFFICIAL_SITE")
       .map((source) => source.domain),
     policies: toAllowedPolicies(sources),
-    deadlineAt: Date.now() + 90_000,
+    deadlineAt: Date.now() + VARIANT_PHOTO_BUDGET_MS,
+    maxTargets: 2,
+    previousAutomation: options.automatic || options.resume ? facts.photoAutomation : undefined,
   });
   const photos = await rateProposalPhotoGroups(collected, {
     policies: toAllowedPolicies(sources),

@@ -307,7 +307,7 @@ export function VariantPhotosReview({
   proposalId: string;
   facts: unknown;
   value: VariantImageSelection[];
-  onChange: (value: VariantImageSelection[]) => void;
+  onChange: (value: VariantImageSelection[], unchanged?: Pick<VariantImageSelection, "variantId" | "sku">) => void;
   disabled?: boolean;
   commonImage?: string;
   stocks?: Record<string, string>;
@@ -355,7 +355,7 @@ export function VariantPhotosReview({
             onChange([
               ...value.filter((item) => item.variantId !== variant.id),
               ...(selection ? [selection] : []),
-            ])
+            ], selection ? undefined : { variantId: variant.id, sku: variant.sku || "" })
           }
         >
           {(onStockChange || onRemove) && (

@@ -26,6 +26,8 @@ import { evaluateCatalogAutopilotProposal } from "../lib/enrichment/catalogAutop
 import type { VariantImageGroup } from "../lib/enrichment/variantImages";
 import { namePhotoKey } from "../lib/enrichment/photoIdentity";
 import { STALE_ENRICHMENT_MS } from "../lib/enrichment/recoverStaleJobs";
+import { pendingPhotoTargets, PHOTO_AUTOMATION_VERSION, VARIANT_PHOTO_BUDGET_MS } from "../lib/enrichment/photoAutomation";
+import { prepareProposalPhotoBatches } from "../lib/enrichment/preparePhotosClient";
 
 const variants = [
   { id: "small", label: "7", sku: "MV16", price: 1500, stock: 3 },
@@ -165,6 +167,85 @@ test("automatic choices preserve an explicit common fallback and discard removed
     mergeAutomaticSelections(automatic, [], [{ ...variants[1], sku: "NEW" }]),
     [],
   );
+});
+
+test("newly found SKU photos fill an already opened review without changing explicit choices", () => {
+  const automatic = automaticPhotoPlan(product, { variantImageCandidates: groups }).variantImages;
+  const opened: typeof automatic = [];
+  assert.equal(mergeAutomaticSelections(automatic, opened, variants).length, 2);
+  const kept = [{ variantId: "small", sku: "MV16" }];
+  const current = [{ variantId: "large", sku: "AG16", imageUrl: null }];
+  assert.deepEqual(mergeAutomaticSelections(automatic, current, variants, kept), current);
+  // The unchanged choice is for the old SKU only.
+  const replaced = [{ ...variants[0], sku: "NEW" }];
+  const next = [{ variantId: "small", sku: "NEW", imageUrl: "https://cdn.example/new.jpg" }];
+  assert.deepEqual(mergeAutomaticSelections(next, current, replaced, kept), next);
+});
+
+test("automatic lookup resumes beyond a two-SKU batch and does not cache a short discovery timeout as complete", async () => {
+  const current = { ...product, variants: [...variants, { ...variants[0], id: "third", sku: "SKU-3" }] };
+  const input = { product: current, groups: [], knownUrl: "", officialDomains: [], policies: [],
+    deadlineAt: Date.now() + VARIANT_PHOTO_BUDGET_MS, maxTargets: 2 };
+  const lookedUp: string[] = [];
+  const lookup: Parameters<typeof collectProposalPhotos>[1] = async ({ variant }) => {
+    lookedUp.push(variant.sku!);
+    return { sku: variant.sku!, candidates: [{ url: `https://brand.example/${variant.sku}.jpg`, source: "WEB" }],
+      issues: [], status: "FOUND" };
+  };
+  const first = await collectProposalPhotos(input, lookup);
+  assert.equal(first.photoAutomation.incomplete, true);
+  assert.equal(first.variantImageCandidates.length, 2);
+  const second = await collectProposalPhotos({ ...input, groups: first.variantImageCandidates,
+    previousAutomation: first.photoAutomation }, lookup);
+  assert.equal(second.photoAutomation.incomplete, false);
+  assert.deepEqual(lookedUp.sort(), ["AG16", "MV16", "SKU-3"]);
+  assert.equal(automaticPhotoPlan(current, second).variantImages.length, 3);
+  assert.deepEqual(pendingPhotoTargets(current, second), []);
+
+  const timedOut = await collectProposalPhotos({ ...input, deadlineAt: Date.now() + 5000 }, async ({ variant }) => ({
+    sku: variant.sku!, candidates: [], status: "INCOMPLETE", issues: [{ code: "search_timeout", message: "timeout" }],
+  }));
+  assert.equal(timedOut.photoAutomation.incomplete, true);
+  assert.equal(pendingPhotoTargets(current, timedOut).length, 3);
+  const absent = await collectProposalPhotos({ ...input, product, maxTargets: 2 }, async ({ variant }) => ({
+    sku: variant.sku!, candidates: [], status: "NOT_FOUND", issues: [],
+  }));
+  assert.equal(absent.photoAutomation.incomplete, false);
+  assert.equal(pendingPhotoTargets(product, absent).length, 0);
+  assert.equal(pendingPhotoTargets(product, absent, Date.now() + 25 * 60 * 60_000).length, 2);
+  assert.equal(pendingPhotoTargets({ ...product, variants: [...variants, current.variants[2]] }, absent).length, 1);
+  assert.deepEqual(pendingPhotoTargets({ ...product, variants: [{ ...variants[0], sku: "CHANGED" }, variants[1]] }, absent)
+    .map((row) => row.id), ["small", "product:p"]);
+  assert.equal(pendingPhotoTargets(product, { photoAutomation: { version: PHOTO_AUTOMATION_VERSION - 1,
+    checkedAt: new Date().toISOString(), incomplete: false } }).length, 2);
+});
+
+test("the browser continues persisted photo batches automatically and keeps partial progress on failure", async () => {
+  const batches: unknown[] = [];
+  const requests: unknown[] = [];
+  let count = 0;
+  const request: typeof fetch = async (_url, init) => {
+    requests.push(JSON.parse(String(init?.body)));
+    count++;
+    return Response.json({ photoAutomation: { incomplete: count < 3, attempts: Array.from({ length: count }, (_, i) => ({ key: String(i) })) } });
+  };
+  await prepareProposalPhotoBatches("proposal", { resume: false, onBatch: (photos) => batches.push(photos) }, request);
+  assert.equal(batches.length, 3);
+  assert.deepEqual(requests, [{ resume: false }, { resume: true }, { resume: true }]);
+  count = 0;
+  const partial: unknown[] = [];
+  await assert.rejects(prepareProposalPhotoBatches("proposal", { onBatch: (photos) => partial.push(photos) }, async (_url, init) => {
+    assert.equal(JSON.parse(String(init?.body)).resume, true);
+    if (++count === 2) return Response.json({ message: "Карточка изменилась" }, { status: 409 });
+    return Response.json({ photoAutomation: { incomplete: true, attempts: [{ key: "done" }] } });
+  }), /Карточка изменилась/);
+  assert.equal(partial.length, 1);
+  const controller = new AbortController();
+  let accepted = false;
+  await assert.rejects(prepareProposalPhotoBatches("proposal", {
+    signal: controller.signal, onBatch: () => { accepted = true; },
+  }, async () => { controller.abort(); return Response.json({}); }), /Aborted/);
+  assert.equal(accepted, false);
 });
 
 test("automatic collection searches missing variants with bounded concurrency and keeps price candidates", async () => {

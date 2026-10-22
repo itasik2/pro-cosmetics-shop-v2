@@ -1,13 +1,15 @@
 "use client";
 
 import { productDisplayName } from "@/lib/productNames";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import AutomaticProposalPhotos from "@/components/AutomaticProposalPhotos";
+import { prepareProposalPhotoBatches, type PreparedProposalPhotos } from "@/lib/enrichment/preparePhotosClient";
 import {
   VariantPhotoPreview,
   VariantPhotosReview,
 } from "@/components/VariantPhotoPicker";
 import { adminVariants } from "@/lib/adminProductVariants";
-import { automaticPhotoPlan } from "@/lib/enrichment/automaticPhotos";
+import { automaticPhotoPlan, mergeAutomaticSelections } from "@/lib/enrichment/automaticPhotos";
 import { hasManufacturerSku } from "@/lib/enrichment/photoIdentity";
 import { proposalPhotoSearchMessages } from "@/lib/enrichment/clientMessages";
 import { publishProposalChange } from "@/lib/enrichment/proposalChanges";
@@ -79,6 +81,9 @@ export default function ProductAssistant({
   const [groups, setGroups] = useState<MergeGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
+  const [automaticPhotosBusy, setAutomaticPhotosBusy] = useState(false);
+  const commonPhotoOverride = useRef(false);
+  const unchangedPhotos = useRef<Pick<VariantImageSelection, "variantId" | "sku">[]>([]);
   const [message, setMessage] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
@@ -91,13 +96,28 @@ export default function ProductAssistant({
     ...variants.map((row) => row.sku),
   ].some(hasManufacturerSku);
   const searchLabel = searchByName ? "названию" : "SKU";
-  const blocked = dirty || disabled || Boolean(busy) || loading;
+  const blocked = dirty || disabled || Boolean(busy) || loading || automaticPhotosBusy;
 
   function acceptProposal(value: Proposal | null, preferBestCommon = false) {
+    commonPhotoOverride.current = false;
+    unchangedPhotos.current = [];
     setProposal(value);
     const plan = automaticPhotoPlan({ ...product, variants }, value?.facts, { preferBestCommon });
     setImageUrl(plan.imageUrl);
     setVariantImages(plan.variantImages);
+  }
+
+  function chooseCommonPhoto(image: string | null) {
+    commonPhotoOverride.current = true;
+    setImageUrl(image);
+  }
+
+  function receivePreparedPhotos(photos: PreparedProposalPhotos, preferBestCommon = false) {
+    setProposal((current) => current ? { ...current, facts: { ...current.facts, ...photos } } : current);
+    const result = automaticPhotoPlan({ ...product, variants }, photos, { preferBestCommon });
+    if (preferBestCommon || !commonPhotoOverride.current) setImageUrl(result.imageUrl);
+    if (preferBestCommon) commonPhotoOverride.current = true;
+    setVariantImages((current) => mergeAutomaticSelections(result.variantImages, current, variants, unchangedPhotos.current));
   }
 
   useEffect(() => {
@@ -197,15 +217,10 @@ export default function ProductAssistant({
   async function photos() {
     if (!proposal) return;
     await task(`Подбор фото по ${searchLabel}…`, async () => {
-      const result = await responseData(
-        await fetch(
-          "/api/admin/enrichment/proposals/" +
-            encodeURIComponent(proposal.id) +
-            "/photos",
-          { method: "POST" },
-        ),
-      );
-      acceptProposal({ ...proposal, facts: { ...proposal.facts, ...result } }, true);
+      commonPhotoOverride.current = false;
+      const result = await prepareProposalPhotoBatches(proposal.id, {
+        resume: false, onBatch: (photos) => receivePreparedPhotos(photos, true),
+      });
       const resultPlan = automaticPhotoPlan({ ...product, variants }, result, { preferBestCommon: true });
       setMessage(
         resultPlan.imageUrl ||
@@ -310,6 +325,16 @@ export default function ProductAssistant({
           · {product.supplier?.name || "Поставщик не указан"}
         </p>
       </div>
+      {proposal && product.supplier && (
+        <AutomaticProposalPhotos
+          proposalId={proposal.id}
+          product={{ ...product, variants }}
+          facts={proposal.facts}
+          disabled={dirty || disabled || Boolean(busy) || loading}
+          onPrepared={receivePreparedPhotos}
+          onBusyChange={(value) => { setAutomaticPhotosBusy(value); onBusyChange(value); }}
+        />
+      )}
       {searchByName && (
         <p className="text-xs text-gray-600">
           Фото ищутся по названию, бренду и объёму: внутренний код прайса не
@@ -447,7 +472,7 @@ export default function ProductAssistant({
                   type="button"
                   disabled={blocked}
                   aria-pressed={imageUrl === null}
-                  onClick={() => setImageUrl(null)}
+                  onClick={() => chooseCommonPhoto(null)}
                   className="rounded-xl border px-3 py-2 text-xs"
                 >
                   Сохранить текущее
@@ -458,7 +483,7 @@ export default function ProductAssistant({
                     type="button"
                     disabled={blocked}
                     aria-pressed={imageUrl === candidate.url}
-                    onClick={() => setImageUrl(candidate.url)}
+                    onClick={() => chooseCommonPhoto(candidate.url)}
                     className={
                       "rounded-xl border p-1 " +
                       (imageUrl === candidate.url ? "ring-2 ring-blue-500" : "")
@@ -489,13 +514,14 @@ export default function ProductAssistant({
                   proposalId={proposal.id}
                   facts={proposal.facts}
                   value={variantImages}
-                  onChange={(value) => {
+                  onChange={(value, unchanged) => {
+                    if (unchanged) unchangedPhotos.current.push(unchanged);
                     setVariantImages(value);
-                    if (!isUsablePhoto(product.image)) setImageUrl((current) =>
+                    if (!commonPhotoOverride.current && !isUsablePhoto(product.image)) setImageUrl((current) =>
                       current || value.find((item) => item.imageUrl && isUsablePhoto(item.imageUrl))?.imageUrl || null,
                     );
                   }}
-                  onCommonImageChange={setImageUrl}
+                  onCommonImageChange={chooseCommonPhoto}
                   commonImage={imageUrl || product.image}
                   disabled={blocked}
                   onBusyChange={(value) =>

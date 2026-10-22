@@ -21,6 +21,7 @@ import {
 } from "./officialCatalogSearch";
 import { variantPhotoSearchIssue } from "./clientMessages";
 import { sourceUrlKey } from "./resolveProductSource";
+import { productDisplayName } from "../productNames";
 
 type SearchResult = { found: boolean; url: string | null };
 type Dependencies = {
@@ -47,7 +48,7 @@ export function productForVariant(
   const value = volume ? Number(volume[1].replace(",", ".")) : null;
   const mass = unit && /^(?:г|гр\.?|g|кг|kg)$/.test(unit);
   const multiplier = unit && /^(?:л|l|кг|kg)$/.test(unit) ? 1000 : 1;
-  const baseName = product.name
+  const baseName = productDisplayName(product)
     .replace(
       /\s*\(?\d+(?:[.,]\d+)?\s*(?:мл|ml|г|гр\.?|g|л|l|кг|kg)\)?\s*$/iu,
       "",

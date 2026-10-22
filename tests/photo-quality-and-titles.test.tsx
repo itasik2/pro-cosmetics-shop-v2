@@ -8,6 +8,8 @@ import { rankPhotoCandidates } from "../lib/enrichment/photoQuality";
 import { automaticPhotoPlan, commonPhotoCandidates } from "../lib/enrichment/automaticPhotos";
 import { productMergePlan } from "../lib/productMergePlan";
 import type { VariantImageCandidate } from "../lib/enrichment/variantImages";
+import { sanitizeProposalTitle } from "../lib/enrichment/proposalText";
+import { productForVariant } from "../lib/enrichment/variantPhotoSearch";
 
 const artwork = Buffer.from(`<svg width="800" height="800" xmlns="http://www.w3.org/2000/svg">
   <rect width="800" height="800" fill="white"/><rect x="200" y="100" width="400" height="600" fill="#e8ece8" stroke="black" stroke-width="8"/>
@@ -134,4 +136,39 @@ test("SKU search still matches a cleaned title through product and variant ident
     assert.equal(productMatchesSearch(card, query), true, query);
   assert.equal(productMatchesSearch(card, "SKY999"), false);
   assert.deepEqual(original, before);
+});
+
+test("a shared variant title omits packaging size even before the brand; SKU sizes remain separate and searchable", () => {
+  const product = { id: "rose", name: "Омолаживающая альгинатная маска с розой 30 г Skinosophy SKY025",
+    supplierSku: "SKY025", barcode: null, brand: { name: "Skinosophy" }, supplier: null,
+    volumeValue: 30, volumeUnit: "g", variants: [
+      { id: "sachet", sku: "SKY025", label: "Саше 30 г" },
+      { id: "jar", sku: "SKY005", label: "Банка 210 г" },
+      { id: "bag", sku: "SKY015", label: "Дой-пак 1 кг" },
+    ] };
+  const before = structuredClone(product);
+  const expected = "Омолаживающая альгинатная маска с розой Skinosophy";
+  assert.equal(productDisplayName(product), expected);
+  assert.equal(sanitizeProposalTitle(product.name, null, product), expected);
+  const card = { ...product, name: productDisplayName(product) };
+  for (const query of ["SKY025", "SKY005", "SKY015", "маска 210 г", "Дой-пак 1 кг"])
+    assert.equal(productMatchesSearch(card, query), true, query);
+  const jar = productForVariant(product, product.variants[1]);
+  assert.equal(jar.name, expected + " Банка 210 г");
+  assert.equal(jar.volumeValue, 210);
+  assert.equal(jar.supplierSku, "SKY005");
+  assert.deepEqual(product, before);
+
+  for (const [title, cleaned] of [
+    ["Крем SPF50 Q10 AHA 5% (50 ml) Brand", "Крем SPF50 Q10 AHA 5% Brand"],
+    ["Сыворотка 2 x 1,5 мл Brand", "Сыворотка Brand"],
+    ["Маска 3D 7 шт. Skinosophy", "Маска 3D Skinosophy"],
+    ["Маска Саше 30 г Skinosophy", "Маска Skinosophy"],
+    ["Средство с витамином 100 мг SPF 30", "Средство с витамином 100 мг SPF 30"],
+    ["Средство 5 г/100 г Model-30g", "Средство 5 г/100 г Model-30g"],
+    ["Средство 5 г / 100 г", "Средство 5 г / 100 г"],
+    ["Средство 5 г на 100 г", "Средство 5 г на 100 г"],
+  ]) assert.equal(productDisplayName({ ...product, name: title }), cleaned);
+  assert.equal(productDisplayName({ ...product, variants: [product.variants[0]] }),
+    "Омолаживающая альгинатная маска с розой 30 г Skinosophy");
 });
