@@ -612,7 +612,7 @@ test("automatic named photo discovery works for standalone products and preserve
       },
     );
     assert.equal(searched, 1);
-    assert.equal(photos.photoAutomation.version, 5);
+    assert.equal(photos.photoAutomation.version, 6);
     assert.equal(automaticPhotoPlan(current, photos).imageUrl, photoUrl);
     assert.deepEqual(photos.variantImageCandidates, []);
   }

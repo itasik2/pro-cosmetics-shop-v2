@@ -19,12 +19,13 @@ import {
   toAllowedPolicies,
 } from "./sourcePolicies";
 import type { AllowedSourcePolicy } from "./network";
-import { hasManufacturerSku, photoCandidateIsCurrent } from "./photoIdentity";
+import { photoCandidateIsCurrent } from "./photoIdentity";
 
 type PhotoProduct = MatchableProduct & {
   id: string;
   image: string;
   variants: unknown;
+  sourceUrl?: string | null;
 };
 export async function collectProposalPhotos(
   input: {
@@ -97,14 +98,15 @@ export async function collectProposalPhotos(
         const result = await search({
           product: input.product,
           variant: target,
-          knownUrl: input.knownUrl,
+          knownUrl: input.product.sourceUrl,
+          knownUrls: [input.knownUrl],
           officialDomains: input.officialDomains,
           policies: input.policies,
           priceCandidates:
             previous?.candidates.filter(
               (item) => item.source === "PRICE_LIST",
             ) || [],
-          catalogOnly: hasManufacturerSku(target.sku),
+          catalogOnly: false,
           deadlineAt: input.deadlineAt,
         });
         if (photoSku(result.sku) !== photoSku(target.sku)) {
@@ -138,7 +140,7 @@ export async function collectProposalPhotos(
       (group) => group.variantId === primaryId,
     ),
     photoAutomation: {
-      version: 5,
+      version: 6,
       checkedAt: new Date().toISOString(),
       issues: [...new Set(issues)],
       incomplete: cursor < targets.length,
@@ -195,7 +197,7 @@ export async function prepareProposalPhotos(
     | undefined;
   if (
     options.automatic &&
-    previous?.version === 5 &&
+    previous?.version === 6 &&
     previous?.checkedAt &&
     Date.now() - new Date(previous.checkedAt).getTime() < 24 * 60 * 60 * 1000
   ) {

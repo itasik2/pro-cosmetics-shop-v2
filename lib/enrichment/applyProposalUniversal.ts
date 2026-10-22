@@ -11,7 +11,8 @@ import {
   manuallyEditedProductName,
 } from "./proposalText";
 import { hasManualVariantChanges } from "./removedVariants";
-import { primarySkuPhotoCandidates } from "./automaticPhotos";
+import { commonPhotoCandidates } from "./automaticPhotos";
+import { photoCandidateIsCurrent } from "./photoIdentity";
 import {
   latestPriceListImageForProduct,
   priceListImagesBySku,
@@ -22,6 +23,7 @@ import {
   imageGroups,
   mergeImageGroups,
   validateVariantImages,
+  photoSku,
   type VariantImageSelection,
 } from "./variantImages";
 
@@ -103,31 +105,36 @@ export async function applyProductEnrichmentProposalUniversal(
     imageGroups(facts.variantImageCandidates),
     priceVariantGroups(proposal.productId, variants, priceImages),
   );
+  const photoFacts = { ...facts, variantImageCandidates: groups };
   validateVariantImages(variants, selections, groups, proposal.product);
   const commonUrl = applyPhotos ? String(input.imageUrl || "").trim() : "";
-  // A verified photo for the current primary SKU can also be its common photo.
-  const commonFromPrimarySku = primarySkuPhotoCandidates(
+  // A verified photo of any current variant may be promoted to the common photo.
+  const commonCandidate = commonPhotoCandidates(
     {
       ...proposal.product,
       variants,
     },
-    facts,
-  ).some((candidate) => candidate.url === commonUrl);
+    photoFacts,
+  ).find((candidate) => candidate.url === commonUrl);
   const namedCommonPhoto = [
     ...imageGroups(facts.productImageCandidates),
-    ...imageGroups(facts.variantImageCandidates),
+    ...groups,
   ].some((group) =>
     group.candidates.some(
       (candidate) => candidate.url === commonUrl && candidate.identityKey,
     ),
   );
-  if (namedCommonPhoto && !commonFromPrimarySku)
-    throw new Error("product_changed_refresh");
+  const groupedCommonPhoto = [
+    ...imageGroups(facts.productImageCandidates),
+    ...groups,
+  ].some((group) => group.candidates.some((candidate) => candidate.url === commonUrl));
+  if (groupedCommonPhoto && !commonCandidate)
+    throw new Error(namedCommonPhoto ? "product_changed_refresh" : "proposal_image_not_allowed");
   if (input.mode === "IMAGE" && !commonUrl && !selections.length)
     throw new Error("proposal_image_missing");
   if (
     commonUrl &&
-    !commonFromPrimarySku &&
+    !commonCandidate &&
     !(Array.isArray(proposal.images) && proposal.images.includes(commonUrl))
   ) {
     const priceImage = await loadCommonPriceImage(proposal.productId);
@@ -151,7 +158,7 @@ export async function applyProductEnrichmentProposalUniversal(
   }
   // Uploads create reusable media only. Product/variant assignments happen atomically below.
   const importedImage = commonUrl
-    ? await importImage({
+    ? commonCandidate?.stored ? { url: commonUrl } : await importImage({
         productId: proposal.productId,
         proposalId: proposal.id,
         supplierId: proposal.product.supplierId!,
@@ -228,19 +235,30 @@ export async function applyProductEnrichmentProposalUniversal(
     });
     const currentVariants = normalizeStoredVariants(current.variants);
     if (
-      commonFromPrimarySku &&
-      !primarySkuPhotoCandidates(
+      commonCandidate &&
+      !commonPhotoCandidates(
         {
           ...current,
           id: proposal.productId,
           variants: currentVariants,
         },
-        facts,
+        photoFacts,
       ).some((candidate) => candidate.url === commonUrl)
     )
       throw new Error(
         namedCommonPhoto ? "product_changed_refresh" : "variant_sku_changed",
       );
+    if (commonCandidate?.variantId) {
+      const origin = currentVariants.find((variant) => variant.id === commonCandidate.variantId);
+      if (!origin || photoSku(origin.sku) !== photoSku(commonCandidate.sku))
+        throw new Error("variant_sku_changed");
+      if (!photoCandidateIsCurrent(commonCandidate, current, origin))
+        throw new Error("product_changed_refresh");
+      if (commonCandidate.label !== undefined && origin.label !== commonCandidate.label)
+        throw new Error("product_changed_refresh");
+      if (commonCandidate.stored && origin.image !== commonUrl)
+        throw new Error("product_changed_refresh");
+    }
     if (
       input.automatic &&
       commonUrl &&
@@ -305,8 +323,12 @@ export async function applyProductEnrichmentProposalUniversal(
         where: { productId: proposal.productId },
         data: { isPrimary: false },
       });
-      await tx.productImage.update({
-        where: { id: importedImage.id },
+      if ("id" in importedImage) await tx.productImage.update({
+          where: { id: importedImage.id },
+          data: { isPrimary: true },
+        });
+      else await tx.productImage.updateMany({
+        where: { productId: proposal.productId, url: commonUrl },
         data: { isPrimary: true },
       });
     }

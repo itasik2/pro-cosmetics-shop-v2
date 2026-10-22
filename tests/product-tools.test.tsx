@@ -479,6 +479,22 @@ test("equivalent volume units deduplicate while conflicting SKUs require correct
   );
 });
 
+test("a merge suggests an available variant photo without assigning it to a different primary SKU", () => {
+  const large = { ...product, id: "large", supplierSku: "SKU-100", volumeValue: 100, image: "/media/large.jpg" };
+  const plan = productMergePlan([product, large], product.id);
+  assert.equal(plan.image, large.image);
+  assert.equal(plan.commonPhotoSuggestion?.sku, large.supplierSku);
+  assert.equal(plan.variants.find(row => row.sku === product.supplierSku)?.image, undefined);
+  assert.equal(plan.variants.find(row => row.sku === large.supplierSku)?.image, large.image);
+  const existing = productMergePlan([{ ...product, image: "/media/reviewed-common.jpg" }, large], product.id);
+  assert.equal(existing.image, "/media/reviewed-common.jpg");
+  assert.equal(existing.commonPhotoSuggestion, null);
+  const grouped = { ...product, image: plan.image, variants: plan.variants };
+  const again = productMergePlan([grouped, { ...large, id: "duplicate" }], product.id);
+  assert.equal(again.variants.find(row => row.sku === product.supplierSku)?.image, undefined);
+  assert.equal(again.variants.find(row => row.sku === large.supplierSku)?.image, large.image);
+});
+
 test("merging existing variant cards retains each source common photo only for its primary SKU", () => {
   const small = {
     id: "small",

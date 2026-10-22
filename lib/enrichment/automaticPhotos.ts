@@ -7,6 +7,7 @@ import {
 import { isProductPhoto, isUsablePhoto } from "./photoQuality";
 import {
   photoCandidateIsCurrent,
+  namePhotoKey,
   type NamePhotoProduct,
 } from "./photoIdentity";
 
@@ -17,7 +18,26 @@ type PhotoProduct = NamePhotoProduct & {
   variants: Variant[];
 };
 
-function rankedCandidates(values: VariantImageCandidate[]) {
+export function suggestedVariantCommonPhoto(
+  variants: Variant[],
+  primarySku?: string | null,
+) {
+  const usable = variants.filter((variant) => isUsablePhoto(variant.image));
+  const variant = usable.find((item) => photoSku(item.sku) === photoSku(primarySku)) || usable[0];
+  return variant ? {
+    url: variant.image!, variantId: variant.id,
+    sku: variant.sku || "", label: variant.label || "",
+  } : null;
+}
+
+export type CommonPhotoCandidate = VariantImageCandidate & {
+  variantId?: string;
+  sku?: string;
+  label?: string;
+  stored?: boolean;
+};
+
+function rankedCandidates<T extends VariantImageCandidate>(values: T[]) {
   return values
     .filter((item) => isProductPhoto(item.url))
     .sort(
@@ -75,7 +95,7 @@ export function automaticPhotoPlan(
       ? (facts as Record<string, unknown>)
       : {};
   const groups = imageGroups(data.variantImageCandidates);
-  const commonCandidates = primarySkuPhotoCandidates(product, facts);
+  const commonCandidates = commonPhotoCandidates(product, facts);
   const variantImages: VariantImageSelection[] = product.variants.flatMap(
     (variant) => {
       if (isUsablePhoto(variant.image)) return [];
@@ -101,6 +121,38 @@ export function automaticPhotoPlan(
     commonCandidates,
     variantImages,
   };
+}
+
+export function commonPhotoCandidates(product: PhotoProduct, facts: unknown): CommonPhotoCandidate[] {
+  const data = facts && typeof facts === "object" ? facts as Record<string, unknown> : {};
+  const sku = photoSku(product.supplierSku || product.variants[0]?.sku);
+  const primary = product.variants.find((variant) => photoSku(variant.sku) === sku);
+  const ordered = [...product.variants].sort((a, b) =>
+    Number(photoSku(b.sku) === sku) - Number(photoSku(a.sku) === sku),
+  );
+  const stored: CommonPhotoCandidate[] = ordered.flatMap((variant) =>
+    isUsablePhoto(variant.image) ? [{
+      url: variant.image, source: "WEB", stored: true,
+      variantId: variant.id, sku: variant.sku || "", label: variant.label,
+      identityKey: namePhotoKey(product, variant),
+    }] : [],
+  );
+  const primaryCandidates = primarySkuPhotoCandidates(product, facts).map((candidate) => ({
+    ...candidate, variantId: primary?.id, sku, label: primary?.label,
+  }));
+  const groups = imageGroups(data.variantImageCandidates);
+  const other = ordered.flatMap((variant) => groups.filter((group) =>
+    group.variantId === variant.id && photoSku(group.sku) === photoSku(variant.sku),
+  ).flatMap((group) => group.candidates.filter((candidate) =>
+    photoCandidateIsCurrent(candidate, product, variant),
+  ).map((candidate) => ({
+    ...candidate, variantId: variant.id, sku: variant.sku || "", label: variant.label,
+  }))));
+  const values: CommonPhotoCandidate[] = [...stored, ...primaryCandidates, ...other];
+  const unique = new Map<string, CommonPhotoCandidate>();
+  for (const candidate of rankedCandidates(values))
+    if (!unique.has(candidate.url)) unique.set(candidate.url, candidate);
+  return [...unique.values()];
 }
 
 export function mergeAutomaticSelections(

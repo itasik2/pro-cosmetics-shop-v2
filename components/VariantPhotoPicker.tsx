@@ -71,6 +71,7 @@ export function VariantPhotoPicker({
   onChange,
   disabled,
   onBusyChange,
+  onMakeCommon,
   children,
 }: {
   productId: string;
@@ -82,6 +83,7 @@ export function VariantPhotoPicker({
   onChange: (selection: VariantImageSelection | undefined) => void;
   disabled?: boolean;
   onBusyChange?: (busy: boolean) => void;
+  onMakeCommon?: (imageUrl: string) => void;
   children?: ReactNode;
 }) {
   const [found, setFound] = useState<VariantImageCandidate[] | null>(null);
@@ -94,6 +96,7 @@ export function VariantPhotoPicker({
   const preview = selected
     ? selected.imageUrl || commonImage
     : variantDisplayImage(variant, commonImage);
+  const ownPhoto = selected ? selected.imageUrl : variant.image;
   async function search() {
     setBusy(true);
     onBusyChange?.(true);
@@ -194,6 +197,18 @@ export function VariantPhotoPicker({
               : "Найти фото по SKU"}
         </button>
       </div>
+      {onMakeCommon && (
+        <button
+          type="button"
+          disabled={!isRealPhoto(ownPhoto || "")}
+          aria-pressed={Boolean(ownPhoto && ownPhoto === commonImage)}
+          aria-label={"Сделать фото варианта " + (variant.sku || variant.label) + " общим"}
+          className="btn-secondary min-h-9 px-3 py-2 text-xs disabled:opacity-40"
+          onClick={() => { if (ownPhoto && isRealPhoto(ownPhoto)) onMakeCommon(ownPhoto); }}
+        >
+          {ownPhoto && ownPhoto === commonImage ? "Выбрано общим фото" : "Сделать общим фото товара"}
+        </button>
+      )}
       {!variant.sku && (
         <p className="text-xs text-amber-800">
           Сначала укажите и сохраните SKU варианта.
@@ -286,6 +301,7 @@ export function VariantPhotosReview({
   onStockChange,
   onRemove,
   onBusyChange,
+  onCommonImageChange,
 }: {
   product: NamePhotoProduct & { id: string; image: string; variants: unknown };
   proposalId: string;
@@ -298,6 +314,7 @@ export function VariantPhotosReview({
   onStockChange?: (variantId: string, value: string) => void;
   onRemove?: (variant: AdminVariant) => void;
   onBusyChange?: (busy: boolean) => void;
+  onCommonImageChange?: (imageUrl: string) => void;
 }) {
   const variants = adminVariants(product.variants);
   const groups = imageGroups(
@@ -333,6 +350,7 @@ export function VariantPhotosReview({
           value={value.find((selection) => selection.variantId === variant.id)}
           disabled={disabled}
           onBusyChange={onBusyChange}
+          onMakeCommon={onCommonImageChange}
           onChange={(selection) =>
             onChange([
               ...value.filter((item) => item.variantId !== variant.id),

@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { VariantPhotosReview } from "../components/VariantPhotoPicker";
 import {
   automaticPhotoPlan,
+  commonPhotoCandidates,
   mergeAutomaticSelections,
 } from "../lib/enrichment/automaticPhotos";
 import { collectProposalPhotos } from "../lib/enrichment/prepareProposalPhotos";
@@ -45,6 +46,54 @@ const groups: VariantImageGroup[] = variants.map((variant) => ({
     { url: `https://brand.example/${variant.sku}.jpg`, source: "WEB" },
   ],
 }));
+
+test("a missing common photo is suggested from any current variant while a saved common photo stays selected", () => {
+  const current = { ...product, variants: [variants[0], { ...variants[1], image: "/media/large.jpg" }] };
+  const plan = automaticPhotoPlan(current, {});
+  assert.equal(plan.imageUrl, "/media/large.jpg");
+  assert.deepEqual(plan.variantImages, []);
+  assert.equal(commonPhotoCandidates(current, {})[0].sku, "AG16");
+  const duplicate = commonPhotoCandidates({
+    ...current, variants: [variants[0], { ...variants[1], image: groups[1].candidates[0].url }],
+  }, { variantImageCandidates: groups });
+  assert.equal(duplicate.find(row => row.url === groups[1].candidates[0].url)?.stored, true);
+  assert.equal(automaticPhotoPlan({ ...current, image: "/media/current.jpg" }, {}).imageUrl, null);
+  const html = renderToStaticMarkup(<VariantPhotosReview
+    product={current} proposalId="proposal" facts={{}} value={[]}
+    onChange={() => {}} onCommonImageChange={() => {}}
+  />);
+  assert.match(html, /Сделать фото варианта AG16 общим/);
+  assert.match(html, /Сделать общим фото товара/);
+});
+
+test("batch SKU lookup continues to the same verified external search as a manual variant search", async () => {
+  const lookedUp: string[] = [];
+  const photos = await collectProposalPhotos({
+    product, groups: [], knownUrl: "https://brand.example/wrong-page",
+    officialDomains: [], policies: [], deadlineAt: Date.now() + 5000,
+  }, input => searchVariantPhotos(input, {
+    official: async () => { throw new Error("no official domains"); },
+    external: async ({ product: current }) => {
+      lookedUp.push(current.supplierSku!);
+      return { found: true, url: "https://merchant.example/" + current.supplierSku };
+    },
+    fetchHtml: async (url) => {
+      const sku = url.split("/").at(-1)!;
+      const volume = sku === "MV16" ? 7 : 50;
+      return { finalUrl: url, contentType: "text/html", status: 200, headers: {},
+        buffer: Buffer.from(`<script type="application/ld+json">${JSON.stringify({
+          "@type": "Product", name: `${product.name} ${volume} ml`, sku,
+          brand: "ANGIOPHARM", image: `/${sku}.jpg`,
+        })}</script>`),
+      };
+    },
+  }));
+  assert.deepEqual(lookedUp.sort(), ["AG16", "MV16"]);
+  assert.deepEqual(photos.photoAutomation.issues, []);
+  assert.deepEqual(automaticPhotoPlan(product, photos).variantImages.map(row => row.imageUrl).sort(), [
+    "https://merchant.example/AG16.jpg", "https://merchant.example/MV16.jpg",
+  ]);
+});
 
 test("automatic photos select exact SKU images, prefer the site, and never use an unverified common gallery", () => {
   const facts = {
@@ -138,7 +187,7 @@ test("automatic collection searches missing variants with bounded concurrency an
       running++;
       peak = Math.max(peak, running);
       lookedUp.push(input.variant.sku!);
-      assert.equal(input.catalogOnly, true);
+      assert.equal(input.catalogOnly, false);
       await Promise.resolve();
       running--;
       return {
@@ -254,7 +303,7 @@ test("the official Cloud Zoom gallery supplies original photos without collectin
 function deletionFixture() {
   let state: any = {
     product: {
-      ...product,
+      ...structuredClone(product),
       price: 1500,
       stock: 5,
       supplierId: "supplier",
@@ -358,17 +407,68 @@ const remove = {
   sku: "MV16",
 };
 
-test("applying an editor proposal without a common photo saves text and each SKU photo", async () => {
+test("a verified sibling SKU photo can become common and own photo with one upload and no inventory changes", async () => {
+  const f = deletionFixture();
+  f.state.proposals[0].images = [];
+  const before = structuredClone(f.state.product);
+  let uploads = 0;
+  await applyProductEnrichmentProposalUniversal({
+    proposalId: "proposal", mode: "ALL", imageUrl: groups[1].candidates[0].url,
+    variantImages: [{ variantId: "large", sku: "AG16", imageUrl: groups[1].candidates[0].url }],
+  }, {
+    database: f.database, loadPriceImages: async () => new Map(),
+    importImage: async () => { uploads++; return { id: "media", url: "https://media.example/large.jpg" } as any; },
+  });
+  assert.equal(uploads, 1);
+  assert.equal(f.state.product.image, "https://media.example/large.jpg");
+  assert.equal(f.state.product.variants[1].image, f.state.product.image);
+  assert.equal(f.state.product.variants[0].image, undefined);
+  for (const key of ["price", "stock", "supplierSku", "isPublished"]) assert.equal(f.state.product[key], before[key]);
+});
+
+test("promoting a stored variant photo reuses its URL and preserves every SKU photo, price and stock", async () => {
+  const f = deletionFixture();
+  f.state.product.variants[1].image = "/media/approved-large.jpg";
+  const before = structuredClone(f.state.product);
+  const plan = automaticPhotoPlan(f.state.product, {});
+  assert.equal(plan.imageUrl, "/media/approved-large.jpg");
+  assert.equal(proposalApplySchema.parse({ imageUrl: plan.imageUrl }).imageUrl, plan.imageUrl);
+  await applyProductEnrichmentProposalUniversal({
+    proposalId: "proposal", mode: "IMAGE", imageUrl: plan.imageUrl,
+  }, { database: f.database, importImage: async () => { throw new Error("stored photo must not be downloaded again"); } });
+  assert.equal(f.state.product.image, plan.imageUrl);
+  assert.deepEqual(f.state.product.variants, before.variants);
+  for (const key of ["price", "stock", "supplierSku", "isPublished"]) assert.equal(f.state.product[key], before[key]);
+});
+
+test("promotion of a non-primary photo fails if its SKU changes during upload", async () => {
+  const f = deletionFixture();
+  await assert.rejects(applyProductEnrichmentProposalUniversal({
+    proposalId: "proposal", mode: "IMAGE", imageUrl: groups[1].candidates[0].url,
+  }, {
+    database: f.database,
+    importImage: async () => {
+      f.state.product.variants[1].sku = "AG17";
+      f.state.product.updatedAt = new Date(5000);
+      return { id: "media", url: "https://media.example/large.jpg" } as any;
+    },
+  }), /variant_sku_changed/);
+  assert.equal(f.state.product.image, product.image);
+  assert.equal(f.state.product.variants[1].image, undefined);
+  assert.equal(f.state.proposals[0].status, "PENDING");
+});
+
+test("an explicit decision to keep the current common photo still saves text and each SKU photo", async () => {
   const f = deletionFixture();
   const plan = automaticPhotoPlan(f.state.product, {
     variantImageCandidates: [groups[1]],
   });
-  assert.equal(plan.imageUrl, null);
+  assert.equal(plan.imageUrl, groups[1].candidates[0].url);
   const parsed = proposalApplySchema.parse(
     JSON.parse(
       JSON.stringify({
         mode: "ALL",
-        imageUrl: plan.imageUrl,
+        imageUrl: null,
         variantImages: plan.variantImages,
       }),
     ),
@@ -436,6 +536,9 @@ test("photo selection accepts an unchanged common photo but still rejects malfor
   for (const body of [
     { imageUrl: 1 },
     { imageUrl: "not-a-url" },
+    { imageUrl: "//another.example/photo.jpg" },
+    { imageUrl: "file:///private.jpg" },
+    { imageUrl: "javascript:alert(1)" },
     { variantImages: [{ variantId: "large", sku: "", imageUrl: null }] },
     {
       variantImages: [
@@ -489,8 +592,8 @@ test("deleting the primary variant then applying the remaining SKU photo and sto
   assert.deepEqual(removedVariantSkus(f.state.proposals[0].facts), ["MV16"]);
 });
 
-test("a photo belonging to another SKU or a removed variant cannot become the common photo", async () => {
-  for (const target of ["sibling", "removed", "foreign-product"]) {
+test("a photo belonging to a removed variant or another product cannot become the common photo", async () => {
+  for (const target of ["removed", "foreign-product"]) {
     const f = deletionFixture();
     const proposal = f.state.proposals[0];
     proposal.images = [];
@@ -526,8 +629,7 @@ test("a photo belonging to another SKU or a removed variant cannot become the co
     );
     assert.equal(uploads, 0);
     assert.deepEqual(f.state, before);
-    if (target !== "sibling")
-      assert.equal(
+    assert.equal(
         automaticPhotoPlan(f.state.product, proposal.facts).imageUrl,
         null,
       );

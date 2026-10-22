@@ -5,8 +5,6 @@ import { NextResponse } from "next/server";
 import { EnrichmentProposalStatus, Prisma } from "@prisma/client";
 import { z } from "zod";
 import { productMergePlan } from "@/lib/productMergePlan";
-import { isUsablePhoto } from "@/lib/enrichment/photoQuality";
-import { photoSku } from "@/lib/enrichment/variantImages";
 import { requireAdmin } from "@/lib/adminGuard";
 import { prisma } from "@/lib/prisma";
 import { recoverStaleEnrichmentJobs } from "@/lib/enrichment/recoverStaleJobs";
@@ -207,6 +205,10 @@ export async function GET(req: Request) {
           items.find((item) => item.supplier?.name)?.supplier?.name || "",
         brand: canonical.brand?.name || "",
         suggestedCanonicalId: canonical.id,
+        photoSuggestions: Object.fromEntries(items.slice(0, 20).map((item) => {
+          try { return [item.id, productMergePlan(items, item.id).commonPhotoSuggestion]; }
+          catch { return [item.id, null]; }
+        })),
         products: items.map((item) => ({
           id: item.id,
           name: item.name,
@@ -417,13 +419,7 @@ export async function POST(req: Request) {
               canonical.enrichmentStatus === "REVIEW"
                 ? "READY"
                 : canonical.enrichmentStatus,
-            image: isUsablePhoto(canonical.image)
-              ? canonical.image
-              : variants.find(
-                  (variant) =>
-                    photoSku(variant.sku) === photoSku(primarySku) &&
-                    isUsablePhoto(variant.image),
-                )?.image || canonical.image,
+            image: plan.image,
             shortDescription:
               canonical.shortDescription?.trim() ||
               products.find((product) => product.shortDescription?.trim())
