@@ -496,7 +496,8 @@ export default function AdminProductsClient() {
 
   function assistantSaved(product: Product, mergedIds: string[] = []) {
     const published =
-      product.isPublished && !items.find((row) => row.id === product.id)?.isPublished;
+      !mergedIds.length && product.isPublished &&
+      !items.find((row) => row.id === product.id)?.isPublished;
     setItems((current) => [
       ...current.filter(
         (row) => row.id !== product.id && !mergedIds.includes(row.id),
