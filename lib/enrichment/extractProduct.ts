@@ -225,12 +225,27 @@ function labeledSection(input: {
   maxLength: number;
 }) {
   const search = normalizeSearchText(input.text);
+  function labelIndex(label: string, from = 0) {
+    const normalized = normalizeSearchText(label);
+    let index = search.indexOf(normalized, from);
+    while (index >= 0) {
+      const before = search[index - 1] || "";
+      const after = search[index + normalized.length] || "";
+      const lineStart = search.lastIndexOf("\n", index - 1) + 1;
+      const heading = !search.slice(lineStart, index).trim() || normalized.endsWith(":") ||
+        search.slice(index + normalized.length).trimStart().startsWith(":");
+      if (heading && !/[\p{L}\p{N}]/u.test(before) &&
+        (normalized.endsWith(":") || !/[\p{L}\p{N}]/u.test(after))) return index;
+      index = search.indexOf(normalized, index + 1);
+    }
+    return -1;
+  }
   let startIndex = -1;
   let startLength = 0;
 
   for (const label of input.starts) {
     const normalizedLabel = normalizeSearchText(label);
-    const index = search.indexOf(normalizedLabel);
+    const index = labelIndex(label);
     if (index >= 0 && (startIndex < 0 || index < startIndex)) {
       startIndex = index;
       startLength = normalizedLabel.length;
@@ -242,7 +257,7 @@ function labeledSection(input: {
   const contentStart = startIndex + startLength;
   let contentEnd = input.text.length;
   for (const label of input.ends) {
-    const index = search.indexOf(normalizeSearchText(label), contentStart);
+    const index = labelIndex(label, contentStart);
     if (index >= contentStart && index < contentEnd) contentEnd = index;
   }
 
@@ -380,6 +395,11 @@ function tildaSingleProduct(
   // Never search the global footer, recommendations or unrelated accordions.
   const details = product.closest(".t-rec").nextAll(".t-rec").first();
   let description: string | null = null;
+  let application: string | null = null;
+  let ingredients: string | null = null;
+  let activeIngredients: string | null = null;
+  let skinType: string | null = null;
+  let benefits: string | null = null;
   let color: string | null = null;
   if (details.is("[data-record-type='585']")) {
     details.find(".t585__accordion").each((_, accordion) => {
@@ -389,6 +409,11 @@ function tildaSingleProduct(
       const value = $(accordion).find(".t585__text").first().clone();
       value.find("br").replaceWith("\n");
       if (heading === "описание") description = cleanText(value.text());
+      if (heading === "способ применения" || heading === "применение") application = cleanText(value.text(), 8_000);
+      if (/^состав(?:\s*\(inci\))?$/iu.test(heading || "")) ingredients = cleanText(value.text(), 8_000);
+      if (heading === "активные компоненты") activeIngredients = cleanText(value.text(), 8_000);
+      if (heading === "тип кожи" || heading === "для какой кожи") skinType = cleanText(value.text(), 2_000);
+      if (heading === "преимущества" || heading === "действие" || heading === "эффект") benefits = cleanText(value.text(), 4_000);
       if (heading === "характеристики") {
         const colors = [
           ...value.text().matchAll(/(?:^|\n)\s*Цвет\s*:\s*([^\n]+)/giu),
@@ -400,6 +425,10 @@ function tildaSingleProduct(
   return {
     title,
     description,
+    application,
+    ingredients: ingredients || activeIngredients,
+    skinType,
+    benefits,
     color,
     images: [...new Set([
       ...gallery,
@@ -603,7 +632,11 @@ export function extractProductFromHtml(input: {
   const tilda = products.length ? null : tildaSingleProduct(
     $, input.finalUrl, input.selectors?.images,
   );
-  const bodyText = cleanText($("body").text(), 200_000) || "";
+  const contentBody = $("body").clone();
+  contentBody.find("script, style, noscript, template, header, nav, footer, aside, [role='navigation'], [class*='menu'], [class*='recommend'], [class*='related']").remove();
+  contentBody.find("br").replaceWith("\n");
+  contentBody.find("p, div, li, h1, h2, h3, h4, section, article").prepend("\n").append("\n");
+  const bodyText = contentBody.text().replace(/[ \t\r]+/g, " ").replace(/\n\s*\n/g, "\n").trim().slice(0, 200_000);
 
   const selectorTitle = selectorText($, input.selectors?.title, 500);
   const selectorDescription = selectorText(
@@ -633,6 +666,8 @@ export function extractProductFromHtml(input: {
       "АКТИВНЫЕ КОМПОНЕНТЫ",
       "ХАРАКТЕРИСТИКИ",
       "СОСТАВ",
+      "МЕРЫ ПРЕДОСТОРОЖНОСТИ",
+      "ПРОТИВОПОКАЗАНИЯ",
       "КОНТАКТЫ",
     ],
     maxLength: 8_000,
@@ -779,8 +814,8 @@ export function extractProductFromHtml(input: {
   return {
     title,
     description,
-    skinType: selectorSkinType || fallbackSkinType,
-    benefits: selectorBenefits || fallbackBenefits,
+    skinType: selectorSkinType || tilda?.skinType || (tilda ? null : fallbackSkinType),
+    benefits: selectorBenefits || tilda?.benefits || (tilda ? null : fallbackBenefits),
     sku: tilda ? tilda.sku :
       cleanText(productNode?.sku, 100) ||
       cleanText(productNode?.mpn, 100) ||
@@ -791,12 +826,14 @@ export function extractProductFromHtml(input: {
     images: [...new Set(images.filter(isLikelyProductImage))].slice(0, 12),
     ingredients:
       selectorIngredients ||
+      tilda?.ingredients ||
       cleanText(productNode?.ingredients, 8_000) ||
-      likelyIngredientList($),
+      (tilda ? null : likelyIngredientList($)),
     application:
       selectorApplication ||
+      tilda?.application ||
       cleanText(productNode?.usageInfo, 8_000) ||
-      fallbackApplication,
+      (tilda ? null : fallbackApplication),
     price: offers.price ?? fallbackPrice,
     currency: offers.currency || fallbackCurrency,
     rawJsonLd: productNode,

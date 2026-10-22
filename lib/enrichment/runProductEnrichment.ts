@@ -21,11 +21,14 @@ import { mergeImageGroups } from "./variantImages";
 import { extractProductFromHtml, extractImagesForSku } from "./extractProduct";
 import { scoreProductMatch } from "./matchProduct";
 import { safeFetchHtml } from "./network";
+import { tildaProductEdition } from "./tildaCatalog";
+import { hasManufacturerSku } from "./photoIdentity";
 import {
   fallbackDescription,
   findExternalProductUrl,
   findOfficialProductUrl,
   generateProductDescription,
+  needsRicherProductSource,
 } from "./openaiResponses";
 import {
   ensureDiscoveredSupplierSource,
@@ -266,15 +269,24 @@ export async function runProductEnrichment(input: RunInput) {
         );
         const finalSource =
           findSourceForUrl(allowedSources, fetched.finalUrl) || requestedSource;
-        const extracted = extractProductFromHtml({
+        let extracted = extractProductFromHtml({
           buffer: fetched.buffer,
           finalUrl: fetched.finalUrl,
           selectors: selectorsFromJson(finalSource.selectors),
           expectedSku: product.supplierSku,
         });
+        const edition = hasManufacturerSku(product.supplierSku || "") ? await tildaProductEdition({
+          buffer: fetched.buffer, finalUrl: fetched.finalUrl, product, sku: product.supplierSku!, officialDomains, deadlineAt,
+        }) : null;
+        if (edition) extracted = { ...extracted, title: edition.title, sku: edition.sku,
+          brand: product.brand?.name || null, images: edition.image ? [edition.image] : [], hasVariants: true };
         const match = scoreProductMatch(product, extracted);
         if (match.confidence === 0)
           throw new Error("product_match_zero_confidence");
+        if (needsRicherProductSource(extracted,
+          stage === "saved" && !input.sourceUrl && input.discoverIfMissing !== false && officialDomains.length > 0 &&
+            finalSource.sourceType.toUpperCase() !== "OFFICIAL_SITE"))
+          throw new Error("source_product_details_missing");
         return { fetched, finalSource, extracted, match };
       },
       onRejected: async ({ url, reason }) => {

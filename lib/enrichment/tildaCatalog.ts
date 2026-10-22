@@ -52,8 +52,8 @@ export function tildaProductReference(buffer: Buffer) {
   return uid && /^\d{6,20}$/.test(uid) && host ? { uid, host } : null;
 }
 
-/** Read a selected edition's explicit photo. A shared gallery is never inherited. */
-export async function tildaVariantPhoto(input: {
+/** Verify the product and edition before using its identity or its own photo. */
+export async function tildaProductEdition(input: {
   buffer: Buffer; finalUrl: string; product: MatchableProduct; sku: string;
   officialDomains: string[]; deadlineAt: number;
 }, readJson = safeFetchCatalogJson) {
@@ -72,14 +72,21 @@ export async function tildaVariantPhoto(input: {
   const matching = editions(product).filter((row) => photoSku(row.sku) === photoSku(input.sku));
   if (matching.length !== 1) return null;
   const edition = matching[0];
-  if (typeof edition.img !== "string" || !isProductPhoto(edition.img)) return null;
-  let image: URL;
-  try { image = new URL(edition.img); } catch { return null; }
-  if (image.protocol !== "https:" || image.username || image.password || image.port ||
-    !(image.hostname === new URL(input.finalUrl).hostname || /(?:^|\.)tildacdn\.(?:pro|com|info)$/.test(image.hostname))) return null;
+  let image: string | null = null;
+  if (typeof edition.img === "string" && isProductPhoto(edition.img)) try {
+    const url = new URL(edition.img);
+    if (url.protocol === "https:" && !url.username && !url.password && !url.port &&
+      (url.hostname === new URL(input.finalUrl).hostname || /(?:^|\.)tildacdn\.(?:pro|com|info)$/.test(url.hostname))) image = url.toString();
+  } catch { /* An absent photo does not invalidate verified text facts. */ }
   const options = array(product.json_options).map(object).flatMap((row) => typeof row?.title === "string" ? [row.title] : []);
   const label = options.map((title) => edition[title]).filter((value): value is string => typeof value === "string").join(" ").slice(0, 500);
-  return { sku: String(edition.sku), label, image: image.toString(), title: String(product.title) + (label ? " " + label : "") };
+  return { sku: String(edition.sku), label, image, title: String(product.title) + (label ? " " + label : "") };
+}
+
+/** A shared gallery is never inherited by an edition without its own photo. */
+export async function tildaVariantPhoto(input: Parameters<typeof tildaProductEdition>[0], readJson = safeFetchCatalogJson) {
+  const edition = await tildaProductEdition(input, readJson);
+  return edition?.image ? { ...edition, image: edition.image } : null;
 }
 
 /** Catalog entries supply links; the linked product and exact edition are checked separately. */

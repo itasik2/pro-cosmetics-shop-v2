@@ -1,5 +1,7 @@
 export function enrichmentFailureMessage(code: string) {
   const messages: Record<string, string> = {
+    source_product_details_missing:
+      "В источнике недостаточно сведений о товаре. Нужна карточка с описанием свойств и инструкцией по применению.",
     source_access_blocked:
       "Сайт источника ограничил автоматическое чтение. Это не означает, что фото отсутствует; проверьте другой источник.",
     stale_enrichment_job_recovered:

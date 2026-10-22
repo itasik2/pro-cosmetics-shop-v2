@@ -1,4 +1,5 @@
 import { formatProductName, productDisplayName, type ProductNameIdentity } from "../productNames";
+import { customerProductCopy } from "../productCopy";
 
 export type ProposalText = {
   title: string | null;
@@ -47,10 +48,10 @@ export function proposalText(
 ): ProposalText {
   return {
     title: sanitizeProposalTitle(proposal.title, proposal.product.name, proposal.product),
-    shortDescription: proposal.shortDescription?.trim() || null,
-    description: proposal.description?.trim() || null,
-    application: proposal.application?.trim() || null,
-    ingredients: proposal.ingredients?.trim() || null,
+    shortDescription: customerProductCopy(proposal.shortDescription) || null,
+    description: customerProductCopy(proposal.description) || null,
+    application: customerProductCopy(proposal.application) || null,
+    ingredients: customerProductCopy(proposal.ingredients) || null,
   };
 }
 

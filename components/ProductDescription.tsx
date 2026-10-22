@@ -1,4 +1,4 @@
-import { hasMissingProductData } from "@/lib/productCopy";
+import { customerProductCopy, hasMissingProductData } from "@/lib/productCopy";
 import type { ReactNode } from "react";
 
 const SECTION_TITLES = [
@@ -18,7 +18,7 @@ const SECTION_TITLE_SET = new Set<string>(SECTION_TITLES);
 const SECTION_PATTERN = SECTION_TITLES.join("|");
 
 export function normalizeDescriptionLayout(value: string) {
-  let text = String(value || "")
+  let text = customerProductCopy(value)
     .replace(/\r\n?/g, "\n")
     .trim();
 

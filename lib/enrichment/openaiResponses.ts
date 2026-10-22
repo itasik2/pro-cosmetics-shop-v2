@@ -3,6 +3,8 @@ import { z } from "zod";
 import type { ExtractedProductData } from "./extractProduct";
 import type { MatchableProduct } from "./matchProduct";
 import { isSyntheticSupplierSku } from "./photoIdentity";
+import { customerProductCopy, hasMissingProductData } from "../productCopy";
+import { normalizeStoredVariants } from "../price-import/productVariants";
 
 const SearchResultSchema = z.object({
   found: z.boolean(),
@@ -49,7 +51,7 @@ export type CatalogPopularityAssessment = {
 };
 
 const PROMOTIONAL_DESCRIPTION_PATTERN =
-  /(?:^|[^\p{L}\p{N}])(?:купить|покупайте|заказ(?:ать|ы|ом|а|у|е|ывайте)?|цен(?:а|ы|е|у|ой|ам|ами)?|доставк[а-я]*|интернет[-\s]?магазин[а-я]*|магазин[а-я]*|продаж[а-я]*|скидк[а-я]*|оптом|розниц[а-я]*|в\s+наличии|казахстан(?:е|а|у)?|алмат(?:ы|е|а|у)?|астан(?:а|е|ы|у)?|нур[-\s]?султан(?:е|а|у)?)(?=$|[^\p{L}\p{N}])|от\s+производителя/iu;
+  /(?:^|[^\p{L}\p{N}])(?:купить|покупайте|заходите|заказ(?:ать|ы|ом|а|у|е|ывайте)?|цен(?:а|ы|е|у|ой|ам|ами)?|доставк[а-я]*|интернет[-\s]?магазин[а-я]*|магазин[а-я]*|продаж[а-я]*|скидк[а-я]*|оптом|розниц[а-я]*|в\s+наличии|казахстан(?:е|а|у)?|алмат(?:ы|е|а|у)?|астан(?:а|е|ы|у)?|нур[-\s]?султан(?:е|а|у)?)(?=$|[^\p{L}\p{N}])|от\s+производителя|останетесь\s+довольны|гаранти[яю]\s+качества/iu;
 const EDITORIAL_BOILERPLATE_PATTERN =
   /(?:подтвержд[её]нн(?:ые|ых|ой)\s+(?:свойства|преимущества|задачи|эффекты?)\s+[^.!?]*не\s+(?:указан|подтвержд)|(?:роль|роли)\s+(?:отдельных|активных)\s+компонентов\s+[^.!?]*не\s+(?:уточн|указан)|название\s+(?:средства|товара)\s+указывает|полный\s+перечень\s+ингредиентов\s+привед[её]н|(?:в\s+источнике|источником|в\s+переданных\s+данных)\s+[^.!?]*не\s+(?:уточн|указан|подтвержд))/iu;
 
@@ -136,6 +138,19 @@ export function sanitizeShortDescription(value: unknown) {
     normalizeDescriptionText(removeEditorialBoilerplate(removePromotionalDescriptionSentences(value))),
     280,
   );
+}
+
+/** Store banners and a product name alone are insufficient facts for sales copy. */
+export function hasUsefulProductDetails(extracted: ExtractedProductData) {
+  const title = String(extracted.title || "").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+  return [extracted.description, extracted.benefits, extracted.application, extracted.ingredients].some((value) => {
+    const text = customerProductCopy(removePromotionalDescriptionSentences(value));
+    return text.length >= 20 && text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "") !== title;
+  });
+}
+
+export function needsRicherProductSource(extracted: ExtractedProductData, preferApplication = false) {
+  return !hasUsefulProductDetails(extracted) || (preferApplication && !customerProductCopy(extracted.application));
 }
 
 function getOutputText(data: unknown) {
@@ -681,22 +696,23 @@ export async function findExternalProductUrl(input: {
 }
 
 export async function generateProductDescription(input: {
-  product: MatchableProduct;
+  product: MatchableProduct & { variants?: unknown };
   extracted: ExtractedProductData;
   sourceUrl: string;
   timeoutMs?: number;
-}): Promise<GeneratedDescription> {
+}, fetcher: typeof fetch = fetch): Promise<GeneratedDescription> {
   const facts = {
     product: productLabel(input.product),
     sourceUrl: input.sourceUrl,
     sourceTitle: input.extracted.title,
-    sourceDescription: input.extracted.description,
+    sourceDescription: customerProductCopy(removePromotionalDescriptionSentences(input.extracted.description)),
     skinTypeOrCondition: input.extracted.skinType,
     confirmedBenefits: input.extracted.benefits,
     ingredients: input.extracted.ingredients,
     application: input.extracted.application,
     sourceSku: input.extracted.sku,
     sourceBrand: input.extracted.brand,
+    variants: normalizeStoredVariants(input.product.variants).map((variant) => ({ sku: variant.sku, label: variant.label })),
   };
 
   const raw = await requestStructured({
@@ -724,24 +740,32 @@ export async function generateProductDescription(input: {
       "Ты редактор карточек профессиональной косметики. Пиши для покупателя: живое, конкретное описание с продающим уклоном через задачи и пользу продукта, строго по фактам источника.",
       "Не придумывай состав, сертификаты, медицинские свойства, тип кожи, объём, способ применения или гарантированный результат. Не копируй исходный текст дословно большими фрагментами.",
       "Краткое описание: 1–2 живых предложения до 280 символов. Начни с задачи или эффекта, прямо подтверждённого для этого средства; затем назови полезные особенности формулы. Это не SEO-заголовок.",
-      "Полное описание: 2–3 коротких абзаца. Первый — что это за средство и какую задачу решает. Далее — 2–3 конкретные выгоды и ключевые компоненты, если они указаны. Ориентир 400–800 символов; если фактов мало, пиши короче, не растягивай текст.",
+      "Полное описание: ориентир 400–800 символов, если фактов достаточно. Объём определяется фактами: при их нехватке пиши короче, без обязательного числа абзацев или преимуществ. Начни с конкретной пользы и формата средства. Каждая фраза должна сообщать покупателю полезный факт.",
       "Описывай ожидаемый уходовый эффект естественно: «помогает выровнять вид тона», «поддерживает увлажнение», если это указано для данного товара в источнике. Не обещай лечение или гарантированный результат. Не выводи свойства средства только из названия или общего знания о составе.",
-      "Если тип кожи не указан, не пиши «для всех типов». Недостающие сведения записывай только в warnings: никогда не говори покупателю «не указано», «не подтверждено», «источник не уточняет», «название указывает» и не пересказывай процесс проверки данных.",
+      "Если источник прямо указывает тип или состояние кожи, добавь раздел «Для какой кожи». Если тип кожи не подтверждён, не пиши «для всех типов»: опиши только подтверждённые задачи в разделе «Для каких задач», а код skin_type_not_confirmed добавь только в warnings. Никогда не включай служебные коды в описание и не пересказывай процесс проверки данных.",
       "Полный список INCI оставь в поле ingredients; в описании назови максимум 2–4 значимых компонента без длинного перечня и не приписывай им индивидуальные роли, которых нет в источнике. Инструкцию по применению вынеси в application.",
+      "Подтверждённые преимущества можно оформить коротким списком с маркером •; число строк определяется фактами. Активные компоненты упоминай только вместе с подтверждённой ролью; полный состав не дублируй.",
+      "Не дописывай универсальное заключение о месте средства в уходе. Не используй заполнители вроде «может занять место в уходе», «дополнительное средство для лица», «для тех, кто выбирает формат ухода».",
+      "В кратком и полном описании, application и ingredients запрещены сообщения о нехватке данных: «не указано», «не подтверждено», «сведения отсутствуют», «точные рекомендации неизвестны». Все такие замечания предназначены только администратору в warnings. Пустые разделы пропускай.",
+      "Если у товара несколько фасовок, описание должно подходить всей линейке вариантов: не закрепляй за ним единственную массу из sourceTitle. Количества в подтверждённом протоколе разведения сохраняй точно.",
       "Тон — уверенный, профессиональный и понятный. Без пустых эпитетов, давления, срочности, превосходной степени и шаблонных фраз о «комплексной формуле» или «персональном уходе».",
       "В содержимом не должно быть рекламных SEO-фраз: не призывай купить или заказать, не упоминай цену, наличие, доставку, страны, города, магазин или фразу «от производителя».",
       "Поля application и ingredients заполняй отдельно по источнику. Если подтверждённых данных для поля нет, верни пустую строку и добавь понятное предупреждение.",
     ].join("\n"),
     user: JSON.stringify(facts),
     timeoutMs: input.timeoutMs ?? 20_000,
-  });
+  }, fetcher);
 
   const generated = DescriptionResultSchema.parse(raw);
-  const shortDescription = sanitizeShortDescription(generated.shortDescription);
+  const shortDescription = sanitizeShortDescription(customerProductCopy(generated.shortDescription));
   const description = removeRepeatedIngredientList(
-    removeEditorialBoilerplate(removePromotionalDescriptionSentences(generated.description)),
+    removeEditorialBoilerplate(removePromotionalDescriptionSentences(customerProductCopy(generated.description))),
     generated.ingredients,
   );
+  const application = customerProductCopy(generated.application) || customerProductCopy(input.extracted.application);
+  const ingredients = customerProductCopy(generated.ingredients) || customerProductCopy(input.extracted.ingredients);
+  const editorialNotes = [generated.shortDescription, generated.description, generated.application, generated.ingredients]
+    .some(hasMissingProductData);
   const filtered =
     normalizeDescriptionText(shortDescription) !==
       normalizeDescriptionText(generated.shortDescription) ||
@@ -752,8 +776,13 @@ export async function generateProductDescription(input: {
     ...generated,
     shortDescription,
     description,
+    application,
+    ingredients,
     warnings: [
       ...generated.warnings,
+      ...(editorialNotes ? ["editorial_notes_removed"] : []),
+      ...(!description ? ["description_missing"] : []),
+      ...(!application ? ["application_missing"] : []),
       ...(filtered ? ["promotional_description_removed"] : []),
     ],
   };
@@ -763,21 +792,23 @@ export function fallbackDescription(
   extracted: ExtractedProductData,
 ): GeneratedDescription {
   const sourceDescription = normalizeDescriptionText(extracted.description);
-  const description = removeEditorialBoilerplate(removePromotionalDescriptionSentences(sourceDescription));
+  const description = customerProductCopy(removeEditorialBoilerplate(removePromotionalDescriptionSentences(sourceDescription)));
   const shortDescription = sanitizeShortDescription(description);
+  const application = customerProductCopy(extracted.application);
+  const ingredients = customerProductCopy(extracted.ingredients);
   return {
     shortDescription,
     description,
-    application: extracted.application || "",
-    ingredients: extracted.ingredients || "",
+    application,
+    ingredients,
     warnings: [
       "openai_not_configured",
       ...(!description ? ["description_missing"] : []),
       ...(sourceDescription && sourceDescription !== description
         ? ["promotional_description_removed"]
         : []),
-      ...(!extracted.application ? ["application_missing"] : []),
-      ...(!extracted.ingredients ? ["ingredients_missing"] : []),
+      ...(!application ? ["application_missing"] : []),
+      ...(!ingredients ? ["ingredients_missing"] : []),
     ],
   };
 }
