@@ -170,12 +170,17 @@ function selectorImages(
   $: cheerio.CheerioAPI,
   selector: string | undefined,
   baseUrl: string,
+  productScope?: object,
 ) {
   if (!selector) return [] as string[];
 
   const images: string[] = [];
   try {
     $(selector).each((_, element) => {
+      if (productScope && (
+        $(element).closest(".js-product").get(0) !== productScope ||
+        $(element).closest(NON_PRODUCT_IMAGE_AREA).length
+      )) return;
       const raw =
         $(element).attr("data-img-zoom-url") ||
         $(element).attr("data-original") ||
@@ -338,7 +343,13 @@ function isLikelyProductImage(value: string) {
   return Boolean(value) && isProductPhoto(value);
 }
 
-function tildaSingleProduct($: cheerio.CheerioAPI, baseUrl: string) {
+const NON_PRODUCT_IMAGE_AREA = "header, nav, footer, aside, [class*='recommend'], [class*='related'], [class*='cart']";
+
+function tildaSingleProduct(
+  $: cheerio.CheerioAPI,
+  baseUrl: string,
+  configuredImages?: string,
+) {
   const products = $(".js-product-single, .js-store-product_single");
   if (products.length !== 1) return null;
   const product = products.first();
@@ -353,6 +364,7 @@ function tildaSingleProduct($: cheerio.CheerioAPI, baseUrl: string) {
   galleryScope.find(".js-product-img, [data-img-zoom-url], [itemprop='image']").each(
     (_, element) => {
       if ($(element).closest(".js-product").get(0) !== product.get(0)) return;
+      if ($(element).closest(NON_PRODUCT_IMAGE_AREA).length) return;
       const own = $(element);
       const raw =
         own.attr("data-img-zoom-url") || own.attr("data-original") ||
@@ -389,7 +401,10 @@ function tildaSingleProduct($: cheerio.CheerioAPI, baseUrl: string) {
     title,
     description,
     color,
-    images: [...new Set(gallery)],
+    images: [...new Set([
+      ...gallery,
+      ...selectorImages($, configuredImages, baseUrl, product.get(0)),
+    ])],
     sku: cleanText(ownElements(".js-product-sku").first().text(), 100),
     hasVariants: ownElements("select").toArray().some(
       (select) => $(select).find("option").filter(
@@ -584,7 +599,9 @@ export function extractProductFromHtml(input: {
       : null) ||
     products[0] ||
     null;
-  const tilda = products.length ? null : tildaSingleProduct($, input.finalUrl);
+  const tilda = products.length ? null : tildaSingleProduct(
+    $, input.finalUrl, input.selectors?.images,
+  );
   const bodyText = cleanText($("body").text(), 200_000) || "";
 
   const selectorTitle = selectorText($, input.selectors?.title, 500);

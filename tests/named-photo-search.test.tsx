@@ -139,6 +139,20 @@ test("Tilda name matching rejects another color, accessory, manufacturer or ambi
   }), []);
 });
 
+test("supplier image selectors still read a custom Tilda gallery while remaining inside the primary product", () => {
+  const custom = rugPage.toString().replace('class="t-slds"', 'class="custom-gallery"')
+    .replace('<!--/gallery -->', '<!--/gallery --><div class="recommendations"><img class="custom-photo" src="https://static.tildacdn.pro/wrong.jpg"></div>');
+  const input = { buffer: Buffer.from(custom), finalUrl: rugUrl };
+  assert.deepEqual(extractProductFromHtml(input).images, []);
+  assert.deepEqual(extractProductFromHtml({
+    ...input,
+    selectors: { images: ".custom-gallery [data-original], .recommendations img, header img" },
+  }).images, [rugPhoto]);
+  assert.deepEqual(extractProductFromHtml({
+    ...input, selectors: { images: "[invalid" },
+  }).images, []);
+});
+
 test("the saved rug page supplies an automatic photo for an internal price SKU without an AI search", async () => {
   const requested: string[] = [];
   const photos = await collectProposalPhotos({
