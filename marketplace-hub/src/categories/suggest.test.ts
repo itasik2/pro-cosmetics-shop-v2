@@ -24,6 +24,12 @@ test("description-only vague claim never produces automatic classification",()=>
    title:"Product 123", description:"Крем с увлажняющим действием"
  },categories),[]);
 });
+test("matching short and full descriptions can classify a generic title",()=>{
+ const result=suggestCategories({title:"Product 123",shortDescription:"Средство для очищения кожи",
+   description:"Мягкое очищение лица перед уходом"},categories);
+ assert.equal(result[0]?.key,"Очищение и тонизация");
+ assert.equal(result[0]?.score,5);
+});
 test("inactive or nonexistent category cannot be suggested",()=>{
  const result=suggestCategories({title:"Hair Growth concentrate"},["Ретиноиды"]);
  assert.equal(result.length,0);

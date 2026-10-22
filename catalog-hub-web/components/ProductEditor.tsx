@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useState, type FormEvent } from "react";
+import { Fragment, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import type { HubProduct } from "@/lib/hub";
 import { SharedProductSearch } from "@/components/SharedProductSearch";
@@ -50,7 +50,6 @@ function formatAttributes(value: unknown): string {
 }
 
 type Category = {key:string;name:string;isActive:boolean;productCount:number};
-type Suggestion = { key:string;score:number;reason:string };
 export function ProductEditor({ product, categories, searchEnabled, canWrite }: {
   product: HubProduct; categories: Category[]; searchEnabled: boolean; canWrite: boolean;
 }) {
@@ -70,35 +69,19 @@ export function ProductEditor({ product, categories, searchEnabled, canWrite }: 
     images: (product.images || []).join("\n"),
   });
   const [dirty, setDirty] = useState<Set<keyof Values>>(() => new Set());
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
-  const [suggestStatus, setSuggestStatus] = useState("");
-  const [suggestBusy, setSuggestBusy] = useState(false);
+  const currentCategory=useRef(product.categoryKey === "Без категории" ? "" : product.categoryKey || "");
+  const categoryEditedByUser=useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [success,setSuccess]=useState("");
   const [version,setVersion]=useState(product.updatedAt);
 
   function update(key: keyof Values, value: string) {
+    if(key==="categoryKey")currentCategory.current=value;
     setForm((prev) => ({ ...prev, [key]: value }));
     setDirty((prev) => new Set(prev).add(key));
     setError("");
     setSuccess("");
-  }
-
-  async function suggestCategory() {
-    setSuggestBusy(true);
-    setSuggestStatus("");
-    setSuggestions([]);
-    try {
-      const response = await fetch("/api/categories/suggest?productId=" + encodeURIComponent(product.id), { cache:"no-store" });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(String(body?.error || "category_suggestions_failed"));
-      const list = Array.isArray(body?.suggestions) ? body.suggestions : [];
-      setSuggestions(list);
-      if (!list.length) setSuggestStatus("Для этого товара нет достаточно надёжной подсказки. Выберите категорию вручную.");
-    } catch (error) {
-      setSuggestStatus(error instanceof Error ? error.message : "Не удалось получить подсказку");
-    } finally { setSuggestBusy(false); }
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -193,7 +176,7 @@ export function ProductEditor({ product, categories, searchEnabled, canWrite }: 
             <span>{label}</span>
             {key === "categoryKey" ? (
               <select className="input" value={form.categoryKey}
-                onChange={(event) => update("categoryKey", event.target.value)}>
+                onChange={(event) => {categoryEditedByUser.current=true;update("categoryKey", event.target.value);}}>
                 <option value="">Без категории — требуется проверка</option>
                 {categories.filter((cat) => cat.isActive).map(cat =>
                   <option key={cat.key} value={cat.key}>{cat.name}</option>)}
@@ -212,21 +195,6 @@ export function ProductEditor({ product, categories, searchEnabled, canWrite }: 
           </label>
           </Fragment>
         ))}
-        <div className="editor-field wide">
-          <div className="actions">
-            <button type="button" className="button" onClick={suggestCategory} disabled={suggestBusy}>
-              {suggestBusy ? "Определение…" : "Предложить категорию"}
-            </button>
-          </div>
-          <p className="subtle">Проверьте предложенную категорию перед сохранением.</p>
-          {suggestStatus && <p className="subtle" role="status">{suggestStatus}</p>}
-          {suggestions.length > 0 && <div className="category-suggestions">
-            {suggestions.map(s => <button className="button" type="button" key={s.key}
-              onClick={() => update("categoryKey",s.key)}>
-              {s.key} <span className="subtle">({s.reason})</span>
-            </button>)}
-          </div>}
-        </div>
         <h3 className="editor-section-title">Цены</h3>
         <label className="editor-field">
           <span>Закупочная цена, ₸</span>
@@ -261,9 +229,13 @@ export function ProductEditor({ product, categories, searchEnabled, canWrite }: 
       </div>
       <div style={{marginTop:14}}>
         <SharedProductSearch product={product} enabled={searchEnabled} canWrite={canWrite}
+          categoryKey={form.categoryKey}
           onSelect={proposal=>{
             for(const [key,value] of Object.entries(proposal)){
               if(key==="images") update("images",(value as string[]).join("\n"));
+              else if(key==="categoryKey"){
+                if(!categoryEditedByUser.current&&!currentCategory.current)update("categoryKey",String(value));
+              }
               else update(key as keyof Values,String(value));
             }
           }}/>

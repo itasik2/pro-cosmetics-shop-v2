@@ -110,6 +110,13 @@ assert.ok(created,"New test product not created");
 assert.equal(created.price,1500);
 assert.equal(created.stock,0,"Supplier stock must not be copied");
 assert.equal(created.attributes.supplierImport.fileName,"integration-import.csv");
+const categorySuggestion=(await request(ui+"/api/categories/suggest",{
+ method:"POST",headers:{...httpHeaders,"content-type":"application/json"},
+ body:JSON.stringify({productId:created.id,preview:{shortDescription:"Средство для очищения кожи",
+  description:"Мягкое очищение лица перед уходом"}})
+})).data;
+assert.equal(categorySuggestion.suggestions[0]?.key,"Очищение и тонизация");
+assert.equal(categorySuggestion.suggestions[0]?.score,5);
 assert.equal(after.items.find(p=>p.sku==="TEST-LOCAL-001")?.price,old.price,
   "Staged change must not edit product immediately");
 const history=(await request(ui+"/api/import/local-profiles",{headers:{cookie}})).data.history;
@@ -146,4 +153,5 @@ await request(ui+"/api/catalog/save",{
 });
 console.log("PASS: preview, history replay with fresh catalog, staged update, created product, stock=0, selected history deletion.");
 console.log("PASS: manual card save is atomic and rejects stale edits.");
+console.log("PASS: search preview descriptions produce a category from the active dictionary.");
 console.log("Only localhost API used; no production Supabase writes.");
