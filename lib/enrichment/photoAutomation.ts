@@ -2,7 +2,7 @@ import { namePhotoKey, photoCandidateIsCurrent, type NamePhotoProduct } from "./
 import { imageGroups, photoSku, type ImageVariant } from "./variantImages";
 import { isProductPhoto, isUsablePhoto } from "./photoQuality";
 
-export const PHOTO_AUTOMATION_VERSION = 8;
+export const PHOTO_AUTOMATION_VERSION = 9;
 export const VARIANT_PHOTO_BUDGET_MS = 140_000;
 
 export type PhotoSearchProduct = NamePhotoProduct & {

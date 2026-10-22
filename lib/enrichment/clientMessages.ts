@@ -1,5 +1,7 @@
 export function enrichmentFailureMessage(code: string) {
   const messages: Record<string, string> = {
+    source_access_blocked:
+      "Сайт источника ограничил автоматическое чтение. Это не означает, что фото отсутствует; проверьте другой источник.",
     stale_enrichment_job_recovered:
       "Предыдущий поиск прервался и был остановлен. Можно повторить поиск или продолжить редактирование.",
     openai_timeout:
@@ -37,6 +39,7 @@ export function enrichmentFailureMessage(code: string) {
 
 export function variantPhotoSearchIssue(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
+  if (message === "source_access_blocked") return { code: message, message: enrichmentFailureMessage(message) };
   const rejectionMessages: Record<string, string> = {
     photo_identity_missing:
       "На странице источника недостаточно данных для проверки товара.",

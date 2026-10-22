@@ -66,6 +66,7 @@ function recoverableDiscoveryFailure(value: string | null | undefined) {
       "source_redirect_without_location",
       "source_too_many_redirects",
       "source_fetch_failed",
+      "source_access_blocked",
       "openai_timeout",
       "openai_empty_output",
       "openai_invalid_json",

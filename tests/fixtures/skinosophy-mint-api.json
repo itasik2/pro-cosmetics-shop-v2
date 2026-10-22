@@ -1,0 +1,33 @@
+{
+  "products": [
+    {
+      "uid": 452411431282,
+      "title": "Охлаждающая альгинатная маска с мятой",
+      "url": "https://skinosophy.kz/catalog/ohlazhdayushaya-alginatnaya-maska-s-myatoy",
+      "buttonlink": "https://skinosophy.kz/catalog/ohlazhdayushaya-alginatnaya-maska-s-myatoy",
+      "json_options": "[{\"title\":\"Упаковка\",\"params\":[],\"values\":[\"Саше — 30 г\",\"Банка — 210 г\",\"Дой-пак — 1 кг\"]}]",
+      "gallery": "[{\"img\":\"https:\\/\\/static.tildacdn.pro\\/stor3566-3930-4531-a632-336166646532\\/52632829.jpg\"},{\"img\":\"https:\\/\\/static.tildacdn.pro\\/stor6561-6439-4632-a266-376264636532\\/43278751.jpg\"},{\"img\":\"https:\\/\\/static.tildacdn.pro\\/stor3261-6533-4632-a136-373336306364\\/48877249.png\"},{\"img\":\"https:\\/\\/static.tildacdn.pro\\/stor3263-3565-4463-a165-386166363131\\/99830540.png\"},{\"img\":\"https:\\/\\/static.tildacdn.pro\\/stor6333-3232-4463-b237-363337303964\\/43329750.jpg\"},{\"img\":\"https:\\/\\/static.tildacdn.pro\\/stor3264-6334-4966-b063-666333353234\\/96807242.jpg\"}]",
+      "editions": [
+        {
+          "uid": 273228754822,
+          "sku": "SKY026",
+          "img": "https://static.tildacdn.pro/stor3566-3930-4531-a632-336166646532/52632829.jpg",
+          "Упаковка": "Саше — 30 г"
+        },
+        {
+          "uid": 695632145342,
+          "sku": "SKY006",
+          "img": "https://static.tildacdn.pro/stor3261-6533-4632-a136-373336306364/48877249.png",
+          "Упаковка": "Банка — 210 г"
+        },
+        {
+          "uid": 537172298502,
+          "sku": "SKY016",
+          "img": "https://static.tildacdn.pro/stor3263-3565-4463-a165-386166363131/99830540.png",
+          "Упаковка": "Дой-пак — 1 кг"
+        }
+      ]
+    }
+  ],
+  "total": 1
+}

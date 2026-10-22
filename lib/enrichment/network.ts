@@ -12,6 +12,8 @@ type SafeFetchOptions = {
   acceptedContentTypes: string[];
   timeoutMs?: number;
   maxRedirects?: number;
+  jsonBody?: unknown;
+  sourceOrigin?: string;
 };
 
 type FetchDependencies = {
@@ -53,6 +55,16 @@ export type SafeFetchResult = {
 
 const USER_AGENT =
   "ProCosmeticsSourceMonitor/1.0 (+https://procosmetics.kz; admin-managed sources)";
+
+export function isBlockedSourceHtml(buffer: Buffer) {
+  const html = buffer.subarray(0, 128_000).toString("utf8");
+  const visible = html.replace(/<(script|style|noscript)\b[^>]*>[\s\S]*?<\/\1>/gi, "");
+  const headings = [...visible.matchAll(/<(?:title|h[1-3])\b[^>]*>([\s\S]*?)<\/(?:title|h[1-3])>/gi)]
+    .map((match) => match[1].replace(/<[^>]*>/g, " ")).join(" ");
+  return /(?:sorry,?\s+your request has been (?:denied|blocked)|access denied|verify (?:that )?you are (?:a )?human|checking your browser|robot verification|подтвердите,?\s+что вы не робот)/i.test(headings) ||
+    (/\b(?:antibot-|cf-chl-|challenge-form)/i.test(html) &&
+      /(?:request (?:has been )?(?:denied|blocked)|just a moment|verify.{0,30}human|checking your browser)/i.test(visible.replace(/<[^>]*>/g, " ")));
+}
 
 function normalizeHostname(value: string) {
   return value.trim().toLowerCase().replace(/\.$/, "");
@@ -242,13 +254,16 @@ export async function safeFetchExternal(
       try {
         response = await untilAbort(
           fetcher(url, {
-            method: "GET",
+            method: options.jsonBody === undefined ? "GET" : "POST",
+            ...(options.jsonBody === undefined ? {} : { body: JSON.stringify(options.jsonBody) }),
             redirect: "manual",
             cache: "no-store",
             signal: controller.signal,
             headers: {
               "User-Agent": USER_AGENT,
               Accept: options.acceptedContentTypes.join(", "),
+              ...(options.jsonBody === undefined ? {} : { "Content-Type": "text/plain;charset=UTF-8" }),
+              ...(options.sourceOrigin ? { Origin: options.sourceOrigin, Referer: options.sourceOrigin + "/" } : {}),
             },
           }),
           controller.signal,
@@ -297,6 +312,7 @@ export async function safeFetchExternal(
         readLimitedBody(response, options.maxBytes, controller.signal),
         controller.signal,
       );
+      if (/html/.test(contentType) && isBlockedSourceHtml(buffer)) throw new Error("source_access_blocked");
       const headers: Record<string, string> = {};
       response.headers.forEach((value, key) => {
         headers[key] = value;
@@ -319,6 +335,25 @@ export async function safeFetchExternal(
     clearTimeout(timeout);
     controller.abort();
   }
+}
+
+/** Public storefront metadata uses its page origin, just like its own catalog UI. */
+export async function safeFetchCatalogJson(
+  url: string,
+  policies: AllowedSourcePolicy[],
+  options: { sourceUrl: string; jsonBody?: unknown; timeoutMs?: number },
+  dependencies: FetchDependencies = {},
+) {
+  const page = new URL(options.sourceUrl);
+  if (!/^https?:$/.test(page.protocol) || page.username || page.password) throw new Error("invalid_source_url");
+  const result = await safeFetchExternal(url, {
+    policies, maxBytes: 2 * 1024 * 1024,
+    acceptedContentTypes: ["application/json", "text/json", "text/plain", "text/html"],
+    timeoutMs: options.timeoutMs ?? 12_000, maxRedirects: 1,
+    jsonBody: options.jsonBody, sourceOrigin: page.origin,
+  }, dependencies);
+  try { return JSON.parse(result.buffer.toString("utf8")) as unknown; }
+  catch { throw new Error("source_catalog_invalid_json"); }
 }
 
 export function safeFetchHtml(

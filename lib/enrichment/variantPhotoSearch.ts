@@ -10,7 +10,8 @@ import {
   findOfficialProductUrl,
   findExternalProductUrl,
 } from "./openaiResponses";
-import { safeFetchHtml, type AllowedSourcePolicy } from "./network";
+import { safeFetchHtml, safeFetchCatalogJson, type AllowedSourcePolicy } from "./network";
+import { tildaVariantPhoto, tildaCatalogProductUrls } from "./tildaCatalog";
 import { remainingTime } from "./timeBudget";
 import { photoSku, type VariantImageCandidate } from "./variantImages";
 import {
@@ -32,6 +33,7 @@ type Dependencies = {
     input: Parameters<typeof findExternalProductUrl>[0],
   ) => Promise<SearchResult>;
   fetchHtml: typeof safeFetchHtml;
+  fetchJson?: typeof safeFetchCatalogJson;
 };
 export function productForVariant(
   product: MatchableProduct,
@@ -118,14 +120,20 @@ export async function searchVariantPhotos(
       const fetched = await dependencies.fetchHtml(url, policies, {
         timeoutMs: remainingTime(until, 12_000),
       });
-      const extracted = extractProductFromHtml({
+      let extracted = extractProductFromHtml({
         buffer: fetched.buffer,
         finalUrl: fetched.finalUrl,
         expectedSku: sku,
       });
+      const edition = !byName ? await tildaVariantPhoto({
+        buffer: fetched.buffer, finalUrl: fetched.finalUrl, product: input.product, sku,
+        officialDomains: input.officialDomains, deadlineAt: until,
+      }, dependencies.fetchJson || safeFetchCatalogJson) : null;
+      if (edition) extracted = { ...extracted, title: edition.title, sku: edition.sku,
+        brand: input.product.brand?.name || null, description: null, images: [edition.image], hasVariants: true };
       const match = scoreProductMatch(product, extracted);
       const pageIssues = new Set<string>();
-      let images = byName
+      let images = edition ? [edition.image] : byName
         ? extractImagesForNamedProduct({
             buffer: fetched.buffer,
             finalUrl: fetched.finalUrl,
@@ -186,7 +194,8 @@ export async function searchVariantPhotos(
         !byName &&
         (photoSku(extracted.sku) !== photoSku(sku) ||
           match.evidence.brand === "mismatch" ||
-          match.evidence.volume === "mismatch")
+          match.evidence.volume === "mismatch" ||
+          (edition && product.volumeValue && match.evidence.volume !== "match"))
       )
         return false;
       if (byName && !images.length)
@@ -196,7 +205,7 @@ export async function searchVariantPhotos(
           url: image,
           source: "WEB" as const,
           sourceUrl: fetched.finalUrl,
-          ...(byName
+          ...(byName || edition
             ? { identityKey: namePhotoKey(input.product, input.variant) }
             : {}),
         })),
@@ -224,10 +233,14 @@ export async function searchVariantPhotos(
         const page = await dependencies.fetchHtml(url, input.policies, {
           timeoutMs: remainingTime(catalogDeadline, 8_000),
         });
-        for (const productUrl of catalogProductUrls(
+        const links = catalogProductUrls(
           page.buffer,
           page.finalUrl,
-        )) {
+        );
+        if (!links.length) links.push(...await tildaCatalogProductUrls({
+          buffer: page.buffer, finalUrl: page.finalUrl, product: input.product, sku, deadlineAt: catalogDeadline,
+        }, dependencies.fetchJson || safeFetchCatalogJson));
+        for (const productUrl of links) {
           if (await inspect(productUrl, false, catalogDeadline)) break;
         }
         if (candidates.length) break;
