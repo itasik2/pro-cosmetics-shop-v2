@@ -10,7 +10,10 @@ import {
 } from "../lib/enrichment/automaticPhotos";
 import { collectProposalPhotos } from "../lib/enrichment/prepareProposalPhotos";
 import { removeProposalVariant } from "../lib/enrichment/removeProposalVariant";
-import { applyProductEnrichmentProposalUniversal } from "../lib/enrichment/applyProposalUniversal";
+import {
+  applyProductEnrichmentProposalUniversal,
+  ProposalPublicationError,
+} from "../lib/enrichment/applyProposalUniversal";
 import { proposalApplySchema } from "../lib/enrichment/proposalApplyInput";
 import {
   removedVariantSkus,
@@ -307,7 +310,10 @@ function deletionFixture() {
       price: 1500,
       stock: 5,
       supplierId: "supplier",
+      brandId: "brand",
+      category: "Уход за лицом",
       isPublished: false,
+      enrichmentStatus: "REVIEW",
       sourceUrl: "https://brand.example/small",
       updatedAt: new Date(1000),
     },
@@ -329,7 +335,8 @@ function deletionFixture() {
       },
     ],
   };
-  const flags = { failProduct: false, failProposal: false };
+  state.jobs = [{ id: "job", productId: "p", status: "REVIEW" }];
+  const flags = { failProduct: false, failProposal: false, failCleanup: false };
   let clock = 2000;
   function db(get: () => any): any {
     return {
@@ -341,7 +348,8 @@ function deletionFixture() {
         updateMany: async ({ where, data }: any) => {
           if (
             flags.failProduct ||
-            +where.updatedAt !== +get().product.updatedAt
+            +where.updatedAt !== +get().product.updatedAt ||
+            where.enrichmentStatus?.notIn.includes(get().product.enrichmentStatus)
           )
             return { count: 0 };
           Object.assign(get().product, structuredClone(data), {
@@ -358,32 +366,50 @@ function deletionFixture() {
                 product: get().product,
               })
             : null,
-        count: async () =>
-          get().proposals.filter((row: any) => row.status === "PENDING").length,
+        count: async ({ where }: any) =>
+          get().proposals.filter((row: any) =>
+            row.productId === where.productId && row.status === where.status &&
+            (!where.confidence || row.confidence > where.confidence.gt),
+          ).length,
         findMany: async () =>
           structuredClone(
             get().proposals.filter((row: any) => row.status === "PENDING"),
           ),
         updateMany: async ({ where, data }: any) => {
-          const row = get().proposals.find((row: any) => row.id === where.id);
-          if (
-            !row ||
-            flags.failProposal ||
-            row.status !== where.status ||
-            +row.updatedAt !== +where.updatedAt
-          )
-            return { count: 0 };
-          Object.assign(row, structuredClone(data), {
+          if (flags.failCleanup && typeof where.id === "object")
+            throw new Error("cleanup_failed");
+          if (flags.failProposal) return { count: 0 };
+          const rows = get().proposals.filter((row: any) =>
+            row.status === where.status &&
+            (!where.productId || row.productId === where.productId) &&
+            (typeof where.id === "string" ? row.id === where.id : row.id !== where.id?.not) &&
+            (!where.updatedAt || +row.updatedAt === +where.updatedAt),
+          );
+          rows.forEach((row: any) => Object.assign(row, structuredClone(data), {
             updatedAt: new Date(clock++),
-          });
-          return { count: 1 };
+          }));
+          return { count: rows.length };
+        },
+      },
+      enrichmentJob: {
+        findFirst: async ({ where }: any) => get().jobs.find((row: any) =>
+          row.productId === where.productId && where.status.in.includes(row.status),
+        ) || null,
+        update: async ({ where, data }: any) => Object.assign(
+          get().jobs.find((row: any) => row.id === where.id), structuredClone(data),
+        ),
+        updateMany: async ({ where, data }: any) => {
+          const rows = get().jobs.filter((row: any) =>
+            row.productId === where.productId && row.status === where.status,
+          );
+          rows.forEach((row: any) => Object.assign(row, structuredClone(data)));
+          return { count: rows.length };
         },
       },
       productImage: {
         updateMany: async () => ({ count: 1 }),
         update: async () => ({}),
       },
-      enrichmentJob: { update: async () => ({}) },
       $transaction: async (callback: (tx: any) => Promise<any>) => {
         const draft = structuredClone(state);
         const result = await callback(db(() => draft));
@@ -406,6 +432,118 @@ const remove = {
   variantId: "small",
   sku: "MV16",
 };
+
+test("publication requires a complete manual apply and cannot be enabled by automatic enrichment", async () => {
+  assert.equal(proposalApplySchema.safeParse({ publishNow: true }).success, true);
+  for (const mode of ["DESCRIPTION", "DESCRIPTION_FINAL", "IMAGE", "INVENTORY"])
+    assert.equal(proposalApplySchema.safeParse({ mode, publishNow: true }).success, false);
+  assert.equal(proposalApplySchema.safeParse({ mode: "IMAGE", publishNow: false }).success, true);
+  assert.equal(proposalApplySchema.safeParse({ publishNow: "true" }).success, false);
+  const f = deletionFixture();
+  const before = structuredClone(f.state);
+  await assert.rejects(applyProductEnrichmentProposalUniversal({
+    proposalId: "proposal", mode: "ALL", publishNow: true, automatic: true,
+  }, { database: f.database }), /publication_full_review_required/);
+  assert.deepEqual(f.state, before);
+});
+
+test("publishing an AI proposal atomically saves text, SKU photos and stocks and retires only this card's older reviews", async () => {
+  const f = deletionFixture();
+  const original = structuredClone(f.state.proposals[0]);
+  f.state.proposals.push(
+    { ...original, id: "older", jobId: "old-job" },
+    { ...original, id: "unrelated", productId: "other", jobId: "other-job" },
+  );
+  f.state.jobs.push(
+    { id: "old-job", productId: "p", status: "REVIEW" },
+    { id: "other-job", productId: "other", status: "REVIEW" },
+  );
+  const beforeVariants = structuredClone(f.state.product.variants);
+  let uploads = 0;
+  const result = await applyProductEnrichmentProposalUniversal({
+    proposalId: "proposal", mode: "ALL", publishNow: true,
+    imageUrl: groups[1].candidates[0].url,
+    variantImages: [{ variantId: "large", sku: "AG16", imageUrl: groups[1].candidates[0].url }],
+    variantStocks: { large: 7 },
+  }, {
+    database: f.database, loadPriceImages: async () => new Map(),
+    importImage: async () => { uploads++; return { id: "media", url: "https://media.example/large.jpg" } as any; },
+  });
+  assert.equal(uploads, 1);
+  assert.equal(result.proposal?.product.isPublished, true);
+  assert.equal(f.state.product.enrichmentStatus, "READY");
+  assert.equal(f.state.product.shortDescription, original.shortDescription);
+  assert.equal(f.state.product.description, original.description);
+  assert.equal(f.state.product.image, "https://media.example/large.jpg");
+  assert.equal(f.state.product.variants[1].image, f.state.product.image);
+  assert.equal(f.state.product.variants[1].stock, 7);
+  assert.deepEqual(f.state.product.variants[0], beforeVariants[0]);
+  assert.equal(f.state.product.stock, 10);
+  assert.equal(f.state.product.price, 1500);
+  assert.deepEqual(f.state.proposals.map((row: any) => row.status), ["APPLIED", "REJECTED", "PENDING"]);
+  assert.deepEqual(f.state.jobs.map((row: any) => row.status), ["APPLIED", "CANCELED", "REVIEW"]);
+});
+
+test("a missing photo, brand, category or price keeps an AI proposal pending and the product unpublished", async () => {
+  for (const [field, value, missing] of [
+    ["image", "/seed/cream.jpg", "фотография"],
+    ["brandId", null, "бренд"],
+    ["category", "", "категория"],
+    ["price", 0, "цена"],
+  ]) {
+    const f = deletionFixture();
+    f.state.product.image = "/media/current.jpg";
+    f.state.product[String(field)] = value;
+    const before = structuredClone(f.state);
+    await assert.rejects(applyProductEnrichmentProposalUniversal({
+      proposalId: "proposal", mode: "ALL", publishNow: true,
+    }, { database: f.database }), (error: unknown) => {
+      assert.ok(error instanceof ProposalPublicationError);
+      assert.deepEqual(error.missing, [missing]);
+      return true;
+    });
+    assert.deepEqual(f.state, before);
+  }
+});
+
+test("publication with a saved common photo needs no new download and also supports cards without variants", async () => {
+  const f = deletionFixture();
+  f.state.product.image = "/media/current.jpg";
+  f.state.product.variants = [];
+  await applyProductEnrichmentProposalUniversal({
+    proposalId: "proposal", mode: "ALL", publishNow: true, stock: 8,
+  }, {
+    database: f.database,
+    importImage: async () => { throw new Error("saved photo must not be downloaded"); },
+  });
+  assert.equal(f.state.product.isPublished, true);
+  assert.equal(f.state.product.stock, 8);
+  assert.equal(f.state.product.price, 1500);
+  assert.equal(f.state.product.image, "/media/current.jpg");
+});
+
+test("publication failures and competing edits roll back application, cleanup and publication together", async () => {
+  for (const condition of ["upload", "cleanup", "product-race", "proposal-race", "job", "running", "merged"]) {
+    const f = deletionFixture();
+    if (condition === "cleanup") f.flags.failCleanup = true;
+    if (condition === "product-race") f.flags.failProduct = true;
+    if (condition === "proposal-race") f.flags.failProposal = true;
+    if (condition === "job") f.state.jobs.push({ id: "active", productId: "p", status: "RUNNING" });
+    if (condition === "running") f.state.product.enrichmentStatus = "RUNNING";
+    if (condition === "merged") f.state.product.enrichmentStatus = "MERGED";
+    const before = structuredClone(f.state);
+    await assert.rejects(applyProductEnrichmentProposalUniversal({
+      proposalId: "proposal", mode: "ALL", publishNow: true, imageUrl: groups[0].candidates[0].url,
+    }, {
+      database: f.database,
+      importImage: async () => {
+        if (condition === "upload") throw new Error("upload_failed");
+        return { id: "media", url: "https://media.example/small.jpg" } as any;
+      },
+    }));
+    assert.deepEqual(f.state, before, condition);
+  }
+});
 
 test("a verified sibling SKU photo can become common and own photo with one upload and no inventory changes", async () => {
   const f = deletionFixture();

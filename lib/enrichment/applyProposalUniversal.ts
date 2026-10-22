@@ -5,6 +5,7 @@ import {
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { normalizeStoredVariants } from "@/lib/price-import/productVariants";
+import { publicationMissingFields } from "@/lib/productPublication";
 import { importProductImage } from "./productImages";
 import {
   hasManualProposalText,
@@ -28,6 +29,14 @@ import {
 } from "./variantImages";
 
 export type ProposalApplyMode = "ALL" | "DESCRIPTION" | "IMAGE" | "INVENTORY";
+
+export class ProposalPublicationError extends Error {
+  constructor(readonly missing: string[]) {
+    super("product_not_ready_for_publication");
+    this.name = "ProposalPublicationError";
+  }
+}
+
 function object(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -59,6 +68,7 @@ export async function applyProductEnrichmentProposalUniversal(
     variantStocks?: Record<string, number>;
     variantImages?: VariantImageSelection[];
     automatic?: boolean;
+    publishNow?: boolean;
   },
   dependencies: {
     database?: typeof prisma;
@@ -67,6 +77,8 @@ export async function applyProductEnrichmentProposalUniversal(
     loadCommonPriceImage?: typeof latestPriceListImageForProduct;
   } = {},
 ) {
+  if (input.publishNow && (input.mode !== "ALL" || input.automatic))
+    throw new Error("publication_full_review_required");
   const database = dependencies.database || prisma;
   const importImage = dependencies.importImage || importProductImage;
   const loadPriceImages = dependencies.loadPriceImages || priceListImagesBySku;
@@ -231,8 +243,40 @@ export async function applyProductEnrichmentProposalUniversal(
         brandId: true,
         volumeValue: true,
         volumeUnit: true,
+        category: true,
+        price: true,
+        supplierId: true,
+        lastImportedAt: true,
+        enrichmentStatus: true,
       },
     });
+    if (input.publishNow) {
+      if (["RUNNING", "MERGED"].includes(current.enrichmentStatus))
+        throw new Error("product_changed_refresh");
+      const activeJob = await tx.enrichmentJob.findFirst({
+        where: {
+          productId: proposal.productId,
+          status: { in: ["PENDING", "RUNNING"] },
+        },
+        select: { id: true },
+      });
+      if (activeJob) throw new Error("publication_enrichment_running");
+      const missing = publicationMissingFields(
+        {
+          brandId: current.brandId,
+          shortDescription: proposal.shortDescription,
+          description,
+          image: importedImage?.url || current.image,
+          category: current.category,
+          price: current.price,
+        },
+        {
+          imported: Boolean(current.supplierId || current.lastImportedAt),
+          hasAppliedEnrichment: true,
+        },
+      );
+      if (missing.length) throw new ProposalPublicationError(missing);
+    }
     const currentVariants = normalizeStoredVariants(current.variants);
     if (
       commonCandidate &&
@@ -286,6 +330,7 @@ export async function applyProductEnrichmentProposalUniversal(
         stock: input.variantStocks?.[variant.id] ?? variant.stock,
       }));
     const data: Prisma.ProductUpdateManyMutationInput = {
+      ...(input.publishNow ? { isPublished: true } : {}),
       ...(applyText
         ? {
             shortDescription: proposal.shortDescription?.trim() || null,
@@ -313,7 +358,13 @@ export async function applyProductEnrichmentProposalUniversal(
     };
     if (Object.keys(data).length) {
       const written = await tx.product.updateMany({
-        where: { id: proposal.productId, updatedAt: current.updatedAt },
+        where: {
+          id: proposal.productId,
+          updatedAt: current.updatedAt,
+          ...(input.publishNow
+            ? { enrichmentStatus: { notIn: ["RUNNING", "MERGED"] } }
+            : {}),
+        },
         data,
       });
       if (written.count !== 1) throw new Error("product_changed_refresh");
@@ -343,6 +394,24 @@ export async function applyProductEnrichmentProposalUniversal(
           error: null,
         },
       });
+    if (input.publishNow) {
+      // Publishing confirms this card and retires older competing suggestions.
+      await tx.productEnrichmentProposal.updateMany({
+        where: {
+          productId: proposal.productId,
+          status: EnrichmentProposalStatus.PENDING,
+          id: { not: proposal.id },
+        },
+        data: { status: EnrichmentProposalStatus.REJECTED },
+      });
+      await tx.enrichmentJob.updateMany({
+        where: {
+          productId: proposal.productId,
+          status: EnrichmentJobStatus.REVIEW,
+        },
+        data: { status: EnrichmentJobStatus.CANCELED, finishedAt: now },
+      });
+    }
     const pending = await tx.productEnrichmentProposal.count({
       where: {
         productId: proposal.productId,
