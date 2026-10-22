@@ -26,8 +26,9 @@ import { evaluateCatalogAutopilotProposal } from "../lib/enrichment/catalogAutop
 import type { VariantImageGroup } from "../lib/enrichment/variantImages";
 import { namePhotoKey } from "../lib/enrichment/photoIdentity";
 import { STALE_ENRICHMENT_MS } from "../lib/enrichment/recoverStaleJobs";
-import { pendingPhotoTargets, PHOTO_AUTOMATION_VERSION, VARIANT_PHOTO_BUDGET_MS } from "../lib/enrichment/photoAutomation";
+import { pendingPhotoTargets, PHOTO_AUTOMATION_VERSION, VARIANT_PHOTO_BUDGET_MS, unresolvedPhotoSearchIssues } from "../lib/enrichment/photoAutomation";
 import { prepareProposalPhotoBatches } from "../lib/enrichment/preparePhotosClient";
+import AutomaticProposalPhotos from "../components/AutomaticProposalPhotos";
 
 const variants = [
   { id: "small", label: "7", sku: "MV16", price: 1500, stock: 3 },
@@ -246,6 +247,40 @@ test("the browser continues persisted photo batches automatically and keeps part
     signal: controller.signal, onBatch: () => { accepted = true; },
   }, async () => { controller.abort(); return Response.json({}); }), /Aborted/);
   assert.equal(accepted, false);
+});
+
+test("resumed photo batches retain an earlier SKU failure until that target is successfully retried", async () => {
+  const current = { ...product, variants: [...variants, { ...variants[0], id: "third", sku: "SKU-3" }] };
+  const input = { product: current, groups: [], knownUrl: "", officialDomains: [], policies: [],
+    deadlineAt: Date.now() + VARIANT_PHOTO_BUDGET_MS, maxTargets: 2 };
+  const found: Parameters<typeof collectProposalPhotos>[1] = async ({ variant }) => ({
+    sku: variant.sku!, candidates: [{ url: `https://brand.example/${variant.sku}.jpg`, source: "WEB" }],
+    issues: [], status: "FOUND",
+  });
+  const first = await collectProposalPhotos(input, async (request) => request.variant.sku === "MV16" ? {
+    sku: "MV16", candidates: [], status: "INCOMPLETE", issues: [{ code: "search_timeout", message: "timeout" }],
+  } : found!(request));
+  assert.equal(first.photoAutomation.incomplete, true);
+  const resumed = await collectProposalPhotos({ ...input, groups: first.variantImageCandidates,
+    previousAutomation: first.photoAutomation }, found);
+  assert.equal(resumed.photoAutomation.incomplete, false);
+  assert.equal(automaticPhotoPlan(current, resumed).variantImages.length, 2);
+  assert.deepEqual(resumed.photoAutomation.issues, ["search_timeout"]);
+  const html = renderToStaticMarkup(<AutomaticProposalPhotos proposalId="proposal" product={current} facts={resumed}
+    onPrepared={() => {}} onBusyChange={() => {}} />);
+  assert.match(html, /Источник или ИИ не ответил вовремя/);
+
+  // Restarting with only one available slot must not clear unsearched targets' diagnostics.
+  const retained = await collectProposalPhotos({ ...input, groups: resumed.variantImageCandidates,
+    previousAutomation: resumed.photoAutomation, restart: true, deadlineAt: Date.now() - 1 }, found);
+  assert.deepEqual(retained.photoAutomation.issues, ["search_timeout"]);
+  assert.equal(retained.photoAutomation.incomplete, true);
+  const retried = await collectProposalPhotos({ ...input, groups: retained.variantImageCandidates,
+    previousAutomation: retained.photoAutomation }, found);
+  assert.deepEqual(retried.photoAutomation.issues, []);
+  assert.equal(automaticPhotoPlan(current, retried).variantImages.length, 3);
+  assert.equal(retried.photoAutomation.incomplete, false);
+  assert.deepEqual(unresolvedPhotoSearchIssues({ ...current, variants: current.variants.slice(1) }, resumed), []);
 });
 
 test("automatic collection searches missing variants with bounded concurrency and keeps price candidates", async () => {

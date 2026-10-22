@@ -11,7 +11,7 @@ export type PhotoSearchProduct = NamePhotoProduct & {
   supplierSku?: string | null;
   variants: ImageVariant[];
 };
-export type PhotoSearchAttempt = { key: string; retryAt: string };
+export type PhotoSearchAttempt = { key: string; retryAt: string; issues?: string[] };
 
 export function photoTargetKey(product: PhotoSearchProduct, target: ImageVariant) {
   return JSON.stringify([target.id, photoSku(target.sku), namePhotoKey(product, target)]);
@@ -21,7 +21,17 @@ export function photoSearchAttempts(value: unknown): PhotoSearchAttempt[] {
   const data = value as { version?: number; attempts?: PhotoSearchAttempt[] } | null;
   return data?.version === PHOTO_AUTOMATION_VERSION && Array.isArray(data.attempts)
     ? data.attempts.filter((item) => typeof item?.key === "string" && typeof item.retryAt === "string")
+      .map((item) => ({ ...item, issues: Array.isArray(item.issues) ? item.issues.filter((code) => typeof code === "string") : [] }))
     : [];
+}
+
+export function unresolvedPhotoSearchIssues(product: PhotoSearchProduct, facts: unknown) {
+  const data = (facts || {}) as Record<string, unknown>;
+  // A manual lookup can resolve an earlier failure without updating its attempt.
+  const missing = new Set(pendingPhotoTargets(product, { ...data, photoAutomation: undefined })
+    .map((target) => photoTargetKey(product, target)));
+  return [...new Set(photoSearchAttempts(data.photoAutomation)
+    .filter((attempt) => missing.has(attempt.key)).flatMap((attempt) => attempt.issues || []))];
 }
 
 /** The common photo never counts as a variant's own SKU photo. */

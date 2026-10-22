@@ -11,7 +11,6 @@ import {
 import { adminVariants } from "@/lib/adminProductVariants";
 import { automaticPhotoPlan, mergeAutomaticSelections } from "@/lib/enrichment/automaticPhotos";
 import { hasManufacturerSku } from "@/lib/enrichment/photoIdentity";
-import { proposalPhotoSearchMessages } from "@/lib/enrichment/clientMessages";
 import { publishProposalChange } from "@/lib/enrichment/proposalChanges";
 import { isUsablePhoto } from "@/lib/enrichment/photoQuality";
 import type { VariantImageSelection } from "@/lib/enrichment/variantImages";
@@ -302,7 +301,6 @@ export default function ProductAssistant({
   }
 
   const plan = automaticPhotoPlan({ ...product, variants }, proposal?.facts);
-  const photoIssues = proposalPhotoSearchMessages(proposal?.facts);
   const hasText = Boolean(
     proposal?.shortDescription?.trim() && proposal.description?.trim(),
   );
@@ -453,15 +451,6 @@ export default function ProductAssistant({
                 ` Новых фото вариантов: ${variantImages.filter((row) => row.imageUrl).length}.`}
             </p>
           </div>
-          {!plan.commonCandidates.length &&
-            !plan.variantImages.some((row) => row.imageUrl) &&
-            photoIssues.length > 0 && (
-              <ul className="list-disc space-y-1 pl-4 text-xs text-amber-800">
-                {photoIssues.map((issue) => (
-                  <li key={issue}>{issue}</li>
-                ))}
-              </ul>
-            )}
           {plan.commonCandidates.length > 0 && (
             <details>
               <summary className="cursor-pointer text-xs underline">

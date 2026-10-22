@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { pendingPhotoTargets, type PhotoSearchProduct } from "@/lib/enrichment/photoAutomation";
 import { prepareProposalPhotoBatches, type PreparedProposalPhotos } from "@/lib/enrichment/preparePhotosClient";
+import { proposalPhotoSearchMessages } from "@/lib/enrichment/clientMessages";
 
 // Two visible cards at most; each server request searches at most two SKUs.
 let active = 0;
@@ -54,10 +55,12 @@ export default function AutomaticProposalPhotos({ proposalId, product, facts, di
     void scheduled(controller.signal, () => prepareProposalPhotoBatches(proposalId, {
       signal: controller.signal,
       onBatch: (photos) => { if (!controller.signal.aborted) latest.current.onPrepared(photos); },
-    })).then(() => {
+    })).then((photos) => {
       if (controller.signal.aborted) return;
       completed.current = key;
-      setMessage("Фото вариантов проверены. Найденные снимки подставлены; без отдельного фото используется общее.");
+      setMessage(proposalPhotoSearchMessages(photos).length
+        ? "Для части вариантов поиск не завершён. Найденные фото сохранены; подробности ниже."
+        : "Фото вариантов проверены. Найденные снимки подставлены; без отдельного фото используется общее.");
     }).catch((error: unknown) => {
       if (controller.signal.aborted) return;
       completed.current = key;
@@ -66,5 +69,11 @@ export default function AutomaticProposalPhotos({ proposalId, product, facts, di
     return () => { controller.abort(); busyChange(false); };
   }, [proposalId, identity, visible, disabled]);
 
-  return <div ref={element} role="status" aria-live="polite" className="min-h-px text-xs text-gray-600">{message}</div>;
+  const issues = proposalPhotoSearchMessages(facts);
+  return <div ref={element} role="status" aria-live="polite" className="min-h-px space-y-1 text-xs text-gray-600">
+    {message && <p>{message}</p>}
+    {issues.length > 0 && <ul className="list-disc space-y-1 pl-4 text-amber-800">
+      {issues.map((issue) => <li key={issue}>{issue}</li>)}
+    </ul>}
+  </div>;
 }

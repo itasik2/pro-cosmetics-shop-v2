@@ -133,7 +133,7 @@ export function proposalPhotoSearchMessages(facts: unknown) {
           : variantPhotoSearchIssue(code).message,
       ),
       ...(incomplete
-        ? ["Поиск не успел проверить все варианты. Повторите подбор фото."]
+        ? ["Автоматический подбор фото ещё не проверил все варианты."]
         : []),
     ]),
   ];
