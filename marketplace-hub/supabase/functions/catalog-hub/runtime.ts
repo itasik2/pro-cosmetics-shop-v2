@@ -743,8 +743,8 @@ async function listProducts(url: URL) {
       ), '[]'::json) AS "__inventory"
     FROM public."Product" p
     WHERE "organizationId" = ${organizationId}
-      AND (${category} = '' OR (${category} = '__uncategorized__' AND (p."categoryKey" IS NULL OR p."categoryKey" = '')) OR p."categoryKey" = ${category})
-      AND (NOT ${incomplete} OR p."categoryKey" IS NULL OR p."categoryKey" = ''
+      AND (${category} = '' OR (${category} = '__uncategorized__' AND (p."categoryKey" IS NULL OR p."categoryKey" IN ('', 'Без категории'))) OR p."categoryKey" = ${category})
+      AND (NOT ${incomplete} OR p."categoryKey" IS NULL OR p."categoryKey" IN ('', 'Без категории')
         OR p."brand" IS NULL OR p."brand" = ''
         OR p."shortDescription" IS NULL OR p."shortDescription" = ''
         OR p."description" IS NULL OR p."description" = ''
@@ -766,8 +766,8 @@ async function listProducts(url: URL) {
     SELECT count(*)::int AS count
     FROM public."Product" p
     WHERE "organizationId" = ${organizationId}
-      AND (${category} = '' OR (${category} = '__uncategorized__' AND (p."categoryKey" IS NULL OR p."categoryKey" = '')) OR p."categoryKey" = ${category})
-      AND (NOT ${incomplete} OR p."categoryKey" IS NULL OR p."categoryKey" = ''
+      AND (${category} = '' OR (${category} = '__uncategorized__' AND (p."categoryKey" IS NULL OR p."categoryKey" IN ('', 'Без категории'))) OR p."categoryKey" = ${category})
+      AND (NOT ${incomplete} OR p."categoryKey" IS NULL OR p."categoryKey" IN ('', 'Без категории')
         OR p."brand" IS NULL OR p."brand" = ''
         OR p."shortDescription" IS NULL OR p."shortDescription" = ''
         OR p."description" IS NULL OR p."description" = ''

@@ -8,11 +8,13 @@ import { chooseAutomaticCategory, type CategorySuggestion } from "@/lib/category
 type Result = { title:string; state:string; id?:string };
 type Search = { confidence:number; sourceType:string; fields:Record<string,string>; images:string[] };
 const fields = ["shortDescription","description","application","ingredients"] as const;
+const isUncategorized=(key:string|null|undefined)=>!key?.trim()||key.trim()==="Без категории";
 
 export function BatchEnrichment({products}:{products:HubProduct[]}) {
   const [running,setRunning]=useState(false);
   const [results,setResults]=useState<Result[]>([]);
-  const candidates=products.filter(product=>!product.categoryKey||fields.some(key=>!product[key]?.trim())||!product.images?.length).slice(0,5);
+  const candidates=products.filter(product=>isUncategorized(product.categoryKey)||
+    fields.some(key=>!product[key]?.trim())||!product.images?.length).slice(0,5);
   async function run(){
     setRunning(true);setResults([]);
     for(const product of candidates){
@@ -29,7 +31,7 @@ export function BatchEnrichment({products}:{products:HubProduct[]}) {
         for(const key of fields)if(!product[key]?.trim()&&found.fields?.[key]?.trim())
           proposed[key]=found.fields[key].trim();
         if(!product.images?.length&&found.images?.[0])proposed.images=[found.images[0]];
-        if(!product.categoryKey){
+        if(isUncategorized(product.categoryKey)){
           const response=await fetch("/api/categories/suggest",{method:"POST",
             headers:{"content-type":"application/json"},
             body:JSON.stringify({productId:product.id,preview:{

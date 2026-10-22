@@ -65,6 +65,15 @@ async function snapshot(){
 const initial=await snapshot();
 const old=initial.items.find(p=>p.sku==="TEST-LOCAL-001");
 assert.ok(old,"Test product missing: run testdb:setup");
+const uncategorized=(await request(api+"/v1/catalog/products?organizationId=org_procosmetics&category=__uncategorized__",
+ {headers:apiHeaders})).data;
+assert.ok(uncategorized.items.some(p=>p.sku==="TEST-LOCAL-UNCATEGORIZED"),
+ "Legacy 'Без категории' must appear in the uncategorized filter");
+assert.equal(uncategorized.pagination.total,uncategorized.items.length);
+const incompleteUncategorized=(await request(api+
+ "/v1/catalog/products?organizationId=org_procosmetics&category=__uncategorized__&incomplete=true",
+ {headers:apiHeaders})).data;
+assert.ok(incompleteUncategorized.items.some(p=>p.sku==="TEST-LOCAL-UNCATEGORIZED"));
 const targetPrice=old.price===4900?5000:4900;
 const sku="TEST-IMPORTED-"+randomBytes(5).toString("hex").toUpperCase();
 const csv=[
@@ -154,4 +163,5 @@ await request(ui+"/api/catalog/save",{
 console.log("PASS: preview, history replay with fresh catalog, staged update, created product, stock=0, selected history deletion.");
 console.log("PASS: manual card save is atomic and rejects stale edits.");
 console.log("PASS: search preview descriptions produce a category from the active dictionary.");
+console.log("PASS: legacy 'Без категории' appears in uncategorized and incomplete filters.");
 console.log("Only localhost API used; no production Supabase writes.");
