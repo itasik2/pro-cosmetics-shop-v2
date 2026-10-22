@@ -92,5 +92,6 @@ export default async function CatalogPage({
 
 function missingContentCount(item: HubProduct) {
   return ([item.brand, item.shortDescription, item.description, item.application, item.ingredients]
-    .filter(value => !value?.trim()).length + (item.images?.length ? 0 : 1));
+    .filter(value => !value?.trim()).length + (item.images?.length ? 0 : 1) +
+      (!item.categoryKey?.trim() || item.categoryKey === "Без категории" ? 1 : 0));
 }

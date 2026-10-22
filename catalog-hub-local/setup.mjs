@@ -75,7 +75,9 @@ function seedSql(key){
  ('demo-item-002','org_procosmetics','TEST-LOCAL-002','9780000000002',
  'Тестовый очищающий крем','Demo','Очищение и тонизация','{}'::jsonb,'[]'::jsonb,4000,6500,now(),now()),
  ('demo-item-003','org_procosmetics','TEST-LOCAL-003','9780000000003',
- 'Тестовая сыворотка против морщин','Demo','Антивозрастной уход','{}'::jsonb,'[]'::jsonb,4500,7400,now(),now())
+ 'Тестовая сыворотка против морщин','Demo','Антивозрастной уход','{}'::jsonb,'[]'::jsonb,4500,7400,now(),now()),
+ ('demo-item-004','org_procosmetics','TEST-LOCAL-UNCATEGORIZED','9780000000004',
+ 'Тестовый товар без категории','Demo','Без категории','{}'::jsonb,'[]'::jsonb,1000,1500,now(),now())
  ON CONFLICT ("organizationId","sku") DO NOTHING;`,
  `INSERT INTO public."Inventory"("id","productId","warehouseId","onHand","reserved","safetyStock","updatedAt")
  VALUES ('demo-inv-001','demo-item-001','wh_pav_01',12,0,1,now()),

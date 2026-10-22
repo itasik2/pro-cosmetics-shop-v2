@@ -38,7 +38,7 @@ export default async function CategoriesPage(){
       </section>
       <section className="panel">
         <h2>Товары без категории</h2>
-        <p className="subtle">Откройте товар, нажмите «Предложить категорию» или выберите её из списка. Применение проходит через согласование.</p>
+        <p className="subtle">Откройте карточку и запустите поиск данных или выберите категорию вручную. Затем сохраните карточку.</p>
         {unassigned.ok && <div className="list">{unassigned.data.map(p=>
           <div key={p.id} className="list-row">
             <div><Link href={"/catalog/"+encodeURIComponent(p.id)}><strong>{p.title}</strong></Link>

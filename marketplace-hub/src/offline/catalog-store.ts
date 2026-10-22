@@ -197,10 +197,10 @@ export async function listCatalogProducts(raw: unknown) {
     organizationId: query.organizationId,
     AND: [
       ...(query.category ? [query.category === "__uncategorized__"
-        ? { OR: [{ categoryKey: null }, { categoryKey: "" }] }
+        ? { OR: [{ categoryKey: null }, { categoryKey: "" }, { categoryKey: "Без категории" }] }
         : { categoryKey: query.category }] : []),
       ...(query.incomplete === "true" ? [{ OR: [
-        { categoryKey: null }, { categoryKey: "" },
+        { categoryKey: null }, { categoryKey: "" }, { categoryKey: "Без категории" },
         ...(["brand", "shortDescription", "description", "application", "ingredients"] as const)
           .flatMap(field => [{ [field]: null }, { [field]: "" }]),
         { images: { equals: [] } },
