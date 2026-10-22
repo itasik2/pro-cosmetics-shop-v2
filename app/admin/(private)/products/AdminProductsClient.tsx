@@ -495,6 +495,9 @@ export default function AdminProductsClient() {
   }
 
   function assistantSaved(product: Product, mergedIds: string[] = []) {
+    const published =
+      !mergedIds.length && product.isPublished &&
+      !items.find((row) => row.id === product.id)?.isPublished;
     setItems((current) => [
       ...current.filter(
         (row) => row.id !== product.id && !mergedIds.includes(row.id),
@@ -504,9 +507,11 @@ export default function AdminProductsClient() {
     edit(product);
     setAssistantVersion((current) => current + 1);
     setMsg(
-      mergedIds.length
-        ? "Карточки объединены. Проверьте варианты ниже."
-        : "Данные применены. Можно отредактировать текст в полях ниже.",
+      published
+        ? "Товар сохранён и опубликован на сайте"
+        : mergedIds.length
+          ? "Карточки объединены. Проверьте варианты ниже."
+          : "Данные применены. Можно отредактировать текст в полях ниже.",
     );
     window.dispatchEvent(new Event("products-changed"));
   }

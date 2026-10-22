@@ -9,6 +9,7 @@ import { adminVariants } from "@/lib/adminProductVariants";
 import { automaticPhotoPlan } from "@/lib/enrichment/automaticPhotos";
 import { hasManufacturerSku } from "@/lib/enrichment/photoIdentity";
 import { proposalPhotoSearchMessages } from "@/lib/enrichment/clientMessages";
+import { publishProposalChange } from "@/lib/enrichment/proposalChanges";
 import { isUsablePhoto } from "@/lib/enrichment/photoQuality";
 import type { VariantImageSelection } from "@/lib/enrichment/variantImages";
 import type { ProposalApplyInput } from "@/lib/enrichment/proposalApplyInput";
@@ -234,9 +235,10 @@ export default function ProductAssistant({
     });
   }
 
-  async function apply(mode: "ALL" | "IMAGE") {
+  async function apply(mode: "ALL" | "IMAGE", publishNow = false) {
     if (!proposal) return;
-    await task("Применение в карточку…", async () => {
+    const label = publishNow ? "Публикация карточки…" : "Применение в карточку…";
+    await task(label, async () => {
       const result = await responseData(
         await fetch(
           "/api/admin/enrichment/proposals/" +
@@ -249,6 +251,7 @@ export default function ProductAssistant({
               mode,
               imageUrl,
               variantImages,
+              publishNow,
             } satisfies ProposalApplyInput),
           },
         ),
@@ -257,6 +260,10 @@ export default function ProductAssistant({
         throw new Error(
           "Изменения сохранены. Откройте карточку повторно для обновления данных.",
         );
+      publishProposalChange({
+        id: proposal.id,
+        status: mode === "ALL" ? "APPLIED" : "PENDING",
+      });
       onSaved({ ...product, ...result.proposal.product });
     });
   }
@@ -502,15 +509,27 @@ export default function ProductAssistant({
               type="button"
               disabled={blocked || !hasText}
               onClick={() => apply("ALL")}
-              className="rounded-xl bg-gray-800 px-3 py-2 text-sm text-white disabled:opacity-40"
+              className={(product.isPublished ? "btn" : "btn-secondary") + " min-h-11 px-3 py-2 text-sm disabled:opacity-40"}
             >
               Применить в карточку
             </button>
+            {!product.isPublished && (
+              <button
+                type="button"
+                disabled={blocked || !hasText}
+                onClick={() => apply("ALL", true)}
+                className="btn min-h-11 px-3 py-2 text-sm disabled:opacity-40"
+              >
+                {busy === "Публикация карточки…"
+                  ? "Публикация…"
+                  : "Сохранить и опубликовать"}
+              </button>
+            )}
             <button
               type="button"
               disabled={blocked || (!imageUrl && !variantImages.length)}
               onClick={() => apply("IMAGE")}
-              className="rounded-xl border px-3 py-2 text-sm disabled:opacity-40"
+              className="btn-secondary min-h-11 px-3 py-2 text-sm disabled:opacity-40"
             >
               Применить только фото
             </button>
@@ -518,7 +537,7 @@ export default function ProductAssistant({
               type="button"
               disabled={blocked}
               onClick={reject}
-              className="rounded-xl border px-3 py-2 text-sm text-red-700 disabled:opacity-40"
+              className="btn-secondary min-h-11 px-3 py-2 text-sm text-red-700 disabled:opacity-40"
             >
               Отклонить
             </button>

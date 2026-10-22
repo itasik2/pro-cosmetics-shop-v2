@@ -7,6 +7,7 @@ import { requireAdmin } from "@/lib/adminGuard";
 import { finalizeProductEnrichmentText } from "@/lib/enrichment/applyProposal";
 import {
   applyProductEnrichmentProposalUniversal,
+  ProposalPublicationError,
   type ProposalApplyMode,
 } from "@/lib/enrichment/applyProposalUniversal";
 import { proposalApplySchema } from "@/lib/enrichment/proposalApplyInput";
@@ -14,6 +15,16 @@ import { proposalApplySchema } from "@/lib/enrichment/proposalApplyInput";
 type Params = { params: Promise<{ id: string }> };
 
 function errorResponse(error: unknown) {
+  if (error instanceof ProposalPublicationError) {
+    return NextResponse.json(
+      {
+        error: error.message,
+        message: `Перед публикацией заполните: ${error.missing.join(", ")}.`,
+        missing: error.missing,
+      },
+      { status: 409 },
+    );
+  }
   const message = String(
     error instanceof Error ? error.message : error || "proposal_apply_failed",
   );
@@ -25,6 +36,7 @@ function errorResponse(error: unknown) {
             "variant_sku_changed",
             "product_changed_refresh",
             "proposal_changed_refresh",
+            "publication_enrichment_running",
           ].includes(message)
         ? 409
         : [
@@ -40,11 +52,16 @@ function errorResponse(error: unknown) {
                 message === "proposal_image_missing" ||
                 message === "proposal_image_not_allowed" ||
                 message === "product_supplier_required" ||
-                message === "variant_stock_invalid"
+                message === "variant_stock_invalid" ||
+                message === "publication_full_review_required"
               ? 422
               : 500;
 
   const explanations: Record<string, string> = {
+    publication_enrichment_running:
+      "Поиск ИИ ещё выполняется. Дождитесь завершения и повторите публикацию.",
+    publication_full_review_required:
+      "Для публикации примените карточку полностью после проверки данных.",
     proposal_image_not_allowed:
       "Выбранное общее фото больше не соответствует карточке. Повторите подбор фото по SKU.",
     proposal_short_description_empty:
@@ -108,6 +125,7 @@ export async function POST(req: Request, props: Params) {
       stock: parsed.data.stock,
       variantStocks: parsed.data.variantStocks,
       variantImages: parsed.data.variantImages,
+      publishNow: parsed.data.publishNow,
     });
 
     return NextResponse.json(result);

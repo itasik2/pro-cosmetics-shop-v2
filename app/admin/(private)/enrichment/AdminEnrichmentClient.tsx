@@ -708,7 +708,11 @@ export default function AdminEnrichmentClient() {
     }
   }
 
-  async function applyProposal(proposalId: string, mode: ApplyMode) {
+  async function applyProposal(
+    proposalId: string,
+    mode: ApplyMode,
+    publishNow = false,
+  ) {
     setActionMessages((current) => ({ ...current, [proposalId]: "" }));
     const proposal = proposals.find((item) => item.id === proposalId);
     const variants = proposalVariants(proposal?.product.variants);
@@ -743,7 +747,7 @@ export default function AdminEnrichmentClient() {
       return;
     }
 
-    setBusyKey(`apply:${proposalId}:${mode}`);
+    setBusyKey(`apply:${proposalId}:${publishNow ? "PUBLISH" : mode}`);
     setMessage(null);
     try {
       const response = await fetch(
@@ -757,6 +761,7 @@ export default function AdminEnrichmentClient() {
             stock,
             variantStocks,
             variantImages: variantImages[proposalId] || [],
+            publishNow,
           }),
         },
       );
@@ -769,16 +774,19 @@ export default function AdminEnrichmentClient() {
             : "PENDING",
       });
       setMessage(
-        mode === "ALL"
-          ? "Карточка заполнена. Выбранные фото и изменённые остатки сохранены."
-          : mode === "DESCRIPTION_FINAL"
-            ? "Краткое и полное описание одобрены. Фото, цена и количество не изменялись."
-            : mode === "DESCRIPTION"
-              ? "Описание сохранено. Фото, цена и количество не изменялись; предложение остаётся на проверке."
-              : mode === "INVENTORY"
-                ? "Остатки сохранены."
-                : "Фото сохранены. Предложение остаётся на проверке.",
+        publishNow
+          ? "Карточка сохранена и опубликована на сайте."
+          : mode === "ALL"
+            ? "Карточка заполнена. Выбранные фото и изменённые остатки сохранены."
+            : mode === "DESCRIPTION_FINAL"
+              ? "Краткое и полное описание одобрены. Фото, цена и количество не изменялись."
+              : mode === "DESCRIPTION"
+                ? "Описание сохранено. Фото, цена и количество не изменялись; предложение остаётся на проверке."
+                : mode === "INVENTORY"
+                  ? "Остатки сохранены."
+                  : "Фото сохранены. Предложение остаётся на проверке.",
       );
+      if (publishNow) window.dispatchEvent(new Event("products-changed"));
       void loadProducts().catch(() => undefined);
     } catch (error) {
       const message = `Не удалось применить карточку: ${error instanceof Error ? error.message : String(error)}`;
@@ -1496,7 +1504,7 @@ export default function AdminEnrichmentClient() {
                 <div className="flex flex-wrap gap-2 border-t pt-4">
                   <button
                     type="button"
-                    className="rounded-xl bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
+                    className={(proposal.product.isPublished ? "btn" : "btn-secondary") + " min-h-11 px-4 py-2 text-sm disabled:opacity-50"}
                     disabled={isBusy || editingText[proposal.id]}
                     onClick={() => void applyProposal(proposal.id, "ALL")}
                   >
@@ -1504,9 +1512,21 @@ export default function AdminEnrichmentClient() {
                       ? "Применение…"
                       : "Применить карточку"}
                   </button>
+                  {!proposal.product.isPublished && (
+                    <button
+                      type="button"
+                      className="btn min-h-11 px-4 py-2 text-sm disabled:opacity-50"
+                      disabled={isBusy || editingText[proposal.id]}
+                      onClick={() => void applyProposal(proposal.id, "ALL", true)}
+                    >
+                      {busyKey === `apply:${proposal.id}:PUBLISH`
+                        ? "Публикация…"
+                        : "Сохранить и опубликовать"}
+                    </button>
+                  )}
                   <button
                     type="button"
-                    className="rounded-xl border px-4 py-2 text-sm disabled:opacity-50"
+                    className="btn-secondary min-h-11 px-4 py-2 text-sm disabled:opacity-50"
                     disabled={isBusy || editingText[proposal.id]}
                     onClick={() => void preparePhotos(proposal)}
                   >
@@ -1516,7 +1536,7 @@ export default function AdminEnrichmentClient() {
                   </button>
                   <button
                     type="button"
-                    className="rounded-xl border border-red-200 px-4 py-2 text-sm text-red-700 disabled:opacity-50"
+                    className="btn-secondary min-h-11 px-4 py-2 text-sm text-red-700 disabled:opacity-50"
                     disabled={isBusy || editingText[proposal.id]}
                     onClick={() => void rejectProposal(proposal.id)}
                   >

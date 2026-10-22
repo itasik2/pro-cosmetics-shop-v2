@@ -4,6 +4,7 @@ export const proposalApplySchema = z.object({
   mode: z
     .enum(["ALL", "DESCRIPTION", "DESCRIPTION_FINAL", "IMAGE", "INVENTORY"])
     .default("ALL"),
+  publishNow: z.boolean().optional(),
   // A missing selection preserves the product's current common photo.
   // A local reference is accepted only after checking current product ownership.
   imageUrl: z.string().max(3000).refine((value) => {
@@ -26,6 +27,9 @@ export const proposalApplySchema = z.object({
   variantStocks: z
     .record(z.string(), z.number().int().min(0).max(1_000_000))
     .optional(),
+}).refine((value) => !value.publishNow || value.mode === "ALL", {
+  path: ["publishNow"],
+  message: "Для публикации примените карточку полностью.",
 });
 
 export type ProposalApplyInput = z.input<typeof proposalApplySchema>;
