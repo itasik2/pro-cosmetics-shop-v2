@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { enrichmentErrorMessage } from "@/lib/enrichment-messages";
+import { chooseAutomaticCategory, type CategorySuggestion } from "@/lib/category-choice";
 import type { HubProduct } from "@/lib/hub";
 
 type Field = "shortDescription" | "description" | "application" | "ingredients";
@@ -15,9 +16,9 @@ const fields: Array<[Field,string]> = [
   ["application","Применение"], ["ingredients","Состав"],
 ];
 
-export function SharedProductSearch({product,enabled,canWrite,onSelect}:{
-  product:HubProduct;enabled:boolean;canWrite:boolean;
-  onSelect?: (fields:Partial<Record<Field,string>> & {images?:string[]})=>void;
+export function SharedProductSearch({product,enabled,canWrite,categoryKey,onSelect}:{
+  product:HubProduct;enabled:boolean;canWrite:boolean;categoryKey?:string;
+  onSelect?: (fields:Partial<Record<Field,string>> & {images?:string[];categoryKey?:string})=>void;
 }) {
   const [sourceUrl,setSourceUrl]=useState("");
   const [external,setExternal]=useState(false);
@@ -28,8 +29,11 @@ export function SharedProductSearch({product,enabled,canWrite,onSelect}:{
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   const [changeset,setChangeset]=useState("");
+  const [suggestedCategory,setSuggestedCategory]=useState("");
+  const [categoryStatus,setCategoryStatus]=useState("");
   async function search(){
     setBusy(true);setError("");setResult(null);setChangeset("");
+    setSuggestedCategory("");setCategoryStatus("");
     try{
       const response=await fetch("/api/ai/shared-preview",{
         method:"POST",headers:{"content-type":"application/json"},
@@ -41,6 +45,25 @@ export function SharedProductSearch({product,enabled,canWrite,onSelect}:{
       setResult(found);setDraft({...found.fields});
       setSelected(fields.filter(([key])=>!product[key]?.trim()&&Boolean(found.fields[key])).map(([key])=>key));
       setImage("");
+      if(!categoryKey){
+        try{
+          const suggestion=await fetch("/api/categories/suggest",{
+            method:"POST",headers:{"content-type":"application/json"},
+            body:JSON.stringify({productId:product.id,preview:{
+              shortDescription:(found.fields.shortDescription||"").slice(0,3000),
+              description:(found.fields.description||"").slice(0,3000),
+            }}),
+          });
+          if(!suggestion.ok)throw new Error("category_suggestion_failed");
+          const data=await suggestion.json() as {suggestions?:CategorySuggestion[]};
+          const category=chooseAutomaticCategory(data.suggestions||[]);
+          if(category){
+            setSuggestedCategory(category);
+            setCategoryStatus("Категория подставлена: "+category+". Проверьте её перед сохранением.");
+            onSelect?.({categoryKey:category});
+          }else setCategoryStatus("Категория не определена однозначно. Выберите её в карточке.");
+        }catch{setCategoryStatus("Не удалось определить категорию. Выберите её в карточке.");}
+      }
     }catch(e){setError(enrichmentErrorMessage(e));}
     finally{setBusy(false);}
   }
@@ -51,9 +74,13 @@ export function SharedProductSearch({product,enabled,canWrite,onSelect}:{
       if(!product[key]?.trim()&&draft[key].trim())proposed[key]=draft[key].trim();
     }
     if(!product.images?.length&&image)proposed.images=[image];
-    if(!Object.keys(proposed).length){setError("Выберите данные для сохранения.");return;}
+    if(!categoryKey&&suggestedCategory)proposed.categoryKey=suggestedCategory;
+    if(!Object.keys(proposed).length){
+      if(onSelect&&categoryKey&&suggestedCategory){setResult(null);return;}
+      setError("Выберите данные для сохранения.");return;
+    }
     if(onSelect){
-      onSelect(proposed as Partial<Record<Field,string>> & {images?:string[]});
+      onSelect(proposed as Partial<Record<Field,string>> & {images?:string[];categoryKey?:string});
       setResult(null);
       return;
     }
@@ -71,6 +98,7 @@ export function SharedProductSearch({product,enabled,canWrite,onSelect}:{
   }
   const missing=fields.filter(([key])=>!product[key]?.trim()).map(([,label])=>label);
   if(!product.images?.length)missing.push("Фотографии");
+  if(!categoryKey)missing.push("Категория");
   return <section className="panel">
     <h2>Заполнить пустые поля и подобрать фото</h2>
     <p className="subtle">Не заполнено: {missing.join(", ")||"основные поля заполнены"}. Catalog Hub ищет товар на сайте производителя по бренду, SKU и названию. Результат поступает на проверку.</p>
@@ -87,6 +115,8 @@ export function SharedProductSearch({product,enabled,canWrite,onSelect}:{
       Если производитель не найден, искать у других продавцов</label>
     {!canWrite&&<p className="subtle">Локальный режим чтения: сохранение отключено.</p>}
     {error&&<p className="error" role="alert">{error}</p>}
+    {categoryStatus&&(!suggestedCategory||categoryKey===suggestedCategory)&&
+      <p className="subtle" role="status">{categoryStatus}</p>}
     {changeset&&<p role="status">Черновик создан. <Link href={"/changes/"+encodeURIComponent(changeset)}>Проверить изменения →</Link></p>}
     {result&&draft&&<div className="panel" style={{marginTop:14}}>
       <h3>Предложение · {result.confidence}% совпадения</h3>

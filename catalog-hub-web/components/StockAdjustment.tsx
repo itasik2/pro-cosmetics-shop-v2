@@ -8,13 +8,18 @@ type Adjustment = {
   id:string;delta:number;beforeOnHand:number;afterOnHand:number;reason:string;
   createdAt:string;warehouseCode:string;warehouseName:string;
 };
+const receiptReasons=["Приход поставщика","Возврат покупателя","Инвентаризация: излишек",
+  "Перемещение со склада","Корректировка остатка"];
+const writeoffReasons=["Списание брака","Истёк срок годности","Возврат поставщику",
+  "Инвентаризация: недостача","Перемещение на другой склад","Корректировка остатка"];
 export function StockAdjustment({product,warehouses}:{
   product:HubProduct;warehouses:Warehouse[]
 }) {
   const router=useRouter();
   const [warehouseId,setWarehouseId]=useState(warehouses[0]?.id||"");
   const [delta,setDelta]=useState("");
-  const [reason,setReason]=useState("");
+  const [reasonChoice,setReasonChoice]=useState("");
+  const [otherReason,setOtherReason]=useState("");
   const [confirm,setConfirm]=useState(false);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
@@ -25,6 +30,8 @@ export function StockAdjustment({product,warehouses}:{
   const before=selected?.onHand||0;
   const reserved=selected?.reserved||0;
   const change=Number(delta);
+  const reason=reasonChoice==="other"?otherReason:reasonChoice;
+  const reasonOptions=change>0?receiptReasons:change<0?writeoffReasons:[];
   const validDelta=delta.trim()!==""&&Number.isSafeInteger(change)&&change!==0&&Math.abs(change)<=100000;
   const after=before+(validDelta?change:0);
   const canApply=!!warehouseId&&validDelta&&after>=reserved&&after>=0&&reason.trim().length>=5&&confirm;
@@ -54,7 +61,7 @@ export function StockAdjustment({product,warehouses}:{
       const result=await response.json().catch(()=>null);
       if(!response.ok)throw new Error(String(result?.error||"inventory_adjustment_failed"));
       setSuccess("Операция записана. Остаток: "+result.afterOnHand+" шт.");
-      setDelta("");setReason("");setConfirm(false);requestId.current=null;
+      setDelta("");setReasonChoice("");setOtherReason("");setConfirm(false);requestId.current=null;
       router.refresh();
     }catch(e){
       const message=e instanceof Error?e.message:String(e);
@@ -78,13 +85,25 @@ export function StockAdjustment({product,warehouses}:{
           <div className="stock-current">{before} шт. · резерв {reserved} · доступно {selected?.available||0}</div></div>
         <label className="editor-field"><span>Изменение количества (например +5 или -2)</span>
           <input className="input" type="number" step="1" value={delta}
-            onChange={e=>edit(()=>setDelta(e.target.value))} required /></label>
+            onChange={e=>edit(()=>{
+              if(Math.sign(Number(e.target.value))!==Math.sign(change)){
+                setReasonChoice("");setOtherReason("");
+              }
+              setDelta(e.target.value);
+            })} required /></label>
         <div className="editor-field"><span>Будет на складе</span>
           <div className="stock-current"><strong>{validDelta?after:"—"} шт.</strong></div></div>
         <label className="editor-field wide"><span>Причина операции (обязательно)</span>
-          <input className="input" value={reason} minLength={5} maxLength={500} required
-            placeholder="Приход поставщика, инвентаризация, списание брака…"
-            onChange={e=>edit(()=>setReason(e.target.value))}/></label>
+          <select className="input" value={reasonChoice} disabled={!validDelta} required
+            onChange={e=>edit(()=>{setReasonChoice(e.target.value);setOtherReason("");})}>
+            <option value="">{validDelta?"Выберите причину":"Сначала укажите количество"}</option>
+            {reasonOptions.map(item=><option key={item} value={item}>{item}</option>)}
+            {validDelta&&<option value="other">Другое</option>}
+          </select></label>
+        {reasonChoice==="other"&&<label className="editor-field wide"><span>Укажите причину</span>
+          <input className="input" value={otherReason} minLength={5} maxLength={500} required
+            placeholder="Например: пересчёт после приёмки"
+            onChange={e=>edit(()=>setOtherReason(e.target.value))}/></label>}
       </div>
       <label className="review-check stock-confirm">
         <input type="checkbox" checked={confirm} onChange={e=>setConfirm(e.target.checked)}/>

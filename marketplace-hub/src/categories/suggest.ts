@@ -1,6 +1,6 @@
 /**
  * Transparent rules, not AI or external-marketplace classification.
- * These scores are advisory and NEVER update Product.categoryKey automatically.
+ * These scores can prefill a draft card. Persistence still requires confirmation.
  */
 export type CategorySuggestion = { key: string; score: number; reason: string };
 type ProductText = { title?: string | null; shortDescription?: string | null; description?: string | null };
@@ -25,17 +25,19 @@ const rules: Rule[] = [
 ];
 export function suggestCategories(product: ProductText, allowedKeys: readonly string[]): CategorySuggestion[] {
   const title = (product.title || "").slice(0,500);
-  const details = ((product.shortDescription || "") + " " + (product.description || "")).slice(0,2400);
+  const summary = (product.shortDescription || "").slice(0,600);
+  const details = (product.description || "").slice(0,2400);
   const allowed = new Set(allowedKeys);
   const results: CategorySuggestion[] = [];
   for (const r of rules) {
     if (!allowed.has(r.key)) continue;
     const inTitle = r.tokens.test(title);
+    const inSummary = r.tokens.test(summary);
     const inDetails = r.tokens.test(details);
-    const score = (inTitle ? 5 : 0) + (inDetails ? 1 : 0);
-    // A description-only clue is insufficient for a safe suggestion.
+    const score = (inTitle ? 5 : 0) + (inSummary ? 3 : 0) + (inDetails ? 2 : 0);
+    // Require a matching title or agreement between short and full descriptions.
     if (score < 5) continue;
-    results.push({ key:r.key, score, reason:r.hint + (inTitle ? " — совпадение в названии" : "") });
+    results.push({ key:r.key, score, reason:r.hint + (inTitle ? " — совпадение в названии" : " — совпадение в описаниях") });
   }
   return results.sort((a,b)=>b.score-a.score||a.key.localeCompare(b.key,"ru")).slice(0,3);
 }

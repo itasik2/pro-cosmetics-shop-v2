@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import type { HubProduct } from "@/lib/hub";
+import { chooseAutomaticCategory, type CategorySuggestion } from "@/lib/category-choice";
 
 type Result = { title:string; state:string; id?:string };
 type Search = { confidence:number; sourceType:string; fields:Record<string,string>; images:string[] };
@@ -29,11 +30,16 @@ export function BatchEnrichment({products}:{products:HubProduct[]}) {
           proposed[key]=found.fields[key].trim();
         if(!product.images?.length&&found.images?.[0])proposed.images=[found.images[0]];
         if(!product.categoryKey){
-          const response=await fetch("/api/categories/suggest?productId="+encodeURIComponent(product.id));
+          const response=await fetch("/api/categories/suggest",{method:"POST",
+            headers:{"content-type":"application/json"},
+            body:JSON.stringify({productId:product.id,preview:{
+              shortDescription:(found.fields.shortDescription||"").slice(0,3000),
+              description:(found.fields.description||"").slice(0,3000),
+            }})});
           if(response.ok){
-            const data=await response.json().catch(()=>null) as {suggestions?:Array<{key:string;score:number}>}|null;
-            const suggestions=data?.suggestions||[];
-            if(suggestions.length===1&&suggestions[0].score>=5)proposed.categoryKey=suggestions[0].key;
+            const data=await response.json().catch(()=>null) as {suggestions?:CategorySuggestion[]}|null;
+            const category=chooseAutomaticCategory(data?.suggestions||[]);
+            if(category)proposed.categoryKey=category;
           }
         }
         if(!Object.keys(proposed).length){
