@@ -14,7 +14,7 @@ import {
   productIdentityKey,
   variantLabel,
 } from "@/lib/price-import/productVariants";
-import { formatProductName, isAllCapsProductName } from "@/lib/productNames";
+import { formatProductName, isAllCapsProductName, productDisplayName } from "@/lib/productNames";
 
 const MergeSchema = z.object({
   automatic: z.boolean().optional().default(false),
@@ -86,6 +86,7 @@ const productSelect = {
   price: true,
   stock: true,
   image: true,
+  images: { select: { url: true, width: true, height: true } },
   description: true,
   shortDescription: true,
   category: true,
@@ -198,9 +199,9 @@ export async function GET(req: Request) {
         warnings,
         kind,
         key,
-        title: formatProductName(
-          baseProductName(canonical.name, productVariantLabel(canonical)),
-        ),
+        title: productDisplayName({
+          ...canonical, name: baseProductName(canonical.name, productVariantLabel(canonical)),
+        }),
         supplier:
           items.find((item) => item.supplier?.name)?.supplier?.name || "",
         brand: canonical.brand?.name || "",

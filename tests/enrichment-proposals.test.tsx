@@ -156,6 +156,26 @@ test("source titles lose advertising suffixes and fall back to the product name 
   );
 });
 
+test("the proposal editor and version check share a SKU-free title while retaining all search identifiers", async () => {
+  const f = fixture();
+  f.state.product.supplierSku = "SKY117";
+  f.state.product.variants = [{ id: "sample", sku: "SKY117/1", label: "3 мл" }];
+  f.state.proposal.title = "Маска Skinosophy SKY117";
+  const before = structuredClone(f.state.product);
+  const text = proposalText(f.proposal);
+  assert.equal(text.title, "Маска Skinosophy");
+  const saved = await editProposalText({
+    proposalId: "proposal", version: proposalTextVersion(f.proposal), text,
+  }, f.database);
+  assert.equal(saved.title, text.title);
+  assert.equal(saved.textVersion, proposalTextVersion(f.proposal));
+  assert.deepEqual(f.state.product, before);
+  const html = renderToStaticMarkup(<ProposalTextEditor
+    proposal={{ ...f.proposal, textVersion: saved.textVersion }} onEditingChange={() => {}}
+  />);
+  assert.ok(!html.includes("SKY117"));
+});
+
 test("editing saves all text in the proposal and leaves the product, photos and inventory untouched", async () => {
   const f = fixture();
   const originalProduct = structuredClone(f.state.product);

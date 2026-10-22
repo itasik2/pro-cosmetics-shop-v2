@@ -8,13 +8,14 @@ import AddToCartButton from "./AddToCartButton";
 import { brandNameToSlug } from "@/lib/brandSlug";
 import { publicShortDescription } from "@/lib/productCopy";
 import { publicProductCategory } from "@/lib/catalogFilters";
-import { formatProductName } from "@/lib/productNames";
+import { productDisplayName } from "@/lib/productNames";
 
 type ProductCardProps = {
   product: {
     id: string;
     slug: string;
     name: string;
+    supplierSku?: string | null;
     image: string;
     shortDescription?: string | null;
     price: number;
@@ -70,7 +71,7 @@ function normalizeVariants(value: unknown): Variant[] {
 }
 
 export default function ProductCard({ product }: ProductCardProps) {
-  const displayName = formatProductName(product.name);
+  const displayName = productDisplayName(product);
   const newBadge = product.isNew === true || isRecentlyCreated(product.createdAt, 14);
   const variants = normalizeVariants(product.variants);
   const hasVariants = variants.length > 0;

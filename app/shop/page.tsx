@@ -1,4 +1,5 @@
 // app/shop/page.tsx
+import { productMatchesSearch } from "@/lib/productSearch";
 import type { Prisma } from "@prisma/client";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
@@ -46,53 +47,6 @@ function parseSlugList(value: string | string[] | undefined) {
         .filter(Boolean),
     ),
   );
-}
-
-function normalizeSearch(value: unknown) {
-  return String(value || "")
-    .toLocaleLowerCase("ru-RU")
-    .replace(/ё/g, "е")
-    .replace(/[^a-zа-я0-9]+/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function productMatchesSearch(
-  product: {
-    name: string;
-    category: string;
-    shortDescription: string | null;
-    productLineName: string | null;
-    supplierSku: string | null;
-    brand: { name: string } | null;
-    variants: unknown;
-  },
-  query: string,
-) {
-  const normalizedQuery = normalizeSearch(query);
-  if (!normalizedQuery) return true;
-
-  const variantParts: string[] = [];
-  if (Array.isArray(product.variants)) {
-    for (const raw of product.variants) {
-      if (!raw || typeof raw !== "object") continue;
-      const variant = raw as Record<string, unknown>;
-      if (typeof variant.label === "string") variantParts.push(variant.label);
-      if (typeof variant.sku === "string") variantParts.push(variant.sku);
-    }
-  }
-
-  const haystack = normalizeSearch([
-    product.name,
-    product.brand?.name,
-    product.category,
-    product.productLineName,
-    product.shortDescription,
-    product.supplierSku,
-    ...variantParts,
-  ].filter(Boolean).join(" "));
-
-  return normalizedQuery.split(" ").every((token) => haystack.includes(token));
 }
 
 export async function generateMetadata(props: Props) {

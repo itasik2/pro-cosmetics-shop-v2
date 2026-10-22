@@ -1,4 +1,4 @@
-import { formatProductName } from "../productNames";
+import { formatProductName, productDisplayName, type ProductNameIdentity } from "../productNames";
 
 export type ProposalText = {
   title: string | null;
@@ -11,7 +11,7 @@ export type ProposalText = {
 export type EditableProposal = ProposalText & {
   id: string;
   textVersion: string;
-  product: { name: string };
+  product: ProductNameIdentity;
 };
 
 const ADVERTISING =
@@ -37,15 +37,16 @@ function cleanTitle(value: unknown) {
     : null;
 }
 
-export function sanitizeProposalTitle(value: unknown, fallback?: unknown) {
-  return cleanTitle(value) || cleanTitle(fallback);
+export function sanitizeProposalTitle(value: unknown, fallback?: unknown, identity?: ProductNameIdentity) {
+  const title = cleanTitle(value) || cleanTitle(fallback);
+  return title && identity ? productDisplayName({ ...identity, name: title }) : title;
 }
 
 export function proposalText(
-  proposal: ProposalText & { product: { name: string } },
+  proposal: ProposalText & { product: ProductNameIdentity },
 ): ProposalText {
   return {
-    title: sanitizeProposalTitle(proposal.title, proposal.product.name),
+    title: sanitizeProposalTitle(proposal.title, proposal.product.name, proposal.product),
     shortDescription: proposal.shortDescription?.trim() || null,
     description: proposal.description?.trim() || null,
     application: proposal.application?.trim() || null,
@@ -62,11 +63,12 @@ export function hasManualProposalText(facts: unknown) {
 export function manuallyEditedProductName(proposal: {
   title?: string | null;
   facts: unknown;
+  product?: ProductNameIdentity;
 }) {
   const facts = proposal.facts as {
     adminTextEdit?: { titleChanged?: boolean };
   } | null;
   return facts?.adminTextEdit?.titleChanged
-    ? sanitizeProposalTitle(proposal.title)
+    ? sanitizeProposalTitle(proposal.title, undefined, proposal.product)
     : null;
 }

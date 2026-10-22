@@ -4,7 +4,7 @@ import {
   type VariantImageCandidate,
   type VariantImageSelection,
 } from "./variantImages";
-import { isProductPhoto, isUsablePhoto } from "./photoQuality";
+import { isProductPhoto, isUsablePhoto, rankPhotoCandidates, type PhotoQuality } from "./photoQuality";
 import {
   photoCandidateIsCurrent,
   namePhotoKey,
@@ -21,9 +21,16 @@ type PhotoProduct = NamePhotoProduct & {
 export function suggestedVariantCommonPhoto(
   variants: Variant[],
   primarySku?: string | null,
+  media: { url: string; width: number | null; height: number | null }[] = [],
 ) {
-  const usable = variants.filter((variant) => isUsablePhoto(variant.image));
-  const variant = usable.find((item) => photoSku(item.sku) === photoSku(primarySku)) || usable[0];
+  // SKU is a tie-breaker only; image quality has priority.
+  const ordered = variants.filter((variant) => isUsablePhoto(variant.image))
+    .sort((a, b) => Number(photoSku(b.sku) === photoSku(primarySku)) - Number(photoSku(a.sku) === photoSku(primarySku)));
+  const variant = rankPhotoCandidates(ordered.map((variant) => {
+      const saved = media.find((image) => image.url === variant.image);
+      return { ...variant, url: variant.image!, ...(saved?.width && saved.height
+        ? { quality: { width: saved.width, height: saved.height } as PhotoQuality } : {}) };
+    }))[0];
   return variant ? {
     url: variant.image!, variantId: variant.id,
     sku: variant.sku || "", label: variant.label || "",
@@ -38,12 +45,7 @@ export type CommonPhotoCandidate = VariantImageCandidate & {
 };
 
 function rankedCandidates<T extends VariantImageCandidate>(values: T[]) {
-  return values
-    .filter((item) => isProductPhoto(item.url))
-    .sort(
-      (a, b) =>
-        Number(a.source === "PRICE_LIST") - Number(b.source === "PRICE_LIST"),
-    );
+  return rankPhotoCandidates(values.filter((item) => isProductPhoto(item.url)));
 }
 
 export function primarySkuPhotoCandidates(
@@ -89,6 +91,7 @@ export function automaticPhotoPlan(
     image: string;
   },
   facts: unknown,
+  options: { preferBestCommon?: boolean } = {},
 ) {
   const data =
     facts && typeof facts === "object"
@@ -115,7 +118,7 @@ export function automaticPhotoPlan(
     },
   );
   return {
-    imageUrl: isUsablePhoto(product.image)
+    imageUrl: !options.preferBestCommon && isUsablePhoto(product.image)
       ? null
       : commonCandidates[0]?.url || null,
     commonCandidates,
@@ -150,9 +153,13 @@ export function commonPhotoCandidates(product: PhotoProduct, facts: unknown): Co
   }))));
   const values: CommonPhotoCandidate[] = [...stored, ...primaryCandidates, ...other];
   const unique = new Map<string, CommonPhotoCandidate>();
-  for (const candidate of rankedCandidates(values))
-    if (!unique.has(candidate.url)) unique.set(candidate.url, candidate);
-  return [...unique.values()];
+  for (const candidate of values) {
+    const previous = unique.get(candidate.url);
+    if (!previous) unique.set(candidate.url, candidate);
+    else if (!previous.quality && candidate.quality)
+      unique.set(candidate.url, { ...previous, quality: candidate.quality });
+  }
+  return rankedCandidates([...unique.values()]);
 }
 
 export function mergeAutomaticSelections(
