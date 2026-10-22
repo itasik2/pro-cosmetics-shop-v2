@@ -6,6 +6,7 @@ import {
 } from "./price-import/productVariants";
 import { photoSku } from "./enrichment/variantImages";
 import { isUsablePhoto } from "./enrichment/photoQuality";
+import { suggestedVariantCommonPhoto } from "./enrichment/automaticPhotos";
 
 type MergeProduct = {
   id: string;
@@ -113,10 +114,15 @@ export function productMergePlan(
       const primarySku = photoSku(
         product.supplierSku || (stored.length === 1 ? stored[0].sku : ""),
       );
+      const commonBelongsToAnotherSku = stored.some((variant) =>
+        isUsablePhoto(variant.image) && variant.image === product.image &&
+        photoSku(variant.sku) !== primarySku,
+      );
       if (
         !isUsablePhoto(incoming.image) &&
         sku &&
         sku === primarySku &&
+        !commonBelongsToAnotherSku &&
         isUsablePhoto(product.image)
       ) {
         incoming.image = product.image;
@@ -174,8 +180,12 @@ export function productMergePlan(
       });
     }
   }
+  const commonPhotoSuggestion = isUsablePhoto(canonical.image)
+    ? null : suggestedVariantCommonPhoto(variants, canonical.supplierSku);
   return {
     variants,
+    image: commonPhotoSuggestion?.url || canonical.image,
+    commonPhotoSuggestion,
     orderMappings,
     automatic: warnings.size === 0,
     warnings: [...warnings],

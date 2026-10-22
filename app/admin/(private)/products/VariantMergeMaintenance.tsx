@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { VariantPhotoPreview } from "@/components/VariantPhotoPicker";
 
 type Variant = {
   id: string;
@@ -32,6 +33,7 @@ type CandidateGroup = {
   brand: string;
   suggestedCanonicalId: string;
   products: CandidateProduct[];
+  photoSuggestions?: Record<string, { url: string; sku: string; label: string } | null>;
 };
 
 async function readResponse(response: Response) {
@@ -200,7 +202,9 @@ export default function VariantMergeMaintenance() {
           )}
 
           <div className="space-y-4">
-            {groups.map((group) => (
+            {groups.map((group) => {
+              const commonPhoto = group.photoSuggestions?.[canonicalIds[group.key] || group.suggestedCanonicalId];
+              return (
               <article key={group.key} className="space-y-3 rounded-xl border p-3">
                 <div>
                   <div className="font-medium">{group.title}</div>
@@ -293,6 +297,12 @@ export default function VariantMergeMaintenance() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3 border-t pt-3">
+                  {commonPhoto && (
+                    <div className="flex w-full items-center gap-3 rounded-xl border p-3 text-xs">
+                      <VariantPhotoPreview src={commonPhoto.url} alt="Предлагаемое общее фото" className="h-16 w-16 rounded-lg object-contain" />
+                      <span>Предлагаемое общее фото: {commonPhoto.label}{commonPhoto.sku ? ` · SKU ${commonPhoto.sku}` : ""}. Будет применено при объединении.</span>
+                    </div>
+                  )}
                   <button
                     type="button"
                     disabled={Boolean(busyKey)}
@@ -306,7 +316,8 @@ export default function VariantMergeMaintenance() {
                   </span>
                 </div>
               </article>
-            ))}
+              );
+            })}
           </div>
 
           {message && (

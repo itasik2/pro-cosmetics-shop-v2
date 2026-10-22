@@ -5,7 +5,13 @@ export const proposalApplySchema = z.object({
     .enum(["ALL", "DESCRIPTION", "DESCRIPTION_FINAL", "IMAGE", "INVENTORY"])
     .default("ALL"),
   // A missing selection preserves the product's current common photo.
-  imageUrl: z.string().url().max(3000).nullable().optional().or(z.literal("")),
+  // A local reference is accepted only after checking current product ownership.
+  imageUrl: z.string().max(3000).refine((value) => {
+    if (!value) return true;
+    if (/^\/(?![/\\])/.test(value)) return true;
+    try { return ["http:", "https:"].includes(new URL(value).protocol); }
+    catch { return false; }
+  }).nullable().optional(),
   variantImages: z
     .array(
       z.object({

@@ -27,6 +27,7 @@ type Proposal = {
 };
 
 type MergeGroup = {
+  photoSuggestions?: Record<string, { url: string; sku: string; label: string } | null>;
   key: string;
   automatic: boolean;
   warnings: string[];
@@ -480,7 +481,13 @@ export default function ProductAssistant({
                   proposalId={proposal.id}
                   facts={proposal.facts}
                   value={variantImages}
-                  onChange={setVariantImages}
+                  onChange={(value) => {
+                    setVariantImages(value);
+                    if (!isUsablePhoto(product.image)) setImageUrl((current) =>
+                      current || value.find((item) => item.imageUrl && isUsablePhoto(item.imageUrl))?.imageUrl || null,
+                    );
+                  }}
+                  onCommonImageChange={setImageUrl}
                   commonImage={imageUrl || product.image}
                   disabled={blocked}
                   onBusyChange={(value) =>
@@ -565,6 +572,16 @@ export default function ProductAssistant({
                 {warning}
               </p>
             ))}
+            {group.photoSuggestions?.[group.suggestedCanonicalId] && (
+              <div className="flex items-center gap-3 rounded-xl border p-3 text-xs">
+                <VariantPhotoPreview
+                  src={group.photoSuggestions[group.suggestedCanonicalId]!.url}
+                  alt="Предлагаемое общее фото"
+                  className="h-16 w-16 rounded-lg object-contain"
+                />
+                <span>Предлагаемое общее фото из варианта {group.photoSuggestions[group.suggestedCanonicalId]!.label} · SKU {group.photoSuggestions[group.suggestedCanonicalId]!.sku}. Будет применено при объединении.</span>
+              </div>
+            )}
             <button
               type="button"
               disabled={blocked || !group.automatic}

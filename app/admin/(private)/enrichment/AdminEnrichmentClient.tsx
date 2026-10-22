@@ -14,7 +14,7 @@ import {
   automaticPhotoPlan,
   mergeAutomaticSelections,
 } from "@/lib/enrichment/automaticPhotos";
-import { isProductPhoto } from "@/lib/enrichment/photoQuality";
+import { isProductPhoto, isUsablePhoto } from "@/lib/enrichment/photoQuality";
 import {
   adminVariants,
   variantStockChanges,
@@ -1377,7 +1377,7 @@ export default function AdminEnrichmentClient() {
                           <div className="font-medium">Общее фото товара</div>
                           <p className="mt-1 text-xs text-gray-600">
                             {selectedImage
-                              ? "Фото по SKU выбрано и готово к применению."
+                              ? "Общее фото выбрано и готово к применению."
                               : "Используется текущее общее фото."}
                           </p>
                         </div>
@@ -1426,6 +1426,9 @@ export default function AdminEnrichmentClient() {
                       proposalId={proposal.id}
                       facts={proposal.facts}
                       commonImage={selectedImage}
+                      onCommonImageChange={(imageUrl) => setSelectedImages((current) => ({
+                        ...current, [proposal.id]: imageUrl,
+                      }))}
                       stocks={variantStockValues[proposal.id]}
                       value={variantImages[proposal.id] || []}
                       disabled={isBusy || editingText[proposal.id]}
@@ -1441,12 +1444,16 @@ export default function AdminEnrichmentClient() {
                       onRemove={(variant) =>
                         void removeVariant(proposal, variant)
                       }
-                      onChange={(value) =>
+                      onChange={(value) => {
                         setVariantImages((current) => ({
                           ...current,
                           [proposal.id]: value,
-                        }))
-                      }
+                        }));
+                        if (!selectedImage && !isUsablePhoto(proposal.product.image)) {
+                          const available = value.find((item) => item.imageUrl && isUsablePhoto(item.imageUrl))?.imageUrl;
+                          if (available) setSelectedImages((current) => ({ ...current, [proposal.id]: available }));
+                        }
+                      }}
                     />
                     {!variants.length && (
                       <label className="block rounded-xl border p-3 text-sm">
