@@ -117,6 +117,9 @@ test("visible product titles hide known SKUs without removing sizes, SPF, compon
   assert.equal(productDisplayName({ ...product, name: "Маска — SKU: sky117" }), "Маска");
   assert.equal(productDisplayName({ ...product, name: "Маска (SKY117/1)", variants: [{ sku: "SKY117/1" }] }), "Маска");
   assert.equal(productDisplayName({ ...product, name: "Маска SKY1172" }), "Маска SKY1172");
+  for (const code of ["SKY117.2", "SKY117+2", "v2.SKY117", "v2+SKY117"])
+    assert.equal(productDisplayName({ ...product, name: `Маска ${code}` }), `Маска ${code}`);
+  assert.equal(productDisplayName({ ...product, name: "Маска SKY117.2", supplierSku: "SKY117.2" }), "Маска");
   assert.equal(productDisplayName({ name: "Крем SPF50 Q10, 50 мл, артикул: 50", supplierSku: "50" }), "Крем SPF50 Q10, 50 мл");
   assert.equal(productDisplayName({ name: "Крем A+01", supplierSku: "A+01" }), "Крем");
 });
