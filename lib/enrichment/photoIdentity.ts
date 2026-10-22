@@ -204,6 +204,42 @@ function volumes(value: string) {
   });
 }
 
+const PHOTO_COLORS: Array<[string, RegExp]> = [
+  ["gray", /^(?:серый|серая|серое|серые|gray|grey)$/u],
+  ["white", /^(?:белый|белая|белое|белые|white)$/u],
+  ["black", /^(?:черный|черная|черное|черные|black)$/u],
+  ["blue", /^(?:синий|синяя|синее|синие|blue)$/u],
+  ["red", /^(?:красный|красная|красное|красные|red)$/u],
+  ["green", /^(?:зеленый|зеленая|зеленое|зеленые|green)$/u],
+  ["pink", /^(?:розовый|розовая|розовое|розовые|pink)$/u],
+  ["beige", /^(?:бежевый|бежевая|бежевое|бежевые|beige)$/u],
+];
+function photoColor(value: string) {
+  const color = photoComparisonText(value).trim();
+  return PHOTO_COLORS.find(([, pattern]) => pattern.test(color))?.[0] || null;
+}
+
+function matchesPhotoColorAttribute(
+  expected: ReturnType<typeof photoNameParts>,
+  actual: ReturnType<typeof photoNameParts>,
+  source: { color?: string | null; singleProduct?: boolean },
+) {
+  if (!source.singleProduct || !source.color) return false;
+  const requested = expected.tokens.filter((word) => photoColor(word));
+  const actualColors = actual.tokens.filter((word) => photoColor(word));
+  if (
+    requested.length !== 1 ||
+    photoColor(requested[0]) !== photoColor(source.color) ||
+    actualColors.length > 1 ||
+    actualColors.some((word) => photoColor(word) !== photoColor(requested[0]))
+  )
+    return false;
+  const core = (tokens: string[]) =>
+    tokens.filter((word) => !photoColor(word)).join("");
+  const expectedCore = core(expected.tokens);
+  return expectedCore.length >= 3 && expectedCore === core(actual.tokens);
+}
+
 export function namedPhotoProductIssue(
   product: NamePhotoProduct,
   source: {
@@ -212,6 +248,8 @@ export function namedPhotoProductIssue(
     description: string | null;
     retailer?: string | null;
     confirmedBrand?: string | null;
+    color?: string | null;
+    singleProduct?: boolean;
   },
 ) {
   const brand = normalized(photoComparisonText(product.brand?.name));
@@ -239,12 +277,22 @@ export function namedPhotoProductIssue(
     product.brand?.name,
   );
   if (
-    expected.name.length < 6 ||
+    expected.name.length < 3 ||
+    (expected.name.length < 6 && !source.singleProduct) ||
     expected.types.join(",") !== actual.types.join(",")
   )
     return "photo_name_mismatch";
+  const requestedColors = expected.tokens.flatMap((word) =>
+    photoColor(word) ? [photoColor(word)!] : [],
+  );
+  if (
+    requestedColors.length && source.color &&
+    (requestedColors.length !== 1 || requestedColors[0] !== photoColor(source.color))
+  )
+    return "photo_color_mismatch";
   if (
     expected.name !== actual.name &&
+    !matchesPhotoColorAttribute(expected, actual, source) &&
     !(
       (actualBrand === brand || catalogBrandConfirmed) &&
       product.volumeValue &&

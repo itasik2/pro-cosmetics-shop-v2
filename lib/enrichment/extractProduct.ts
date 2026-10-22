@@ -27,6 +27,9 @@ export type ExtractedProductData = {
   price: number | null;
   currency: string | null;
   rawJsonLd: Record<string, unknown> | null;
+  color?: string | null;
+  singleProduct?: boolean;
+  hasVariants?: boolean;
 };
 
 function cleanText(value: unknown, maxLength = 12_000) {
@@ -167,16 +170,24 @@ function selectorImages(
   $: cheerio.CheerioAPI,
   selector: string | undefined,
   baseUrl: string,
+  productScope?: object,
 ) {
   if (!selector) return [] as string[];
 
   const images: string[] = [];
   try {
     $(selector).each((_, element) => {
+      if (productScope && (
+        $(element).closest(".js-product").get(0) !== productScope ||
+        $(element).closest(NON_PRODUCT_IMAGE_AREA).length
+      )) return;
       const raw =
-        $(element).attr("src") ||
+        $(element).attr("data-img-zoom-url") ||
+        $(element).attr("data-original") ||
+        $(element).attr("content") ||
         $(element).attr("data-src") ||
         $(element).attr("data-large-img-url") ||
+        $(element).attr("src") ||
         $(element).attr("href");
       const elementHint = [
         raw,
@@ -332,6 +343,77 @@ function isLikelyProductImage(value: string) {
   return Boolean(value) && isProductPhoto(value);
 }
 
+const NON_PRODUCT_IMAGE_AREA = "header, nav, footer, aside, [class*='recommend'], [class*='related'], [class*='cart']";
+
+function tildaSingleProduct(
+  $: cheerio.CheerioAPI,
+  baseUrl: string,
+  configuredImages?: string,
+) {
+  const products = $(".js-product-single, .js-store-product_single");
+  if (products.length !== 1) return null;
+  const product = products.first();
+  const ownElements = (selector: string) => product.find(selector).filter(
+    (_, element) => $(element).closest(".js-product").get(0) === product.get(0),
+  );
+  const title = cleanText(ownElements(".js-product-name").first().text(), 500);
+  if (!isLikelyProductTitle(title)) return null;
+  const gallery: string[] = [];
+  const galleries = ownElements(".t-slds");
+  const galleryScope = galleries.length === 1 ? galleries.first() : $([]);
+  galleryScope.find(".js-product-img, [data-img-zoom-url], [itemprop='image']").each(
+    (_, element) => {
+      if ($(element).closest(".js-product").get(0) !== product.get(0)) return;
+      if ($(element).closest(NON_PRODUCT_IMAGE_AREA).length) return;
+      const own = $(element);
+      const raw =
+        own.attr("data-img-zoom-url") || own.attr("data-original") ||
+        own.attr("content") || own.attr("data-src") || own.attr("src");
+      const hint = [raw, own.attr("alt"), own.attr("class")]
+        .filter(Boolean).join(" ");
+      const url = asUrl(raw, baseUrl);
+      if (url && isLikelyProductImage(hint) && isLikelyProductImage(url))
+        gallery.push(url);
+    },
+  );
+  // Tilda's product description often occupies the immediately following record.
+  // Never search the global footer, recommendations or unrelated accordions.
+  const details = product.closest(".t-rec").nextAll(".t-rec").first();
+  let description: string | null = null;
+  let color: string | null = null;
+  if (details.is("[data-record-type='585']")) {
+    details.find(".t585__accordion").each((_, accordion) => {
+      const heading = cleanText(
+        $(accordion).find(".t585__title").first().text(),
+      )?.toLowerCase();
+      const value = $(accordion).find(".t585__text").first().clone();
+      value.find("br").replaceWith("\n");
+      if (heading === "описание") description = cleanText(value.text());
+      if (heading === "характеристики") {
+        const colors = [
+          ...value.text().matchAll(/(?:^|\n)\s*Цвет\s*:\s*([^\n]+)/giu),
+        ].map((match) => cleanText(match[1], 200)).filter(Boolean);
+        color = [...new Set([color, ...colors].filter(Boolean))].join(" / ") || null;
+      }
+    });
+  }
+  return {
+    title,
+    description,
+    color,
+    images: [...new Set([
+      ...gallery,
+      ...selectorImages($, configuredImages, baseUrl, product.get(0)),
+    ])],
+    sku: cleanText(ownElements(".js-product-sku").first().text(), 100),
+    hasVariants: ownElements("select").toArray().some(
+      (select) => $(select).find("option").filter(
+        (_, option) => Boolean($(option).attr("value") || $(option).text().trim()),
+      ).length > 1,
+    ),
+  };
+}
+
 export function extractImagesForSku(input: {
   buffer: Buffer;
   finalUrl: string;
@@ -418,7 +500,8 @@ export function extractImagesForSku(input: {
       ...input,
       expectedSku: input.sku,
     });
-    if (photoSku(extracted.sku) === wanted) images.push(...extracted.images);
+    if (!extracted.hasVariants && photoSku(extracted.sku) === wanted)
+      images.push(...extracted.images);
   }
   return [...new Set(images.filter(isLikelyProductImage))].slice(0, 12);
 }
@@ -458,6 +541,11 @@ export function extractImagesForNamedProduct(input: {
         (products.length === 1 ? extracted.description : null),
       retailer: metaContent($, "meta[property='og:site_name']"),
       confirmedBrand: products.length === 1 ? input.confirmedBrand : undefined,
+      color: cleanText(node.color) || (products.length === 1 ? extracted.color : null),
+      singleProduct: products.length === 1 && (
+        productHeading($) === cleanText(node.name) ||
+        asUrl(node.url, input.finalUrl) === input.finalUrl
+      ),
     };
     const issue = namedPhotoProductIssue(input.product, source);
     if (issue) {
@@ -469,6 +557,10 @@ export function extractImagesForNamedProduct(input: {
     if (products.length === 1) images.push(...extracted.images);
   }
   if (!products.length) {
+    if (extracted.hasVariants) {
+      input.issues?.add("photo_volume_ambiguous");
+      return [];
+    }
     const issue = namedPhotoProductIssue(input.product, {
       ...extracted,
       retailer: metaContent($, "meta[property='og:site_name']"),
@@ -507,6 +599,9 @@ export function extractProductFromHtml(input: {
       : null) ||
     products[0] ||
     null;
+  const tilda = products.length ? null : tildaSingleProduct(
+    $, input.finalUrl, input.selectors?.images,
+  );
   const bodyText = cleanText($("body").text(), 200_000) || "";
 
   const selectorTitle = selectorText($, input.selectors?.title, 500);
@@ -613,6 +708,7 @@ export function extractProductFromHtml(input: {
       : null,
     selectorTitle,
     cleanText(productNode?.name, 500),
+    tilda?.title || null,
     productHeading($),
     metaContent($, "meta[property='og:title']"),
     metaContent($, "meta[name='twitter:title']"),
@@ -621,6 +717,7 @@ export function extractProductFromHtml(input: {
 
   const description =
     selectorDescription ||
+    tilda?.description ||
     richestText([
       cleanText(productNode?.description),
       fallbackDescription,
@@ -636,30 +733,34 @@ export function extractProductFromHtml(input: {
   const canonicalUrl = asUrl(canonicalRaw, input.finalUrl);
 
   const images: string[] = [];
-  collectImageValues(productNode?.image, input.finalUrl, images);
-  collectImageValues(
-    $("meta[property='og:image']")
-      .map((_, element) => $(element).attr("content"))
-      .get(),
-    input.finalUrl,
-    images,
-  );
-  collectImageValues(
-    $("meta[name='twitter:image']")
-      .map((_, element) => $(element).attr("content"))
-      .get(),
-    input.finalUrl,
-    images,
-  );
-  images.push(...selectorImages($, input.selectors?.images, input.finalUrl));
-  if (images.length < 2) {
-    images.push(
-      ...selectorImages(
-        $,
-        ".product-info .product-image img, .product-image img, .product-gallery img, .product-gallery a, .product-photos img, .product-zoom-image img, a.cloud-zoom, a.cloud-zoom-gallery, .thumbnails img, a.thumbnail, [itemprop='image']",
-        input.finalUrl,
-      ),
+  if (tilda) {
+    images.push(...tilda.images);
+  } else {
+    collectImageValues(productNode?.image, input.finalUrl, images);
+    collectImageValues(
+      $("meta[property='og:image']")
+        .map((_, element) => $(element).attr("content"))
+        .get(),
+      input.finalUrl,
+      images,
     );
+    collectImageValues(
+      $("meta[name='twitter:image']")
+        .map((_, element) => $(element).attr("content"))
+        .get(),
+      input.finalUrl,
+      images,
+    );
+    images.push(...selectorImages($, input.selectors?.images, input.finalUrl));
+    if (images.length < 2) {
+      images.push(
+        ...selectorImages(
+          $,
+          ".product-info .product-image img, .product-image img, .product-gallery img, .product-gallery a, .product-photos img, .product-zoom-image img, a.cloud-zoom, a.cloud-zoom-gallery, .thumbnails img, a.thumbnail, [itemprop='image']",
+          input.finalUrl,
+        ),
+      );
+    }
   }
 
   const offers = readOffers(productNode?.offers);
@@ -679,7 +780,7 @@ export function extractProductFromHtml(input: {
     description,
     skinType: selectorSkinType || fallbackSkinType,
     benefits: selectorBenefits || fallbackBenefits,
-    sku:
+    sku: tilda ? tilda.sku :
       cleanText(productNode?.sku, 100) ||
       cleanText(productNode?.mpn, 100) ||
       cleanText(productNode?.productID, 100) ||
@@ -698,5 +799,13 @@ export function extractProductFromHtml(input: {
     price: offers.price ?? fallbackPrice,
     currency: offers.currency || fallbackCurrency,
     rawJsonLd: productNode,
+    color: tilda?.color || cleanText(productNode?.color, 200),
+    singleProduct: Boolean(tilda) || (products.length === 1 && (
+      productHeading($) === cleanText(productNode?.name) ||
+      asUrl(productNode?.url, input.finalUrl) === input.finalUrl
+    )),
+    hasVariants: tilda?.hasVariants || (
+      !products.length && $(".js-product-single, .js-store-product_single").length > 1
+    ),
   };
 }
