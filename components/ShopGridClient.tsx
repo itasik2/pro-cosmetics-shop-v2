@@ -16,6 +16,7 @@ type Product = {
   id: string;
   slug: string;
   name: string;
+  supplierSku?: string | null;
   image: string;
   shortDescription?: string | null;
   price: number;

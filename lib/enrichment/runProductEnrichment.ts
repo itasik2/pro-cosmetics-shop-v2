@@ -15,6 +15,7 @@ import {
 } from "./priceListImages";
 import { productForVariant, searchVariantPhotos } from "./variantPhotoSearch";
 import { collectProposalPhotos } from "./prepareProposalPhotos";
+import { rateProposalPhotoGroups } from "./ratePhotoCandidates";
 import { photoSku } from "./variantImages";
 import { mergeImageGroups } from "./variantImages";
 import { extractProductFromHtml, extractImagesForSku } from "./extractProduct";
@@ -435,7 +436,7 @@ export async function runProductEnrichment(input: RunInput) {
             sourceUrl: fetched.finalUrl,
           }))
         : [];
-    const photos = await collectProposalPhotos({
+    const collected = await collectProposalPhotos({
       product,
       groups: variantImageCandidates,
       productGroups: mergeImageGroups(
@@ -458,6 +459,9 @@ export async function runProductEnrichment(input: RunInput) {
       officialDomains,
       policies: toAllowedPolicies(allowedSources),
       deadlineAt: Math.min(deadlineAt - 3_000, Date.now() + 60_000),
+    });
+    const photos = await rateProposalPhotoGroups(collected, {
+      policies: toAllowedPolicies(allowedSources), deadlineAt: deadlineAt - 3_000,
     });
     const proposalImages = [
       ...new Set(
@@ -495,7 +499,7 @@ export async function runProductEnrichment(input: RunInput) {
         jobId: job.id,
         sourceUrl: fetched.finalUrl,
         confidence: match.confidence,
-        title: sanitizeProposalTitle(extracted.title, product.name),
+        title: sanitizeProposalTitle(extracted.title, product.name, product),
         shortDescription: generated.shortDescription,
         description: generated.description,
         application: generated.application,

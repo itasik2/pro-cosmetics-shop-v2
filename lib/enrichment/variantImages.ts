@@ -3,12 +3,14 @@ import {
   photoCandidateIsCurrent,
   type NamePhotoProduct,
 } from "./photoIdentity";
+import type { PhotoQuality } from "./photoQuality";
 export type VariantImageCandidate = {
   url: string;
   source: "WEB" | "PRICE_LIST";
   sourceUrl?: string;
   rowNumber?: number;
   identityKey?: string;
+  quality?: PhotoQuality;
 };
 export type VariantImageGroup = {
   variantId: string;

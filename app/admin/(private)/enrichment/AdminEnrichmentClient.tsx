@@ -4,6 +4,7 @@ import {
   VariantPhotoPreview,
   VariantPhotosReview,
 } from "@/components/VariantPhotoPicker";
+import { productDisplayName } from "@/lib/productNames";
 import { ProposalTextEditor } from "@/components/ProposalTextEditor";
 import {
   applyProposalChange,
@@ -812,6 +813,7 @@ export default function AdminEnrichmentClient() {
           variants: proposalVariants(proposal.product.variants),
         },
         photos,
+        { preferBestCommon: true },
       );
       setSelectedImages((current) => ({
         ...current,
@@ -1166,7 +1168,7 @@ export default function AdminEnrichmentClient() {
                       />
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <h2 className="font-semibold">{product.name}</h2>
+                          <h2 className="font-semibold">{productDisplayName(product)}</h2>
                           <StatusBadge value={displayStatus} />
                           {!product.isPublished && (
                             <StatusBadge value="Черновик" />
@@ -1310,7 +1312,7 @@ export default function AdminEnrichmentClient() {
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <h2 className="text-lg font-semibold">
-                        {proposal.product.name}
+                        {productDisplayName(proposal.product)}
                       </h2>
                       <StatusBadge
                         value={`${proposal.confidence}% совпадения`}

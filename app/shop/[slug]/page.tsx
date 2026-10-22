@@ -7,7 +7,7 @@ import type { Metadata } from "next";
 import ProductDetailsClient from "@/components/ProductDetailsClient";
 import { getCspNonce } from "@/lib/csp";
 import { SITE_BRAND, getPublicBaseUrl } from "@/lib/siteConfig";
-import { formatProductName } from "@/lib/productNames";
+import { productDisplayName } from "@/lib/productNames";
 import { stringifyJsonLd } from "@/lib/structuredData";
 import { overlayCatalogHubProduct } from "@/lib/catalogHubOverlay";
 
@@ -42,7 +42,7 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
   }
 
   const baseUrl = getPublicBaseUrl();
-  const displayName = formatProductName(product.name);
+  const displayName = productDisplayName(product);
   const metaDescription =
     publicShortDescription(product.shortDescription) ||
     (verifiedProductCopy(product)?.description || product.description).replace(/\s+/g, " ").trim().slice(0, 280);
@@ -76,7 +76,7 @@ export default async function ProductPage(props: Props) {
   if (!product) notFound();
 
   const baseUrl = getPublicBaseUrl();
-  const displayName = formatProductName(product.name);
+  const displayName = productDisplayName(product);
   const schema = {
     "@context": "https://schema.org",
     "@type": "Product",

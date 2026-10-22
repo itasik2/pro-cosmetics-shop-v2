@@ -4,7 +4,7 @@ import { unstable_cache } from "next/cache";
 import ProductCard from "@/components/ProductCard";
 import { getPublicExternalLinks } from "@/lib/externalLinks";
 import { prisma } from "@/lib/prisma";
-import { formatProductName } from "@/lib/productNames";
+import { productDisplayName } from "@/lib/productNames";
 import { collapseRepresentedProductCards } from "@/lib/publicProductCards";
 import { productIdentityKey } from "@/lib/price-import/productVariants";
 import { buildBrandIntentKeywords } from "@/lib/seo";
@@ -472,7 +472,7 @@ function HeroCatalogPreview({ products }: { products: ProductCardRow[] }) {
                   href={`/api/products/by-id-redirect/${encodeURIComponent(product.id)}`}
                   className="block rounded-xl px-3 py-2 text-sm font-medium text-gray-800 hover:bg-[var(--color-accent-soft)]"
                 >
-                  <span className="line-clamp-2">{formatProductName(product.name)}</span>
+                  <span className="line-clamp-2">{productDisplayName(product)}</span>
                 </Link>
               </li>
             ))}

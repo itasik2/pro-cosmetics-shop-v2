@@ -20,6 +20,7 @@ import {
 } from "./sourcePolicies";
 import type { AllowedSourcePolicy } from "./network";
 import { photoCandidateIsCurrent } from "./photoIdentity";
+import { rateProposalPhotoGroups } from "./ratePhotoCandidates";
 
 type PhotoProduct = MatchableProduct & {
   id: string;
@@ -140,7 +141,7 @@ export async function collectProposalPhotos(
       (group) => group.variantId === primaryId,
     ),
     photoAutomation: {
-      version: 6,
+      version: 7,
       checkedAt: new Date().toISOString(),
       issues: [...new Set(issues)],
       incomplete: cursor < targets.length,
@@ -193,11 +194,12 @@ export async function prepareProposalPhotos(
       ? (proposal.facts as Record<string, unknown>)
       : {};
   const previous = facts.photoAutomation as
-    | { checkedAt?: string; version?: number }
+    | { checkedAt?: string; version?: number; qualityIncomplete?: boolean }
     | undefined;
   if (
     options.automatic &&
-    previous?.version === 6 &&
+    previous?.version === 7 &&
+    !previous.qualityIncomplete &&
     previous?.checkedAt &&
     Date.now() - new Date(previous.checkedAt).getTime() < 24 * 60 * 60 * 1000
   ) {
@@ -207,7 +209,7 @@ export async function prepareProposalPhotos(
       images: Array.isArray(proposal.images) ? proposal.images : [],
     };
   }
-  const photos = await collectProposalPhotos({
+  const collected = await collectProposalPhotos({
     product,
     groups: mergeImageGroups(
       imageGroups(facts.variantImageCandidates),
@@ -220,6 +222,9 @@ export async function prepareProposalPhotos(
       .map((source) => source.domain),
     policies: toAllowedPolicies(sources),
     deadlineAt: Date.now() + 90_000,
+  });
+  const photos = await rateProposalPhotoGroups(collected, {
+    policies: toAllowedPolicies(sources),
   });
   const images = [
     ...new Set([

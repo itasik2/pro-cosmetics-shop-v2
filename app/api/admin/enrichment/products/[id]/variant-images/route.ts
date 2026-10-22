@@ -23,6 +23,8 @@ import {
 } from "@/lib/enrichment/variantImages";
 import { searchVariantPhotos } from "@/lib/enrichment/variantPhotoSearch";
 import { photoCandidateIsCurrent } from "@/lib/enrichment/photoIdentity";
+import { ratePhotoCandidates } from "@/lib/enrichment/ratePhotoCandidates";
+import { rankPhotoCandidates } from "@/lib/enrichment/photoQuality";
 const Body = z.object({
   variantId: z.string().min(1).max(150),
   sku: z.string().min(1).max(150),
@@ -87,7 +89,7 @@ export async function POST(
     const sources = await getEnabledSupplierSources(product.supplier.id);
     const prices = await priceListImagesBySku([id]);
     const priceGroup = priceVariantGroups(id, [variant], prices)[0];
-    const result = await searchVariantPhotos({
+    const found = await searchVariantPhotos({
       product,
       variant,
       knownUrl: product.sourceUrl,
@@ -98,6 +100,9 @@ export async function POST(
       policies: toAllowedPolicies(sources),
       priceCandidates: priceGroup?.candidates || [],
     });
+    const result = { ...found, candidates: await ratePhotoCandidates(found.candidates, {
+      policies: toAllowedPolicies(sources),
+    }) };
     let group = {
       variantId: variant.id,
       sku: variant.sku!,
@@ -152,6 +157,7 @@ export async function POST(
           })),
           [group],
         )[0];
+        group = { ...group, candidates: rankPhotoCandidates(group.candidates) };
         const written = await tx.productEnrichmentProposal.updateMany({
           where: {
             id: proposal.id,

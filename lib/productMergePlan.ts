@@ -18,6 +18,7 @@ type MergeProduct = {
   price: number;
   stock: number;
   image: string;
+  images?: { url: string; width: number | null; height: number | null }[];
 };
 function labelFor(product: MergeProduct) {
   return (
@@ -181,7 +182,8 @@ export function productMergePlan(
     }
   }
   const commonPhotoSuggestion = isUsablePhoto(canonical.image)
-    ? null : suggestedVariantCommonPhoto(variants, canonical.supplierSku);
+    ? null : suggestedVariantCommonPhoto(variants, canonical.supplierSku,
+      products.flatMap((product) => product.images || []));
   return {
     variants,
     image: commonPhotoSuggestion?.url || canonical.image,

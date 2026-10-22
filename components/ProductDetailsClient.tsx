@@ -10,7 +10,7 @@ import TrackProductView from "@/components/TrackProductView";
 import { verifiedProductCopy } from "@/lib/verifiedProductInstructions";
 import { publicProductCategory } from "@/lib/catalogFilters";
 import { publicShortDescription } from "@/lib/productCopy";
-import { formatProductName } from "@/lib/productNames";
+import { productDisplayName } from "@/lib/productNames";
 
 type Variant = {
   id: string;
@@ -26,6 +26,7 @@ type Props = {
     id: string;
     slug?: string;
     name: string;
+    supplierSku?: string | null;
     image: string;
     shortDescription?: string | null;
     description: string;
@@ -54,7 +55,7 @@ function normalizeVariants(v: any): Variant[] {
 export default function ProductDetailsClient({ product }: Props) {
   const verifiedCopy = verifiedProductCopy(product);
   const description = verifiedCopy?.description || product.description;
-  const displayName = formatProductName(product.name);
+  const displayName = productDisplayName(product);
   const variants = useMemo(() => normalizeVariants(product.variants), [product]);
   const hasVariants = variants.length > 0;
   const defaultVariant = variants.find((v) => v.stock > 0) ?? variants[0] ?? null;

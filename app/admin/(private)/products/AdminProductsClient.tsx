@@ -1,4 +1,6 @@
 "use client";
+import { productDisplayName } from "@/lib/productNames";
+import { productMatchesSearch } from "@/lib/productSearch";
 import ProductFiltersBar from "./ProductFiltersBar";
 import ProductAssistant from "./ProductAssistant";
 import ProductPriceSources from "./ProductPriceSources";
@@ -103,45 +105,6 @@ function parseVariantRows(value: unknown): VariantFormRow[] {
 
 async function readJson(response: Response) {
   return response.json().catch(() => ({}) as Record<string, unknown>);
-}
-
-function normalizeSearch(value: unknown) {
-  return String(value || "")
-    .toLocaleLowerCase("ru-RU")
-    .replace(/ё/g, "е")
-    .replace(/[^a-zа-я0-9]+/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function productMatchesSearch(product: Product, query: string) {
-  const normalizedQuery = normalizeSearch(query);
-  if (!normalizedQuery) return true;
-
-  const variantParts: string[] = [];
-  if (Array.isArray(product.variants)) {
-    for (const raw of product.variants) {
-      if (!raw || typeof raw !== "object") continue;
-      const variant = raw as VariantData;
-      if (variant.label != null) variantParts.push(String(variant.label));
-      if (variant.sku != null) variantParts.push(String(variant.sku));
-    }
-  }
-
-  const haystack = normalizeSearch(
-    [
-      product.name,
-      product.brand?.name,
-      product.supplier?.name,
-      product.supplierSku,
-      product.category,
-      ...variantParts,
-    ]
-      .filter(Boolean)
-      .join(" "),
-  );
-
-  return normalizedQuery.split(" ").every((token) => haystack.includes(token));
 }
 
 export default function AdminProductsClient() {
@@ -465,7 +428,7 @@ export default function AdminProductsClient() {
   ) {
     setEditing(product.id);
     const nextForm = {
-      name: product.name || "",
+      name: productDisplayName(product),
       brandId: product.brandId || "",
       shortDescription: String(product.shortDescription || ""),
       description: String(product.description || ""),
@@ -1339,7 +1302,7 @@ export default function AdminProductsClient() {
 
                     <div className="min-w-0">
                       <div className="font-semibold flex flex-wrap items-center gap-2">
-                        <span className="break-words">{product.name}</span>
+                        <span className="break-words">{productDisplayName(product)}</span>
                         {!product.isPublished && (
                           <Badge className="bg-gray-100 text-gray-700 border-gray-200">
                             Черновик

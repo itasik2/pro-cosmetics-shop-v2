@@ -22,7 +22,7 @@ export async function editProposalText(
   return database.$transaction(async (tx) => {
     const current = await tx.productEnrichmentProposal.findUnique({
       where: { id: input.proposalId },
-      include: { product: { select: { name: true } } },
+      include: { product: { select: { name: true, supplierSku: true, variants: true } } },
     });
     if (!current) throw new Error("proposal_not_found");
     if (current.status !== "PENDING") throw new Error("proposal_not_pending");

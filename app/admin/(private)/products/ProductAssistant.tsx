@@ -1,5 +1,6 @@
 "use client";
 
+import { productDisplayName } from "@/lib/productNames";
 import { useEffect, useState } from "react";
 import {
   VariantPhotoPreview,
@@ -92,9 +93,9 @@ export default function ProductAssistant({
   const searchLabel = searchByName ? "названию" : "SKU";
   const blocked = dirty || disabled || Boolean(busy) || loading;
 
-  function acceptProposal(value: Proposal | null) {
+  function acceptProposal(value: Proposal | null, preferBestCommon = false) {
     setProposal(value);
-    const plan = automaticPhotoPlan({ ...product, variants }, value?.facts);
+    const plan = automaticPhotoPlan({ ...product, variants }, value?.facts, { preferBestCommon });
     setImageUrl(plan.imageUrl);
     setVariantImages(plan.variantImages);
   }
@@ -204,8 +205,8 @@ export default function ProductAssistant({
           { method: "POST" },
         ),
       );
-      acceptProposal({ ...proposal, facts: { ...proposal.facts, ...result } });
-      const resultPlan = automaticPhotoPlan({ ...product, variants }, result);
+      acceptProposal({ ...proposal, facts: { ...proposal.facts, ...result } }, true);
+      const resultPlan = automaticPhotoPlan({ ...product, variants }, result, { preferBestCommon: true });
       setMessage(
         resultPlan.imageUrl ||
           resultPlan.variantImages.some((row) => row.imageUrl)
@@ -391,7 +392,7 @@ export default function ProductAssistant({
               </a>
             )}
           </div>
-          <p className="font-medium">{proposal.title || product.name}</p>
+          <p className="font-medium">{productDisplayName({ ...product, name: proposal.title || product.name })}</p>
           <p className="whitespace-pre-wrap text-sm">
             {proposal.shortDescription || "Краткое описание не найдено"}
           </p>
