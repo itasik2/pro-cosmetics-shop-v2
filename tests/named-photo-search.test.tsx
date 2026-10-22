@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import ProductAssistant from "../app/admin/(private)/products/ProductAssistant";
 import { VariantPhotoPicker } from "../components/VariantPhotoPicker";
-import { extractImagesForNamedProduct } from "../lib/enrichment/extractProduct";
+import { extractImagesForNamedProduct, extractProductFromHtml } from "../lib/enrichment/extractProduct";
 import {
   matchesNamedPhotoProduct,
   namePhotoKey,
@@ -83,6 +83,81 @@ const reformProduct = {
   name: "Reform Age DNA Крем",
   volumeValue: 110,
 };
+
+const rugPage = readFileSync(resolve("tests/fixtures/skinosophy-rug.html"));
+const rugUrl = "https://skinosophy.kz/catalog/rug";
+const rugPhoto = "https://static.tildacdn.pro/tild3639-3732-4430-b161-636632353030/skinosophy13238.jpg";
+const rugProduct = {
+  ...product,
+  id: "skinosophy-rug",
+  name: "Плед Skinosophy, серый",
+  supplierSku: "INT-PRICE-E85B929230C3",
+  brandId: "skinosophy",
+  brand: { name: "Skinosophy" },
+  volumeValue: null,
+  volumeUnit: null,
+};
+
+test("the reported Skinosophy rug uses its full-resolution Tilda gallery and scoped color, excluding the site badge and related products", () => {
+  const extracted = extractProductFromHtml({ buffer: rugPage, finalUrl: rugUrl });
+  assert.equal(extracted.title, "Плед");
+  assert.equal(extracted.color, "серый");
+  assert.equal(extracted.sku, null);
+  assert.deepEqual(extracted.images, [rugPhoto]);
+  assert.ok(extracted.description?.includes("косметологических кабинетов"));
+  assert.deepEqual(extractImagesForNamedProduct({
+    buffer: rugPage, finalUrl: rugUrl, product: rugProduct,
+  }), [rugPhoto]);
+  assert.deepEqual(extractImagesForNamedProduct({
+    buffer: rugPage, finalUrl: rugUrl, product: { ...rugProduct, name: "Плед Skinosophy" },
+  }), [rugPhoto]);
+  const withRelated = rugPage.toString().replace('<!--/gallery -->', '<!--/gallery --><div class="recommendations"><div class="js-product-img" data-original="https://static.tildacdn.pro/another-product.jpg"></div></div>');
+  assert.deepEqual(extractProductFromHtml({
+    buffer: Buffer.from(withRelated), finalUrl: rugUrl,
+  }).images, [rugPhoto]);
+});
+
+test("Tilda name matching rejects another color, accessory, manufacturer or ambiguous product options", () => {
+  for (const patch of [
+    { name: "Плед Skinosophy, синий" },
+    { name: "Полотенце Skinosophy, серое" },
+    { brand: { name: "OtherBrand" } },
+    { name: "Плед Skinosophy, серый 150x200" },
+  ]) assert.deepEqual(extractImagesForNamedProduct({
+    buffer: rugPage, finalUrl: rugUrl, product: { ...rugProduct, ...patch },
+  }), []);
+  const html = rugPage.toString();
+  for (const altered of [
+    html.replace("Цвет: серый", "Цвет: серый / синий"),
+    html.replace("Цвет: серый", "Цвет: серый<br>Цвет: синий"),
+    html.replace("Цвет: серый", "Материал: серый"),
+    html.replace('field="title">Плед</h1>', 'field="title">Плед синий</h1>'),
+    html.replace('data-record-type="585"', 'data-record-type="396"') + '<footer>Цвет: серый</footer>',
+    html.replace(/<div class="js-product-controls-wrapper">\s*<\/div>/, '<div class="js-product-controls-wrapper"><select><option>серый</option><option>синий</option></select></div>'),
+  ]) assert.deepEqual(extractImagesForNamedProduct({
+    buffer: Buffer.from(altered), finalUrl: rugUrl, product: rugProduct,
+  }), []);
+});
+
+test("the saved rug page supplies an automatic photo for an internal price SKU without an AI search", async () => {
+  const requested: string[] = [];
+  const photos = await collectProposalPhotos({
+    product: rugProduct,
+    groups: [],
+    knownUrl: rugUrl,
+    officialDomains: [],
+    policies: [{ domain: "skinosophy.kz", allowSubdomains: true }],
+    deadlineAt: Date.now() + 5000,
+  }, input => searchVariantPhotos(input, {
+    official: async () => { throw new Error("AI must not be needed"); },
+    external: async () => { throw new Error("AI must not be needed"); },
+    fetchHtml: async (url) => { requested.push(url); return fetched(rugPage, url); },
+  }));
+  assert.deepEqual(requested, [rugUrl]);
+  assert.deepEqual(photos.photoAutomation.issues, []);
+  assert.equal(automaticPhotoPlan(rugProduct, photos).imageUrl, rugPhoto);
+  assert.equal(automaticPhotoPlan({ ...rugProduct, name: "Плед Skinosophy, синий" }, photos).imageUrl, null);
+});
 
 test("Russian product types match English names while model, form and size remain exact", () => {
   const source = {
@@ -523,7 +598,7 @@ test("automatic named photo discovery works for standalone products and preserve
       },
     );
     assert.equal(searched, 1);
-    assert.equal(photos.photoAutomation.version, 4);
+    assert.equal(photos.photoAutomation.version, 5);
     assert.equal(automaticPhotoPlan(current, photos).imageUrl, photoUrl);
     assert.deepEqual(photos.variantImageCandidates, []);
   }
