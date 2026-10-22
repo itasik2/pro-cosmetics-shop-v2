@@ -14,6 +14,7 @@ import {
 import { hasManualVariantChanges } from "./removedVariants";
 import { commonPhotoCandidates } from "./automaticPhotos";
 import { photoCandidateIsCurrent } from "./photoIdentity";
+import { recoverStaleEnrichmentJobs } from "./recoverStaleJobs";
 import {
   latestPriceListImageForProduct,
   priceListImagesBySku,
@@ -232,6 +233,8 @@ export async function applyProductEnrichmentProposalUniversal(
       },
     });
     if (claimed.count !== 1) throw new Error("proposal_changed_refresh");
+    if (input.publishNow)
+      await recoverStaleEnrichmentJobs(tx, [proposal.productId], now);
     const current = await tx.product.findUniqueOrThrow({
       where: { id: proposal.productId },
       select: {
@@ -251,7 +254,7 @@ export async function applyProductEnrichmentProposalUniversal(
       },
     });
     if (input.publishNow) {
-      if (["RUNNING", "MERGED"].includes(current.enrichmentStatus))
+      if (current.enrichmentStatus === "MERGED")
         throw new Error("product_changed_refresh");
       const activeJob = await tx.enrichmentJob.findFirst({
         where: {
@@ -260,7 +263,8 @@ export async function applyProductEnrichmentProposalUniversal(
         },
         select: { id: true },
       });
-      if (activeJob) throw new Error("publication_enrichment_running");
+      if (activeJob || current.enrichmentStatus === "RUNNING")
+        throw new Error("publication_enrichment_running");
       const missing = publicationMissingFields(
         {
           brandId: current.brandId,

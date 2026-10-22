@@ -25,6 +25,7 @@ import { sanitizeProposalTitle } from "../lib/enrichment/proposalText";
 import { evaluateCatalogAutopilotProposal } from "../lib/enrichment/catalogAutopilotPolicy";
 import type { VariantImageGroup } from "../lib/enrichment/variantImages";
 import { namePhotoKey } from "../lib/enrichment/photoIdentity";
+import { STALE_ENRICHMENT_MS } from "../lib/enrichment/recoverStaleJobs";
 
 const variants = [
   { id: "small", label: "7", sku: "MV16", price: 1500, stock: 3 },
@@ -335,7 +336,7 @@ function deletionFixture() {
       },
     ],
   };
-  state.jobs = [{ id: "job", productId: "p", status: "REVIEW" }];
+  state.jobs = [{ id: "job", productId: "p", status: "REVIEW", updatedAt: new Date() }];
   const flags = { failProduct: false, failProposal: false, failCleanup: false };
   let clock = 2000;
   function db(get: () => any): any {
@@ -346,6 +347,16 @@ function deletionFixture() {
         update: async ({ data }: any) =>
           Object.assign(get().product, structuredClone(data)),
         updateMany: async ({ where, data }: any) => {
+          if (where.enrichmentJobs) {
+            const row = get().product;
+            const active = get().jobs.some((job: any) =>
+              job.productId === row.id && where.enrichmentJobs.none.status.in.includes(job.status),
+            );
+            if (!where.id.in.includes(row.id) || row.enrichmentStatus !== where.enrichmentStatus ||
+              !(+row.updatedAt < +where.updatedAt.lt) || active) return { count: 0 };
+            Object.assign(row, structuredClone(data), { updatedAt: new Date(clock++) });
+            return { count: 1 };
+          }
           if (
             flags.failProduct ||
             +where.updatedAt !== +get().product.updatedAt ||
@@ -399,9 +410,13 @@ function deletionFixture() {
           get().jobs.find((row: any) => row.id === where.id), structuredClone(data),
         ),
         updateMany: async ({ where, data }: any) => {
-          const rows = get().jobs.filter((row: any) =>
-            row.productId === where.productId && row.status === where.status,
-          );
+          const rows = get().jobs.filter((row: any) => {
+            if (where.OR) return where.productId.in.includes(row.productId) &&
+              +row.updatedAt < +where.updatedAt.lt &&
+              where.OR.some((condition: any) => row.status === condition.status &&
+                (!condition.scheduledAt || +row.scheduledAt < +condition.scheduledAt.lt));
+            return row.productId === where.productId && row.status === where.status;
+          });
           rows.forEach((row: any) => Object.assign(row, structuredClone(data)));
           return { count: rows.length };
         },
@@ -529,7 +544,10 @@ test("publication failures and competing edits roll back application, cleanup an
     if (condition === "product-race") f.flags.failProduct = true;
     if (condition === "proposal-race") f.flags.failProposal = true;
     if (condition === "job") f.state.jobs.push({ id: "active", productId: "p", status: "RUNNING" });
-    if (condition === "running") f.state.product.enrichmentStatus = "RUNNING";
+    if (condition === "running") {
+      f.state.product.enrichmentStatus = "RUNNING";
+      f.state.product.updatedAt = new Date();
+    }
     if (condition === "merged") f.state.product.enrichmentStatus = "MERGED";
     const before = structuredClone(f.state);
     await assert.rejects(applyProductEnrichmentProposalUniversal({
@@ -542,6 +560,55 @@ test("publication failures and competing edits roll back application, cleanup an
       },
     }));
     assert.deepEqual(f.state, before, condition);
+  }
+});
+
+test("publishing recovers only this product's expired jobs and orphaned search claim", async () => {
+  for (const kind of ["orphan", "RUNNING", "PENDING"]) {
+    const f = deletionFixture();
+    const staleAt = new Date(Date.now() - STALE_ENRICHMENT_MS - 60_000);
+    f.state.product.image = "/media/current.jpg";
+    f.state.product.enrichmentStatus = "RUNNING";
+    f.state.product.updatedAt = staleAt;
+    if (kind !== "orphan") f.state.jobs.push({
+      id: "expired", productId: "p", status: kind,
+      updatedAt: staleAt, scheduledAt: staleAt,
+    });
+    const unrelated = {
+      id: "unrelated", productId: "other", status: "RUNNING", updatedAt: staleAt,
+    };
+    f.state.jobs.push(structuredClone(unrelated));
+    await applyProductEnrichmentProposalUniversal({
+      proposalId: "proposal", mode: "ALL", publishNow: true,
+    }, { database: f.database });
+    assert.equal(f.state.product.isPublished, true, kind);
+    assert.equal(f.state.product.enrichmentStatus, "READY", kind);
+    if (kind !== "orphan") {
+      const expired = f.state.jobs.find((row: any) => row.id === "expired");
+      assert.equal(expired.status, "FAILED");
+      assert.equal(expired.error, "stale_enrichment_job_recovered");
+    }
+    assert.deepEqual(f.state.jobs.find((row: any) => row.id === "unrelated"), unrelated);
+  }
+});
+
+test("publishing cannot recover an active job or a future scheduled search", async () => {
+  for (const kind of ["RUNNING", "PENDING"]) {
+    const f = deletionFixture();
+    const staleAt = new Date(Date.now() - STALE_ENRICHMENT_MS - 60_000);
+    f.state.product.image = "/media/current.jpg";
+    f.state.product.enrichmentStatus = "RUNNING";
+    f.state.product.updatedAt = staleAt;
+    f.state.jobs.push({
+      id: "active", productId: "p", status: kind,
+      updatedAt: kind === "RUNNING" ? new Date() : staleAt,
+      scheduledAt: new Date(Date.now() + 86_400_000),
+    });
+    const before = structuredClone(f.state);
+    await assert.rejects(applyProductEnrichmentProposalUniversal({
+      proposalId: "proposal", mode: "ALL", publishNow: true,
+    }, { database: f.database }), /publication_enrichment_running/);
+    assert.deepEqual(f.state, before);
   }
 });
 
