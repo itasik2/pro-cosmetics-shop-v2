@@ -77,16 +77,17 @@ function volumeKey(volume: ParsedVolume) {
 }
 
 function parseVolumesFromText(value: string) {
-  const text = normalize(value);
+  const text = value.normalize("NFKC").toLowerCase().replace(/ё/g, "е");
   const volumes = new Map<string, ParsedVolume>();
-  const pattern = /(\d+(?:[.,]\d+)?)\s*(мл|ml|гр|г|g)(?=$|[^\p{L}\p{N}])/giu;
+  const pattern = /(?<![\p{L}\p{N}])(\d+(?:[.,]\d+)?)\s*(мл|ml|кг|kg|гр\.?|г|g|л|l)(?=$|[^\p{L}\p{N}])/giu;
 
   for (const match of text.matchAll(pattern)) {
-    const amount = Math.round(Number(match[1].replace(",", ".")));
-    if (!Number.isFinite(amount) || amount <= 0) continue;
     const rawUnit = match[2].toLowerCase();
+    const multiplier = /^(?:кг|kg|л|l)$/.test(rawUnit) ? 1000 : 1;
+    const amount = Number(match[1].replace(",", ".")) * multiplier;
+    if (!Number.isFinite(amount) || amount <= 0) continue;
     const unit: ParsedVolume["unit"] =
-      rawUnit === "мл" || rawUnit === "ml" ? "ml" : "g";
+      /^(?:мл|ml|л|l)$/.test(rawUnit) ? "ml" : "g";
     const volume = { amount, unit };
     volumes.set(volumeKey(volume), volume);
   }
@@ -96,8 +97,8 @@ function parseVolumesFromText(value: string) {
 
 function normalizedVolumeUnit(value: unknown): ParsedVolume["unit"] | null {
   const unit = normalize(value);
-  if (unit === "мл" || unit === "ml") return "ml";
-  if (unit === "г" || unit === "гр" || unit === "g") return "g";
+  if (["мл", "ml", "л", "l"].includes(unit)) return "ml";
+  if (["г", "гр", "g", "кг", "kg"].includes(unit)) return "g";
   return null;
 }
 
@@ -148,7 +149,7 @@ export function scoreProductMatch(
   const expectedVolumeUnit = normalizedVolumeUnit(product.volumeUnit);
   const expectedVolume =
     product.volumeValue && expectedVolumeUnit
-      ? { amount: product.volumeValue, unit: expectedVolumeUnit }
+      ? { amount: product.volumeValue * (/^(?:кг|kg|л|l)$/i.test(product.volumeUnit || "") ? 1000 : 1), unit: expectedVolumeUnit }
       : null;
   const titleVolumes = parseVolumesFromText(extracted.title || "");
   const descriptionVolumes = parseVolumesFromText(extracted.description || "");

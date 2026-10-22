@@ -101,6 +101,13 @@ export async function ensureDefaultSupplierSources(input: {
     });
   }
 
+  if (brandHints.some((hint) => hint.includes("skinosophy") || hint.includes("скинософи"))) {
+    defaults.push(
+      { name: "Skinosophy Казахстан", domain: "skinosophy.kz", baseUrl: "https://skinosophy.kz/catalog", priority: 20 },
+      { name: "Skinosophy производитель", domain: "skinosophy.ru", baseUrl: "https://skinosophy.ru/catalog", priority: 10 },
+    );
+  }
+
   for (const source of defaults) {
     await prisma.supplierSource.upsert({
       where: {
@@ -114,6 +121,7 @@ export async function ensureDefaultSupplierSources(input: {
         baseUrl: source.baseUrl,
         isEnabled: true,
         priority: source.priority,
+        sourceType: "OFFICIAL_SITE",
       },
       create: {
         supplierId: input.supplierId,

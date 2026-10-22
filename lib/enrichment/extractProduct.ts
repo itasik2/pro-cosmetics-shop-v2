@@ -500,7 +500,8 @@ export function extractImagesForSku(input: {
       ...input,
       expectedSku: input.sku,
     });
-    if (!extracted.hasVariants && photoSku(extracted.sku) === wanted)
+    const linkedCatalog = $(".js-store-product_single[data-product-gen-uid], .js-product-single[data-product-gen-uid]").length > 0;
+    if (!extracted.hasVariants && !linkedCatalog && photoSku(extracted.sku) === wanted)
       images.push(...extracted.images);
   }
   return [...new Set(images.filter(isLikelyProductImage))].slice(0, 12);

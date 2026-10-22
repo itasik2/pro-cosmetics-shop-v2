@@ -28,6 +28,7 @@ export function isRecoverableSourceError(message: string) {
       "source_dns_not_found",
       "source_redirect_without_location",
       "source_too_many_redirects",
+      "source_access_blocked",
     ].includes(message) ||
     /^source_(?:fetch_failed|content_type_not_allowed):/.test(message) ||
     /^source_http_(?:403|404|410|429|5\d\d)$/.test(message) ||

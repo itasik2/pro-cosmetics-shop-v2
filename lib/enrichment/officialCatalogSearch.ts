@@ -9,6 +9,7 @@ export function officialCatalogSearchUrls(domains: string[], sku: string) {
   const urls = domains.flatMap((domain) => {
     try {
       const origin = new URL("https://" + domain.replace(/^https?:\/\//, ""));
+      if (origin.hostname.replace(/^www\./, "") === "skinosophy.kz") return [new URL("/catalog", origin).toString()];
       if (!OPENCART_DOMAINS.has(origin.hostname.replace(/^www\./, "")))
         return [];
       const url = new URL("/index.php", origin);
