@@ -4,6 +4,7 @@ import {
   type Prisma,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { customerProductCopy } from "../productCopy";
 import { applyProductEnrichmentProposalUniversal } from "./applyProposalUniversal";
 import type { VariantImageSelection } from "./variantImages";
 import { hasManualVariantChanges } from "./removedVariants";
@@ -35,9 +36,9 @@ function composeDescription(input: {
 }) {
   const sections: string[] = [];
 
-  const description = String(input.description || "").trim();
-  const application = String(input.application || "").trim();
-  const ingredients = String(input.ingredients || "").trim();
+  const description = customerProductCopy(input.description);
+  const application = customerProductCopy(input.application);
+  const ingredients = customerProductCopy(input.ingredients);
 
   if (description) sections.push(description);
   if (application) sections.push(`Способ применения\n${application}`);
@@ -127,7 +128,7 @@ export async function finalizeProductEnrichmentText(
   const editedName = manuallyEditedProductName(proposal);
 
   const description = composeDescription(proposal);
-  const shortDescription = String(proposal.shortDescription || "").trim();
+  const shortDescription = customerProductCopy(proposal.shortDescription);
   if (!description) throw new Error("proposal_description_empty");
   if (!shortDescription) throw new Error("proposal_short_description_empty");
 

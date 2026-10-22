@@ -245,6 +245,21 @@ test("photo searches do not stale a text revision, while a competing text edit i
   assert.equal(f.state.proposal.description, "Правка из первого окна");
 });
 
+test("legacy editorial uncertainty cannot be saved into customer text through either approval path", async () => {
+  for (const mode of ["ALL", "DESCRIPTION_FINAL"] as const) {
+    const f = fixture();
+    f.state.proposal.description = "Маска увлажняет кожу. Точные рекомендации по применению не указаны.";
+    f.state.proposal.shortDescription = "Увлажняющая маска. Данные о типе кожи отсутствуют.";
+    if (mode === "ALL") await applyProductEnrichmentProposalUniversal({ proposalId: "proposal", mode }, { database: f.database });
+    else await finalizeProductEnrichmentText({ proposalId: "proposal", appliedBy: "ADMIN" }, f.database);
+    assert.match(f.state.product.description, /^Маска увлажняет кожу\./);
+    assert.doesNotMatch(f.state.product.description, /не указаны/);
+    assert.equal(f.state.product.shortDescription, "Увлажняющая маска.");
+    assert.equal(f.state.product.price, 15000);
+    assert.equal(f.state.product.stock, 7);
+  }
+});
+
 test("manual edits apply through both approval paths and retain price, stock, image and product URL", async () => {
   for (const mode of ["ALL", "DESCRIPTION_FINAL"] as const) {
     const f = fixture();

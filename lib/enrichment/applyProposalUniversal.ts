@@ -4,6 +4,7 @@ import {
   type Prisma,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { customerProductCopy } from "../productCopy";
 import { normalizeStoredVariants } from "@/lib/price-import/productVariants";
 import { publicationMissingFields } from "@/lib/productPublication";
 import { importProductImage } from "./productImages";
@@ -48,13 +49,15 @@ function descriptionOf(proposal: {
   application: string | null;
   ingredients: string | null;
 }) {
+  const application = customerProductCopy(proposal.application);
+  const ingredients = customerProductCopy(proposal.ingredients);
   return [
-    proposal.description?.trim(),
-    proposal.application?.trim()
-      ? "Способ применения\n" + proposal.application.trim()
+    customerProductCopy(proposal.description),
+    application
+      ? "Способ применения\n" + application
       : "",
-    proposal.ingredients?.trim()
-      ? "Состав и активные компоненты\n" + proposal.ingredients.trim()
+    ingredients
+      ? "Состав и активные компоненты\n" + ingredients
       : "",
   ]
     .filter(Boolean)
@@ -104,8 +107,9 @@ export async function applyProductEnrichmentProposalUniversal(
   const applyPhotos = finalize || input.mode === "IMAGE";
   const applyInventory = input.mode !== "DESCRIPTION";
   const description = applyText ? descriptionOf(proposal) : "";
+  const shortDescription = customerProductCopy(proposal.shortDescription);
   if (applyText && !description) throw new Error("proposal_description_empty");
-  if (finalize && !proposal.shortDescription?.trim())
+  if (finalize && !shortDescription)
     throw new Error("proposal_short_description_empty");
   const selections = applyPhotos ? input.variantImages || [] : [];
   const variants = normalizeStoredVariants(proposal.product.variants);
@@ -268,7 +272,7 @@ export async function applyProductEnrichmentProposalUniversal(
       const missing = publicationMissingFields(
         {
           brandId: current.brandId,
-          shortDescription: proposal.shortDescription,
+          shortDescription,
           description,
           image: importedImage?.url || current.image,
           category: current.category,
@@ -337,7 +341,7 @@ export async function applyProductEnrichmentProposalUniversal(
       ...(input.publishNow ? { isPublished: true } : {}),
       ...(applyText
         ? {
-            shortDescription: proposal.shortDescription?.trim() || null,
+            shortDescription: shortDescription || null,
             ...(editedName ? { name: editedName } : {}),
             description,
             descriptionSourceUrl: proposal.sourceUrl,
