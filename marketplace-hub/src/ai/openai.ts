@@ -363,20 +363,40 @@ export async function findExternalProductUrl(input: {
 
 function removePromotionalText(value: string) {
   return value
-    .split(/(?<=[.!?])\s+/u)
-    .filter(
-      (sentence) =>
-        !/\b(?:купить|заказать|скидк|доставк|цена|в наличии|магазин)\b/iu.test(
-          sentence,
-        ),
-    )
-    .join(" ")
-    .replace(/\s+/g, " ")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.split(/(?<=[.!?])\s+/u)
+      .filter((sentence) => !/(?:^|[^\p{L}])(?:купить|заказать|скидк[а-я]*|доставк[а-я]*|цен[а-я]*|в\s+наличии|магазин[а-я]*)(?=$|[^\p{L}])/iu.test(sentence))
+      .join(" ").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
+function removeEditorialBoilerplate(value: string) {
+  return value
+    .split("\n")
+    .map((line) => line.split(/(?<=[.!?])\s+/u)
+      .filter((sentence) => !/(?:подтвержд[её]нн(?:ые|ых)\s+(?:свойства|преимущества|задачи)\s+[^.!?]*не\s+(?:указан|подтвержд)|(?:роль|роли)\s+(?:отдельных|активных)\s+компонентов\s+[^.!?]*не\s+(?:уточн|указан)|название\s+(?:средства|товара)\s+указывает|полный\s+перечень\s+ингредиентов\s+привед[её]н)/iu.test(sentence))
+      .join(" "))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function removeRepeatedIngredientList(description: string, ingredients: string) {
+  if (!ingredients.trim()) return description;
+  const normalizedIngredients = ingredients.replace(/\s+/gu, " ").trim().toLowerCase();
+  return description.split(/\n{2,}/u).filter((paragraph) => {
+    const list = paragraph.replace(/^(?:состав(?: и активные компоненты)?|inci)\s*\n?/iu, "").trim();
+    return !(list.length > 80 && list.split(",").length >= 6 &&
+      (list.replace(/\s+/gu, " ").toLowerCase() === normalizedIngredients ||
+        /^(?:water|aqua)\s*,/iu.test(list)));
+  }).join("\n\n").trim();
+}
+
 function shortCopy(value: string) {
-  const cleaned = removePromotionalText(value);
+  const cleaned = removeEditorialBoilerplate(removePromotionalText(value)).replace(/\s+/g, " ");
   if (cleaned.length <= 280) return cleaned;
   return `${cleaned.slice(0, 277).replace(/[\s,;:-]+$/u, "")}…`;
 }
@@ -407,10 +427,13 @@ export async function generateProductCopy(input: {
       },
     },
     system: [
-      "Подготовь черновик карточки профессиональной косметики только из переданных подтверждённых фактов.",
+      "Подготовь понятное покупателю описание профессиональной косметики с продающим уклоном: покажи задачу, реальную пользу и особенности формулы только по фактам источника.",
       "Не придумывай медицинские свойства, состав, сертификаты, тип кожи, объём, способ применения или результат.",
       "Не добавляй цену, наличие, доставку, города, магазин и призывы купить.",
-      "Краткое описание — до 280 символов. Полное описание — структурированное, информативное, без рекламного шума.",
+      "Краткое описание — 1–2 живых предложения до 280 символов: что это и для какой подтверждённой задачи. Полное — 2–3 коротких абзаца о пользе и особенностях. Если фактов мало, текст должен быть коротким без наполнителей.",
+      "Не выводи свойства из одного названия товара или общего знания об ингредиентах. Не упоминай покупателю, что сведения отсутствуют, источник не уточняет роль компонентов или свойства не подтверждены. О недостающих данных сообщай только в warnings.",
+      "Полный список INCI — только в ingredients. В описании достаточно 2–4 ключевых компонентов без приписывания им неподтверждённых ролей. Способ применения — отдельно в application.",
+      "Пиши уверенно и конкретно: «помогает», «поддерживает», когда действие указано для этого продукта в источнике. Без обещаний лечения или гарантированного результата, пустых эпитетов и шаблонов о «комплексной формуле».",
       "Если данных для application или ingredients нет, верни пустую строку и добавь warning.",
     ].join("\n"),
     user: JSON.stringify({
@@ -426,14 +449,16 @@ export async function generateProductCopy(input: {
   return {
     ...result,
     shortDescription: shortCopy(result.shortDescription),
-    description: removePromotionalText(result.description),
+    description: removeRepeatedIngredientList(
+      removeEditorialBoilerplate(removePromotionalText(result.description)), result.ingredients,
+    ),
   };
 }
 
 export function fallbackProductCopy(
   extracted: ExtractedProductData,
 ): GeneratedProductCopy {
-  const description = removePromotionalText(extracted.description || "");
+  const description = removeEditorialBoilerplate(removePromotionalText(extracted.description || ""));
   return {
     shortDescription: shortCopy(description),
     description,

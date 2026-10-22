@@ -49,6 +49,8 @@ export type CatalogPopularityAssessment = {
 
 const PROMOTIONAL_DESCRIPTION_PATTERN =
   /(?:^|[^\p{L}\p{N}])(?:купить|покупайте|заказ(?:ать|ы|ом|а|у|е|ывайте)?|цен(?:а|ы|е|у|ой|ам|ами)?|доставк[а-я]*|интернет[-\s]?магазин[а-я]*|магазин[а-я]*|продаж[а-я]*|скидк[а-я]*|оптом|розниц[а-я]*|в\s+наличии|казахстан(?:е|а|у)?|алмат(?:ы|е|а|у)?|астан(?:а|е|ы|у)?|нур[-\s]?султан(?:е|а|у)?)(?=$|[^\p{L}\p{N}])|от\s+производителя/iu;
+const EDITORIAL_BOILERPLATE_PATTERN =
+  /(?:подтвержд[её]нн(?:ые|ых|ой)\s+(?:свойства|преимущества|задачи|эффекты?)\s+[^.!?]*не\s+(?:указан|подтвержд)|(?:роль|роли)\s+(?:отдельных|активных)\s+компонентов\s+[^.!?]*не\s+(?:уточн|указан)|название\s+(?:средства|товара)\s+указывает|полный\s+перечень\s+ингредиентов\s+привед[её]н|(?:в\s+источнике|источником|в\s+переданных\s+данных)\s+[^.!?]*не\s+(?:уточн|указан|подтвержд))/iu;
 
 function normalizeDescriptionText(value: unknown) {
   return String(value || "")
@@ -89,6 +91,28 @@ export function removePromotionalDescriptionSentences(value: unknown) {
     .trim();
 }
 
+export function removeEditorialBoilerplate(value: unknown) {
+  return String(value || "")
+    .split("\n")
+    .map((line) => line.split(/(?<=[.!?])\s+/u)
+      .filter((sentence) => !EDITORIAL_BOILERPLATE_PATTERN.test(sentence))
+      .join(" "))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+export function removeRepeatedIngredientList(description: string, ingredients: string) {
+  if (!ingredients.trim()) return description;
+  const normalizedIngredients = normalizeDescriptionText(ingredients).toLowerCase();
+  return description.split(/\n{2,}/u).filter((paragraph) => {
+    const list = paragraph.replace(/^(?:состав(?: и активные компоненты)?|inci)\s*\n?/iu, "").trim();
+    return !(list.length > 80 && list.split(",").length >= 6 &&
+      (normalizeDescriptionText(list).toLowerCase() === normalizedIngredients ||
+        /^(?:water|aqua)\s*,/iu.test(list)));
+  }).join("\n\n").trim();
+}
+
 function truncateAtWord(value: string, maxLength: number) {
   if (value.length <= maxLength) return value;
 
@@ -108,7 +132,7 @@ function truncateAtWord(value: string, maxLength: number) {
 
 export function sanitizeShortDescription(value: unknown) {
   return truncateAtWord(
-    normalizeDescriptionText(removePromotionalDescriptionSentences(value)),
+    normalizeDescriptionText(removeEditorialBoilerplate(removePromotionalDescriptionSentences(value))),
     280,
   );
 }
@@ -683,15 +707,14 @@ export async function generateProductDescription(input: {
       },
     },
     system: [
-      "Ты редактор карточек профессиональной косметики. Создай информативный и убедительный текст только из переданных фактов.",
+      "Ты редактор карточек профессиональной косметики. Пиши для покупателя: живое, конкретное описание с продающим уклоном через задачи и пользу продукта, строго по фактам источника.",
       "Не придумывай состав, сертификаты, медицинские свойства, тип кожи, объём, способ применения или гарантированный результат. Не копируй исходный текст дословно большими фрагментами.",
-      "Краткое описание: 1–2 живых предложения до 280 символов. Сразу объясни, что это за средство, кому или для каких задач оно подходит и назови 2–3 главных подтверждённых преимущества. Это не SEO-заголовок.",
-      "Полное описание: ориентир 600–1200 символов, если фактов достаточно. Сделай 3–5 коротких абзацев с пустой строкой между ними.",
-      "Первый абзац должен ясно назвать формат средства и его основное назначение. Далее раскрой подтверждённые потребности кожи, ожидаемый уходовый эффект, ключевые преимущества и место средства в уходе.",
-      "Если источник прямо указывает тип или состояние кожи, добавь отдельный абзац с заголовком «Для какой кожи» и перечисли их. Если тип кожи не подтверждён, не пиши «для всех типов»: опиши только подтверждённые задачи кожи в абзаце «Для каких задач», а код skin_type_not_confirmed добавь только в массив warnings. Никогда не включай служебные коды в краткое или полное описание.",
-      "Если подтверждены преимущества, можно использовать заголовок «Преимущества» и 3–5 коротких строк с маркером •. Активные компоненты упоминай только вместе с подтверждённой ролью; полный состав не дублируй.",
-      "Заверши естественной фразой о том, кому средство будет особенно полезно или почему его удобно включить в уход, но только на основе фактов.",
-      "Тон — профессиональный, понятный, тёплый и продающий через пользу продукта. Не используй пустые эпитеты, давление, срочность, превосходную степень и неподтверждённые обещания.",
+      "Краткое описание: 1–2 живых предложения до 280 символов. Начни с задачи или эффекта, прямо подтверждённого для этого средства; затем назови полезные особенности формулы. Это не SEO-заголовок.",
+      "Полное описание: 2–3 коротких абзаца. Первый — что это за средство и какую задачу решает. Далее — 2–3 конкретные выгоды и ключевые компоненты, если они указаны. Ориентир 400–800 символов; если фактов мало, пиши короче, не растягивай текст.",
+      "Описывай ожидаемый уходовый эффект естественно: «помогает выровнять вид тона», «поддерживает увлажнение», если это указано для данного товара в источнике. Не обещай лечение или гарантированный результат. Не выводи свойства средства только из названия или общего знания о составе.",
+      "Если тип кожи не указан, не пиши «для всех типов». Недостающие сведения записывай только в warnings: никогда не говори покупателю «не указано», «не подтверждено», «источник не уточняет», «название указывает» и не пересказывай процесс проверки данных.",
+      "Полный список INCI оставь в поле ingredients; в описании назови максимум 2–4 значимых компонента без длинного перечня и не приписывай им индивидуальные роли, которых нет в источнике. Инструкцию по применению вынеси в application.",
+      "Тон — уверенный, профессиональный и понятный. Без пустых эпитетов, давления, срочности, превосходной степени и шаблонных фраз о «комплексной формуле» или «персональном уходе».",
       "В содержимом не должно быть рекламных SEO-фраз: не призывай купить или заказать, не упоминай цену, наличие, доставку, страны, города, магазин или фразу «от производителя».",
       "Поля application и ingredients заполняй отдельно по источнику. Если подтверждённых данных для поля нет, верни пустую строку и добавь понятное предупреждение.",
     ].join("\n"),
@@ -701,8 +724,9 @@ export async function generateProductDescription(input: {
 
   const generated = DescriptionResultSchema.parse(raw);
   const shortDescription = sanitizeShortDescription(generated.shortDescription);
-  const description = removePromotionalDescriptionSentences(
-    generated.description,
+  const description = removeRepeatedIngredientList(
+    removeEditorialBoilerplate(removePromotionalDescriptionSentences(generated.description)),
+    generated.ingredients,
   );
   const filtered =
     normalizeDescriptionText(shortDescription) !==
@@ -725,7 +749,7 @@ export function fallbackDescription(
   extracted: ExtractedProductData,
 ): GeneratedDescription {
   const sourceDescription = normalizeDescriptionText(extracted.description);
-  const description = removePromotionalDescriptionSentences(sourceDescription);
+  const description = removeEditorialBoilerplate(removePromotionalDescriptionSentences(sourceDescription));
   const shortDescription = sanitizeShortDescription(description);
   return {
     shortDescription,
