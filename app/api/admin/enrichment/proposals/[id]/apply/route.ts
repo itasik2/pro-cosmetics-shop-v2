@@ -11,6 +11,7 @@ import {
   type ProposalApplyMode,
 } from "@/lib/enrichment/applyProposalUniversal";
 import { proposalApplySchema } from "@/lib/enrichment/proposalApplyInput";
+import { unavailableProposalPhotoMessage } from "@/lib/enrichment/recoverProposalImage";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -28,6 +29,12 @@ function errorResponse(error: unknown) {
   const message = String(
     error instanceof Error ? error.message : error || "proposal_apply_failed",
   );
+  const photoMessage = unavailableProposalPhotoMessage(error);
+  if (photoMessage) {
+    return NextResponse.json({ error: "proposal_photo_unavailable",
+      message: photoMessage,
+    }, { status: 422 });
+  }
 
   const status =
     message === "proposal_not_found"
