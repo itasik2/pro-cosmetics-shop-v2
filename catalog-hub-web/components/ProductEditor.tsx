@@ -4,6 +4,7 @@ import { Fragment, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import type { HubProduct } from "@/lib/hub";
 import { SharedProductSearch } from "@/components/SharedProductSearch";
+import { separateProductSections } from "@/lib/product-sections";
 
 type Values = {
   title: string;
@@ -75,6 +76,7 @@ export function ProductEditor({ product, categories, searchEnabled, canWrite }: 
   const [error, setError] = useState("");
   const [success,setSuccess]=useState("");
   const [version,setVersion]=useState(product.updatedAt);
+  const separated = separateProductSections(form);
 
   function update(key: keyof Values, value: string) {
     if(key==="categoryKey")currentCategory.current=value;
@@ -195,6 +197,14 @@ export function ProductEditor({ product, categories, searchEnabled, canWrite }: 
           </label>
           </Fragment>
         ))}
+        {separated.changed && <div className="editor-field wide">
+          <button type="button" className="button" disabled={!canWrite || busy} onClick={() => {
+            if (separated.description !== form.description) update("description", separated.description);
+            if (separated.application !== form.application) update("application", separated.application);
+            if (separated.ingredients !== form.ingredients) update("ingredients", separated.ingredients);
+          }}>Разнести применение и состав по полям</button>
+          <span className="subtle">Проверьте результат и сохраните карточку. Уже заполненные поля сохранятся.</span>
+        </div>}
         <h3 className="editor-section-title">Цены</h3>
         <label className="editor-field">
           <span>Закупочная цена, ₸</span>
