@@ -181,6 +181,7 @@ export async function applyProductEnrichmentProposalUniversal(
         supplierId: proposal.product.supplierId!,
         sourceUrl: commonUrl,
         makePrimary: false,
+        deadlineAt,
       })
     : null;
   const imported = new Map<string, string>();
@@ -203,6 +204,7 @@ export async function applyProductEnrichmentProposalUniversal(
         supplierId: proposal!.product.supplierId!,
         sourceUrl,
         makePrimary: false,
+        deadlineAt,
       });
       imported.set(sourceUrl, image.url);
     }

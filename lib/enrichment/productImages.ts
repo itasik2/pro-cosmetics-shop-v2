@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { normalizeProductImage } from "@/lib/productImageNormalization";
 import { safeFetchImage, type AllowedSourcePolicy } from "./network";
 import { getEnabledSupplierSources, toAllowedPolicies } from "./sourcePolicies";
+import { recoverablePhotoDownloadError, recoverProposalImage } from "./recoverProposalImage";
 
 function stringArray(value: unknown) {
   if (!Array.isArray(value)) return [] as string[];
@@ -94,14 +95,24 @@ export async function importProductImage(input: {
   sourceUrl: string;
   makePrimary: boolean;
   proposalId?: string;
+  deadlineAt?: number;
 }) {
   const sources = await getEnabledSupplierSources(input.supplierId);
 
-  const fetched = await fetchProposalImage({
+  const download = {
     productId: input.productId,
     sourceUrl: input.sourceUrl,
     policies: toAllowedPolicies(sources),
     proposalId: input.proposalId,
+  };
+  const fetched = await fetchProposalImage(download).catch(async (error: unknown) => {
+    if (recoverablePhotoDownloadError(error)) {
+      const recovered = await recoverProposalImage({ ...download, supplierId: input.supplierId, deadlineAt: input.deadlineAt,
+        officialDomains: sources.filter(source => source.sourceType === "OFFICIAL_SITE").map(source => source.domain),
+      }).catch(() => null);
+      if (recovered) return recovered;
+    }
+    throw error;
   });
   const checksum = createHash("sha256").update(fetched.buffer).digest("hex");
 
@@ -124,7 +135,7 @@ export async function importProductImage(input: {
           where: { id: input.productId },
           data: {
             image: existing.url,
-            imageSourceUrl: input.sourceUrl,
+            imageSourceUrl: fetched.finalUrl,
           },
         }),
       ]);
