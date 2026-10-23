@@ -171,6 +171,7 @@ function selectorImages(
   selector: string | undefined,
   baseUrl: string,
   productScope?: object,
+  scopeSelector = ".js-product",
 ) {
   if (!selector) return [] as string[];
 
@@ -178,11 +179,12 @@ function selectorImages(
   try {
     $(selector).each((_, element) => {
       if (productScope && (
-        $(element).closest(".js-product").get(0) !== productScope ||
+        $(element).closest(scopeSelector).get(0) !== productScope ||
         $(element).closest(NON_PRODUCT_IMAGE_AREA).length
       )) return;
       const raw =
         $(element).attr("data-img-zoom-url") ||
+        $(element).attr("data-large_image") ||
         $(element).attr("data-original") ||
         $(element).attr("content") ||
         $(element).attr("data-src") ||
@@ -360,6 +362,40 @@ function isLikelyProductImage(value: string) {
 
 const NON_PRODUCT_IMAGE_AREA = "header, nav, footer, aside, [class*='recommend'], [class*='related'], [class*='cart']";
 
+function nonProductImageUrls($: cheerio.CheerioAPI, nodes: Record<string, unknown>[], baseUrl: string) {
+  const urls: string[] = [];
+  for (const node of nodes) collectImageValues(node.logo, baseUrl, urls);
+  $(".site-logo img, .custom-logo, .logo img, [itemprop='logo']").each((_, element) => {
+    for (const attribute of ["src", "data-src", "data-original", "content", "href"]) {
+      const url = asUrl($(element).attr(attribute), baseUrl);
+      if (url) urls.push(url);
+    }
+  });
+  return new Set(urls);
+}
+
+function woocommerceSingleProduct($: cheerio.CheerioAPI, baseUrl: string) {
+  const scopeSelector = ".product.type-product";
+  const products = $(scopeSelector).filter((_, element) =>
+    $(element).find("h1.product_title").filter((_, heading) =>
+      $(heading).closest(scopeSelector).get(0) === element).length === 1);
+  if (products.length !== 1) return null;
+  const product = products.first();
+  const title = cleanText(product.find("h1.product_title").first().text(), 500);
+  if (!isLikelyProductTitle(title)) return null;
+  const own = (selector: string) => product.find(selector).filter((_, element) =>
+    $(element).closest(scopeSelector).get(0) === product.get(0) &&
+    !$(element).closest(NON_PRODUCT_IMAGE_AREA).length);
+  const galleries = own(".woocommerce-product-gallery");
+  const images = galleries.length === 1 ? selectorImages($,
+    ".woocommerce-product-gallery__image img, .woocommerce-product-gallery__image a",
+    baseUrl, product.get(0), scopeSelector) : [];
+  const sku = own(".sku, [itemprop='sku']").first();
+  return { title, images, sku: cleanText(sku.attr("content") || sku.text(), 100),
+    hasVariants: product.find("form.variations_form, [data-product_variations]").filter((_, element) =>
+      $(element).closest(scopeSelector).get(0) === product.get(0)).length > 0 };
+}
+
 function tildaSingleProduct(
   $: cheerio.CheerioAPI,
   baseUrl: string,
@@ -457,6 +493,7 @@ export function extractImagesForSku(input: {
   });
   const nodes = parseJsonLdScripts($);
   const products = nodes.filter((node) => typeIncludesProduct(node["@type"]));
+  const excludedImages = nonProductImageUrls($, nodes, input.finalUrl);
   const images: string[] = [];
   for (const product of products) {
     const expectedBrand = normalizeSearchText(input.brand || "");
@@ -533,7 +570,7 @@ export function extractImagesForSku(input: {
     if (!extracted.hasVariants && !linkedCatalog && photoSku(extracted.sku) === wanted)
       images.push(...extracted.images);
   }
-  return [...new Set(images.filter(isLikelyProductImage))].slice(0, 12);
+  return [...new Set(images.filter((url) => isLikelyProductImage(url) && !excludedImages.has(url)))].slice(0, 12);
 }
 
 export function extractImagesForNamedProduct(input: {
@@ -546,7 +583,9 @@ export function extractImagesForNamedProduct(input: {
   const $ = cheerio.loadBuffer(input.buffer, {
     encoding: { defaultEncoding: "utf-8" },
   });
-  const products = parseJsonLdScripts($).filter((node) =>
+  const nodes = parseJsonLdScripts($);
+  const excludedImages = nonProductImageUrls($, nodes, input.finalUrl);
+  const products = nodes.filter((node) =>
     typeIncludesProduct(node["@type"]),
   );
   const extracted = extractProductFromHtml(input);
@@ -599,7 +638,7 @@ export function extractImagesForNamedProduct(input: {
     if (issue) input.issues?.add(issue);
     else images.push(...extracted.images);
   }
-  const accepted = [...new Set(images.filter(isLikelyProductImage))].slice(
+  const accepted = [...new Set(images.filter((url) => isLikelyProductImage(url) && !excludedImages.has(url)))].slice(
     0,
     12,
   );
@@ -632,7 +671,16 @@ export function extractProductFromHtml(input: {
   const tilda = products.length ? null : tildaSingleProduct(
     $, input.finalUrl, input.selectors?.images,
   );
-  const contentBody = $("body").clone();
+  const wooProduct = woocommerceSingleProduct($, input.finalUrl);
+  const woo = wooProduct && (!products.length ||
+    (products.length === 1 && wooProduct.title === cleanText(productNode?.name))) ? wooProduct : null;
+  const excludedImages = nonProductImageUrls($, nodes, input.finalUrl);
+  const vigboProduct = $(".page.shop-product");
+  const vigboDetails = products.length === 1 && vigboProduct.length === 1 &&
+    cleanText(vigboProduct.find("h1").first().text()) === cleanText(productNode?.name) &&
+    vigboProduct.find(".additional_product_info").length === 1
+    ? vigboProduct.find(".additional_product_info").first() : null;
+  const contentBody = (vigboDetails || $("body")).clone();
   contentBody.find("script, style, noscript, template, header, nav, footer, aside, [role='navigation'], [class*='menu'], [class*='recommend'], [class*='related']").remove();
   contentBody.find("br").replaceWith("\n");
   contentBody.find("p, div, li, h1, h2, h3, h4, section, article").prepend("\n").append("\n");
@@ -754,6 +802,7 @@ export function extractProductFromHtml(input: {
   const description =
     selectorDescription ||
     tilda?.description ||
+    (vigboDetails ? cleanText(bodyText) : null) ||
     richestText([
       cleanText(productNode?.description),
       fallbackDescription,
@@ -773,22 +822,25 @@ export function extractProductFromHtml(input: {
     images.push(...tilda.images);
   } else {
     collectImageValues(productNode?.image, input.finalUrl, images);
-    collectImageValues(
-      $("meta[property='og:image']")
-        .map((_, element) => $(element).attr("content"))
-        .get(),
-      input.finalUrl,
-      images,
-    );
-    collectImageValues(
-      $("meta[name='twitter:image']")
-        .map((_, element) => $(element).attr("content"))
-        .get(),
-      input.finalUrl,
-      images,
-    );
+    if (woo) images.push(...woo.images);
+    if (!woo?.images.length) {
+      collectImageValues(
+        $("meta[property='og:image']")
+          .map((_, element) => $(element).attr("content"))
+          .get(),
+        input.finalUrl,
+        images,
+      );
+      collectImageValues(
+        $("meta[name='twitter:image']")
+          .map((_, element) => $(element).attr("content"))
+          .get(),
+        input.finalUrl,
+        images,
+      );
+    }
     images.push(...selectorImages($, input.selectors?.images, input.finalUrl));
-    if (images.length < 2) {
+    if (!woo && images.length < 2) {
       images.push(
         ...selectorImages(
           $,
@@ -820,14 +872,16 @@ export function extractProductFromHtml(input: {
       cleanText(productNode?.sku, 100) ||
       cleanText(productNode?.mpn, 100) ||
       cleanText(productNode?.productID, 100) ||
-      skuFromText(bodyText),
+      (woo ? woo.sku : skuFromText(bodyText)),
     brand,
     canonicalUrl,
-    images: [...new Set(images.filter(isLikelyProductImage))].slice(0, 12),
+    images: [...new Set(images.filter((url) => isLikelyProductImage(url) && !excludedImages.has(url)))].slice(0, 12),
     ingredients:
       selectorIngredients ||
       tilda?.ingredients ||
       cleanText(productNode?.ingredients, 8_000) ||
+      (vigboDetails ? labeledSection({ text: bodyText, starts: ["СОСТАВ:", "СОСТАВ"],
+        ends: ["СПОСОБ ПРИМЕНЕНИЯ", "КОНТАКТЫ"], maxLength: 8_000 }) : null) ||
       (tilda ? null : likelyIngredientList($)),
     application:
       selectorApplication ||
@@ -838,11 +892,11 @@ export function extractProductFromHtml(input: {
     currency: offers.currency || fallbackCurrency,
     rawJsonLd: productNode,
     color: tilda?.color || cleanText(productNode?.color, 200),
-    singleProduct: Boolean(tilda) || (products.length === 1 && (
+    singleProduct: Boolean(tilda || woo) || (products.length === 1 && (
       productHeading($) === cleanText(productNode?.name) ||
       asUrl(productNode?.url, input.finalUrl) === input.finalUrl
     )),
-    hasVariants: tilda?.hasVariants || (
+    hasVariants: tilda?.hasVariants || woo?.hasVariants || (
       !products.length && $(".js-product-single, .js-store-product_single").length > 1
     ),
   };

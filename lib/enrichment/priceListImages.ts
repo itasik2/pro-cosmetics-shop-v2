@@ -21,6 +21,19 @@ export function rowImageUrl(row: { parsedData: unknown; rawData: unknown }) {
   const url = String(parsed.priceImageUrl || raw.priceImageUrl || "").trim();
   return /^https?:\/\//i.test(url) ? url : "";
 }
+export async function latestPricePackageLabel(productId: string, sku: string | null) {
+  if (!sku) return "";
+  const row = await prisma.priceImportRow.findFirst({
+    where: { productId, supplierSku: sku, appliedAt: { not: null } },
+    orderBy: [{ import: { sourceDate: "desc" } }, { appliedAt: "desc" }],
+    select: { rawData: true, parsedData: true },
+  });
+  if (!row) return "";
+  const parsed = jsonObject(row.parsedData), raw = jsonObject(row.rawData);
+  if (parsed.supplierSku && photoSku(parsed.supplierSku) !== photoSku(sku)) return "";
+  return typeof (parsed.volumeLabel || raw.volumeLabel) === "string"
+    ? String(parsed.volumeLabel || raw.volumeLabel).slice(0, 200) : "";
+}
 export function priceImageKey(
   productId: string,
   sku: string | null | undefined,

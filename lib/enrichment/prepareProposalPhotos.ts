@@ -11,7 +11,7 @@ import {
 import { searchVariantPhotos } from "./variantPhotoSearch";
 import { hasManualProposalText } from "./proposalText";
 import { hasManualVariantChanges } from "./removedVariants";
-import { priceListImagesBySku, priceVariantGroups } from "./priceListImages";
+import { latestPricePackageLabel, priceListImagesBySku, priceVariantGroups } from "./priceListImages";
 import {
   ensureDefaultSupplierSources,
   getEnabledSupplierSources,
@@ -45,6 +45,7 @@ export async function collectProposalPhotos(
     previousAutomation?: unknown;
     maxTargets?: number;
     restart?: boolean;
+    packageLabel?: string;
   },
   search = searchVariantPhotos,
 ) {
@@ -110,6 +111,8 @@ export async function collectProposalPhotos(
               (item) => item.source === "PRICE_LIST",
             ) || [],
           catalogOnly: false,
+          allowNamedCommonPhoto: !variants.length && target.id === primaryId,
+          packageLabel: !variants.length ? input.packageLabel : undefined,
           deadlineAt: input.deadlineAt,
         });
         if (photoSku(result.sku) !== photoSku(target.sku)) {
@@ -223,6 +226,7 @@ export async function prepareProposalPhotos(
   const collected = await collectProposalPhotos({
     product,
     groups,
+    packageLabel: !variants.length ? await latestPricePackageLabel(product.id, product.supplierSku) : "",
     productGroups: imageGroups(facts.productImageCandidates),
     knownUrl: proposal.sourceUrl,
     officialDomains: sources
