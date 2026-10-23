@@ -77,6 +77,8 @@ export async function searchVariantPhotos(
     deadlineAt?: number;
     catalogOnly?: boolean;
     excludedUrls?: string[];
+    allowNamedCommonPhoto?: boolean;
+    packageLabel?: string;
   },
   dependencies: Dependencies = {
     official: findOfficialProductUrl,
@@ -133,6 +135,10 @@ export async function searchVariantPhotos(
         brand: input.product.brand?.name || null, description: null, images: [edition.image], hasVariants: true };
       const match = scoreProductMatch(product, extracted);
       const pageIssues = new Set<string>();
+      const namedCommon = !byName && input.allowNamedCommonPhoto && !extracted.sku &&
+        extracted.singleProduct && !extracted.hasVariants
+        ? extractImagesForNamedProduct({ buffer: fetched.buffer, finalUrl: fetched.finalUrl,
+            product: { ...product, packageLabel: input.packageLabel }, issues: pageIssues }) : [];
       let images = edition ? [edition.image] : byName
         ? extractImagesForNamedProduct({
             buffer: fetched.buffer,
@@ -146,6 +152,7 @@ export async function searchVariantPhotos(
             sku,
             brand: product.brand?.name || product.supplier?.name,
           });
+      if (namedCommon.length) images = namedCommon;
       if (byName && !images.length) {
         const brand = product.brand!.name;
         const pendingBrandImages = extractImagesForNamedProduct({
@@ -191,7 +198,7 @@ export async function searchVariantPhotos(
         }
       }
       if (
-        !byName &&
+        !byName && !namedCommon.length &&
         (photoSku(extracted.sku) !== photoSku(sku) ||
           match.evidence.brand === "mismatch" ||
           match.evidence.volume === "mismatch" ||
@@ -205,7 +212,7 @@ export async function searchVariantPhotos(
           url: image,
           source: "WEB" as const,
           sourceUrl: fetched.finalUrl,
-          ...(byName || edition
+          ...(byName || edition || namedCommon.length
             ? { identityKey: namePhotoKey(input.product, input.variant) }
             : {}),
         })),

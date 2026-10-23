@@ -10,6 +10,7 @@ import { sanitizeProposalTitle } from "./proposalText";
 import { normalizeStoredVariants } from "@/lib/price-import/productVariants";
 import {
   latestPriceListImageForProduct,
+  latestPricePackageLabel,
   priceListImagesBySku,
   priceVariantGroups,
 } from "./priceListImages";
@@ -450,6 +451,7 @@ export async function runProductEnrichment(input: RunInput) {
         : [];
     const collected = await collectProposalPhotos({
       product,
+      packageLabel: !variants.length ? await latestPricePackageLabel(product.id, product.supplierSku) : "",
       groups: variantImageCandidates,
       productGroups: mergeImageGroups(
         priceVariantGroups(

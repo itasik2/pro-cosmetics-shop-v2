@@ -5,6 +5,7 @@ export type NamePhotoProduct = {
   brand?: { name: string } | null;
   volumeValue?: number | null;
   volumeUnit?: string | null;
+  packageLabel?: string | null;
 };
 
 function normalized(value: unknown) {
@@ -144,6 +145,29 @@ export function photoNameParts(value: string, brand = "") {
   };
 }
 
+function wipeSetName(value: string) {
+  return photoComparisonText(value)
+    .replace(/(?<!\p{L})[pр][hн][aа](?!\p{L})/gu, "pha")
+    .replace(/(?<!\p{L})набор(?!\p{L})/gu, "")
+    .replace(/для\s+кожи/gu, "")
+    .replace(/пилинг[\s-]+салфет(?:ок|ки|ка)(?!\p{L})/gu, "пилинг-салфетки")
+    .replace(/\d+\s*[хx×*]\s*\d+(?:[.,]\d+)?\s*(?:мл|ml)/gu, "")
+    .replace(/\d+\s*шт\.?/gu, "");
+}
+
+function wipeSetMatches(product: NamePhotoProduct, source: { title: string; singleProduct?: boolean }) {
+  if (!source.singleProduct || !/пилинг[\s-]+салфет/iu.test(product.name || "") ||
+    !/пилинг[\s-]+салфет/iu.test(source.title)) return false;
+  const expected = product.packageLabel?.match(/(\d+)\s*[хx×*]\s*(\d+(?:[.,]\d+)?)\s*(мл|ml)/iu);
+  if (!expected || Number(expected[1]) < 2 || Number(expected[2].replace(",", ".")) !== product.volumeValue ||
+    !/^(?:мл|ml)$/iu.test(product.volumeUnit || "")) return false;
+  const actual = [...source.title.matchAll(/(?<!\d)(\d+)\s*(?:шт\.?|[хx×*]\s*\d+(?:[.,]\d+)?\s*(?:мл|ml))(?!\p{L})/giu)];
+  if (actual.length !== 1 || Number(actual[0][1]) !== Number(expected[1])) return false;
+  const left = photoNameParts(wipeSetName(product.name || ""), product.brand?.name);
+  const right = photoNameParts(wipeSetName(source.title), product.brand?.name);
+  return left.name.length >= 10 && left.name === right.name;
+}
+
 export function samePhotoBrand(left: unknown, right: unknown) {
   const key = normalized(photoComparisonText(left));
   return Boolean(key) && key === normalized(photoComparisonText(right));
@@ -276,6 +300,7 @@ export function namedPhotoProductIssue(
     source.title.split(/\||[–—]|\s-\s/)[0],
     product.brand?.name,
   );
+  const matchingWipeSet = wipeSetMatches(product, { ...source, title: source.title });
   if (
     expected.name.length < 3 ||
     (expected.name.length < 6 && !source.singleProduct) ||
@@ -292,6 +317,7 @@ export function namedPhotoProductIssue(
     return "photo_color_mismatch";
   if (
     expected.name !== actual.name &&
+    !matchingWipeSet &&
     !matchesPhotoColorAttribute(expected, actual, source) &&
     !(
       (actualBrand === brand || catalogBrandConfirmed) &&
@@ -312,7 +338,7 @@ export function namedPhotoProductIssue(
     const mass = ["г", "гр", "g", "кг", "kg"].includes(unit);
     const multiplier = ["кг", "kg", "л", "l"].includes(unit) ? 1000 : 1;
     if (
-      sourceVolumes[0] !==
+      !(matchingWipeSet && !sourceVolumes.length) && sourceVolumes[0] !==
       `${product.volumeValue * multiplier}:${mass ? "g" : "ml"}`
     )
       return "photo_volume_mismatch";

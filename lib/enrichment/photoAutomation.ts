@@ -1,8 +1,9 @@
 import { namePhotoKey, photoCandidateIsCurrent, type NamePhotoProduct } from "./photoIdentity";
 import { imageGroups, photoSku, type ImageVariant } from "./variantImages";
 import { isProductPhoto, isUsablePhoto } from "./photoQuality";
+import { automaticPhotoPlan } from "./automaticPhotos";
 
-export const PHOTO_AUTOMATION_VERSION = 9;
+export const PHOTO_AUTOMATION_VERSION = 10;
 export const VARIANT_PHOTO_BUDGET_MS = 140_000;
 
 export type PhotoSearchProduct = NamePhotoProduct & {
@@ -12,6 +13,20 @@ export type PhotoSearchProduct = NamePhotoProduct & {
   variants: ImageVariant[];
 };
 export type PhotoSearchAttempt = { key: string; retryAt: string; issues?: string[] };
+
+export function completedPhotoSearchMessage(product: PhotoSearchProduct, facts: unknown) {
+  const plan = automaticPhotoPlan(product, facts);
+  const common = isUsablePhoto(product.image) || Boolean(plan.imageUrl);
+  if (!product.variants.length) return common
+    ? "Фото товара найдено и подставлено."
+    : "Поиск завершён. Фото товара не найдено; общее фото отсутствует. Можно указать другой источник или загрузить снимок.";
+  const own = product.variants.filter((variant) => isUsablePhoto(variant.image) ||
+    plan.variantImages.some((selected) => selected.variantId === variant.id)).length;
+  if (own === product.variants.length) return "Отдельные фото всех вариантов найдены и подставлены.";
+  return common
+    ? "Фото вариантов проверены. Для вариантов без отдельного снимка используется общее фото."
+    : "Поиск завершён. У части вариантов нет фото; общее фото отсутствует. Можно указать другой источник или загрузить снимки.";
+}
 
 export function photoTargetKey(product: PhotoSearchProduct, target: ImageVariant) {
   return JSON.stringify([target.id, photoSku(target.sku), namePhotoKey(product, target)]);

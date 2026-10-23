@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { pendingPhotoTargets, type PhotoSearchProduct } from "@/lib/enrichment/photoAutomation";
+import { completedPhotoSearchMessage, pendingPhotoTargets, type PhotoSearchProduct } from "@/lib/enrichment/photoAutomation";
 import { prepareProposalPhotoBatches, type PreparedProposalPhotos } from "@/lib/enrichment/preparePhotosClient";
 import { proposalPhotoSearchMessages } from "@/lib/enrichment/clientMessages";
 
@@ -60,7 +60,7 @@ export default function AutomaticProposalPhotos({ proposalId, product, facts, di
       completed.current = key;
       setMessage(proposalPhotoSearchMessages(photos).length
         ? "Для части вариантов поиск не завершён. Найденные фото сохранены; подробности ниже."
-        : "Фото вариантов проверены. Найденные снимки подставлены; без отдельного фото используется общее.");
+        : completedPhotoSearchMessage(latest.current.product, photos));
     }).catch((error: unknown) => {
       if (controller.signal.aborted) return;
       completed.current = key;
