@@ -1148,7 +1148,7 @@ export default function AdminProductsClient() {
                   form={editorFormId}
                   name="intent"
                   value="publish"
-                  aria-label="Сохранить и опубликовать"
+                  aria-label={publishing ? "Публикация…" : "Сохранить и опубликовать"}
                   disabled={
                     busy || toolBusy || uploading || Boolean(variantUploadingId)
                   }
