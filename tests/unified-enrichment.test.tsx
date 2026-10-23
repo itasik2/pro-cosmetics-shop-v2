@@ -615,6 +615,19 @@ test("publishing an AI proposal atomically saves text, SKU photos and stocks and
   assert.deepEqual(f.state.jobs.map((row: any) => row.status), ["APPLIED", "CANCELED", "REVIEW"]);
 });
 
+test("a recovered common photo retains its actual source URL through atomic proposal application", async () => {
+  const f = deletionFixture();
+  const selected = groups[1].candidates[0].url;
+  const actualSource = "https://official.example/recovered-large.jpg";
+  await applyProductEnrichmentProposalUniversal({ proposalId: "proposal", mode: "IMAGE", imageUrl: selected }, {
+    database: f.database, loadPriceImages: async () => new Map(),
+    importImage: async () => ({ id: "media", url: "https://media.example/recovered.jpg", sourceUrl: actualSource }) as any,
+  });
+  assert.equal(f.state.product.image, "https://media.example/recovered.jpg");
+  assert.equal(f.state.product.imageSourceUrl, actualSource);
+  assert.equal(f.state.proposals[0].status, "PENDING");
+});
+
 test("a missing photo, brand, category or price keeps an AI proposal pending and the product unpublished", async () => {
   for (const [field, value, missing] of [
     ["image", "/seed/cream.jpg", "фотография"],

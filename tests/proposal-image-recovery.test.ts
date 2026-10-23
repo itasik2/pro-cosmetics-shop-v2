@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { recoverProposalImage, recoverablePhotoDownloadError } from "../lib/enrichment/recoverProposalImage";
+import { recoverProposalImage, recoverablePhotoDownloadError, unavailableProposalPhotoMessage } from "../lib/enrichment/recoverProposalImage";
 import { namePhotoKey } from "../lib/enrichment/photoIdentity";
 
 const failed = "https://seller.example/old.jpg";
@@ -75,8 +75,12 @@ test("untrusted, changed, ambiguous and expired recovery targets never trigger d
 });
 
 test("only unavailable-image errors permit alternate-source recovery; network policy failures do not", () => {
-  for (const code of ["source_content_type_not_allowed:text/html", "source_http_404", "source_http_403", "source_timeout"])
+  for (const code of ["source_content_type_not_allowed:text/html", "source_http_404", "source_http_403", "source_http_410", "source_http_429", "source_http_503", "source_timeout"]) {
     assert.equal(recoverablePhotoDownloadError(new Error(code)), true);
-  for (const code of ["source_domain_not_allowed", "source_private_ip_not_allowed", "product_changed_refresh"])
+    assert.match(unavailableProposalPhotoMessage(new Error(code))!, /Повторите подбор фото/);
+  }
+  for (const code of ["source_domain_not_allowed", "source_private_ip_not_allowed", "product_changed_refresh"]) {
     assert.equal(recoverablePhotoDownloadError(new Error(code)), false);
+    assert.equal(unavailableProposalPhotoMessage(new Error(code)), null);
+  }
 });

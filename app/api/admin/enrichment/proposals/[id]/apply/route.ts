@@ -11,6 +11,7 @@ import {
   type ProposalApplyMode,
 } from "@/lib/enrichment/applyProposalUniversal";
 import { proposalApplySchema } from "@/lib/enrichment/proposalApplyInput";
+import { unavailableProposalPhotoMessage } from "@/lib/enrichment/recoverProposalImage";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -28,9 +29,10 @@ function errorResponse(error: unknown) {
   const message = String(
     error instanceof Error ? error.message : error || "proposal_apply_failed",
   );
-  if (message.startsWith("source_content_type_not_allowed:")) {
+  const photoMessage = unavailableProposalPhotoMessage(error);
+  if (photoMessage) {
     return NextResponse.json({ error: "proposal_photo_unavailable",
-      message: "Источник вернул страницу вместо фото. Другой снимок для этого SKU не найден. Повторите подбор фото или выберите «Использовать общее фото» для варианта, затем примените карточку.",
+      message: photoMessage,
     }, { status: 422 });
   }
 

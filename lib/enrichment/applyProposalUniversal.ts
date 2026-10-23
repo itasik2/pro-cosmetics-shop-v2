@@ -350,7 +350,8 @@ export async function applyProductEnrichmentProposalUniversal(
           }
         : {}),
       ...(importedImage
-        ? { image: importedImage.url, imageSourceUrl: commonUrl }
+        ? { image: importedImage.url, imageSourceUrl:
+            ("sourceUrl" in importedImage && importedImage.sourceUrl) || commonUrl }
         : {}),
       ...(currentVariants.length &&
       (selections.length || (applyInventory && input.variantStocks))

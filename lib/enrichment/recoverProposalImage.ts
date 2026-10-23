@@ -11,6 +11,12 @@ export function recoverablePhotoDownloadError(error: unknown) {
   return /^source_(?:content_type_not_allowed:|http_(?:403|404|410|429|5\d\d)$|access_blocked$|timeout$|fetch_failed:)/.test(message);
 }
 
+export function unavailableProposalPhotoMessage(error: unknown) {
+  return recoverablePhotoDownloadError(error)
+    ? "Фото выбранного источника недоступно. Другой снимок для этого SKU не найден. Повторите подбор фото или выберите «Использовать общее фото» для варианта, затем примените карточку."
+    : null;
+}
+
 /** A failed download may be replaced only with a photo verified for the same current SKU. */
 export async function recoverProposalImage(input: {
   productId: string; supplierId: string; proposalId?: string; sourceUrl: string;
