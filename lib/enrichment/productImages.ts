@@ -140,7 +140,8 @@ export async function importProductImage(input: {
         }),
       ]);
     }
-    return existing;
+    // Reused media keeps its history; this import reports where its bytes were downloaded now.
+    return { ...existing, sourceUrl: fetched.finalUrl };
   }
 
   const normalized = await normalizeProductImage(fetched.buffer, {
