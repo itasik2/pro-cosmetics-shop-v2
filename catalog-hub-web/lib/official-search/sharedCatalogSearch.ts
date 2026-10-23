@@ -2,6 +2,7 @@ import { z } from "zod";
 import { extractProductFromHtml } from "./extractProduct";
 import { scoreProductMatch, type MatchableProduct } from "./matchProduct";
 import { safeFetchHtml } from "./network";
+import { separateProductSections } from "../product-sections";
 import {
   fallbackDescription, findExternalProductUrl, findOfficialBrandSite,
   findOfficialProductUrl, generateProductDescription, validatedExternalProductUrl,
@@ -70,13 +71,14 @@ export async function searchSharedCatalogProduct(raw: unknown) {
     try { copy = await generateProductDescription({ product, extracted, sourceUrl: fetched.finalUrl }); }
     catch { /* The extracted page remains available for manual review. */ }
   }
+  const separated = separateProductSections(copy);
   return {
     sourceUrl: fetched.finalUrl, sourceType: stage, confidence: match.confidence,
     fields: {
       shortDescription: copy.shortDescription.slice(0, 280),
-      description: copy.description.slice(0, 12_000),
-      application: copy.application.slice(0, 4_000),
-      ingredients: copy.ingredients.slice(0, 4_000),
+      description: separated.description.slice(0, 12_000),
+      application: separated.application.slice(0, 4_000),
+      ingredients: separated.ingredients.slice(0, 4_000),
     },
     images: extracted.images.filter(url => Boolean(validatedExternalProductUrl(url))).slice(0, 8),
     warnings: [...new Set([...match.warnings, ...copy.warnings,
