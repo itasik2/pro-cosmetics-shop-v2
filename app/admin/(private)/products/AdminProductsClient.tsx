@@ -617,21 +617,24 @@ export default function AdminProductsClient() {
       <dialog
         ref={dialogRef}
         aria-labelledby="product-editor-title"
-        className="m-auto h-[90dvh] max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-4xl overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-0 shadow-xl backdrop:bg-black/40"
+        className="m-0 h-[100dvh] max-h-[100dvh] w-full max-w-none overflow-hidden border border-[var(--color-border)] bg-[var(--color-surface)] p-0 shadow-xl backdrop:bg-black/40 sm:m-auto sm:h-[90dvh] sm:max-h-[calc(100dvh-2rem)] sm:w-[calc(100%-2rem)] sm:max-w-4xl sm:rounded-2xl"
         onCancel={(event) => {
           event.preventDefault();
           closeEditor();
         }}
       >
         <div className="flex h-full min-h-0 flex-col">
-          <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-4 sm:px-6">
+          <div className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-2 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 sm:gap-3 sm:px-6 sm:py-4">
             <div className="min-w-0">
-              <h2 id="product-editor-title" className="text-xl font-semibold">
+              <h2 id="product-editor-title" className="truncate text-base font-semibold sm:text-xl">
                 {editing ? "Редактировать товар" : "Добавить товар"}
               </h2>
               {editing && (
-                <p className="mt-1 max-w-xl truncate text-sm text-gray-500">
-                  {form.name}
+                <p className="mt-0.5 flex max-w-xl items-center gap-2 text-xs text-gray-500 sm:mt-1 sm:text-sm">
+                  <span className="truncate">{form.name}</span>
+                  {editingProduct && <span className="shrink-0 text-[10px] sm:hidden">
+                    {editingProduct.isPublished ? "Опубликован" : "Черновик"}
+                  </span>}
                 </p>
               )}
             </div>
@@ -640,18 +643,20 @@ export default function AdminProductsClient() {
               disabled={
                 busy || toolBusy || uploading || Boolean(variantUploadingId)
               }
-              className="btn-secondary min-h-10 shrink-0 px-4 py-2 disabled:opacity-50"
+              aria-label="Закрыть редактор"
+              className="btn-secondary h-10 w-10 shrink-0 p-0 disabled:opacity-50 sm:w-auto sm:px-4 sm:py-2"
               onClick={closeEditor}
             >
-              Закрыть
+              <span aria-hidden="true" className="text-2xl leading-none sm:hidden">×</span>
+              <span className="hidden sm:inline">Закрыть</span>
             </button>
             <nav
               aria-label="Разделы карточки"
-              className="flex w-full flex-wrap gap-2"
+              className="col-span-2 flex w-full gap-1 overflow-x-auto sm:gap-2"
             >
               <button
                 type="button"
-                className="btn-secondary min-h-10 px-4 py-2"
+                className="btn-secondary min-h-10 flex-1 whitespace-nowrap px-2 py-2 text-xs sm:flex-none sm:px-4 sm:text-sm"
                 onClick={() =>
                   editorScrollRef.current?.scrollTo({
                     top: 0,
@@ -659,12 +664,12 @@ export default function AdminProductsClient() {
                   })
                 }
               >
-                Данные товара
+                <span className="sm:hidden">Данные</span><span className="hidden sm:inline">Данные товара</span>
               </button>
               {editing && (
                 <button
                   type="button"
-                  className="btn-secondary min-h-10 px-4 py-2"
+                  className="btn-secondary min-h-10 flex-1 whitespace-nowrap px-2 py-2 text-xs sm:flex-none sm:px-4 sm:text-sm"
                   onClick={() =>
                     assistantRef.current?.scrollIntoView({
                       block: "start",
@@ -677,7 +682,7 @@ export default function AdminProductsClient() {
               )}
               <button
                 type="button"
-                className="btn-secondary min-h-10 px-4 py-2"
+                className="btn-secondary min-h-10 flex-1 whitespace-nowrap px-2 py-2 text-xs sm:flex-none sm:px-4 sm:text-sm"
                 onClick={() =>
                   variantsRef.current?.scrollIntoView({
                     block: "start",
@@ -1108,22 +1113,23 @@ export default function AdminProductsClient() {
               </p>
             </form>
           </div>
-          <div className="shrink-0 space-y-3 border-t border-[var(--color-border)] bg-[var(--color-surface)] px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6">
+          <div className="shrink-0 space-y-1.5 border-t border-[var(--color-border)] bg-[var(--color-surface)] px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:space-y-3 sm:px-6 sm:pt-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))]">
             {msg && (
               <div
                 role="status"
-                className="max-h-24 overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 text-sm"
+                className="max-h-10 overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-2 py-1 text-xs leading-4 sm:max-h-24 sm:rounded-xl sm:p-3 sm:text-sm"
               >
                 {msg}
               </div>
             )}
-            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <div className="grid grid-cols-2 items-center gap-2 sm:flex sm:flex-wrap sm:gap-3">
               <button
                 className={
                   (editingProduct && !editingProduct.isPublished
                     ? "btn-secondary"
                     : "btn") +
-                  " min-h-11 max-w-full px-4 py-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  " min-h-11 min-w-0 px-2 py-2 text-xs sm:max-w-full sm:px-4 sm:text-sm disabled:cursor-not-allowed disabled:opacity-50" +
+                  (!(editingProduct && !editingProduct.isPublished) ? " col-span-2" : "")
                 }
                 type="submit"
                 form={editorFormId}
@@ -1142,19 +1148,20 @@ export default function AdminProductsClient() {
                   form={editorFormId}
                   name="intent"
                   value="publish"
+                  aria-label="Сохранить и опубликовать"
                   disabled={
                     busy || toolBusy || uploading || Boolean(variantUploadingId)
                   }
-                  className="btn min-h-11 max-w-full px-4 py-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="btn min-h-11 min-w-0 px-2 py-2 text-xs sm:max-w-full sm:px-4 sm:text-sm disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {publishing ? "Публикация…" : "Сохранить и опубликовать"}
+                  {publishing ? "Публикация…" : <><span className="sm:hidden">Опубликовать</span><span className="hidden sm:inline">Сохранить и опубликовать</span></>}
                 </button>
               )}
 
               {editingProduct && (
                 <span
                   className={
-                    "rounded-full px-3 py-1 text-xs " +
+                    "hidden rounded-full px-3 py-1 text-xs sm:inline-flex " +
                     (editingProduct.isPublished
                       ? "accent-badge"
                       : "bg-[var(--color-surface-muted)] text-[var(--color-text-muted)]")
@@ -1166,7 +1173,7 @@ export default function AdminProductsClient() {
 
               <button
                 type="button"
-                className="btn-secondary min-h-11 max-w-full px-4 py-2 disabled:cursor-not-allowed disabled:opacity-50"
+                className="btn-secondary hidden min-h-11 max-w-full px-4 py-2 disabled:cursor-not-allowed disabled:opacity-50 sm:inline-flex"
                 disabled={
                   busy || toolBusy || uploading || Boolean(variantUploadingId)
                 }
