@@ -1,4 +1,5 @@
 export const CATALOG_BATCH_SIZE = 24;
+export const CATALOG_INITIAL_SIZE = 6;
 export const ADMIN_PRODUCT_BATCH_SIZE = 30;
 
 // Observe each batch once. The next render installs a new observer at the new end.

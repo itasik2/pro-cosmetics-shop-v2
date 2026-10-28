@@ -18,7 +18,6 @@ import {
   stringifyJsonLd,
 } from "@/lib/structuredData";
 import { normalizeThemeProfile } from "@/lib/themeProfiles";
-import Providers from "./providers";
 
 const LEGACY_SETTINGS_ID = "default";
 const publicBaseUrl = getPublicBaseUrl();
@@ -134,6 +133,7 @@ export default async function RootLayout({
   return (
     <html lang="ru" data-theme={themeProfile}>
       <head>
+        <link rel="preconnect" href="https://res.cloudinary.com" />
         {SITE_KEY === "procosmetics" ? (
           <meta
             name="facebook-domain-verification"
@@ -170,28 +170,26 @@ export default async function RootLayout({
         ) : null}
 
         <div className="site-frame relative z-10 flex min-h-screen flex-col">
-          <Providers>
-            <Navbar />
+          <Navbar />
 
-            {bannerText ? (
-              <div className="border-b border-[var(--color-border)] bg-[var(--color-accent-soft)]">
-                <div className="container flex items-center justify-between gap-3 py-2 text-sm text-[var(--color-text)]">
-                  <div className="min-w-0 truncate">{bannerText}</div>
-                  {bannerHref ? (
-                    <a href={bannerHref} className="text-link whitespace-nowrap">
-                      Подробнее
-                    </a>
-                  ) : null}
-                </div>
+          {bannerText ? (
+            <div className="border-b border-[var(--color-border)] bg-[var(--color-accent-soft)]">
+              <div className="container flex items-center justify-between gap-3 py-2 text-sm text-[var(--color-text)]">
+                <div className="min-w-0 truncate">{bannerText}</div>
+                {bannerHref ? (
+                  <a href={bannerHref} className="text-link whitespace-nowrap">
+                    Подробнее
+                  </a>
+                ) : null}
               </div>
-            ) : null}
+            </div>
+          ) : null}
 
-            <main id="main-content" className="container flex-1 py-8" tabIndex={-1}>
-              {children}
-            </main>
-            <Footer />
-            <ScrollToTopButton />
-          </Providers>
+          <main id="main-content" className="container flex-1 py-8" tabIndex={-1}>
+            {children}
+          </main>
+          <Footer />
+          <ScrollToTopButton />
         </div>
       </body>
     </html>

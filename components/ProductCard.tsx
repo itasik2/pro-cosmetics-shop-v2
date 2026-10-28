@@ -12,6 +12,9 @@ import { productDisplayName } from "@/lib/productNames";
 import { productThumbnail } from "@/lib/productThumbnails";
 
 type ProductCardProps = {
+  priority?: boolean;
+  headingLevel?: 2 | 3;
+  imageSizes?: string;
   product: {
     id: string;
     slug: string;
@@ -71,7 +74,10 @@ function normalizeVariants(value: unknown): Variant[] {
   return variants;
 }
 
-function ProductCard({ product }: ProductCardProps) {
+const CATALOG_IMAGE_SIZES = "(min-width: 1152px) 318px, (min-width: 768px) calc((100vw - 198px) / 3), (min-width: 640px) calc((100vw - 140px) / 2), calc(100vw - 66px)";
+
+function ProductCard({ product, priority = false, headingLevel = 3, imageSizes = CATALOG_IMAGE_SIZES }: ProductCardProps) {
+  const Heading = headingLevel === 2 ? "h2" : "h3";
   const displayName = productDisplayName(product);
   const newBadge = product.isNew === true || isRecentlyCreated(product.createdAt, 14);
   const variants = normalizeVariants(product.variants);
@@ -95,7 +101,7 @@ function ProductCard({ product }: ProductCardProps) {
 
   return (
     <div className="card relative h-full flex flex-col transition-shadow duration-200 hover:shadow-md"
-      style={{ contentVisibility: "auto", containIntrinsicSize: "auto 620px" }}>
+      style={priority ? undefined : { contentVisibility: "auto", containIntrinsicSize: "auto 620px" }}>
       <div className="absolute left-3 top-3 z-10 flex flex-col gap-2">
         {product.isPopular && (
           <span className="inline-flex items-center rounded-full bg-gray-700 px-2 py-1 text-xs text-white shadow-sm">Хит</span>
@@ -115,9 +121,9 @@ function ProductCard({ product }: ProductCardProps) {
       <Link href={productHref} prefetch={false} className="block aspect-square w-full bg-white rounded-xl mb-3 overflow-hidden" aria-label={`Открыть товар: ${displayName}`}>
         <img src={productThumbnail(imageToShow, 640)}
           srcSet={productThumbnail(imageToShow, 320) !== imageToShow
-            ? `${productThumbnail(imageToShow, 320)} 320w, ${productThumbnail(imageToShow, 640)} 640w, ${productThumbnail(imageToShow, 960)} 960w` : undefined}
-          sizes="(min-width: 1024px) 368px, (min-width: 640px) 45vw, 90vw"
-          alt={displayName} width={640} height={640} className="w-full h-full object-contain" loading="lazy" decoding="async" />
+            ? [320, 480, 640, 768, 960].map((width) => `${productThumbnail(imageToShow, width)} ${width}w`).join(", ") : undefined}
+          sizes={imageSizes} fetchPriority={priority ? "high" : undefined}
+          alt={displayName} width={640} height={640} className="w-full h-full object-contain" loading={priority ? "eager" : "lazy"} decoding="async" />
       </Link>
 
       <div className="text-sm text-gray-500">
@@ -126,7 +132,7 @@ function ProductCard({ product }: ProductCardProps) {
         ) : publicProductCategory(product)}
       </div>
 
-      <h3 className="font-semibold line-clamp-2 min-h-[40px]">{displayName}</h3>
+      <Heading className="font-semibold line-clamp-2 min-h-[40px]">{displayName}</Heading>
       <p className="mt-1 min-h-[40px] line-clamp-2 text-xs leading-5 text-gray-600">
         {publicShortDescription(product.shortDescription) || "Подробное описание и способ применения — в карточке товара."}
       </p>
