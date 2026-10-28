@@ -41,6 +41,7 @@ export default function CatalogFacetFilters({
 
   function updateFilter(param: "brand" | "category", slug: string, checked: boolean) {
     const params = new URLSearchParams(searchParams.toString());
+    params.delete("page");
     const values = new Set(parseValues(params.get(param)));
 
     if (checked) values.add(slug);
@@ -56,6 +57,7 @@ export default function CatalogFacetFilters({
 
   function clearFilter(param: "brand" | "category") {
     const params = new URLSearchParams(searchParams.toString());
+    params.delete("page");
     params.delete(param);
     const query = params.toString();
     router.push(query ? `${pathname}?${query}` : pathname, { scroll: false });
@@ -63,6 +65,7 @@ export default function CatalogFacetFilters({
 
   function clearBoth() {
     const params = new URLSearchParams(searchParams.toString());
+    params.delete("page");
     params.delete("brand");
     params.delete("category");
     const query = params.toString();

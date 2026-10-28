@@ -1,3 +1,5 @@
+import { cache } from "react";
+import { PUBLIC_PRODUCT_CARD_SELECT } from "@/lib/publicProductSelect";
 // app/shop/page.tsx
 import { productMatchesSearch } from "@/lib/productSearch";
 import type { Prisma } from "@prisma/client";
@@ -14,6 +16,22 @@ import { collapseRepresentedProductCards } from "@/lib/publicProductCards";
 import { CATEGORY_OPTIONS, CARE_OPTIONS, productMatchesCategory, productMatchesCare, productMatchesBudget, parseBudget } from "@/lib/catalogFilters";
 import { overlayCatalogHubProducts } from "@/lib/catalogHubOverlay";
 
+const getCatalogBrands = cache(() =>
+  prisma.brand.findMany({
+    where: {
+      isActive: true,
+      products: {
+        some: {
+          isPublished: true,
+          enrichmentStatus: { not: "MERGED" },
+        },
+      },
+    },
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    select: { id: true, name: true, slug: true },
+  }),
+);
+
 export const dynamic = "force-dynamic";
 
 type Props = {
@@ -21,6 +39,7 @@ type Props = {
     brand?: string | string[];
     category?: string | string[];
     sort?: string | string[];
+    page?: string | string[];
     fav?: string | string[];
     instock?: string | string[];
     q?: string | string[];
@@ -59,12 +78,10 @@ export async function generateMetadata(props: Props) {
   const fav = firstParam(searchParams?.fav);
   const instock = firstParam(searchParams?.instock);
   const searchQuery = firstParam(searchParams?.q);
+  const pageValue = Number(firstParam(searchParams?.page));
+  const page = Number.isSafeInteger(pageValue) && pageValue > 1 ? pageValue : 1;
 
-  const brands = await prisma.brand.findMany({
-    where: { isActive: true },
-    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-    select: { name: true, slug: true },
-  });
+  const brands = await getCatalogBrands();
 
   const selectedBrand = brandSlug
     ? brands.find((brand) => brand.slug === brandSlug) || null
@@ -118,11 +135,11 @@ export async function generateMetadata(props: Props) {
   }
 
   return {
-    title: `Профессиональная косметика — каталог брендов | ${SITE_BRAND}`,
+    title: `Профессиональная косметика — каталог брендов${page > 1 ? `, страница ${page}` : ""} | ${SITE_BRAND}`,
     description: `Каталог профессиональной косметики: ${brandNames}. Подробные описания и доставка по Казахстану.`,
     keywords: ["каталог косметики", "купить косметику", ...brandIntentKeywords],
     alternates: {
-      canonical: `${baseUrl}/shop`,
+      canonical: `${baseUrl}/shop${page > 1 ? `?page=${page}` : ""}`,
     },
     robots:
       sort ||
@@ -190,27 +207,6 @@ export default async function ShopPage(props: Props) {
   const instock = firstParam(searchParams?.instock);
   const searchQuery = firstParam(searchParams?.q).slice(0, 120);
 
-  const brands = await prisma.brand.findMany({
-    where: {
-      isActive: true,
-      products: {
-        some: {
-          isPublished: true,
-          enrichmentStatus: { not: "MERGED" },
-        },
-      },
-    },
-    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-    select: { id: true, name: true, slug: true },
-  });
-
-  const selectedBrands = brands.filter((brand) => requestedBrandSlugs.includes(brand.slug));
-  const selectedCategories = CATEGORY_OPTIONS.filter((category) =>
-    requestedCategorySlugs.includes(category.slug),
-  );
-  const brandSlug = selectedBrands.map((brand) => brand.slug).join(",");
-  const categorySlug = selectedCategories.map((category) => category.slug).join(",");
-
   const andConditions: Prisma.ProductWhereInput[] = [];
   if (sort === "new") {
     const days = 14;
@@ -228,30 +224,17 @@ export default async function ShopPage(props: Props) {
 
   const orderBy: Prisma.ProductOrderByWithRelationInput[] = [{ createdAt: "desc" }];
 
-  const legacyProducts = await prisma.product.findMany({
-    where,
-    orderBy,
-    select: {
-      id: true,
-      slug: true,
-      name: true,
-      image: true,
-      shortDescription: true,
-      price: true,
-      stock: true,
-      isPopular: true,
-      isNew: true,
-      createdAt: true,
-      category: true,
-      productLineName: true,
-      supplierSku: true,
-      supplierId: true,
-      volumeValue: true,
-      volumeUnit: true,
-      brand: { select: { name: true } },
-      variants: true,
-    },
-  });
+  const [brands, legacyProducts] = await Promise.all([
+    getCatalogBrands(),
+    prisma.product.findMany({ where, orderBy, select: PUBLIC_PRODUCT_CARD_SELECT }),
+  ]);
+
+  const selectedBrands = brands.filter((brand) => requestedBrandSlugs.includes(brand.slug));
+  const selectedCategories = CATEGORY_OPTIONS.filter((category) =>
+    requestedCategorySlugs.includes(category.slug),
+  );
+  const brandSlug = selectedBrands.map((brand) => brand.slug).join(",");
+  const categorySlug = selectedCategories.map((category) => category.slug).join(",");
 
   const products = await overlayCatalogHubProducts(legacyProducts);
 

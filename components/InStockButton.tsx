@@ -11,6 +11,7 @@ export default function InStockButton() {
 
   function toggle() {
     const params = new URLSearchParams(sp.toString());
+    params.delete("page");
 
     if (inStockMode) params.delete("instock");
     else params.set("instock", "1");

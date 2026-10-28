@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { publicShortDescription } from "@/lib/productCopy";
 import { publicProductCategory } from "@/lib/catalogFilters";
 import { verifiedProductCopy } from "@/lib/verifiedProductInstructions";
@@ -17,18 +18,20 @@ type Props = {
   params: Promise<{ slug: string }>;
 };
 
-async function getPublicProduct(slug: string) {
+const getPublicProduct = cache(async (slug: string) => {
   const product = await prisma.product.findFirst({
     where: {
       slug,
       isPublished: true,
       enrichmentStatus: { not: "MERGED" },
     },
-    include: { brand: true },
+    select: { id: true, slug: true, name: true, supplierSku: true, image: true, shortDescription: true,
+      description: true, price: true, stock: true, category: true, variants: true,
+      brand: { select: { name: true, slug: true } } },
   });
 
   return overlayCatalogHubProduct(product);
-}
+});
 
 export async function generateMetadata(props: Props): Promise<Metadata> {
   const params = await props.params;

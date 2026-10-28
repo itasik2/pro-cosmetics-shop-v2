@@ -43,6 +43,7 @@ export default function FavoritesButton() {
 
   function toggleFav() {
     const params = new URLSearchParams(sp.toString());
+    params.delete("page");
 
     if (favMode) params.delete("fav");
     else params.set("fav", "1");

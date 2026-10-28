@@ -9,6 +9,7 @@ import { brandNameToSlug } from "@/lib/brandSlug";
 import { publicShortDescription } from "@/lib/productCopy";
 import { publicProductCategory } from "@/lib/catalogFilters";
 import { productDisplayName } from "@/lib/productNames";
+import { productThumbnail } from "@/lib/productThumbnails";
 
 type ProductCardProps = {
   product: {
@@ -111,7 +112,11 @@ export default function ProductCard({ product }: ProductCardProps) {
       </div>
 
       <Link href={productHref} className="block aspect-square w-full bg-white rounded-xl mb-3 overflow-hidden" aria-label={`Открыть товар: ${displayName}`}>
-        <img src={imageToShow} alt={displayName} width={640} height={640} className="w-full h-full object-contain" loading="lazy" decoding="async" />
+        <img src={productThumbnail(imageToShow, 640)}
+          srcSet={productThumbnail(imageToShow, 320) !== imageToShow
+            ? `${productThumbnail(imageToShow, 320)} 320w, ${productThumbnail(imageToShow, 640)} 640w, ${productThumbnail(imageToShow, 960)} 960w` : undefined}
+          sizes="(min-width: 1024px) 368px, (min-width: 640px) 45vw, 90vw"
+          alt={displayName} width={640} height={640} className="w-full h-full object-contain" loading="lazy" decoding="async" />
       </Link>
 
       <div className="text-sm text-gray-500">
