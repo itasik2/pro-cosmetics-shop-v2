@@ -1,10 +1,11 @@
 "use client";
 
-import { Fragment, useRef, useState, type FormEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import type { HubProduct } from "@/lib/hub";
 import { SharedProductSearch } from "@/components/SharedProductSearch";
 import { separateProductSections } from "@/lib/product-sections";
+import { chooseAutomaticCategory, type CategorySuggestion } from "@/lib/category-choice";
 
 type Values = {
   title: string;
@@ -72,13 +73,45 @@ export function ProductEditor({ product, categories, searchEnabled, canWrite }: 
   const [dirty, setDirty] = useState<Set<keyof Values>>(() => new Set());
   const currentCategory=useRef(product.categoryKey === "Без категории" ? "" : product.categoryKey || "");
   const categoryEditedByUser=useRef(false);
+  const formEdited=useRef(false);
+  const [categoryStatus,setCategoryStatus]=useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [success,setSuccess]=useState("");
   const [version,setVersion]=useState(product.updatedAt);
   const separated = separateProductSections(form);
 
+  useEffect(() => {
+    if (!canWrite || currentCategory.current || !categories.some(category => category.isActive)) return;
+    const controller = new AbortController();
+    setCategoryStatus("Определяем категорию по карточке…");
+    fetch("/api/categories/suggest?productId=" + encodeURIComponent(product.id), {
+      signal: controller.signal, cache: "no-store",
+    }).then(async response => {
+      if (!response.ok) throw new Error("category_suggestion_failed");
+      return response.json() as Promise<{suggestions?:CategorySuggestion[]}>;
+    }).then(data => {
+      if (controller.signal.aborted || formEdited.current || currentCategory.current || categoryEditedByUser.current) return;
+      const allowed = new Set(categories.filter(category => category.isActive).map(category => category.key));
+      const category = chooseAutomaticCategory((data.suggestions || []).filter(item => allowed.has(item.key)));
+      if (!category) {
+        setCategoryStatus("Категория не определена однозначно. Выберите её вручную или запустите поиск товара.");
+        return;
+      }
+      currentCategory.current = category;
+      setForm(previous => ({...previous, categoryKey: category}));
+      setDirty(previous => new Set(previous).add("categoryKey"));
+      setCategoryStatus("Подставлено автоматически: " + category + ". Проверьте перед сохранением.");
+    }).catch(() => {
+      if (!controller.signal.aborted && !formEdited.current && !currentCategory.current)
+        setCategoryStatus("Не удалось определить категорию. Выберите её вручную или запустите поиск товара.");
+    });
+    return () => controller.abort();
+  }, [product.id, canWrite, categories]);
+
   function update(key: keyof Values, value: string) {
+    formEdited.current=true;
+    setCategoryStatus("");
     if(key==="categoryKey")currentCategory.current=value;
     setForm((prev) => ({ ...prev, [key]: value }));
     setDirty((prev) => new Set(prev).add(key));
@@ -177,12 +210,15 @@ export function ProductEditor({ product, categories, searchEnabled, canWrite }: 
           <label className={["description","application","ingredients","shortDescription"].includes(key) ? "editor-field wide" : "editor-field"}>
             <span>{label}</span>
             {key === "categoryKey" ? (
-              <select className="input" value={form.categoryKey}
-                onChange={(event) => {categoryEditedByUser.current=true;update("categoryKey", event.target.value);}}>
-                <option value="">Без категории — требуется проверка</option>
-                {categories.filter((cat) => cat.isActive).map(cat =>
-                  <option key={cat.key} value={cat.key}>{cat.name}</option>)}
-              </select>
+              <>
+                <select className="input" value={form.categoryKey}
+                  onChange={(event) => {categoryEditedByUser.current=true;update("categoryKey", event.target.value);}}>
+                  <option value="">Без категории — требуется проверка</option>
+                  {categories.filter((cat) => cat.isActive).map(cat =>
+                    <option key={cat.key} value={cat.key}>{cat.name}</option>)}
+                </select>
+                {categoryStatus && <span className="subtle" role="status">{categoryStatus}</span>}
+              </>
             ) : ["description","application","ingredients","shortDescription"].includes(key) ? (
               <textarea
                 rows={key === "description" ? 6 : 3}
