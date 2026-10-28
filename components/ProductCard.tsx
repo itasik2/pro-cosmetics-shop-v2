@@ -2,7 +2,7 @@
 import { variantDisplayImage } from "../lib/enrichment/variantImages";
 
 import Link from "next/link";
-import { useState } from "react";
+import { memo, useState } from "react";
 import FavoriteButton from "./FavoriteCompareButtons";
 import AddToCartButton from "./AddToCartButton";
 import { brandNameToSlug } from "@/lib/brandSlug";
@@ -71,7 +71,7 @@ function normalizeVariants(value: unknown): Variant[] {
   return variants;
 }
 
-export default function ProductCard({ product }: ProductCardProps) {
+function ProductCard({ product }: ProductCardProps) {
   const displayName = productDisplayName(product);
   const newBadge = product.isNew === true || isRecentlyCreated(product.createdAt, 14);
   const variants = normalizeVariants(product.variants);
@@ -94,7 +94,8 @@ export default function ProductCard({ product }: ProductCardProps) {
     : null;
 
   return (
-    <div className="card relative h-full flex flex-col transition-shadow duration-200 hover:shadow-md">
+    <div className="card relative h-full flex flex-col transition-shadow duration-200 hover:shadow-md"
+      style={{ contentVisibility: "auto", containIntrinsicSize: "auto 620px" }}>
       <div className="absolute left-3 top-3 z-10 flex flex-col gap-2">
         {product.isPopular && (
           <span className="inline-flex items-center rounded-full bg-gray-700 px-2 py-1 text-xs text-white shadow-sm">Хит</span>
@@ -111,7 +112,7 @@ export default function ProductCard({ product }: ProductCardProps) {
         <FavoriteButton productId={product.id} />
       </div>
 
-      <Link href={productHref} className="block aspect-square w-full bg-white rounded-xl mb-3 overflow-hidden" aria-label={`Открыть товар: ${displayName}`}>
+      <Link href={productHref} prefetch={false} className="block aspect-square w-full bg-white rounded-xl mb-3 overflow-hidden" aria-label={`Открыть товар: ${displayName}`}>
         <img src={productThumbnail(imageToShow, 640)}
           srcSet={productThumbnail(imageToShow, 320) !== imageToShow
             ? `${productThumbnail(imageToShow, 320)} 320w, ${productThumbnail(imageToShow, 640)} 640w, ${productThumbnail(imageToShow, 960)} 960w` : undefined}
@@ -121,7 +122,7 @@ export default function ProductCard({ product }: ProductCardProps) {
 
       <div className="text-sm text-gray-500">
         {product.brand && brandHref ? (
-          <Link href={brandHref} className="hover:underline">{product.brand.name}</Link>
+          <Link href={brandHref} prefetch={false} className="hover:underline">{product.brand.name}</Link>
         ) : publicProductCategory(product)}
       </div>
 
@@ -172,9 +173,9 @@ export default function ProductCard({ product }: ProductCardProps) {
         </div>
 
         <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
-          <Link href={productHref} className="text-xs text-gray-600 hover:underline">Подробнее</Link>
+          <Link href={productHref} prefetch={false} className="text-xs text-gray-600 hover:underline">Подробнее</Link>
           {!inStock ? (
-            <Link href={stockAlertHref} className="text-xs font-semibold text-amber-800 hover:underline">
+            <Link href={stockAlertHref} prefetch={false} className="text-xs font-semibold text-amber-800 hover:underline">
               Уведомить о поступлении
             </Link>
           ) : null}
@@ -183,3 +184,5 @@ export default function ProductCard({ product }: ProductCardProps) {
     </div>
   );
 }
+
+export default memo(ProductCard);

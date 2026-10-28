@@ -3,16 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams, usePathname } from "next/navigation";
 import ProductCard from "@/components/ProductCard";
-import ListPagination from "@/components/ListPagination";
-import { CATALOG_PAGE_SIZE, paginateItems } from "@/lib/listPagination";
-
-type Variant = {
-  id: string;
-  label: string;
-  price: number;
-  stock: number;
-  sku?: string;
-};
+import ListLoadStatus from "@/components/ListLoadStatus";
+import useProgressiveList from "@/components/useProgressiveList";
+import { CATALOG_BATCH_SIZE } from "@/lib/progressiveList";
 
 type Product = {
   id: string;
@@ -85,7 +78,9 @@ export default function ShopGridClient({ products, layout = "catalog" }: { produ
     // порядок НЕ меняем -> сортировка (серверная) сохраняется и в избранном
     return list;
   }, [products, favMode, inStockMode, favIds]);
-  const pagination = paginateItems(visible, Number(sp.get("page") || 1), CATALOG_PAGE_SIZE);
+  const params = new URLSearchParams(sp.toString());
+  params.delete("page");
+  const list = useProgressiveList(visible, CATALOG_BATCH_SIZE, `${pathname}?${params}`);
 
   return visible.length === 0 ? (
     <div className="text-sm text-gray-500 mt-4">
@@ -94,13 +89,9 @@ export default function ShopGridClient({ products, layout = "catalog" }: { produ
   ) : (
     <div>
       <div className={layout === "brand" ? "grid grid-cols-2 md:grid-cols-4 gap-4" : "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 mt-4"}>
-        {pagination.items.map((p) => <ProductCard key={p.id} product={p} />)}
+        {list.items.map((p) => <ProductCard key={p.id} product={p} />)}
       </div>
-      <ListPagination {...pagination} hrefForPage={(page) => {
-        const params = new URLSearchParams(sp.toString());
-        if (page === 1) params.delete("page"); else params.set("page", String(page));
-        return params.size ? `${pathname}?${params}` : pathname;
-      }} />
+      <ListLoadStatus count={list.count} total={list.total} endRef={list.endRef} onRevealAll={list.revealAll} />
     </div>
   );
 }
