@@ -40,16 +40,17 @@ export default function ShopGridClient({ batch, source, layout = "catalog" }: Pr
   if (favMode && favorites === null) return <p role="status" className="mt-4 text-sm text-gray-500">Загрузка избранного…</p>;
   if (favMode && !favorites?.length) return <p className="mt-4 text-sm text-gray-500">Нет товаров в избранном.</p>;
   const ids = favMode ? favorites! : NO_FAVORITES;
-  return <CatalogProductsList key={JSON.stringify([source, batch, ids])} batch={batch} source={source}
+  const viewKey = JSON.stringify([source, batch, ids]);
+  return <CatalogProductsList key={viewKey} viewKey={viewKey} batch={batch} source={source}
     layout={layout} favorites={ids} needsInitial={favMode} />;
 }
 
-function CatalogProductsList({ batch, source, layout, favorites, needsInitial }: Props & { favorites: string[]; needsInitial: boolean }) {
-  const list = useCatalogProducts(batch, source, favorites, needsInitial);
+function CatalogProductsList({ batch, source, layout, favorites, needsInitial, viewKey }: Props & { favorites: string[]; needsInitial: boolean; viewKey: string }) {
+  const list = useCatalogProducts(batch, source, favorites, needsInitial, viewKey);
   return <div aria-busy={list.loading}>
     <div className={layout === "brand" ? "grid grid-cols-2 md:grid-cols-4 gap-4" : "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 mt-4"}>
       {list.products.map((product, index) => <ProductCard key={product.id} product={product} priority={index === 0}
-        headingLevel={2} imageSizes={layout === "brand" ? BRAND_IMAGE_SIZES : undefined} />)}
+        headingLevel={2} imageSizes={layout === "brand" ? BRAND_IMAGE_SIZES : undefined} onOpen={list.rememberProduct} />)}
     </div>
     {!list.products.length && !list.loading && !list.error && <p className="mt-4 text-sm text-gray-500">{needsInitial ? "Нет товаров в избранном." : "Товары не найдены."}</p>}
     {list.loading && <p role="status" className="py-3 text-center text-sm text-gray-500">Загрузка товаров…</p>}
