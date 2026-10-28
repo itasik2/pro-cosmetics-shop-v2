@@ -5,8 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { SearchParamsContext, PathnameContext } from "next/dist/shared/lib/hooks-client-context.shared-runtime";
 import ShopGridClient from "../components/ShopGridClient";
-import ListPagination from "../components/ListPagination";
-import { CATALOG_PAGE_SIZE, ADMIN_PRODUCT_PAGE_SIZE, paginateItems } from "../lib/listPagination";
+import { CATALOG_BATCH_SIZE, observeListEnd } from "../lib/progressiveList";
 import { productThumbnail } from "../lib/productThumbnails";
 import { selectedVisibleProducts } from "../lib/adminProductFilters";
 import { productMatchesSearch } from "../lib/productSearch";
@@ -23,56 +22,80 @@ function render(ui: React.ReactNode, params = "", pathname = "/shop") {
   </AppRouterContext.Provider>);
 }
 
-test("the catalog renders only one page while retaining links to every remaining product page", () => {
+test("the catalog starts with a small batch and automatically reveals the rest without page controls", () => {
   const html = render(<ShopGridClient products={products} />);
-  assert.equal((html.match(/aria-label="Открыть товар:/g) || []).length, CATALOG_PAGE_SIZE);
-  assert.match(html, /Страница 1 из 15/);
-  assert.match(html, /href="\/shop\?page=2"/);
+  assert.equal((html.match(/aria-label="Открыть товар:/g) || []).length, CATALOG_BATCH_SIZE);
+  assert.match(html, /Показано 24 из 346/);
+  assert.match(html, /Остальные товары появятся при прокрутке/);
+  assert.doesNotMatch(html, /Страниц|>Далее<|>Назад<|href="[^\"]*page=/);
   assert.doesNotMatch(html, /Открыть товар: Крем 345/);
 });
 
-test("direct page URLs preserve filters, clamp stale pages and expose the final product", () => {
+test("old page parameters do not hide earlier products in the continuous list", () => {
   const html = render(<ShopGridClient products={products} />, "brand=brand&q=cream&page=15");
-  assert.equal((html.match(/aria-label="Открыть товар:/g) || []).length, 10);
-  assert.match(html, /Открыть товар: Крем 345/);
-  assert.match(html, /brand=brand&amp;q=cream&amp;page=14/);
-  assert.match(html, /Страница 15 из 15/);
-  assert.match(render(<ShopGridClient products={products} />, "page=999"), /Страница 15 из 15/);
+  assert.equal((html.match(/aria-label="Открыть товар:/g) || []).length, CATALOG_BATCH_SIZE);
+  assert.match(html, /Открыть товар: Крем 0/);
+  assert.match(html, /Показано 24 из 346/);
 });
 
-test("filtering and selection cover the whole result set before pagination", () => {
+test("search and bulk selection cover products beyond the initially rendered batch", () => {
   const searched = products.filter(product => productMatchesSearch(product, "SKU 345"));
-  assert.equal(paginateItems(searched, 1, CATALOG_PAGE_SIZE).items[0].id, "product-345");
+  const html = render(<ShopGridClient products={searched} />);
+  assert.match(html, /Открыть товар: Крем 345/);
+  assert.match(html, /Показано 1 из 1/);
   const selected = new Set(products.map(product => product.id));
-  const page = paginateItems(products, 2, ADMIN_PRODUCT_PAGE_SIZE);
-  assert.equal(page.items.length, 30);
   assert.equal(selectedVisibleProducts(products, selected).length, 346);
-  assert.equal(selectedVisibleProducts(page.items, selected).length, 30);
 });
 
-test("brand grids paginate with brand URLs without inheriting catalog-only favorites filters", () => {
+test("brand grids load continuously without inheriting catalog-only favorites filters", () => {
   const html = render(<ShopGridClient products={products} layout="brand" />, "fav=1&page=2", "/brand/brand");
   assert.equal((html.match(/aria-label="Открыть товар:/g) || []).length, 24);
-  assert.match(html, /\/brand\/brand\?fav=1&amp;page=3/);
-  assert.match(html, /Открыть товар: Крем 24/);
+  assert.match(html, /Открыть товар: Крем 0/);
+  assert.match(html, /Показано 24 из 346/);
 });
 
-test("pagination preserves item order without mutations and handles empty/invalid input", () => {
-  const original = [...products];
-  const all = Array.from({ length: 15 }, (_, n) => paginateItems(products, n + 1, CATALOG_PAGE_SIZE).items).flat();
-  assert.deepEqual(all, original);
-  assert.deepEqual(products, original);
-  assert.equal(paginateItems(products, NaN, 24).page, 1);
-  assert.equal(paginateItems(products, -3, 24).page, 1);
-  assert.deepEqual(paginateItems([], 99, 24), { items: [], page: 1, pageCount: 1, total: 0, start: 0, end: 0 });
-  assert.throws(() => paginateItems(products, 1, 0), /invalid_page_size/);
+test("each observer reveals once, disconnects, and ignores notifications after cleanup", (t) => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "IntersectionObserver");
+  t.after(() => {
+    if (original) Object.defineProperty(globalThis, "IntersectionObserver", original);
+    else Reflect.deleteProperty(globalThis, "IntersectionObserver");
+  });
+  let notify!: (entries: { isIntersecting: boolean }[]) => void;
+  let disconnects = 0;
+  let revealed = 0;
+  let observed: unknown;
+  Object.defineProperty(globalThis, "IntersectionObserver", { configurable: true, value: class {
+    constructor(callback: (entries: { isIntersecting: boolean }[]) => void) { notify = callback; }
+    observe(target: unknown) { observed = target; }
+    disconnect() { disconnects++; }
+  } });
+  const target = {} as Element;
+  const cleanup = observeListEnd(target, () => revealed++, () => assert.fail("supported observer"));
+  assert.equal(observed, target);
+  notify([{ isIntersecting: false }]);
+  assert.equal(revealed, 0);
+  notify([{ isIntersecting: true }]);
+  notify([{ isIntersecting: true }]);
+  assert.equal(revealed, 1);
+  assert.equal(disconnects, 1);
+  cleanup();
+  const cleanupBeforeIntersection = observeListEnd(target, () => revealed++, () => {});
+  cleanupBeforeIntersection();
+  notify([{ isIntersecting: true }]);
+  assert.equal(revealed, 1);
 });
 
-test("pagination hides redundant controls and disables only unavailable directions", () => {
-  assert.equal(render(<ListPagination {...paginateItems([], 1, 24)} onPageChange={() => {}} />), "");
-  const html = render(<ListPagination {...paginateItems(products, 1, 24)} onPageChange={() => {}} />);
-  assert.match(html, /disabled=""[^>]*>Назад/);
-  assert.match(html, />Далее<\/button>/);
+test("browsers without IntersectionObserver receive all items rather than a blocked list", (t) => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "IntersectionObserver");
+  Object.defineProperty(globalThis, "IntersectionObserver", { configurable: true, value: undefined });
+  t.after(() => {
+    if (original) Object.defineProperty(globalThis, "IntersectionObserver", original);
+    else Reflect.deleteProperty(globalThis, "IntersectionObserver");
+  });
+  let revealedAll = false;
+  const cleanup = observeListEnd({} as Element, () => assert.fail("incremental loading"), () => { revealedAll = true; });
+  assert.equal(revealedAll, true);
+  cleanup();
 });
 
 

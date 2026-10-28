@@ -16,7 +16,6 @@ export const dynamic = "force-dynamic";
 
 type Props = {
   params: Promise<{ slug: string }>;
-  searchParams?: Promise<{ page?: string | string[] }>;
 };
 
 const BRAND_ROUTE_SELECT = {
@@ -49,9 +48,6 @@ const resolveBrandRoute = cache(async (slug: string) => {
 
 export async function generateMetadata(props: Props): Promise<Metadata> {
   const params = await props.params;
-  const searchParams = await props.searchParams;
-  const pageValue = Number(Array.isArray(searchParams?.page) ? searchParams.page[0] : searchParams?.page);
-  const page = Number.isSafeInteger(pageValue) && pageValue > 1 ? pageValue : 1;
   const { brand } = await resolveBrandRoute(params.slug);
 
   if (!brand || !brand.isActive) {
@@ -64,7 +60,7 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
   const baseUrl = getPublicBaseUrl();
 
   return {
-    title: `${brand.name} — купить косметику в Казахстане${page > 1 ? `, страница ${page}` : ""} | ${SITE_BRAND}`,
+    title: `${brand.name} — купить косметику в Казахстане | ${SITE_BRAND}`,
     description: `Профессиональная косметика ${brand.name}: подробные карточки и доставка по Казахстану.`,
     keywords: [
       `косметика ${brand.name}`,
@@ -72,7 +68,7 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
       `${brand.name} Казахстан`,
     ],
     alternates: {
-      canonical: `${baseUrl}/brand/${brand.slug}${page > 1 ? `?page=${page}` : ""}`,
+      canonical: `${baseUrl}/brand/${brand.slug}`,
     },
     openGraph: {
       title: brand.name,

@@ -3,8 +3,9 @@ import { productDisplayName } from "@/lib/productNames";
 import { productMatchesSearch } from "@/lib/productSearch";
 import ProductFiltersBar from "./ProductFiltersBar";
 import dynamic from "next/dynamic";
-import ListPagination from "@/components/ListPagination";
-import { ADMIN_PRODUCT_PAGE_SIZE, paginateItems } from "@/lib/listPagination";
+import ListLoadStatus from "@/components/ListLoadStatus";
+import useProgressiveList from "@/components/useProgressiveList";
+import { ADMIN_PRODUCT_BATCH_SIZE } from "@/lib/progressiveList";
 import { productThumbnail } from "@/lib/productThumbnails";
 
 const ProductAssistant = dynamic(() => import("./ProductAssistant"), {
@@ -133,8 +134,6 @@ export default function AdminProductsClient() {
   const [searchQuery, setSearchQuery] = useState("");
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const searchPending = searchQuery !== deferredSearchQuery;
-  const [pageState, setPageState] = useState({ key: "", page: 1 });
-  const productListRef = useRef<HTMLFieldSetElement>(null);
   const [filters, setFilters] = useState<ProductFilters>({
     ...emptyProductFilters,
   });
@@ -538,9 +537,7 @@ export default function AdminProductsClient() {
   );
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const selectedProducts = useMemo(() => selectedVisibleProducts(filteredItems, selectedSet), [filteredItems, selectedSet]);
-  const pageKey = JSON.stringify([deferredSearchQuery, filters]);
-  const currentPage = pageState.key === pageKey ? pageState.page : 1;
-  const pagination = useMemo(() => paginateItems(filteredItems, currentPage, ADMIN_PRODUCT_PAGE_SIZE), [filteredItems, currentPage]);
+  const list = useProgressiveList(filteredItems, ADMIN_PRODUCT_BATCH_SIZE, JSON.stringify([deferredSearchQuery, filters]));
 
   const actOnProducts = useCallback(async (
     action: ProductAction,
@@ -629,7 +626,7 @@ export default function AdminProductsClient() {
   );
 
   const productRows = useMemo(
-    () => pagination.items.map((product) => {
+    () => list.items.map((product) => {
       const { variants } = adminStockSummary(product);
       const variantsCount = variants.length;
       const prices = variants.map((row) => row.price);
@@ -641,6 +638,7 @@ export default function AdminProductsClient() {
       return (
         <div
           key={product.id}
+          style={{ contentVisibility: "auto", containIntrinsicSize: "auto 240px" }}
           className={`min-w-0 rounded-2xl border bg-white p-4 ${selectedSet.has(product.id) ? "border-[var(--color-accent)] ring-1 ring-[var(--color-accent)]" : ""}`}
         >
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
@@ -749,7 +747,7 @@ export default function AdminProductsClient() {
         </div>
       );
     }),
-    [pagination.items, selectedSet, edit, actOnProducts],
+    [list.items, selectedSet, edit, actOnProducts],
   );
 
   return (
@@ -1409,7 +1407,6 @@ export default function AdminProductsClient() {
         )}
 
         <fieldset
-          ref={productListRef}
           aria-busy={searchPending}
           disabled={bulkBusy || searchPending}
           className="grid min-w-0 scroll-mt-36 grid-cols-1 gap-3"
@@ -1424,10 +1421,7 @@ export default function AdminProductsClient() {
             </div>
           )}
         </fieldset>
-        <ListPagination {...pagination} onPageChange={(page) => {
-          setPageState({ key: pageKey, page });
-          productListRef.current?.scrollIntoView({ block: "start" });
-        }} />
+        <ListLoadStatus count={list.count} total={list.total} endRef={list.endRef} onRevealAll={list.revealAll} />
       </div>
     </div>
   );

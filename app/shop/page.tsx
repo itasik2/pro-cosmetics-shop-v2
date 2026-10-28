@@ -78,8 +78,6 @@ export async function generateMetadata(props: Props) {
   const fav = firstParam(searchParams?.fav);
   const instock = firstParam(searchParams?.instock);
   const searchQuery = firstParam(searchParams?.q);
-  const pageValue = Number(firstParam(searchParams?.page));
-  const page = Number.isSafeInteger(pageValue) && pageValue > 1 ? pageValue : 1;
 
   const brands = await getCatalogBrands();
 
@@ -135,11 +133,11 @@ export async function generateMetadata(props: Props) {
   }
 
   return {
-    title: `Профессиональная косметика — каталог брендов${page > 1 ? `, страница ${page}` : ""} | ${SITE_BRAND}`,
+    title: `Профессиональная косметика — каталог брендов | ${SITE_BRAND}`,
     description: `Каталог профессиональной косметики: ${brandNames}. Подробные описания и доставка по Казахстану.`,
     keywords: ["каталог косметики", "купить косметику", ...brandIntentKeywords],
     alternates: {
-      canonical: `${baseUrl}/shop${page > 1 ? `?page=${page}` : ""}`,
+      canonical: `${baseUrl}/shop`,
     },
     robots:
       sort ||
