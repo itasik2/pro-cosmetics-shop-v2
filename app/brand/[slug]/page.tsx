@@ -3,14 +3,14 @@ import { notFound, permanentRedirect } from "next/navigation";
 import type { Metadata } from "next";
 import ShopGridClient from "@/components/ShopGridClient";
 import { cache } from "react";
-import { PUBLIC_PRODUCT_CARD_SELECT } from "@/lib/publicProductSelect";
-import { getCatalogHubShadowConfig } from "@/lib/catalogHubClient";
 import { brandNameToSlug } from "@/lib/brandSlug";
 import { getCspNonce } from "@/lib/csp";
 import { SITE_BRAND, getPublicBaseUrl } from "@/lib/siteConfig";
-import { collapseRepresentedProductCards } from "@/lib/publicProductCards";
 import { stringifyJsonLd } from "@/lib/structuredData";
-import { overlayCatalogHubProducts } from "@/lib/catalogHubOverlay";
+
+import { getBrandCatalogProducts } from "@/lib/publicCatalog";
+import { catalogBatch } from "@/lib/catalogBatch";
+import { CATALOG_INITIAL_SIZE } from "@/lib/progressiveList";
 
 export const dynamic = "force-dynamic";
 
@@ -89,23 +89,7 @@ export default async function BrandPage(props: Props) {
     permanentRedirect(`/brand/${encodeURIComponent(brand.slug)}`);
   }
 
-  const productRows = await prisma.product.findMany({
-    where: {
-      isPublished: true,
-      enrichmentStatus: { not: "MERGED" },
-      ...(!getCatalogHubShadowConfig().readEnabled ? { brand: { name: { equals: brand.name, mode: "insensitive" as const } } } : {}),
-    },
-    select: PUBLIC_PRODUCT_CARD_SELECT,
-    orderBy: { createdAt: "desc" },
-  });
-  const overlaidProducts = await overlayCatalogHubProducts(productRows);
-  const products = collapseRepresentedProductCards(
-    overlaidProducts.filter(
-      (product) =>
-        product.brand?.name?.toLocaleLowerCase("ru-RU") ===
-        brand.name.toLocaleLowerCase("ru-RU"),
-    ),
-  );
+  const products = await getBrandCatalogProducts(brand.name);
 
   const baseUrl = getPublicBaseUrl();
   const schema = {
@@ -129,7 +113,7 @@ export default async function BrandPage(props: Props) {
         {products.length === 0 ? (
           <div className="text-gray-500">Товары отсутствуют</div>
         ) : (
-          <ShopGridClient products={products} layout="brand" />
+          <ShopGridClient batch={catalogBatch(products, CATALOG_INITIAL_SIZE)} source={{ kind: "brand", slug: brand.slug }} layout="brand" />
         )}
       </div>
     </>
