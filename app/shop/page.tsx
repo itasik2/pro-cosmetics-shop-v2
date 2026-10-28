@@ -206,7 +206,7 @@ export default async function ShopPage(props: Props) {
         </div>
       )}
 
-      <ShopGridClient batch={catalogBatch(productsForClient, CATALOG_INITIAL_SIZE, 0, undefined, fav === "1" ? [] : undefined)} source={{ kind: "catalog", query }} />
+      <ShopGridClient batch={catalogBatch(productsForClient, CATALOG_INITIAL_SIZE, undefined, fav === "1" ? [] : undefined)} source={{ kind: "catalog", query }} />
     </div>
   );
 }

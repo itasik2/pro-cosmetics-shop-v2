@@ -20,5 +20,6 @@ export type CatalogProductRow = {
 export type CatalogCard = Omit<CatalogProductRow, "createdAt" | "variants"> & {
   createdAt: string; variants: CatalogVariant[] | null;
 };
-export type CatalogBatch = { products: CatalogCard[]; total: number; nextOffset: number; hasMore: boolean };
-export type CatalogBatchRequest = { source: CatalogSource; offset: number; after?: string; favorites: string[] };
+export type CatalogCursor = { id: string; createdAt: string };
+export type CatalogBatch = { products: CatalogCard[]; total: number; cursor?: CatalogCursor; hasMore: boolean };
+export type CatalogBatchRequest = { source: CatalogSource; cursor?: CatalogCursor; favorites: string[] };

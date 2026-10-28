@@ -7,8 +7,8 @@ import type { CatalogBatch, CatalogSource } from "@/lib/catalogTypes";
 
 export default function useCatalogProducts(initial: CatalogBatch, source: CatalogSource, favorites: string[], needsInitial: boolean) {
   const [state, setState] = useState(() => ({
-    ...initial, ...(needsInitial ? { products: [], total: 0, nextOffset: 0, hasMore: true } : {}),
-    loading: needsInitial, error: "", after: needsInitial ? undefined : initial.products.at(-1)?.id,
+    ...initial, ...(needsInitial ? { products: [], total: 0, cursor: undefined, hasMore: true } : {}),
+    loading: needsInitial, error: "",
   }));
   const snapshot = useRef(state);
   const activeRequest = useRef<AbortController | null>(null);
@@ -26,10 +26,10 @@ export default function useCatalogProducts(initial: CatalogBatch, source: Catalo
     const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, 15000);
     setState((value) => ({ ...value, loading: true, error: "" }));
     try {
-      const batch = await requestCatalogBatch({ source, favorites, offset: current.nextOffset, after: current.after }, controller.signal);
+      const batch = await requestCatalogBatch({ source, favorites, cursor: current.cursor }, controller.signal);
       if (controller.signal.aborted) return;
       startTransition(() => setState((value) => ({ ...batch,
-        products: mergeCatalogProducts(value.products, batch.products), after: batch.products.at(-1)?.id ?? value.after,
+        products: mergeCatalogProducts(value.products, batch.products),
         loading: false, error: "",
       })));
     } catch {
@@ -45,16 +45,16 @@ export default function useCatalogProducts(initial: CatalogBatch, source: Catalo
 
   useEffect(() => () => activeRequest.current?.abort(), []);
   useEffect(() => {
-    if (needsInitial && snapshot.current.nextOffset === 0 && !snapshot.current.error) void loadNext();
+    if (needsInitial && !snapshot.current.products.length && !snapshot.current.error) void loadNext();
   }, [needsInitial, loadNext]);
   useEffect(() => {
     if (loadAll && state.hasMore && !state.loading && !state.error) void loadNext();
-  }, [loadAll, state.hasMore, state.loading, state.error, state.nextOffset, loadNext]);
+  }, [loadAll, state.hasMore, state.loading, state.error, state.cursor?.id, loadNext]);
   const revealAll = useCallback(() => setLoadAll(true), []);
   useEffect(() => {
     if (!state.hasMore || state.loading || state.error || loadAll || !endRef.current) return;
     return observeListEnd(endRef.current, () => void loadNext(), revealAll, 400);
-  }, [state.hasMore, state.loading, state.error, state.nextOffset, loadAll, loadNext, revealAll]);
+  }, [state.hasMore, state.loading, state.error, state.cursor?.id, loadAll, loadNext, revealAll]);
 
   return { ...state, endRef, revealAll, retry: loadNext };
 }

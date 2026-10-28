@@ -1,4 +1,4 @@
-import type { CatalogBatch, CatalogProductRow, CatalogVariant } from "./catalogTypes";
+import type { CatalogBatch, CatalogCursor, CatalogProductRow, CatalogVariant } from "./catalogTypes";
 
 export function catalogVariants(value: unknown): CatalogVariant[] | null {
   if (!Array.isArray(value)) return null;
@@ -21,17 +21,23 @@ export function catalogCard(product: CatalogProductRow) {
     id: product.id, slug: product.slug, name: product.name, image: product.image,
     shortDescription: product.shortDescription, supplierSku: product.supplierSku,
     price: product.price, stock: product.stock, isPopular: product.isPopular, isNew: product.isNew,
-    createdAt: product.createdAt instanceof Date ? product.createdAt.toISOString() : product.createdAt,
+    createdAt: new Date(product.createdAt).toISOString(),
     category: product.category, brand: product.brand ? { name: product.brand.name } : null,
     variants: catalogVariants(product.variants),
   };
 }
 
-export function catalogBatch(products: CatalogProductRow[], size: number, offset = 0, after?: string, favorites?: readonly string[]): CatalogBatch {
+function compareProducts(a: Pick<CatalogProductRow, "id" | "createdAt">, b: Pick<CatalogProductRow, "id" | "createdAt">) {
+  return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime() || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
+}
+
+export function catalogBatch(products: CatalogProductRow[], size: number, cursor?: CatalogCursor, favorites?: readonly string[]): CatalogBatch {
   const ids = favorites ? new Set(favorites) : null;
-  const matched = ids ? products.filter((product) => ids.has(product.id)) : products;
-  const cursorIndex = after ? matched.findIndex((product) => product.id === after) : -1;
-  const start = cursorIndex >= 0 ? cursorIndex + 1 : Math.min(Math.max(0, Math.trunc(offset)), matched.length);
-  const nextOffset = Math.min(start + size, matched.length);
-  return { products: matched.slice(start, nextOffset).map(catalogCard), total: matched.length, nextOffset, hasMore: nextOffset < matched.length };
+  const matched = (ids ? products.filter((product) => ids.has(product.id)) : [...products]).sort(compareProducts);
+  const nextIndex = cursor ? matched.findIndex((product) => compareProducts(product, cursor) > 0) : 0;
+  const start = nextIndex < 0 ? matched.length : nextIndex;
+  const cards = matched.slice(start, start + size).map(catalogCard);
+  const last = cards.at(-1);
+  return { products: cards, total: matched.length, ...(last ? { cursor: { id: last.id, createdAt: last.createdAt } } : {}),
+    hasMore: start + cards.length < matched.length };
 }

@@ -56,6 +56,6 @@ function CatalogProductsList({ batch, source, layout, favorites, needsInitial }:
     {list.error && <div role="alert" className="py-3 text-center text-sm text-gray-600">
       <p>{list.error}</p><button type="button" className="btn-secondary mt-2" onClick={() => void list.retry()}>Повторить загрузку</button>
     </div>}
-    <ListLoadStatus count={list.products.length} total={list.total} endRef={list.endRef} onRevealAll={list.revealAll} />
+    <ListLoadStatus count={list.products.length} total={list.total} hasMore={list.hasMore} endRef={list.endRef} onRevealAll={list.revealAll} />
   </div>;
 }

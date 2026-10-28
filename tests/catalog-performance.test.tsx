@@ -16,7 +16,7 @@ import type { CatalogQuery, CatalogSource } from "../lib/catalogTypes";
 
 const products = Array.from({ length: 346 }, (_, n) => ({ id: `product-${n}`, slug: `cream-${n}`,
   name: `Крем ${n}`, supplierSku: `SKU-${n}`, price: 1000, stock: 2, image: "/cream.jpg", category: "Кремы",
-  isPopular: false, createdAt: "2026-01-01", brand: { name: "Brand" }, variants: null }));
+  isPopular: false, createdAt: new Date(Date.UTC(2026, 0, 1) - n * 1000).toISOString(), brand: { name: "Brand" }, variants: null }));
 const router = { push() {}, replace() {}, refresh() {}, prefetch() {}, back() {}, forward() {} };
 const query: CatalogQuery = { brandSlugs: [], categorySlugs: [], sort: "", fav: "", instock: "", searchQuery: "", care: "", maxPrice: null };
 const source: CatalogSource = { kind: "catalog", query };
@@ -144,20 +144,24 @@ test("public batches reach every product exactly once and continue after a curso
   let rows = products;
   const post = createCatalogPost(async () => rows);
   const all = [...initial.products];
-  let offset = initial.nextOffset;
-  while (offset < products.length) {
-    const response = await post(request({ source, offset, after: all.at(-1)?.id }));
+  let cursor = initial.cursor;
+  let hasMore = initial.hasMore;
+  while (hasMore) {
+    const response = await post(request({ source, cursor }));
     assert.equal(response.status, 200);
     assert.match(response.headers.get("cache-control") || "", /no-store/);
     const batch = await response.json();
-    assert.ok(batch.products.length <= 24);
-    assert.ok(batch.nextOffset > offset);
+    assert.ok(batch.products.length > 0 && batch.products.length <= 24);
+    assert.notEqual(batch.cursor.id, cursor?.id);
     all.push(...batch.products);
-    offset = batch.nextOffset;
+    assert.equal(new Set(all.map((product) => product.id)).size, all.length);
+    assert.ok(all.length <= products.length);
+    cursor = batch.cursor;
+    hasMore = batch.hasMore;
   }
   assert.deepEqual(all.map((product) => product.id), products.map((product) => product.id));
   rows = [{ ...products[0], id: "new-product" }, ...products.filter((product) => product.id !== "product-1")];
-  const next = await (await post(request({ source, offset: 6, after: "product-5" }))).json();
+  const next = await (await post(request({ source, cursor: initial.cursor }))).json();
   assert.equal(next.products[0].id, "product-6");
 });
 
@@ -168,13 +172,13 @@ test("favorites and SKU search use the full matched catalog before applying the 
     return input.kind === "catalog" ? products.filter((product) => productMatchesSearch(product, input.query.searchQuery)) : products;
   });
   const searchedSource: CatalogSource = { kind: "catalog", query: { ...query, searchQuery: "SKU 345", brandSlugs: ["brand"], instock: "1", maxPrice: 2000 } };
-  const searched = await (await post(request({ source: searchedSource, offset: 0 }))).json();
+  const searched = await (await post(request({ source: searchedSource }))).json();
   assert.deepEqual(seenSource, searchedSource);
   assert.equal(searched.products[0].id, "product-345");
-  const favorite = await (await post(request({ source: { kind: "catalog", query: { ...query, fav: "1" } }, offset: 0, favorites: ["product-345"] }))).json();
+  const favorite = await (await post(request({ source: { kind: "catalog", query: { ...query, fav: "1" } }, favorites: ["product-345"] }))).json();
   assert.equal(favorite.total, 1);
   assert.equal(favorite.products[0].id, "product-345");
-  const brand = await (await post(request({ source: { kind: "brand", slug: "brand" }, offset: 0, favorites: ["product-345"] }))).json();
+  const brand = await (await post(request({ source: { kind: "brand", slug: "brand" }, favorites: ["product-345"] }))).json();
   assert.equal(brand.total, 346);
   assert.equal(brand.products[0].id, "product-0");
 });
@@ -182,23 +186,23 @@ test("favorites and SKU search use the full matched catalog before applying the 
 test("public API rejects invalid batches and returns a retryable failure without exposing backend details", async () => {
   let calls = 0;
   const post = createCatalogPost(async () => { calls++; throw new Error("database-password-secret"); });
-  for (const body of [null, { source, offset: -1 }, { source, offset: 0, favorites: Array(2001).fill("id") },
-    { source: { kind: "catalog", query: { ...query, maxPrice: 0 } }, offset: 0 }]) {
+  for (const body of [null, { source, offset: -1 }, { source, favorites: Array(2001).fill("id") },
+    { source: { kind: "catalog", query: { ...query, maxPrice: 0 } } }]) {
     assert.equal((await post(request(body))).status, 400);
   }
   assert.equal(calls, 0);
-  const response = await post(request({ source, offset: 0 }));
+  const response = await post(request({ source }));
   assert.equal(response.status, 503);
   assert.doesNotMatch(await response.text(), /database-password-secret/);
 });
 
 test("catalog transport forwards filters, cursors and cancellation, and handles malformed or failed responses", async () => {
   const controller = new AbortController();
-  const input = { source, offset: 6, after: "product-5", favorites: [] };
+  const input = { source, cursor: initial.cursor, favorites: [] };
   let options: RequestInit | undefined;
   const fetcher: typeof fetch = async (url, init) => {
     assert.equal(url, "/api/catalog/products"); options = init;
-    return Response.json(catalogBatch(products, 24, 6));
+    return Response.json(catalogBatch(products, 24, initial.cursor));
   };
   const data = await requestCatalogBatch(input, controller.signal, fetcher);
   assert.equal(data.products[0].id, "product-6");
@@ -217,11 +221,32 @@ test("catalog transport forwards filters, cursors and cancellation, and handles 
 test("merging batches retains order and SKU photos, replaces fresh overlapping prices, and removes duplicate IDs", () => {
   const first = catalogBatch(products, 6).products;
   const incoming = [{ ...first[5], price: 2000, variants: [{ id: "v", label: "50 мл", price: 2000, stock: 1, sku: "V", image: "/v.jpg" }] },
-    ...catalogBatch(products, 2, 6).products];
+    ...catalogBatch(products, 2, initial.cursor).products];
   const merged = mergeCatalogProducts(first, incoming);
   assert.deepEqual(merged.map((product) => product.id), products.slice(0, 8).map((product) => product.id));
   assert.equal(merged[5].price, 2000);
   assert.equal(merged[5].variants?.[0].sku, "V");
   assert.equal(merged[5].variants?.[0].image, "/v.jpg");
   assert.equal(first[5].price, 1000);
+});
+
+test("continuation does not skip products when the last loaded product disappears or sells out", async () => {
+  let rows = [...products];
+  const post = createCatalogPost(async (input) => input.kind === "catalog" && input.query.instock === "1"
+    ? rows.filter((product) => product.stock > 0) : rows);
+  rows = rows.filter((product) => product.id !== "product-5");
+  const removed = await (await post(request({ source, cursor: initial.cursor }))).json();
+  assert.equal(removed.products[0].id, "product-6");
+  rows = products.map((product) => product.id === "product-5" ? { ...product, stock: 0 } : product);
+  const soldOut = await (await post(request({ source: { kind: "catalog", query: { ...query, instock: "1" } }, cursor: initial.cursor }))).json();
+  assert.equal(soldOut.products[0].id, "product-6");
+});
+
+test("creation-date ties continue by ID even after the cursor row is removed", () => {
+  const rows = ["c1", "c3", "c0", "c2"].map((id) => ({ ...products[0], id }));
+  const first = catalogBatch(rows, 2);
+  assert.deepEqual(first.products.map((product) => product.id), ["c3", "c2"]);
+  const next = catalogBatch(rows.filter((product) => product.id !== "c2"), 2, first.cursor);
+  assert.deepEqual(next.products.map((product) => product.id), ["c1", "c0"]);
+  assert.equal(next.hasMore, false);
 });

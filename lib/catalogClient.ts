@@ -6,7 +6,7 @@ export async function requestCatalogBatch(input: CatalogBatchRequest, signal: Ab
   });
   const data = await response.json().catch(() => null);
   if (!response.ok || !data || !Array.isArray(data.products) || !Number.isInteger(data.total) ||
-    !Number.isInteger(data.nextOffset) || typeof data.hasMore !== "boolean") {
+    typeof data.hasMore !== "boolean" || (data.hasMore && (!data.cursor || typeof data.cursor.id !== "string" || !Number.isFinite(Date.parse(data.cursor.createdAt))))) {
     throw new Error("Не удалось загрузить товары. Попробуйте ещё раз.");
   }
   return data as CatalogBatch;
