@@ -14,6 +14,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
     return (
       <Link
         href={href}
+        prefetch={false}
         className={
           "px-2 sm:px-3 py-1 rounded-full text-xs sm:text-sm whitespace-nowrap " +
           (active ? "bg-black text-white" : "text-gray-700 hover:bg-gray-100")
@@ -32,7 +33,6 @@ export function AdminShell({ children }: { children: ReactNode }) {
           {link("/admin/price-workflow", "Работа с прайсом")}
           {link("/admin/products", "Товары")}
           {link("/admin/image-normalization", "Фото товаров")}
-          {link("/admin/catalog-hub", "Catalog Hub")}
           {link("/admin/blog", "Блог")}
           {link("/admin/orders", "Заказы")}
           {link("/admin/reviews", "Отзывы")}

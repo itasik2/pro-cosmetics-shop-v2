@@ -2,7 +2,14 @@
 import { productDisplayName } from "@/lib/productNames";
 import { productMatchesSearch } from "@/lib/productSearch";
 import ProductFiltersBar from "./ProductFiltersBar";
-import ProductAssistant from "./ProductAssistant";
+import dynamic from "next/dynamic";
+import ListPagination from "@/components/ListPagination";
+import { ADMIN_PRODUCT_PAGE_SIZE, paginateItems } from "@/lib/listPagination";
+import { productThumbnail } from "@/lib/productThumbnails";
+
+const ProductAssistant = dynamic(() => import("./ProductAssistant"), {
+  loading: () => <p role="status" className="text-sm text-gray-500">Загрузка ИИ-инструментов…</p>,
+});
 import ProductPriceSources from "./ProductPriceSources";
 import ProductSelectionBar from "./ProductSelectionBar";
 import { requestProductActions } from "./productActions";
@@ -31,6 +38,8 @@ import {
   Children,
   cloneElement,
   isValidElement,
+  useCallback,
+  useDeferredValue,
   useEffect,
   useId,
   useMemo,
@@ -122,6 +131,10 @@ export default function AdminProductsClient() {
     null,
   );
   const [searchQuery, setSearchQuery] = useState("");
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+  const searchPending = searchQuery !== deferredSearchQuery;
+  const [pageState, setPageState] = useState({ key: "", page: 1 });
+  const productListRef = useRef<HTMLFieldSetElement>(null);
   const [filters, setFilters] = useState<ProductFilters>({
     ...emptyProductFilters,
   });
@@ -422,10 +435,10 @@ export default function AdminProductsClient() {
     }
   }
 
-  function edit(
+  const edit = useCallback((
     product: Product,
     section: "details" | "variants" | "assistant" = "details",
-  ) {
+  ) => {
     setEditing(product.id);
     const nextForm = {
       name: productDisplayName(product),
@@ -446,7 +459,7 @@ export default function AdminProductsClient() {
     setForm(nextForm);
     setMsg(null);
     setEditorOpen(true);
-  }
+  }, []);
 
   function addProduct() {
     setEditing(null);
@@ -518,19 +531,22 @@ export default function AdminProductsClient() {
     () =>
       items.filter(
         (product) =>
-          productMatchesSearch(product, searchQuery) &&
+          productMatchesSearch(product, deferredSearchQuery) &&
           productMatchesFilters(product, filters),
       ),
-    [items, searchQuery, filters],
+    [items, deferredSearchQuery, filters],
   );
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
-  const selectedProducts = selectedVisibleProducts(filteredItems, selectedSet);
+  const selectedProducts = useMemo(() => selectedVisibleProducts(filteredItems, selectedSet), [filteredItems, selectedSet]);
+  const pageKey = JSON.stringify([deferredSearchQuery, filters]);
+  const currentPage = pageState.key === pageKey ? pageState.page : 1;
+  const pagination = useMemo(() => paginateItems(filteredItems, currentPage, ADMIN_PRODUCT_PAGE_SIZE), [filteredItems, currentPage]);
 
-  async function actOnProducts(
+  const actOnProducts = useCallback(async (
     action: ProductAction,
     products = selectedProducts,
-  ) {
-    if (!products.length || bulkBusy || editorOpen) return;
+  ) => {
+    if (!products.length || bulkBusy || editorOpen || searchPending) return;
     const confirmation =
       action === "delete"
         ? `Удалить товаров: ${products.length}? Карточки и их варианты будут удалены без возможности восстановления.`
@@ -563,7 +579,7 @@ export default function AdminProductsClient() {
     } finally {
       setBulkBusy(false);
     }
-  }
+  }, [selectedProducts, bulkBusy, editorOpen, searchPending]);
 
   const filterOptions = useMemo(
     () => ({
@@ -610,6 +626,130 @@ export default function AdminProductsClient() {
       },
     }),
     [items],
+  );
+
+  const productRows = useMemo(
+    () => pagination.items.map((product) => {
+      const { variants } = adminStockSummary(product);
+      const variantsCount = variants.length;
+      const prices = variants.map((row) => row.price);
+      const minPrice = prices.length
+        ? Math.min(...prices)
+        : Number(product.price);
+      const maxPrice = prices.length ? Math.max(...prices) : minPrice;
+
+      return (
+        <div
+          key={product.id}
+          className={`min-w-0 rounded-2xl border bg-white p-4 ${selectedSet.has(product.id) ? "border-[var(--color-accent)] ring-1 ring-[var(--color-accent)]" : ""}`}
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <input
+                type="checkbox"
+                className="h-5 w-5 shrink-0 accent-[var(--color-accent)]"
+                aria-label={`Выбрать ${product.name}`}
+                checked={selectedSet.has(product.id)}
+                onChange={() =>
+                  setSelectedIds((current) =>
+                    current.includes(product.id)
+                      ? current.filter((id) => id !== product.id)
+                      : [...current, product.id],
+                  )
+                }
+              />
+              <VariantPhotoPreview
+                src={productThumbnail(product.image, 160)}
+                alt={product.name}
+                className="h-16 w-16 shrink-0 rounded-lg bg-gray-50 object-contain"
+              />
+
+              <div className="min-w-0">
+                <div className="font-semibold flex flex-wrap items-center gap-2">
+                  <span className="break-words">{productDisplayName(product)}</span>
+                  {!product.isPublished && (
+                    <Badge className="bg-gray-100 text-gray-700 border-gray-200">
+                      Черновик
+                    </Badge>
+                  )}
+                  {product.isNew && (
+                    <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200">
+                      Новинка
+                    </Badge>
+                  )}
+                  {product.isPopular && (
+                    <Badge
+                      className="bg-yellow-100 text-yellow-800 border-yellow-200"
+                      title={product.popularityReason || undefined}
+                    >
+                      {product.popularityPinned
+                        ? "Популярный · вручную"
+                        : `Популярный · сеть ${Math.trunc(Number(product.popularityScore) || 0)}%`}
+                    </Badge>
+                  )}
+                </div>
+
+                <div className="text-sm text-gray-500 break-words">
+                  {product.brand?.name || "—"} •{" "}
+                  {minPrice.toLocaleString("ru-RU")}
+                  {maxPrice > minPrice
+                    ? `–${maxPrice.toLocaleString("ru-RU")}`
+                    : ""}{" "}
+                  ₸
+                </div>
+                <VariantSummary product={product} />
+                {(product.supplierSku || product.supplier?.name) && (
+                  <div className="text-xs text-gray-400 mt-1">
+                    {product.supplier?.name || "Поставщик"}
+                    {product.supplierSku
+                      ? ` • SKU ${product.supplierSku}`
+                      : ""}
+                    {product.sourcePrice != null
+                      ? ` • цена в прайсе ${Number(product.sourcePrice).toLocaleString("ru-RU")} ₸`
+                      : ""}
+                  </div>
+                )}
+                <ProductPriceSources sources={product.priceSources} />
+              </div>
+            </div>
+
+            <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:max-w-sm sm:shrink-0 sm:justify-end">
+              <button
+                className="btn"
+                onClick={() => edit(product)}
+                type="button"
+              >
+                Редактировать
+              </button>
+              {!isUsablePhoto(product.image) && (
+                <button
+                  className="btn-secondary"
+                  onClick={() => edit(product, "assistant")}
+                  type="button"
+                >
+                  Найти фото / ИИ
+                </button>
+              )}
+              <button
+                className="btn-secondary"
+                onClick={() => void actOnProducts("delete", [product])}
+                type="button"
+              >
+                Удалить
+              </button>
+            </div>
+          </div>
+          <ProductVariantsPanel
+            product={product}
+            onEdit={() => edit(product, "variants")}
+            onSaved={() =>
+              window.dispatchEvent(new Event("products-changed"))
+            }
+          />
+        </div>
+      );
+    }),
+    [pagination.items, selectedSet, edit, actOnProducts],
   );
 
   return (
@@ -1217,7 +1357,7 @@ export default function AdminProductsClient() {
         <ProductSelectionBar
           total={filteredItems.length}
           selected={selectedProducts.length}
-          busy={bulkBusy}
+          busy={bulkBusy || searchPending}
           progress={bulkProgress}
           onSelectAll={() =>
             setSelectedIds(filteredItems.map((product) => product.id))
@@ -1269,129 +1409,12 @@ export default function AdminProductsClient() {
         )}
 
         <fieldset
-          disabled={bulkBusy}
-          className="grid min-w-0 grid-cols-1 gap-3"
+          ref={productListRef}
+          aria-busy={searchPending}
+          disabled={bulkBusy || searchPending}
+          className="grid min-w-0 scroll-mt-36 grid-cols-1 gap-3"
         >
-          {filteredItems.map((product) => {
-            const { variants } = adminStockSummary(product);
-            const variantsCount = variants.length;
-            const prices = variants.map((row) => row.price);
-            const minPrice = prices.length
-              ? Math.min(...prices)
-              : Number(product.price);
-            const maxPrice = prices.length ? Math.max(...prices) : minPrice;
-
-            return (
-              <div
-                key={product.id}
-                className={`min-w-0 rounded-2xl border bg-white p-4 ${selectedSet.has(product.id) ? "border-[var(--color-accent)] ring-1 ring-[var(--color-accent)]" : ""}`}
-              >
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <input
-                      type="checkbox"
-                      className="h-5 w-5 shrink-0 accent-[var(--color-accent)]"
-                      aria-label={`Выбрать ${product.name}`}
-                      checked={selectedSet.has(product.id)}
-                      onChange={() =>
-                        setSelectedIds((current) =>
-                          current.includes(product.id)
-                            ? current.filter((id) => id !== product.id)
-                            : [...current, product.id],
-                        )
-                      }
-                    />
-                    <VariantPhotoPreview
-                      src={product.image}
-                      alt={product.name}
-                      className="h-16 w-16 shrink-0 rounded-lg bg-gray-50 object-contain"
-                    />
-
-                    <div className="min-w-0">
-                      <div className="font-semibold flex flex-wrap items-center gap-2">
-                        <span className="break-words">{productDisplayName(product)}</span>
-                        {!product.isPublished && (
-                          <Badge className="bg-gray-100 text-gray-700 border-gray-200">
-                            Черновик
-                          </Badge>
-                        )}
-                        {product.isNew && (
-                          <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200">
-                            Новинка
-                          </Badge>
-                        )}
-                        {product.isPopular && (
-                          <Badge
-                            className="bg-yellow-100 text-yellow-800 border-yellow-200"
-                            title={product.popularityReason || undefined}
-                          >
-                            {product.popularityPinned
-                              ? "Популярный · вручную"
-                              : `Популярный · сеть ${Math.trunc(Number(product.popularityScore) || 0)}%`}
-                          </Badge>
-                        )}
-                      </div>
-
-                      <div className="text-sm text-gray-500 break-words">
-                        {product.brand?.name || "—"} •{" "}
-                        {minPrice.toLocaleString("ru-RU")}
-                        {maxPrice > minPrice
-                          ? `–${maxPrice.toLocaleString("ru-RU")}`
-                          : ""}{" "}
-                        ₸
-                      </div>
-                      <VariantSummary product={product} />
-                      {(product.supplierSku || product.supplier?.name) && (
-                        <div className="text-xs text-gray-400 mt-1">
-                          {product.supplier?.name || "Поставщик"}
-                          {product.supplierSku
-                            ? ` • SKU ${product.supplierSku}`
-                            : ""}
-                          {product.sourcePrice != null
-                            ? ` • цена в прайсе ${Number(product.sourcePrice).toLocaleString("ru-RU")} ₸`
-                            : ""}
-                        </div>
-                      )}
-                      <ProductPriceSources sources={product.priceSources} />
-                    </div>
-                  </div>
-
-                  <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:max-w-sm sm:shrink-0 sm:justify-end">
-                    <button
-                      className="btn"
-                      onClick={() => edit(product)}
-                      type="button"
-                    >
-                      Редактировать
-                    </button>
-                    {!isUsablePhoto(product.image) && (
-                      <button
-                        className="btn-secondary"
-                        onClick={() => edit(product, "assistant")}
-                        type="button"
-                      >
-                        Найти фото / ИИ
-                      </button>
-                    )}
-                    <button
-                      className="btn-secondary"
-                      onClick={() => void actOnProducts("delete", [product])}
-                      type="button"
-                    >
-                      Удалить
-                    </button>
-                  </div>
-                </div>
-                <ProductVariantsPanel
-                  product={product}
-                  onEdit={() => edit(product, "variants")}
-                  onSaved={() =>
-                    window.dispatchEvent(new Event("products-changed"))
-                  }
-                />
-              </div>
-            );
-          })}
+          {productRows}
 
           {filteredItems.length === 0 && (
             <div className="rounded-xl border border-dashed p-4 text-sm text-gray-500">
@@ -1401,6 +1424,10 @@ export default function AdminProductsClient() {
             </div>
           )}
         </fieldset>
+        <ListPagination {...pagination} onPageChange={(page) => {
+          setPageState({ key: pageKey, page });
+          productListRef.current?.scrollIntoView({ block: "start" });
+        }} />
       </div>
     </div>
   );

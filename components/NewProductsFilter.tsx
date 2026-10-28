@@ -10,6 +10,7 @@ export default function NewProductsFilter() {
 
   function toggle() {
     const params = new URLSearchParams(searchParams.toString());
+    params.delete("page");
     if (enabled) params.delete("sort");
     else params.set("sort", "new");
 

@@ -1,7 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { notFound, permanentRedirect } from "next/navigation";
 import type { Metadata } from "next";
-import ProductCard from "@/components/ProductCard";
+import ShopGridClient from "@/components/ShopGridClient";
+import { cache } from "react";
+import { PUBLIC_PRODUCT_CARD_SELECT } from "@/lib/publicProductSelect";
+import { getCatalogHubShadowConfig } from "@/lib/catalogHubClient";
 import { brandNameToSlug } from "@/lib/brandSlug";
 import { getCspNonce } from "@/lib/csp";
 import { SITE_BRAND, getPublicBaseUrl } from "@/lib/siteConfig";
@@ -13,6 +16,7 @@ export const dynamic = "force-dynamic";
 
 type Props = {
   params: Promise<{ slug: string }>;
+  searchParams?: Promise<{ page?: string | string[] }>;
 };
 
 const BRAND_ROUTE_SELECT = {
@@ -22,7 +26,7 @@ const BRAND_ROUTE_SELECT = {
   isActive: true,
 } as const;
 
-async function resolveBrandRoute(slug: string) {
+const resolveBrandRoute = cache(async (slug: string) => {
   const exact = await prisma.brand.findUnique({
     where: { slug },
     select: BRAND_ROUTE_SELECT,
@@ -41,10 +45,13 @@ async function resolveBrandRoute(slug: string) {
     brand: fallback ?? null,
     shouldRedirect: Boolean(fallback && fallback.slug !== slug),
   };
-}
+});
 
 export async function generateMetadata(props: Props): Promise<Metadata> {
   const params = await props.params;
+  const searchParams = await props.searchParams;
+  const pageValue = Number(Array.isArray(searchParams?.page) ? searchParams.page[0] : searchParams?.page);
+  const page = Number.isSafeInteger(pageValue) && pageValue > 1 ? pageValue : 1;
   const { brand } = await resolveBrandRoute(params.slug);
 
   if (!brand || !brand.isActive) {
@@ -57,7 +64,7 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
   const baseUrl = getPublicBaseUrl();
 
   return {
-    title: `${brand.name} — купить косметику в Казахстане | ${SITE_BRAND}`,
+    title: `${brand.name} — купить косметику в Казахстане${page > 1 ? `, страница ${page}` : ""} | ${SITE_BRAND}`,
     description: `Профессиональная косметика ${brand.name}: подробные карточки и доставка по Казахстану.`,
     keywords: [
       `косметика ${brand.name}`,
@@ -65,7 +72,7 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
       `${brand.name} Казахстан`,
     ],
     alternates: {
-      canonical: `${baseUrl}/brand/${brand.slug}`,
+      canonical: `${baseUrl}/brand/${brand.slug}${page > 1 ? `?page=${page}` : ""}`,
     },
     openGraph: {
       title: brand.name,
@@ -90,8 +97,9 @@ export default async function BrandPage(props: Props) {
     where: {
       isPublished: true,
       enrichmentStatus: { not: "MERGED" },
+      ...(!getCatalogHubShadowConfig().readEnabled ? { brand: { name: { equals: brand.name, mode: "insensitive" as const } } } : {}),
     },
-    include: { brand: true },
+    select: PUBLIC_PRODUCT_CARD_SELECT,
     orderBy: { createdAt: "desc" },
   });
   const overlaidProducts = await overlayCatalogHubProducts(productRows);
@@ -125,11 +133,7 @@ export default async function BrandPage(props: Props) {
         {products.length === 0 ? (
           <div className="text-gray-500">Товары отсутствуют</div>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {products.map((product) => (
-              <ProductCard key={product.id} product={product} />
-            ))}
-          </div>
+          <ShopGridClient products={products} layout="brand" />
         )}
       </div>
     </>
