@@ -2,7 +2,7 @@
 import { variantDisplayImage } from "../lib/enrichment/variantImages";
 
 import Link from "next/link";
-import { memo, useState } from "react";
+import { memo, useState, type MouseEvent } from "react";
 import FavoriteButton from "./FavoriteCompareButtons";
 import AddToCartButton from "./AddToCartButton";
 import { brandNameToSlug } from "@/lib/brandSlug";
@@ -15,6 +15,7 @@ type ProductCardProps = {
   priority?: boolean;
   headingLevel?: 2 | 3;
   imageSizes?: string;
+  onOpen?: (productId: string) => void;
   product: {
     id: string;
     slug: string;
@@ -76,7 +77,7 @@ function normalizeVariants(value: unknown): Variant[] {
 
 const CATALOG_IMAGE_SIZES = "(min-width: 1152px) 318px, (min-width: 768px) calc((100vw - 198px) / 3), (min-width: 640px) calc((100vw - 140px) / 2), calc(100vw - 66px)";
 
-function ProductCard({ product, priority = false, headingLevel = 3, imageSizes = CATALOG_IMAGE_SIZES }: ProductCardProps) {
+function ProductCard({ product, priority = false, headingLevel = 3, imageSizes = CATALOG_IMAGE_SIZES, onOpen }: ProductCardProps) {
   const Heading = headingLevel === 2 ? "h2" : "h3";
   const displayName = productDisplayName(product);
   const newBadge = product.isNew === true || isRecentlyCreated(product.createdAt, 14);
@@ -98,9 +99,12 @@ function ProductCard({ product, priority = false, headingLevel = 3, imageSizes =
   const brandHref = product.brand
     ? `/brand/${encodeURIComponent(brandNameToSlug(product.brand.name))}`
     : null;
+  const rememberOpen = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) onOpen?.(product.id);
+  };
 
   return (
-    <div className="card relative h-full flex flex-col transition-shadow duration-200 hover:shadow-md"
+    <div id={onOpen ? `catalog-product-${product.id}` : undefined} className="card relative h-full scroll-mt-36 flex flex-col transition-shadow duration-200 hover:shadow-md"
       style={priority ? undefined : { contentVisibility: "auto", containIntrinsicSize: "auto 620px" }}>
       <div className="absolute left-3 top-3 z-10 flex flex-col gap-2">
         {product.isPopular && (
@@ -118,7 +122,7 @@ function ProductCard({ product, priority = false, headingLevel = 3, imageSizes =
         <FavoriteButton productId={product.id} />
       </div>
 
-      <Link href={productHref} prefetch={false} className="block aspect-square w-full bg-white rounded-xl mb-3 overflow-hidden" aria-label={`Открыть товар: ${displayName}`}>
+      <Link href={productHref} prefetch={false} onClick={rememberOpen} className="block aspect-square w-full bg-white rounded-xl mb-3 overflow-hidden" aria-label={`Открыть товар: ${displayName}`}>
         <img src={productThumbnail(imageToShow, 640)}
           srcSet={productThumbnail(imageToShow, 320) !== imageToShow
             ? [320, 480, 640, 768, 960].map((width) => `${productThumbnail(imageToShow, width)} ${width}w`).join(", ") : undefined}
@@ -128,7 +132,7 @@ function ProductCard({ product, priority = false, headingLevel = 3, imageSizes =
 
       <div className="text-sm text-gray-500">
         {product.brand && brandHref ? (
-          <Link href={brandHref} prefetch={false} className="hover:underline">{product.brand.name}</Link>
+          <Link href={brandHref} prefetch={false} onClick={rememberOpen} className="hover:underline">{product.brand.name}</Link>
         ) : publicProductCategory(product)}
       </div>
 
@@ -179,9 +183,9 @@ function ProductCard({ product, priority = false, headingLevel = 3, imageSizes =
         </div>
 
         <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
-          <Link href={productHref} prefetch={false} className="text-xs text-gray-600 hover:underline">Подробнее</Link>
+          <Link href={productHref} prefetch={false} onClick={rememberOpen} className="text-xs text-gray-600 hover:underline">Подробнее</Link>
           {!inStock ? (
-            <Link href={stockAlertHref} prefetch={false} className="text-xs font-semibold text-amber-800 hover:underline">
+            <Link href={stockAlertHref} prefetch={false} onClick={rememberOpen} className="text-xs font-semibold text-amber-800 hover:underline">
               Уведомить о поступлении
             </Link>
           ) : null}

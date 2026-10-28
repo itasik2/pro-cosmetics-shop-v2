@@ -13,6 +13,7 @@ import { catalogBatch } from "../lib/catalogBatch";
 import { createCatalogPost } from "../lib/catalogApi";
 import { mergeCatalogProducts, requestCatalogBatch } from "../lib/catalogClient";
 import type { CatalogQuery, CatalogSource } from "../lib/catalogTypes";
+import { createCatalogViewCache } from "../lib/catalogViewState";
 
 const products = Array.from({ length: 346 }, (_, n) => ({ id: `product-${n}`, slug: `cream-${n}`,
   name: `Крем ${n}`, supplierSku: `SKU-${n}`, price: 1000, stock: 2, image: "/cream.jpg", category: "Кремы",
@@ -249,4 +250,41 @@ test("creation-date ties continue by ID even after the cursor row is removed", (
   const next = catalogBatch(rows.filter((product) => product.id !== "c2"), 2, first.cursor);
   assert.deepEqual(next.products.map((product) => product.id), ["c1", "c0"]);
   assert.equal(next.hasMore, false);
+});
+
+test("returning from a product restores loaded cards, cursor and anchor without changing filter visits", () => {
+  const cache = createCatalogViewCache();
+  const batch = catalogBatch(products, 30);
+  cache.save("catalog", batch);
+  assert.equal(cache.read("catalog"), undefined);
+  cache.remember("catalog", batch, "product-24");
+  const restored = cache.read("catalog")!;
+  assert.equal(restored.batch.products.length, 30);
+  assert.deepEqual(restored.batch.cursor, batch.cursor);
+  assert.equal(restored.anchor, "product-24");
+  assert.equal(cache.read("other-filter"), undefined);
+  cache.restored("catalog", "product-24");
+  assert.equal(cache.read("catalog"), undefined);
+});
+
+test("a completed request during navigation keeps the return anchor and the latest loaded batch", () => {
+  const cache = createCatalogViewCache();
+  cache.remember("catalog", catalogBatch(products, 30), "product-24");
+  const latest = catalogBatch(products, 54);
+  cache.save("catalog", latest);
+  assert.equal(cache.read("catalog")?.batch.products.length, 54);
+  assert.equal(cache.read("catalog")?.anchor, "product-24");
+  cache.restored("catalog", "different-product");
+  assert.equal(cache.read("catalog")?.anchor, "product-24");
+});
+
+test("navigation state is bounded and isolated across catalog queries and favorites", () => {
+  const cache = createCatalogViewCache(2);
+  cache.remember("catalog", initial, "product-0");
+  cache.remember("brand", initial, "product-1");
+  cache.remember("favorites", initial, "product-2");
+  assert.equal(cache.read("catalog"), undefined);
+  assert.equal(cache.read("brand")?.anchor, "product-1");
+  assert.equal(cache.read("favorites")?.anchor, "product-2");
+  assert.equal(createCatalogViewCache().read("favorites"), undefined);
 });
