@@ -5,7 +5,9 @@ import { useSearchParams, usePathname } from "next/navigation";
 import ProductCard from "@/components/ProductCard";
 import ListLoadStatus from "@/components/ListLoadStatus";
 import useProgressiveList from "@/components/useProgressiveList";
-import { CATALOG_BATCH_SIZE } from "@/lib/progressiveList";
+import { CATALOG_BATCH_SIZE, CATALOG_INITIAL_SIZE } from "@/lib/progressiveList";
+
+const BRAND_IMAGE_SIZES = "(min-width: 1152px) 230px, (min-width: 768px) calc((100vw - 232px) / 4), (min-width: 640px) calc((100vw - 132px) / 2), calc((100vw - 116px) / 2)";
 
 type Product = {
   id: string;
@@ -80,7 +82,7 @@ export default function ShopGridClient({ products, layout = "catalog" }: { produ
   }, [products, favMode, inStockMode, favIds]);
   const params = new URLSearchParams(sp.toString());
   params.delete("page");
-  const list = useProgressiveList(visible, CATALOG_BATCH_SIZE, `${pathname}?${params}`);
+  const list = useProgressiveList(visible, CATALOG_BATCH_SIZE, `${pathname}?${params}`, CATALOG_INITIAL_SIZE);
 
   return visible.length === 0 ? (
     <div className="text-sm text-gray-500 mt-4">
@@ -89,7 +91,8 @@ export default function ShopGridClient({ products, layout = "catalog" }: { produ
   ) : (
     <div>
       <div className={layout === "brand" ? "grid grid-cols-2 md:grid-cols-4 gap-4" : "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 mt-4"}>
-        {list.items.map((p) => <ProductCard key={p.id} product={p} />)}
+        {list.items.map((p, index) => <ProductCard key={p.id} product={p} priority={index === 0}
+          headingLevel={2} imageSizes={layout === "brand" ? BRAND_IMAGE_SIZES : undefined} />)}
       </div>
       <ListLoadStatus count={list.count} total={list.total} endRef={list.endRef} onRevealAll={list.revealAll} />
     </div>

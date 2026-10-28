@@ -144,7 +144,7 @@ export default async function Footer() {
           <span>
             Информация на сайте не заменяет консультацию специалиста. Не является публичной офертой.
           </span>
-          <Link href="/admin" className="text-gray-400 hover:text-gray-700">
+          <Link href="/admin" prefetch={false} className="text-gray-600 hover:text-gray-950">
             Для сотрудников
           </Link>
         </div>

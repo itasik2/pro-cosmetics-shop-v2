@@ -14,7 +14,7 @@ function buildCsp(nonce: string) {
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https:",
     "font-src 'self' data: https:",
-    "connect-src 'self' https://cloud.umami.is https://*.homebank.kz https://*.epayment.kz",
+    "connect-src 'self' https://cloud.umami.is https://gateway.umami.is https://*.homebank.kz https://*.epayment.kz",
     "frame-src 'self' https://*.homebank.kz https://*.epayment.kz",
     "form-action 'self' https://*.homebank.kz https://*.epayment.kz",
     "worker-src 'self' blob:",

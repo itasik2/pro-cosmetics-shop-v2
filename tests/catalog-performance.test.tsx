@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { SearchParamsContext, PathnameContext } from "next/dist/shared/lib/hooks-client-context.shared-runtime";
 import ShopGridClient from "../components/ShopGridClient";
-import { CATALOG_BATCH_SIZE, observeListEnd } from "../lib/progressiveList";
+import { CATALOG_INITIAL_SIZE, observeListEnd } from "../lib/progressiveList";
 import { productThumbnail } from "../lib/productThumbnails";
 import { selectedVisibleProducts } from "../lib/adminProductFilters";
 import { productMatchesSearch } from "../lib/productSearch";
@@ -24,8 +24,12 @@ function render(ui: React.ReactNode, params = "", pathname = "/shop") {
 
 test("the catalog starts with a small batch and automatically reveals the rest without page controls", () => {
   const html = render(<ShopGridClient products={products} />);
-  assert.equal((html.match(/aria-label="Открыть товар:/g) || []).length, CATALOG_BATCH_SIZE);
-  assert.match(html, /Показано 24 из 346/);
+  assert.equal((html.match(/aria-label="Открыть товар:/g) || []).length, CATALOG_INITIAL_SIZE);
+  assert.match(html, /Показано 6 из 346/);
+  const images = html.match(/<img\b[^>]*>/g) || [];
+  assert.equal(images.filter((image) => image.includes('loading="eager"')).length, 1);
+  assert.equal(images.filter((image) => image.includes('fetchPriority="high"')).length, 1);
+  assert.ok(images.slice(1).every((image) => image.includes('loading="lazy"')));
   assert.match(html, /Остальные товары появятся при прокрутке/);
   assert.doesNotMatch(html, /Страниц|>Далее<|>Назад<|href="[^\"]*page=/);
   assert.doesNotMatch(html, /Открыть товар: Крем 345/);
@@ -33,9 +37,9 @@ test("the catalog starts with a small batch and automatically reveals the rest w
 
 test("old page parameters do not hide earlier products in the continuous list", () => {
   const html = render(<ShopGridClient products={products} />, "brand=brand&q=cream&page=15");
-  assert.equal((html.match(/aria-label="Открыть товар:/g) || []).length, CATALOG_BATCH_SIZE);
+  assert.equal((html.match(/aria-label="Открыть товар:/g) || []).length, CATALOG_INITIAL_SIZE);
   assert.match(html, /Открыть товар: Крем 0/);
-  assert.match(html, /Показано 24 из 346/);
+  assert.match(html, /Показано 6 из 346/);
 });
 
 test("search and bulk selection cover products beyond the initially rendered batch", () => {
@@ -49,9 +53,9 @@ test("search and bulk selection cover products beyond the initially rendered bat
 
 test("brand grids load continuously without inheriting catalog-only favorites filters", () => {
   const html = render(<ShopGridClient products={products} layout="brand" />, "fav=1&page=2", "/brand/brand");
-  assert.equal((html.match(/aria-label="Открыть товар:/g) || []).length, 24);
+  assert.equal((html.match(/aria-label="Открыть товар:/g) || []).length, CATALOG_INITIAL_SIZE);
   assert.match(html, /Открыть товар: Крем 0/);
-  assert.match(html, /Показано 24 из 346/);
+  assert.match(html, /Показано 6 из 346/);
 });
 
 test("each observer reveals once, disconnects, and ignores notifications after cleanup", (t) => {
