@@ -1,10 +1,4 @@
-import { cache } from "react";
-import { PUBLIC_PRODUCT_CARD_SELECT } from "@/lib/publicProductSelect";
-// app/shop/page.tsx
-import { productMatchesSearch } from "@/lib/productSearch";
-import type { Prisma } from "@prisma/client";
 import Link from "next/link";
-import { prisma } from "@/lib/prisma";
 import ShopGridClient from "@/components/ShopGridClient";
 import FavoritesButton from "@/components/FavoritesButton";
 import InStockButton from "@/components/InStockButton";
@@ -12,25 +6,10 @@ import NewProductsFilter from "@/components/NewProductsFilter";
 import CatalogFacetFilters from "@/components/CatalogFacetFilters";
 import { SITE_BRAND, getPublicBaseUrl } from "@/lib/siteConfig";
 import { buildBrandIntentKeywords } from "@/lib/seo";
-import { collapseRepresentedProductCards } from "@/lib/publicProductCards";
-import { CATEGORY_OPTIONS, CARE_OPTIONS, productMatchesCategory, productMatchesCare, productMatchesBudget, parseBudget } from "@/lib/catalogFilters";
-import { overlayCatalogHubProducts } from "@/lib/catalogHubOverlay";
-
-const getCatalogBrands = cache(() =>
-  prisma.brand.findMany({
-    where: {
-      isActive: true,
-      products: {
-        some: {
-          isPublished: true,
-          enrichmentStatus: { not: "MERGED" },
-        },
-      },
-    },
-    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-    select: { id: true, name: true, slug: true },
-  }),
-);
+import { CATEGORY_OPTIONS, CARE_OPTIONS } from "@/lib/catalogFilters";
+import { firstParam, parseSlugList, parseCatalogQuery, getCatalogBrands, getCatalogData } from "@/lib/publicCatalog";
+import { catalogBatch } from "@/lib/catalogBatch";
+import { CATALOG_INITIAL_SIZE } from "@/lib/progressiveList";
 
 export const dynamic = "force-dynamic";
 
@@ -50,22 +29,6 @@ type Props = {
 
 function findCategory(slug: string) {
   return CATEGORY_OPTIONS.find((item) => item.slug === slug) ?? null;
-}
-
-function firstParam(value: string | string[] | undefined) {
-  return (Array.isArray(value) ? value[0] : value || "").trim();
-}
-
-function parseSlugList(value: string | string[] | undefined) {
-  const raw = Array.isArray(value) ? value.join(",") : value || "";
-  return Array.from(
-    new Set(
-      raw
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean),
-    ),
-  );
 }
 
 export async function generateMetadata(props: Props) {
@@ -153,114 +116,13 @@ export async function generateMetadata(props: Props) {
   };
 }
 
-type Variant = {
-  id: string;
-  label: string;
-  price: number;
-  stock: number;
-  sku?: string;
-  image?: string;
-};
-
-function toVariants(value: unknown): Variant[] | null {
-  if (!Array.isArray(value)) return null;
-
-  const variants: Variant[] = [];
-  for (const item of value) {
-    if (!item || typeof item !== "object") continue;
-
-    const object = item as Record<string, unknown>;
-    const id = typeof object.id === "string" ? object.id : null;
-    const label = typeof object.label === "string" ? object.label : null;
-    const price =
-      typeof object.price === "number" ? object.price : Number(object.price);
-    const stock =
-      typeof object.stock === "number" ? object.stock : Number(object.stock);
-
-    if (!id || !label) continue;
-    if (!Number.isFinite(price) || !Number.isFinite(stock)) continue;
-
-    variants.push({
-      id,
-      label,
-      price: Math.max(0, Math.trunc(price)),
-      stock: Math.max(0, Math.trunc(stock)),
-      sku: typeof object.sku === "string" ? object.sku : undefined,
-      image: typeof object.image === "string" ? object.image : undefined,
-    });
-  }
-
-  return variants.length ? variants : null;
-}
-
 export default async function ShopPage(props: Props) {
-  const searchParams = await props.searchParams;
-  const care = firstParam(searchParams?.care);
+  const query = parseCatalogQuery(await props.searchParams);
+  const { care, maxPrice, sort, fav, instock, searchQuery } = query;
   const selectedCare = CARE_OPTIONS.find((option) => option.slug === care);
-  const maxPrice = parseBudget(firstParam(searchParams?.maxPrice));
-  const requestedBrandSlugs = parseSlugList(searchParams?.brand);
-  const requestedCategorySlugs = parseSlugList(searchParams?.category);
-  const sort = firstParam(searchParams?.sort) === "new" ? "new" : "";
-  const fav = firstParam(searchParams?.fav);
-  const instock = firstParam(searchParams?.instock);
-  const searchQuery = firstParam(searchParams?.q).slice(0, 120);
-
-  const andConditions: Prisma.ProductWhereInput[] = [];
-  if (sort === "new") {
-    const days = 14;
-    const from = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-    andConditions.push({
-      OR: [{ isNew: true }, { createdAt: { gte: from } }],
-    });
-  }
-
-  const where: Prisma.ProductWhereInput = {
-    isPublished: true,
-    enrichmentStatus: { not: "MERGED" },
-    ...(andConditions.length ? { AND: andConditions } : {}),
-  };
-
-  const orderBy: Prisma.ProductOrderByWithRelationInput[] = [{ createdAt: "desc" }];
-
-  const [brands, legacyProducts] = await Promise.all([
-    getCatalogBrands(),
-    prisma.product.findMany({ where, orderBy, select: PUBLIC_PRODUCT_CARD_SELECT }),
-  ]);
-
-  const selectedBrands = brands.filter((brand) => requestedBrandSlugs.includes(brand.slug));
-  const selectedCategories = CATEGORY_OPTIONS.filter((category) =>
-    requestedCategorySlugs.includes(category.slug),
-  );
+  const { selectedBrands, selectedCategories, brands, products: productsForClient } = await getCatalogData(query);
   const brandSlug = selectedBrands.map((brand) => brand.slug).join(",");
   const categorySlug = selectedCategories.map((category) => category.slug).join(",");
-
-  const products = await overlayCatalogHubProducts(legacyProducts);
-
-  const selectedBrandNames = new Set(
-    selectedBrands.map((brand) => brand.name.toLocaleLowerCase("ru-RU")),
-  );
-
-  const productsForClient = collapseRepresentedProductCards(products)
-    .filter(
-      (product) =>
-        selectedBrandNames.size === 0 ||
-        (product.brand?.name
-          ? selectedBrandNames.has(product.brand.name.toLocaleLowerCase("ru-RU"))
-          : false),
-    )
-    .filter(
-      (product) =>
-        selectedCategories.length === 0 ||
-        selectedCategories.some((category) => productMatchesCategory(product, category)),
-    )
-    .filter((product) => productMatchesSearch(product, searchQuery))
-    .filter((product) => productMatchesCare(product, care))
-    .filter((product) => productMatchesBudget(product, maxPrice))
-    .filter((product) => instock !== "1" || (toVariants(product.variants)?.some((variant) => variant.stock > 0) ?? product.stock > 0))
-    .map((product) => ({
-      ...product,
-      variants: toVariants(product.variants)?.sort((a, b) => maxPrice === null ? 0 : Number(b.stock > 0 && b.price <= maxPrice) - Number(a.stock > 0 && a.price <= maxPrice)) ?? null,
-    }));
 
   const brandSummary =
     selectedBrands.length === 0
@@ -344,7 +206,7 @@ export default async function ShopPage(props: Props) {
         </div>
       )}
 
-      <ShopGridClient products={productsForClient} />
+      <ShopGridClient batch={catalogBatch(productsForClient, CATALOG_INITIAL_SIZE, 0, undefined, fav === "1" ? [] : undefined)} source={{ kind: "catalog", query }} />
     </div>
   );
 }
