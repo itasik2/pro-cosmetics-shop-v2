@@ -1,10 +1,12 @@
 import type { Prisma } from "@prisma/client";
 import Link from "next/link";
 import { unstable_cache } from "next/cache";
-import ProductCard from "@/components/ProductCard";
+import DeferredHomeProducts from "@/components/DeferredHomeProducts";
+import HomeProductCard from "@/components/HomeProductCard";
 import { getPublicExternalLinks } from "@/lib/externalLinks";
 import { prisma } from "@/lib/prisma";
 import { productDisplayName } from "@/lib/productNames";
+import { normalizePublicProductVariants } from "@/lib/publicProductVariants";
 import { collapseRepresentedProductCards } from "@/lib/publicProductCards";
 import { productIdentityKey } from "@/lib/price-import/productVariants";
 import { buildBrandIntentKeywords } from "@/lib/seo";
@@ -491,6 +493,15 @@ type ProductSectionProps = {
 };
 
 function ProductSection({ title, subtitle, emptyText, products }: ProductSectionProps) {
+  const cardProducts = products.map(({
+    id, slug, name, supplierSku, image, shortDescription, price, stock,
+    isPopular, isNew, createdAt, category, brand, variants,
+  }) => ({
+    id, slug, name, supplierSku, image, shortDescription, price, stock,
+    isPopular, isNew, createdAt, category, brand,
+    variants: normalizePublicProductVariants(variants),
+  }));
+
   return (
     <section className="space-y-5">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
@@ -506,11 +517,10 @@ function ProductSection({ title, subtitle, emptyText, products }: ProductSection
       {products.length === 0 ? (
         <div className="text-sm text-gray-500">{emptyText}</div>
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
-          {products.map((product) => (
-            <ProductCard key={product.id} product={product} />
-          ))}
-        </div>
+        <DeferredHomeProducts
+          products={cardProducts}
+          fallback={cardProducts.map((product) => <HomeProductCard key={product.id} product={product} />)}
+        />
       )}
     </section>
   );
