@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { getQty, setQty, makeCartKey } from "@/lib/cartStorage";
+import { cardCartQty, subscribeCardCart } from "@/lib/catalogCardStorage";
 import { track } from "@/lib/analytics";
 
 type Props = {
@@ -19,26 +20,8 @@ export default function AddToCartButton({
   maxStock,
 }: Props) {
   const router = useRouter();
-  const [qty, setQtyState] = useState(0);
-
-  const cartKey = useMemo(
-    () => makeCartKey(productId, variantId),
-    [productId, variantId],
-  );
-
-  const sync = () => setQtyState(getQty(cartKey));
-
-  useEffect(() => {
-    sync();
-    const onSync = () => sync();
-    window.addEventListener("storage", onSync);
-    window.addEventListener("storage-sync", onSync);
-    return () => {
-      window.removeEventListener("storage", onSync);
-      window.removeEventListener("storage-sync", onSync);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cartKey]);
+  const cartKey = makeCartKey(productId, variantId);
+  const qty = useSyncExternalStore(subscribeCardCart, () => cardCartQty(cartKey), () => 0);
 
   const canBuy = !disabled && !(typeof maxStock === "number" && maxStock <= 0);
 
@@ -51,8 +34,7 @@ export default function AddToCartButton({
       variantId: variantId ?? "base",
     });
 
-    const next = setQty(cartKey, qty + 1, maxStock);
-    setQtyState(next);
+    setQty(cartKey, getQty(cartKey) + 1, maxStock);
   };
 
   const decOne = () => {
@@ -62,8 +44,7 @@ export default function AddToCartButton({
       variantId: variantId ?? "base",
     });
 
-    const next = setQty(cartKey, qty - 1, maxStock);
-    setQtyState(next);
+    setQty(cartKey, getQty(cartKey) - 1, maxStock);
   };
 
   const openCart = () => router.push("/checkout");

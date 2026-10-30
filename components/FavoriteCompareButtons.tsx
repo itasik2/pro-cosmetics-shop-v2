@@ -1,22 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
+import { isCardFavorite, readFavoriteIds, subscribeCardFavorites } from "@/lib/catalogCardStorage";
 
 type Props = { productId: string };
-
-function readSet(key: string): Set<string> {
-  try {
-    const raw = localStorage.getItem(key);
-    const parsed = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(parsed)) return new Set();
-
-    // нормализуем: только строки, без пустых
-    const ids = parsed.map((x) => String(x)).filter(Boolean);
-    return new Set(ids);
-  } catch {
-    return new Set();
-  }
-}
 
 function writeSet(key: string, set: Set<string>) {
   // гарантируем уникальность и чистые строки
@@ -31,41 +18,14 @@ function writeSet(key: string, set: Set<string>) {
 
 export default function FavoriteButton({ productId }: Props) {
   const favKey = "favorites";
-  const [fav, setFav] = useState(false);
-
-  const sync = () => setFav(readSet(favKey).has(productId));
-
-  useEffect(() => {
-    sync();
-
-    const onStorage = (e: StorageEvent) => {
-      // сработает в другой вкладке
-      if (e.key === favKey) sync();
-    };
-
-    const onSync = () => sync();
-
-    window.addEventListener("storage", onStorage);
-    window.addEventListener("storage-sync", onSync as any);
-    window.addEventListener("favorites:changed", onSync as any);
-
-    return () => {
-      window.removeEventListener("storage", onStorage);
-      window.removeEventListener("storage-sync", onSync as any);
-      window.removeEventListener("favorites:changed", onSync as any);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [productId]);
+  const fav = useSyncExternalStore(subscribeCardFavorites, () => isCardFavorite(productId), () => false);
 
   const toggle = () => {
-    const set = readSet(favKey);
+    const set = readFavoriteIds();
     if (set.has(productId)) set.delete(productId);
     else set.add(productId);
 
     writeSet(favKey, set);
-
-    // локально обновим сразу, не дожидаясь слушателей
-    setFav(set.has(productId));
   };
 
   return (

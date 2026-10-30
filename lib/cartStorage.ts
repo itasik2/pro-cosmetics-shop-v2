@@ -21,7 +21,7 @@ export function makeCartKey(productId: string, variantId?: string | null) {
   return `${productId}:${variantId ?? "base"}`;
 }
 
-function normalizeCartItems(value: unknown): CartItem[] {
+export function normalizeCartItems(value: unknown): CartItem[] {
   if (!Array.isArray(value)) return [];
 
   const merged = new Map<string, number>();
