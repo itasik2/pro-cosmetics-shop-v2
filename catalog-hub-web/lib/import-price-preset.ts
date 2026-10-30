@@ -9,5 +9,15 @@ export function isJeudermPriceList(fileName:string,format:string,headers:string[
 // history snapshot or manual column selection always takes precedence.
 export function defaultImportMapping(fileName:string,format:string,headers:string[],mapping:Mapping):Mapping {
   if(!isJeudermPriceList(fileName,format,headers))return mapping;
-  return {...mapping,purchasePrice:"Цена 1",price:"Цена 2"};
+  // Only supply unselected fields. Never overwrite a saved or manual choice,
+  // and never map two price roles to the same source column.
+  const result:Mapping={...mapping};
+  const used=new Set(Object.values(result).filter(Boolean));
+  if(!("purchasePrice" in mapping)&&!used.has("Цена 1")){
+    result.purchasePrice="Цена 1";used.add("Цена 1");
+  }
+  if(!("price" in mapping)&&!used.has("Цена 2")){
+    result.price="Цена 2";
+  }
+  return result;
 }
