@@ -3,6 +3,7 @@ import { readSheet } from "read-excel-file/node";
 import { XMLParser, XMLValidator } from "fast-xml-parser";
 
 import {type Field,type Mapping} from "./import-types";
+import {detectCsvDelimiter} from "./csv-delimiter";
 import {parsePdfSupplier} from "./pdf-supplier";
 export type Table = { headers:string[];rows:Array<Record<string,string>>;format:string;
   warnings?:string[];pageCount?:number;needsManualSku?:boolean };
@@ -93,9 +94,7 @@ export async function parseTable(file:File):Promise<Table>{
  }
  const text=await file.text();
  if(name.endsWith(".csv")||name.endsWith(".tsv")){
-   const first=text.split(/\r?\n/,1)[0];
-   const delimiter=name.endsWith(".tsv")?"\t":
-     (first.match(/;/g)||[]).length>(first.match(/,/g)||[]).length?";":",";
+   const delimiter=name.endsWith(".tsv")?"\t":detectCsvDelimiter(text);
    const rows=parseDelimited(text,delimiter);
    if(rows.length<2)throw new Error("no_data_rows");
    return tabular(rows[0],rows.slice(1),name.endsWith(".tsv")?"TSV":"CSV");
