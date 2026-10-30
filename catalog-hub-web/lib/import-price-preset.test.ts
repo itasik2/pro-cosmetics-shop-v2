@@ -23,3 +23,20 @@ test("unconfirmed supplier prices remain unmapped",()=>{
   assert.deepEqual(defaultImportMapping("Other.pdf","PDF",headers,mapping),mapping);
   assert.deepEqual(defaultImportMapping("JeuDerm.xlsx","XLSX",headers,mapping),mapping);
 });
+
+test("JeuDerm preset never overwrites a saved manual price mapping",()=>{
+ const mapping={sku:"Артикул",purchasePrice:"Цена 2",price:"Цена 1"};
+ assert.deepEqual(defaultImportMapping("JeuDerm.pdf","PDF",headers,mapping),mapping);
+});
+
+test("JeuDerm preset does not claim a column already assigned to another field",()=>{
+ const mapping={price:"Цена 1"};
+ assert.deepEqual(defaultImportMapping("JeuDerm.pdf","PDF",headers,mapping),mapping);
+ const purchaseOnly={purchasePrice:"Цена 2"};
+ assert.deepEqual(defaultImportMapping("JeuDerm.pdf","PDF",headers,purchaseOnly),purchaseOnly);
+});
+
+test("an explicitly cleared price column remains unmapped",()=>{
+ const mapping={price:undefined,purchasePrice:undefined};
+ assert.deepEqual(defaultImportMapping("JeuDerm.pdf","PDF",headers,mapping),mapping);
+});
