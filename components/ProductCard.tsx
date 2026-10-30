@@ -10,8 +10,9 @@ import { publicShortDescription } from "@/lib/productCopy";
 import { publicProductCategory } from "@/lib/catalogFilters";
 import { productDisplayName } from "@/lib/productNames";
 import { productThumbnail } from "@/lib/productThumbnails";
+import { defaultPublicProductVariant, isRecentlyCreated, normalizePublicProductVariants } from "@/lib/publicProductVariants";
 
-type ProductCardProps = {
+export type ProductCardProps = {
   priority?: boolean;
   headingLevel?: 2 | 3;
   imageSizes?: string;
@@ -34,58 +35,15 @@ type ProductCardProps = {
   };
 };
 
-type Variant = {
-  id: string;
-  label: string;
-  price: number;
-  stock: number;
-  sku?: string;
-  image?: string;
-};
-
-function isRecentlyCreated(createdAt: Date | string, days = 14) {
-  const d = typeof createdAt === "string" ? new Date(createdAt) : createdAt;
-  const time = d.getTime();
-  if (!Number.isFinite(time)) return false;
-  const diff = Date.now() - time;
-  return diff >= 0 && diff <= days * 24 * 60 * 60 * 1000;
-}
-
-function normalizeVariants(value: unknown): Variant[] {
-  if (!Array.isArray(value)) return [];
-
-  const variants: Variant[] = [];
-  for (const item of value) {
-    if (!item || typeof item !== "object") continue;
-    const raw = item as Record<string, unknown>;
-    const id = typeof raw.id === "string" ? raw.id.trim() : "";
-    const label = typeof raw.label === "string" ? raw.label.trim() : "";
-    const price = Number(raw.price);
-    const stock = Number(raw.stock);
-    if (!id || !label || !Number.isFinite(price) || !Number.isFinite(stock)) continue;
-    variants.push({
-      id,
-      label,
-      price: Math.max(0, Math.trunc(price)),
-      stock: Math.max(0, Math.trunc(stock)),
-      sku: typeof raw.sku === "string" ? raw.sku : undefined,
-      image: typeof raw.image === "string" ? raw.image : undefined,
-    });
-  }
-  return variants;
-}
-
 const CATALOG_IMAGE_SIZES = "(min-width: 1152px) 318px, (min-width: 768px) calc((100vw - 198px) / 3), (min-width: 640px) calc((100vw - 140px) / 2), calc(100vw - 66px)";
 
 function ProductCard({ product, priority = false, headingLevel = 3, imageSizes = CATALOG_IMAGE_SIZES, onOpen }: ProductCardProps) {
   const Heading = headingLevel === 2 ? "h2" : "h3";
   const displayName = productDisplayName(product);
   const newBadge = product.isNew === true || isRecentlyCreated(product.createdAt, 14);
-  const variants = normalizeVariants(product.variants);
+  const variants = normalizePublicProductVariants(product.variants);
   const hasVariants = variants.length > 0;
-  const defaultVariant = hasVariants
-    ? variants.find((v) => (v.stock ?? 0) > 0) ?? variants[0]
-    : null;
+  const defaultVariant = defaultPublicProductVariant(variants);
   const [variantId, setVariantId] = useState<string | null>(defaultVariant?.id ?? null);
   const selectedVariant = hasVariants
     ? variants.find((v) => v.id === variantId) ?? defaultVariant

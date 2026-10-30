@@ -5,6 +5,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { SearchParamsContext, PathnameContext } from "next/dist/shared/lib/hooks-client-context.shared-runtime";
 import ShopGridClient from "../components/ShopGridClient";
+import DeferredHomeProducts from "../components/DeferredHomeProducts";
+import HomeProductCard from "../components/HomeProductCard";
 import { CATALOG_INITIAL_SIZE, observeListEnd } from "../lib/progressiveList";
 import { productThumbnail } from "../lib/productThumbnails";
 import { selectedVisibleProducts } from "../lib/adminProductFilters";
@@ -41,6 +43,21 @@ test("the catalog starts with a small batch and automatically reveals the rest w
   assert.match(html, /Остальные товары появятся при прокрутке/);
   assert.doesNotMatch(html, /Страниц|>Далее<|>Назад<|href="[^\"]*page=/);
   assert.doesNotMatch(html, /Открыть товар: Крем 345/);
+});
+
+test("home cards render linked products and the selected in-stock variant before their controls load", () => {
+  const product = { ...products[0], image: "/common.jpg", variants: [
+    { id: "sold-out", label: "30 мл", price: 1500, stock: 0, image: "/sold-out.jpg" },
+    { id: "available", label: "50 мл", price: 2500, stock: 3, image: "/available.jpg" },
+  ] };
+  const html = render(<DeferredHomeProducts products={[product]} fallback={<HomeProductCard product={product} />} />, "", "/");
+  assert.match(html, /aria-label="Открыть товар: Крем 0"/);
+  assert.match(html, /src="\/available.jpg"/);
+  assert.match(html, /2[\u00a0\u202f ]500 ₸/);
+  assert.match(html, /В наличии: 3/);
+  assert.match(html, /30 мл · нет/);
+  assert.match(html, /href="\/shop\/cream-0"/);
+  assert.doesNotMatch(html, /src="\/sold-out.jpg"/);
 });
 
 test("old page parameters do not hide earlier products in the continuous list", () => {
