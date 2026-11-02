@@ -117,3 +117,51 @@ test("counting pricebook pack cells reveals skipped rows to the operator",()=>{
  assert.equal(countMesalteraPackCells(fragments,width,height),3);
  assert.equal(extractMesalteraTablePage(fragments,9,width,height).length,1);
 });
+
+
+test("a next product title below its first price does not inherit previous product",()=>{
+ const rows=extractMesalteraTablePage([
+  f("Balance Cream",25,416),f("Матирующий крем",25,426),
+  f("для жирной кожи",25,435),f("уход",25,444),f("ежедневный",25,453),
+  f("50 мл.",413,435),f("7300",482,435),f("13000",534,435),
+  // First package of a *new* mask is above its long bilingual caption.
+  f("50 мл.",413,499),f("5500",482,499),f("9700",534,499),
+  f("Clay Mask",25,510),f("Каолиновая маска",25,519),
+  f("для лица",25,528),f("и тела",25,537),
+  f("150 мл.",413,547),f("8200",482,547),f("14700",534,547),
+ ],5,width,height);
+ assert.deepEqual(rows.map(row=>[row["Наименование"],row["Цена 1"],row["Цена 2"]]),[
+  ["Balance Cream (50 мл)","7300","13000"],
+  ["Clay Mask (50 мл)","5500","9700"],
+  ["Clay Mask (150 мл)","8200","14700"],
+ ]);
+});
+
+test("first package slightly above title stays with that title, not preceding variant",()=>{
+ const rows=extractMesalteraTablePage([
+  f("Lifting Cream",25,245),f("Омолаживающий крем",25,254),
+  f("для ухода",25,263),
+  f("50 мл.",413,254),f("11700",482,254),f("20500",534,254),
+  f("50 мл.",413,315),f("12700",482,315),f("22300",534,315),
+  f("Lifting Mask",25,331),f("Омолаживающая",25,341),
+  f("лифтинговая маска",25,350),f("для лица",25,359),
+  f("150 мл.",413,376),f("19900",482,376),f("33900",534,376),
+ ],6,width,height);
+ assert.deepEqual(rows.map(row=>row["Наименование"]),[
+  "Lifting Cream (50 мл)",
+  "Lifting Mask (50 мл)",
+  "Lifting Mask (150 мл)",
+ ]);
+});
+
+test("first named pack preceding a later pack on the same card must not be dropped",()=>{
+ const rows=extractMesalteraTablePage([
+  f("Cleansing Gel",25,409),f("Очищающий гель",25,419),
+  f("для жирной кожи",25,429),f("лица",25,438),
+  f("200 мл.",413,402),f("8100",482,402),f("14200",534,402),
+  f("400 мл.",413,445),f("14700",482,445),f("26400",534,445),
+ ],4,width,height);
+ assert.deepEqual(rows.map(row=>row["Наименование"]),[
+  "Cleansing Gel (200 мл)","Cleansing Gel (400 мл)",
+ ]);
+});
