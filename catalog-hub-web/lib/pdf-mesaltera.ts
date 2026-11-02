@@ -54,6 +54,21 @@ export function isMesalteraTable(fragments: PdfTextFragment[]): boolean {
 }
 
 /**
+ * Count visually present pack cells, including ranges and rows whose prices are
+ * marked with words instead of numbers. These are not necessarily importable.
+ * Show their count so an incomplete PDF import is never silently accepted.
+ */
+export function countMesalteraPackCells(
+  fragments: PdfTextFragment[], width: number, height: number,
+): number {
+  return orderedLines(fragments.filter(fragment =>
+    fragment.y > height * 0.16 && fragment.y < height * 0.97))
+    .filter(line => /^\d[\d\s,.\-–]*\s*(?:мл|ml|г|гр|g|л|l|кг|kg|шт|уп|упак)\.?$/iu
+      .test(column(line, width * 0.68, width * 0.78)))
+    .length;
+}
+
+/**
  * Mesaltera pricebook layout: name | description | pack | your price | client price.
  * A product name may span multiple lines; several price rows may share one name.
  * Never invent supplier SKUs or decide which price is purchase versus retail.
