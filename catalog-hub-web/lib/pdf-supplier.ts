@@ -7,7 +7,7 @@
  * No OCR, network calls, or PDF image rendering occur.
  */
 import {extractAngiopharmTablePage,isAngiopharmTable} from "./pdf-angiopharm";
-import {extractMesalteraTablePage,isMesalteraTable} from "./pdf-mesaltera";
+import {countMesalteraPackCells,extractMesalteraTablePage,isMesalteraTable} from "./pdf-mesaltera";
 export type PdfTextFragment = {text:string;x:number;y:number};
 export type PdfSupplierRow = {
   "Артикул":string;
@@ -236,6 +236,13 @@ export async function parsePdfSupplier(bytes:Uint8Array,options:{fileName?:strin
       :mesaltera?extractMesalteraTablePage(fragments,pageNum,viewport.width,viewport.height)
       :specialized?extractJeudermCardPage(fragments,pageNum,viewport.width,viewport.height)
       :extractPdfCardPage(fragments,pageNum,viewport.width,viewport.height);
+   if(mesaltera){
+     const packCells=countMesalteraPackCells(fragments,viewport.width,viewport.height);
+     if(packCells>rows.length)warnings.push(
+       "Страница "+pageNum+": распознано "+rows.length+" из "+packCells+
+       " строк с фасовками. Проверьте отсутствующие или неоднозначные цены и названия."
+     );
+   }
    if(!angiopharm&&!mesaltera&&priceCount>rows.length)warnings.push(
      "Страница "+pageNum+": обнаружено цен "+priceCount+", карточек "+rows.length+
      ". Проверьте пропущенный товар на этой странице."
