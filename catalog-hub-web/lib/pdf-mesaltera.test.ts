@@ -80,3 +80,27 @@ test("single Russian product names and separate units are preserved",()=>{
  assert.equal(rows[0]["Наименование"],"Набор пробников (2 шт)");
  assert.equal(rows[0]["Цена 2"],"3900");
 });
+
+test("dense accessories list never combines distinct products into a single title",()=>{
+ const rows=extractMesalteraTablePage([
+  f("Блокнот",25,400),f("1 шт.",413,400),f("1000",482,400),f("1800",534,400),
+  f("Ручка",25,412),f("1 шт.",413,412),f("500",482,412),f("900",534,412),
+  f("Значок",25,426),f("1 шт.",413,426),f("1500",482,426),f("2800",534,426),
+  f("Косметичка",25,438),f("1 шт.",413,440),f("2300",482,440),f("3000",534,440),
+  f("Кисть косметологическая",25,452),f("1 шт.",413,452),f("1500",482,452),f("2200",534,452),
+  f("Миска силиконовая",25,464),f("1 шт.",413,466),f("2000",482,466),f("3000",534,466),
+ ],9,width,height);
+ assert.equal(rows.length,6);
+ assert.deepEqual(rows.map(row=>row["Наименование"]),[
+  "Блокнот (1 шт)","Ручка (1 шт)","Значок (1 шт)",
+  "Косметичка (1 шт)","Кисть косметологическая (1 шт)",
+  "Миска силиконовая (1 шт)",
+ ]);
+});
+
+test("specialized importer ignores textual forbidden retail price",()=>{
+ assert.deepEqual(extractMesalteraTablePage([
+  f("Peeling Example",25,202),f("30 мл.",413,221),
+  f("17000",482,221),f("Запрет",534,221),
+ ],9,width,height),[]);
+});
