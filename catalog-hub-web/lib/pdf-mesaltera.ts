@@ -84,6 +84,32 @@ export function extractMesalteraTablePage(
     !/^(?:наименование|тел\.?|казахстан|контакты|группа компаний)/iu.test(line.text) &&
     !/^\+?\d[\d\s()+-]+$/u.test(line.text));
 
+  // Accessories pages can place a *different* product on every 12–15 pt
+  // baseline. Grouping consecutive title lines would merge unrelated items.
+  // On dense pages match each verified pack/price anchor only to its own name.
+  const denseRows = anchors.length >= 6 && anchors.filter((entry, index) =>
+    index > 0 && entry.y - anchors[index - 1].y <= 22).length >= 4;
+  const makeRow = (anchor: Anchor, name: string): PdfSupplierRow & { "Бренд": string } => ({
+    "Артикул": "",
+    "Наименование": name + " (" + anchor.size + ")",
+    "Описание": "",
+    "Объем": anchor.size,
+    "Цена 1": anchor.firstPrice,
+    "Цена 2": anchor.secondPrice,
+    "Страница": String(pageNo),
+    "Бренд": "MESALTERA",
+  });
+  if (denseRows) {
+    const rows: Array<PdfSupplierRow & { "Бренд": string }> = [];
+    for (const anchor of anchors) {
+      const name = [...titleLines]
+        .sort((a, b) => Math.abs(a.y - anchor.y) - Math.abs(b.y - anchor.y))[0];
+      if (!name || Math.abs(name.y - anchor.y) > 9) continue;
+      rows.push(makeRow(anchor, clean(name.text).slice(0, 220)));
+    }
+    return rows;
+  }
+
   const blocks: NameBlock[] = [];
   for (const line of titleLines) {
     const last = blocks.at(-1);
@@ -117,16 +143,7 @@ export function extractMesalteraTablePage(
     if (!name) continue;
     if (explicit) lastName = explicit;
     lastAnchorY = anchor.y;
-    rows.push({
-      "Артикул": "",
-      "Наименование": name + " (" + anchor.size + ")",
-      "Описание": "",
-      "Объем": anchor.size,
-      "Цена 1": anchor.firstPrice,
-      "Цена 2": anchor.secondPrice,
-      "Страница": String(pageNo),
-      "Бренд": "MESALTERA",
-    });
+    rows.push(makeRow(anchor, name));
   }
   return rows;
 }
