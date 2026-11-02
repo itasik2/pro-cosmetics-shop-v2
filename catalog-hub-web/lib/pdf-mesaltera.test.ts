@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { extractMesalteraTablePage, isMesalteraTable } from "./pdf-mesaltera";
+import { countMesalteraPackCells, extractMesalteraTablePage, isMesalteraTable } from "./pdf-mesaltera";
 import type { PdfTextFragment } from "./pdf-supplier";
 import { suggestRelationships } from "./import-relationships";
 
@@ -103,4 +103,17 @@ test("specialized importer ignores textual forbidden retail price",()=>{
   f("Peeling Example",25,202),f("30 мл.",413,221),
   f("17000",482,221),f("Запрет",534,221),
  ],9,width,height),[]);
+});
+
+test("counting pricebook pack cells reveals skipped rows to the operator",()=>{
+ const fragments=[
+  f("Дневной крем",25,220),
+  f("30 мл.",413,221),f("17000",482,221),f("Запрет",534,221),
+  f("Набор пробников",25,400),
+  f("0,8 - 1,5 мл.",405,400),f("600",482,400),f("1100",534,400),
+  f("Мицеллярная вода",25,500),
+  f("200 мл.",413,500),f("5000",482,500),f("8900",534,500),
+ ];
+ assert.equal(countMesalteraPackCells(fragments,width,height),3);
+ assert.equal(extractMesalteraTablePage(fragments,9,width,height).length,1);
 });
