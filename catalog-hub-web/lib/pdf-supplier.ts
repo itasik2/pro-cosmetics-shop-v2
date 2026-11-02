@@ -7,6 +7,7 @@
  * No OCR, network calls, or PDF image rendering occur.
  */
 import {extractAngiopharmTablePage,isAngiopharmTable} from "./pdf-angiopharm";
+import {countMesalteraPackCells,extractMesalteraTablePage,isMesalteraTable} from "./pdf-mesaltera";
 export type PdfTextFragment = {text:string;x:number;y:number};
 export type PdfSupplierRow = {
   "Артикул":string;
@@ -212,6 +213,7 @@ export async function parsePdfSupplier(bytes:Uint8Array,options:{fileName?:strin
   const warnings:string[]=[];
   const specialized=/jeu\s*d[eé]rm|жеудерм/i.test(options.fileName||"");
   let angiopharm=/ангиофарм|angiopharm/i.test(options.fileName||"");
+  let mesaltera=false;
   let totalPriceAnchors=0;
   for(let pageNum=1;pageNum<=pdf.numPages;pageNum++){
    const page=await pdf.getPage(pageNum);
@@ -226,13 +228,22 @@ export async function parsePdfSupplier(bytes:Uint8Array,options:{fileName?:strin
    }
    if(fragments.reduce((sum,x)=>sum+x.text.length,0)<30)emptyTextPages++;
    if(pageNum===1&&!angiopharm)angiopharm=isAngiopharmTable(fragments);
+   if(pageNum===1&&!angiopharm)mesaltera=isMesalteraTable(fragments);
    const priceCount=fragments.filter(x=>/цена\s*[:：]/iu.test(x.text)).length;
    totalPriceAnchors+=priceCount;
    const rows=angiopharm
       ?extractAngiopharmTablePage(fragments,pageNum,viewport.width)
+      :mesaltera?extractMesalteraTablePage(fragments,pageNum,viewport.width,viewport.height)
       :specialized?extractJeudermCardPage(fragments,pageNum,viewport.width,viewport.height)
       :extractPdfCardPage(fragments,pageNum,viewport.width,viewport.height);
-   if(!angiopharm&&priceCount>rows.length)warnings.push(
+   if(mesaltera){
+     const packCells=countMesalteraPackCells(fragments,viewport.width,viewport.height);
+     if(packCells>rows.length)warnings.push(
+       "Страница "+pageNum+": распознано "+rows.length+" из "+packCells+
+       " строк с фасовками. Проверьте отсутствующие или неоднозначные цены и названия."
+     );
+   }
+   if(!angiopharm&&!mesaltera&&priceCount>rows.length)warnings.push(
      "Страница "+pageNum+": обнаружено цен "+priceCount+", карточек "+rows.length+
      ". Проверьте пропущенный товар на этой странице."
    );
@@ -242,17 +253,21 @@ export async function parsePdfSupplier(bytes:Uint8Array,options:{fileName?:strin
   }
   if(result.length===0){
    if(emptyTextPages>=Math.ceil(pdf.numPages/2))throw new Error("pdf_scanned_or_image_only_ocr_required");
-   throw new Error(angiopharm?"pdf_table_layout_not_detected: строки с названием, объёмом и ценой не найдены":
+   throw new Error(angiopharm||mesaltera?"pdf_table_layout_not_detected: строки с названием, объёмом и ценой не найдены":
      "pdf_card_layout_not_detected: ожидаются карточки с названием и строкой «Цена:»");
   }
   if(emptyTextPages>0)warnings.push("Без текстового слоя: "+emptyTextPages+" стр. Нужен OCR для полного результата.");
-  if(!angiopharm&&totalPriceAnchors>result.length)warnings.push(
+  if(!angiopharm&&!mesaltera&&totalPriceAnchors>result.length)warnings.push(
     "Не все цены связаны с карточками: найдено строк «Цена:» "+
     totalPriceAnchors+", распознано карточек "+result.length+
     ". Нужна ручная проверка пропущенных позиций."
   );
   if(specialized)warnings.push("Парсер: JeuDerm — анализ карточек по колонкам и строкам цен.");
-  if(angiopharm){
+  if(mesaltera) {
+   warnings.push("Парсер: Mesaltera — две исходные цены по фасовкам. Проверьте полноту строк и товары без артикула.");
+   warnings.push("Цена 1 = «Ваша цена», Цена 2 = «Клиент. цена». Назначьте закупочную и розничную роли вручную.");
+   warnings.push("Описания и неподтверждённые строки таблицы не подставляются автоматически. Проверьте оригинал PDF.");
+  }else if(angiopharm){
    const missing=result.filter(row=>!row["Артикул"]).length;
    if(missing)warnings.push("Без артикула: "+missing+" строк. Укажите внутренний SKU для новых товаров вручную.");
    warnings.push("Колонка «Цена, тг.» сохранена как «Цена 1»: подтвердите её роль перед импортом.");
@@ -261,6 +276,6 @@ export async function parsePdfSupplier(bytes:Uint8Array,options:{fileName?:strin
    warnings.push("Колонки «Цена 1» и «Цена 2» сохранены: проверьте их назначение в сопоставлении перед импортом.");
   }
   warnings.push("Автоматическое изменение складских остатков из PDF отключено.");
-  return {format:"PDF",headers:angiopharm?[...HEADERS,"Бренд"]:HEADERS,rows:result,pageCount:pdf.numPages,warnings,needsManualSku:true};
+  return {format:"PDF",headers:angiopharm||mesaltera?[...HEADERS,"Бренд"]:HEADERS,rows:result,pageCount:pdf.numPages,warnings,needsManualSku:true};
  }finally{if(pdf)await pdf.destroy();else await task.destroy();}
 }
