@@ -138,10 +138,14 @@ export function extractMesalteraTablePage(
   for (const block of blocks) {
     const name = chooseName(block.lines);
     if (name.length < 4) continue;
-    const midpoint = block.start + Math.min(25, (block.end - block.start) / 2);
+    // Supplier cards can show the first pack/price *above* the title.
+    // Associate the product from the first line of its name, not the
+    // midpoint of the full multilingual caption. Midpoint matching can
+    // incorrectly attach the next product's first price to the previous one.
+    const anchorY = block.start;
     let nearest = -1, distance = Infinity;
     anchors.forEach((anchor, index) => {
-      const d = Math.abs(anchor.y - midpoint);
+      const d = Math.abs(anchor.y - anchorY);
       if (d < distance) { nearest = index; distance = d; }
     });
     if (nearest < 0 || distance > 40) continue;
