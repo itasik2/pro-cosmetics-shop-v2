@@ -26,7 +26,7 @@ test("realistic multi-row layout retains different pack prices as separate suppl
   f("5",482,270),f("000",489,270),f("8",536,271),f("900",544,271),
   f("400",413,308),f("мл.",429,308),
   f("8",482,308),f("800",489,308),f("15",534,308),f("800",544,308),
-  f("Sensi Cleanser",25,360),f("Мицеллярная вода",25,382),
+  f("Sensi Cleanser",25,360),f("Cleanser Water",25,372),f("Мицеллярная вода",25,382),
   f("195",413,381),f("мл.",429,381),
   f("6",482,380),f("500",489,380),f("11",534,381),f("500",544,381),
  ];
@@ -35,7 +35,7 @@ test("realistic multi-row layout retains different pack prices as separate suppl
  assert.deepEqual(rows.map(row=>[row["Наименование"],row["Объем"],row["Цена 1"],row["Цена 2"]]),[
   ["Cleanser Demo (200 мл)","200 мл","5000","8900"],
   ["Cleanser Demo (400 мл)","400 мл","8800","15800"],
-  ["Sensi Cleanser (195 мл)","195 мл","6500","11500"],
+  ["Sensi Cleanser Cleanser Water (195 мл)","195 мл","6500","11500"],
  ]);
  assert.ok(rows.every(row=>row["Артикул"]===""&&row["Бренд"]==="MESALTERA"));
  const suggestions=suggestRelationships(rows.map((row,i)=>({
