@@ -1,3 +1,4 @@
+import {resolveSharedProduct} from "./shared-product.js";
 import { PrismaClient, Prisma } from "@prisma/client";
 import {
   applyApprovedChanges,
@@ -79,7 +80,8 @@ export async function createChangeSet(input: {
   current: MasterCardInput;
   proposed: StagingPatch;
   createdBy?: string;
-}, db: Pick<PrismaClient, "catalogChangeSet"> = prisma) {
+}, db: Pick<PrismaClient, "catalogChangeSet" | "product"> = prisma) {
+  if(input.productId&&!await db.product.findFirst({where:{id:input.productId,organizationId:input.organizationId},select:{id:true}}))throw new Error("product_not_found");
   const current = masterCardSchema.parse(input.current);
   const diff = buildCardDiff(current, input.proposed);
 
@@ -220,7 +222,7 @@ export async function applyChangeSet(input: {
     if (approvedFields.includes("stock")) throw new Error("stock_movement_required");
 
     const product = await tx.product.findUnique({
-      where: { id: changeSet.productId },
+      where: { id: changeSet.productId },include:{masterProduct:true},
     });
     if (!product || product.organizationId!==input.organizationId) throw new Error("product_not_found");
     if (product.masterProductId && approvedFields.some(field=>["title","brand","shortDescription","description","application","ingredients","categoryKey"].includes(field))) throw new Error("variant_shared_fields_readonly");
@@ -238,7 +240,7 @@ export async function applyChangeSet(input: {
       stock = inventory?.onHand ?? 0;
     }
 
-    const actual = productToCard(product, stock);
+    const actual = productToCard(resolveSharedProduct(product), stock);
     const original = masterCardSchema.parse(changeSet.current);
     const changedSincePreview = buildCardDiff(original, {
       barcode: actual.barcode,
@@ -312,6 +314,7 @@ export async function applyChangeSet(input: {
         where: { id: product.id },
         data: updateData,
       });
+      await tx.outboxEvent.create({data:{id:crypto.randomUUID(),organizationId:product.organizationId,topic:"catalog.product_changed",payload:{productId:product.id,changedFields:applied.appliedFields,actor:input.appliedBy||"node:internal"}}});
     }
 
 
@@ -367,7 +370,7 @@ export async function applyChangeSet(input: {
 export async function getChangeSet(id: string,organizationId:string) {
   if(!organizationId)return null;
   return prisma.catalogChangeSet.findFirst({
-    where: { id,organizationId },
+    where: { id,organizationId, OR:[{productId:null},{product:{organizationId}}] },
     include: {
       fields: { orderBy: [{ risk: "desc" }, { createdAt: "asc" }] },
       revisions: { orderBy: { createdAt: "desc" } },
@@ -384,6 +387,7 @@ export async function listChangeSets(input: {
   return prisma.catalogChangeSet.findMany({
     where: {
       organizationId: input.organizationId,
+      OR:[{productId:null},{product:{organizationId:input.organizationId}}],
       ...(input.status ? { status: input.status } : {}),
     },
     orderBy: { createdAt: "desc" },

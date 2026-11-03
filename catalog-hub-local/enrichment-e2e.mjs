@@ -88,3 +88,32 @@ assert.deepEqual(after.images, ["https://fixture.example/cream.jpg"]);
 const proposals = (await request(ai + "/v1/ai/enrichment/proposals?organizationId=" + org, { headers: apiHeaders })).data;
 assert.equal(proposals.find(p => p.id === proposalId)?.status, "APPLIED");
 console.log("PASS: source configuration, tenant-scoped queue, failed job audit, fill-only staging, image selection, review page, partial restaging, approve/apply, unchanged prices and stock.");
+
+// Check direct IDs, not just a forged organizationId query parameter.
+const foreignOrg="org-node-foreign-"+randomBytes(4).toString("hex"),foreignProduct="node-foreign-product-"+randomBytes(5).toString("hex"),foreignSet="node-foreign-change-"+randomBytes(5).toString("hex");
+const foreignSql=`UPDATE public."CatalogApiKey" SET "organizationId"=${quote(org)},"scopes"='["*"]'::jsonb WHERE "id"='catalog-ubuntu-test';
+ INSERT INTO public."Organization" ("id","name","updatedAt") VALUES (${quote(foreignOrg)},'Synthetic Node foreign tenant',now());
+ INSERT INTO public."Product" ("id","organizationId","sku","title","updatedAt") VALUES (${quote(foreignProduct)},${quote(foreignOrg)},'NODE-FOREIGN','Synthetic hidden product',now());
+ INSERT INTO public."CatalogChangeSet" ("id","organizationId","productId","sku","sourceType","status","current","proposed","summary","updatedAt")
+ VALUES (${quote(foreignSet)},${quote(foreignOrg)},${quote(foreignProduct)},'NODE-FOREIGN','MANUAL','PREVIEW','{}'::jsonb,'{"price":100}'::jsonb,'{}'::jsonb,now());`;
+const foreignSeed=spawnSync("docker",["compose","-f",resolve(root,"catalog-hub-local/compose.yaml"),"exec","-T","db","psql","-v","ON_ERROR_STOP=1","-U","catalog_test","-d","catalog_test"],{input:foreignSql,encoding:"utf8"});
+assert.equal(foreignSeed.status,0,foreignSeed.stderr);
+await request(ai+"/v1/staging/changesets/"+foreignSet+"?organizationId="+org,{headers:apiHeaders},404);
+for(const [operation,body,status] of [["approve",{approvedFields:["price"]},400],["apply",{},409],["reject",{},400]])
+ await request(ai+"/v1/staging/changesets/"+foreignSet+"/"+operation,{method:"POST",headers:{...apiHeaders,"content-type":"application/json"},body:JSON.stringify(body)},status);
+await request(ai+"/v1/staging/changesets",{method:"POST",headers:{...apiHeaders,"content-type":"application/json"},body:JSON.stringify({organizationId:org,productId:foreignProduct,
+ sourceType:"MANUAL",current:{sku:"NODE-FOREIGN",title:"Hidden",price:100,images:[],attributes:{}},proposed:{price:120}})},400);
+await request(ai+"/v1/catalog/products",{method:"POST",headers:{...apiHeaders,"content-type":"application/json"},body:JSON.stringify({organizationId:org,warehouseId:"wh_pav_01",card:{sku:"NODE-STOCK-BLOCKED",title:"Unsafe seed",stock:5}})},400);
+console.log("PASS: Node API direct-ID isolation, foreign product references and legacy stock writes are blocked.");
+
+const sharedSkus=["NODE-VAR-A-","NODE-VAR-B-"].map(prefix=>prefix+randomBytes(4).toString("hex"));
+const shared=[];
+for(const [index,sku] of sharedSkus.entries())shared.push((await request(api+"/v1/catalog/products",{method:"POST",headers:{...apiHeaders,"content-type":"application/json"},body:JSON.stringify({card:{sku,title:"Synthetic node shared "+(index?210:30)+" g",brand:"Demo",price:200+index*50,purchasePrice:100,images:["https://fixture.example/"+sku+".jpg"],attributes:{volumeValue:index?210:30,volumeUnit:"g"}}})},201)).data);
+const grouping={productIds:shared.map(p=>p.id),masterProductId:shared[0].id,title:"Synthetic Node shared card",reason:"Synthetic shared source verified"};
+const groupedPreview=(await request(api+"/v1/catalog/variants/preview",{method:"POST",headers:{...apiHeaders,"content-type":"application/json"},body:JSON.stringify(grouping)})).data;
+await request(api+"/v1/catalog/variants/apply",{method:"POST",headers:{...apiHeaders,"content-type":"application/json","idempotency-key":"node-group-"+randomBytes(12).toString("hex")},body:JSON.stringify({...grouping,fingerprint:groupedPreview.fingerprint,confirmed:true,conflictsAcknowledged:true})});
+const nodeMember=(await request(ai+"/v1/catalog/by-sku/"+shared[1].sku+"?organizationId="+org,{headers:apiHeaders})).data;
+assert.equal(nodeMember.title,grouping.title);assert.equal(nodeMember.masterProductId,shared[0].id);assert.equal(nodeMember.price,250);assert.deepEqual(nodeMember.images,shared[1].images);
+const nodeList=(await request(ai+"/v1/catalog/products?organizationId="+org+"&q="+encodeURIComponent(grouping.title),{headers:apiHeaders})).data;
+assert.equal(nodeList.items.length,2,"Node search resolves common titles for member SKUs");
+console.log("PASS: Node card reads and search share the master while retaining SKU prices and photos.");

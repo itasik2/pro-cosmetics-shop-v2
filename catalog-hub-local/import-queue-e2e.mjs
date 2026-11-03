@@ -63,7 +63,7 @@ export async function runQueuedImportChecks({baseUrl="http://127.0.0.1:8000",key
   }
   const original=expect(await api("/v1/catalog/by-sku/"+rows[0].sku),200,"read target for staged update");
   const staged=await submitRows([{rowNumber:1,sku:original.sku,action:"STAGE",expectedUpdatedAt:original.updatedAt,
-    payload:{productId:original.id,sourceType:"IMPORT",sourceRef:"supplierfile:"+"e".repeat(32)+":"+Math.floor(Math.random()*99999),proposed:{price:180}}}]);
+    payload:{productId:original.id,sourceType:"IMPORT",sourceRef:"supplierfile:"+randomUUID().replaceAll("-","")+":1",proposed:{price:180}}}]);
   assert.equal(staged.state,"SUCCEEDED","staging run "+JSON.stringify(staged)+" report "+JSON.stringify((await api("/v1/imports/"+staged.id+"/rows")).data));checks++;
   const stagedRows=expect(await api("/v1/imports/"+staged.id+"/rows"),200,"staging row checkpoint");
   assert.equal(stagedRows.items[0].state,"STAGED");checks++;
@@ -71,7 +71,7 @@ export async function runQueuedImportChecks({baseUrl="http://127.0.0.1:8000",key
   assert.equal(expect(await api("/v1/catalog/products/"+original.id),200,"staging leaves reviewed prices unchanged").price,200);checks++;
   expect(await api("/v1/catalog/manual-save",{productId:original.id,expectedUpdatedAt:original.updatedAt,proposed:{description:"Later operator edit"}}),200,"operator edits between preview and queued apply");
   const stale=await submitRows([{rowNumber:1,sku:original.sku,action:"STAGE",expectedUpdatedAt:original.updatedAt,
-    payload:{productId:original.id,sourceType:"IMPORT",sourceRef:"supplierfile:"+"f".repeat(32)+":1",proposed:{price:170}}}]);
+    payload:{productId:original.id,sourceType:"IMPORT",sourceRef:"supplierfile:"+randomUUID().replaceAll("-","")+":1",proposed:{price:170}}}]);
   assert.equal(stale.state,"PARTIAL");assert.equal(expect(await api("/v1/imports/"+stale.id+"/rows"),200,"stale row report").items[0].errorCode,"import_row_stale");checks++;
   const supplier=expect(await api("/v1/price-import/suppliers",{name:"Synthetic queue supplier "+prefix,code:prefix.toLowerCase()+"supplier"}),201,"supplier for automatic increase");
   const priced=expect(await api("/v1/catalog/products",{supplierId:supplier.id,supplierSku:prefix+"AUTO",card:{sku:prefix+"AUTO",title:"Synthetic cost update",brand:"Test",purchasePrice:100,price:200,

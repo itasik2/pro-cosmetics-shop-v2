@@ -3,7 +3,7 @@ import Link from "next/link";
 import {useEffect,useState} from "react";
 import {coreMessage,coreRequest} from "@/lib/core-client";
 
-type Run={id:string;fileName:string;state:string;expectedRows:number;uploadedRows:number;processedRows:number;failedRows:number;version:number};
+type Run={id:string;fileName:string;state:string;expectedRows:number;uploadedRows:number;processedRows:number;failedRows:number;stagedRows?:number;appliedRows?:number;version:number};
 type Row={rowNumber:number;sku:string;action:string;state:string;attempts:number;errorCode:string|null;result?:{id?:string}|null};
 const states:Record<string,string>={UPLOADING:"Подготовка",QUEUED:"В очереди",RUNNING:"Обработка",SUCCEEDED:"Завершён",PARTIAL:"Завершён с ошибками",CANCELED:"Остановлен",PENDING:"Ожидает",APPLIED:"Применено",STAGED:"На согласовании",ERROR:"Ошибка"};
 const actions:Record<string,string>={CREATE:"Создание",STAGE:"Согласование",AUTO_INCREASE:"Повышение цены"};
@@ -50,7 +50,7 @@ export function ImportQueue({focusId,canWrite}:{focusId:string;canWrite:boolean}
     <p className="subtle">Подтверждённые строки обрабатываются порциями. Прогресс хранится на сервере; повторные запросы продолжают задачу. Незавершённые задачи продолжатся при открытии страницы или через настроенный фоновый обработчик.</p>
     {runs.map(run=><div className="panel" key={run.id} style={{marginBottom:10,borderColor:run.id===focusId?"var(--accent)":undefined}}>
       <strong>{run.fileName}</strong> · {states[run.state]||run.state}
-      <p>{run.state==="UPLOADING"?`Подготовлено ${run.uploadedRows} из ${run.expectedRows}`:`Обработано ${run.processedRows} из ${run.expectedRows}. Ошибок: ${run.failedRows}`}</p>
+      <p>{run.state==="UPLOADING"?`Подготовлено ${run.uploadedRows} из ${run.expectedRows}`:`Обработано ${run.processedRows} из ${run.expectedRows}. Создано / применено: ${run.appliedRows??0}, на согласовании: ${run.stagedRows??0}, ошибок: ${run.failedRows}`}</p>
       <progress value={run.state==="UPLOADING"?run.uploadedRows:run.processedRows} max={run.expectedRows} aria-label={"Прогресс "+run.fileName} style={{width:"100%"}}/>
       {run.state==="UPLOADING"&&<p className="subtle">Подготовка ещё не завершена. Повторите постановку с тем же файлом и выбранными строками: уже загруженные части сохранятся. Применение начнётся после полной проверки.</p>}
       <div className="actions"><button type="button" className="button" disabled={busy} onClick={()=>void report(run.id)}>Отчёт по строкам</button>

@@ -2,7 +2,7 @@
 // Synthetic records only. This suite refuses remote API hosts.
 import assert from "node:assert/strict";
 import {runQueuedImportChecks} from "./import-queue-e2e.mjs";
-import { randomUUID, randomBytes, createHash } from "node:crypto";
+import { randomUUID, randomBytes, createHash, createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
@@ -44,9 +44,9 @@ export async function runCoreChecks({ baseUrl = "http://127.0.0.1:8000", key, ke
   assert.equal(target.protocol, "http:");
   let checks = 0;
   const suffix = randomUUID().slice(0, 8);
-  async function api(path, { body, credential = key, idempotencyKey, method = body ? "POST" : "GET" } = {}) {
+  async function api(path, { body, credential = key, idempotencyKey,extraHeaders={}, method = body ? "POST" : "GET" } = {}) {
     const response = await fetch(baseUrl + path, { method, signal:AbortSignal.timeout(15000), headers: {
-      "x-catalog-hub-key": credential, ...(body ? { "content-type": "application/json", "idempotency-key": idempotencyKey || randomUUID() } : {}),
+      "x-catalog-hub-key": credential, ...(body ? { "content-type": "application/json", "idempotency-key": idempotencyKey || randomUUID() } : {}), ...extraHeaders,
     }, ...(body ? { body: JSON.stringify(body) } : {}) });
     const data = await response.json();
     return { status: response.status, data, requestId:response.headers.get("x-request-id") };
@@ -60,8 +60,8 @@ export async function runCoreChecks({ baseUrl = "http://127.0.0.1:8000", key, ke
       sku: "CORE-" + name + "-" + suffix, title: "Synthetic " + name, brand: "Test", purchasePrice: 100, price: 200,
     } } }), 201, "create synthetic product");
   }
-  async function channel(adapter = "OWN_STORE") {
-    return expect(await api("/v1/channels", { body: { name: "Synthetic " + adapter + " " + suffix, adapter } }), 201, "create shadow connection");
+  async function channel(adapter = "OWN_STORE", extra = {}) {
+    return expect(await api("/v1/channels", { body: { name: "Synthetic " + adapter + " " + suffix, adapter, ...extra } }), 201, "create shadow connection");
   }
   async function activate(connection) {
     return expect(await api(`/v1/channels/${connection.id}/mode`, { body: { mode: "ACTIVE", expectedVersion: connection.version, confirmed: true } }), 200, "activate TEST connection");
@@ -231,6 +231,33 @@ export async function runCoreChecks({ baseUrl = "http://127.0.0.1:8000", key, ke
   assert.equal(expect(await api("/v1/catalog/products/"+member.id),200,"member reads current common copy").description,"Updated shared text");checks++;
   expect(await api("/v1/catalog/variants/groupings/"+secondGroup.groupingId+"/undo",{body:{confirmed:true}}),409,"undo detects later common edits");
   assert.equal(expect(await api("/v1/catalog/variants/"+member.id),200,"variant family is visible from member").variants.length,3);checks++;
+
+  const hook=await channel("OWN_STORE",{secretRef:"CATALOG_CHANNEL_SECRET_TEST"});
+  const hookProduct=await product("signed-orders");
+  expect(await api("/v1/catalog/manual-save",{body:{productId:hookProduct.id,expectedUpdatedAt:hookProduct.updatedAt,proposed:{attributes:{supplierImport:{purchasePrice:777777},volumeValue:30,volumeUnit:"g",public:{material:"cotton"}}}}}),200,"private provenance is kept separate from channel attributes");
+  expect(await movement(hookProduct.id,"RECEIVE",2),201,"prepare signed order stock");
+  expect(await api(`/v1/channels/${hook.id}/offers`,{body:{productId:hookProduct.id,sellerSku:"SIGNEDSKU",expectedVersion:0}}),200,"map signed channel SKU");
+  const hookMapped=expect(await api(`/v1/channels/${hook.id}/mappings`,{body:{expectedVersion:hook.version,warehouses:[{warehouseId:"wh_pav_01",externalId:"SIGNEDSTORE"}]}}),200,"map signed channel warehouse");
+  expect(await api("/v1/repricing/policies",{body:{...policy(hookProduct.id),channel:"STORE",feePercent:0}}),201,"financial policy for own-store export");
+  const exportBefore=expect(await api(`/v1/channels/${hook.id}/export`),200,"own-store export before activation");
+  assert.equal(exportBefore.items[0].internalSku,hookProduct.sku);assert.equal("purchasePrice" in exportBefore.items[0],false);assert.doesNotMatch(JSON.stringify(exportBefore),/supplierImport|777777/);assert.equal(exportBefore.items[0].attributes.volumeValue,30);checks++;
+  const shadowBody={items:[{sellerSku:"SIGNEDSKU",title:hookProduct.title,price:200,available:2}]};
+  assert.equal(expect(await api(`/v1/channels/${hook.id}/shadow-preview`,{body:shadowBody}),200,"matching shadow snapshot").matches,true);checks++;
+  const difference=expect(await api(`/v1/channels/${hook.id}/shadow-preview`,{body:{items:[{...shadowBody.items[0],available:0}]}}),200,"shadow inventory difference");
+  assert.equal(difference.matches,false);assert.equal(difference.changesApplied,false);assert.equal((await stock(hookProduct.id)).reserved,0);checks++;
+  await activate(hookMapped);
+  const hookEvent={externalEventId:"signed-created-"+suffix,externalOrderId:"signed-order-"+suffix,type:"CREATED",items:[{sellerSku:"SIGNEDSKU",externalWarehouseId:"SIGNEDSTORE",quantity:1}]};
+  const stable=value=>Array.isArray(value)?"["+value.map(stable).join(",")+"]":value&&typeof value==="object"?"{"+Object.keys(value).sort().map(k=>JSON.stringify(k)+":"+stable(value[k])).join(",")+"}":JSON.stringify(value)??"null";
+  function sign(event,timestamp=String(Math.floor(Date.now()/1000))){return {"x-catalog-timestamp":timestamp,"x-catalog-signature":"v1="+createHmac("sha256","synthetic-test-only-32-byte-secret-value").update(timestamp+"."+hook.id+"."+stable(event)).digest("hex")};}
+  expect(await api(`/v1/channels/${hook.id}/order-events`,{body:hookEvent}),401,"unsigned event rejected");
+  expect(await api(`/v1/channels/${hook.id}/order-events`,{body:hookEvent,extraHeaders:sign(hookEvent,String(Math.floor(Date.now()/1000)-301))}),401,"old signed event rejected");
+  expect(await api(`/v1/channels/${hook.id}/order-events`,{body:{...hookEvent,externalOrderId:"tampered"},extraHeaders:sign(hookEvent)}),401,"tampered event rejected");
+  expect(await api(`/v1/channels/${hook.id}/order-events`,{body:hookEvent,extraHeaders:sign(hookEvent)}),200,"signed channel event reserves mapped stock");
+  expect(await api(`/v1/channels/${hook.id}/order-events`,{body:hookEvent,extraHeaders:sign(hookEvent)}),200,"signed retry deduplicates external event");
+  assert.equal((await stock(hookProduct.id)).reserved,1);checks++;
+  const cancelSigned={...hookEvent,type:"CANCELED",externalEventId:"signed-cancel-"+suffix};
+  expect(await api(`/v1/channels/${hook.id}/order-events`,{body:cancelSigned,extraHeaders:sign(cancelSigned)}),200,"signed cancellation releases reservation");
+  assert.equal((await stock(hookProduct.id)).reserved,0);checks++;
 
   checks+=(await runQueuedImportChecks({baseUrl,key,keyB,readOnlyKey,workerCycle:(await import("../marketplace-hub/dist/worker/catalog-import-worker.js")).importWorkerCycle})).checks;
 

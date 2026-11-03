@@ -43,6 +43,8 @@ function serializeProduct(product: {
   basePrice: number | null;
   createdAt: Date;
   updatedAt: Date;
+  masterProductId?: string|null;
+  masterProduct?: {id:string;title:string;brand:string|null;shortDescription:string|null;description:string|null;application:string|null;ingredients:string|null;categoryKey:string|null;updatedAt:Date}|null;
   inventory?: Array<{
     warehouseId: string;
     onHand: number;
@@ -51,6 +53,7 @@ function serializeProduct(product: {
     warehouse: { code: string; name: string };
   }>;
 }) {
+  const common=product.masterProduct||product;
   const inventory = product.inventory ?? [];
   const stock = inventory.reduce((sum, item) => sum + item.onHand, 0);
   const reserved = inventory.reduce((sum, item) => sum + item.reserved, 0);
@@ -60,14 +63,16 @@ function serializeProduct(product: {
     id: product.id,
     organizationId: product.organizationId,
     sku: product.sku,
+    masterProductId: product.masterProductId||null,
+    masterUpdatedAt: product.masterProduct?.updatedAt.toISOString()||null,
     barcode: product.barcode,
-    title: product.title,
-    brand: product.brand,
-    shortDescription: product.shortDescription,
-    description: product.description,
-    application: product.application,
-    ingredients: product.ingredients,
-    categoryKey: product.categoryKey,
+    title: common.title,
+    brand: common.brand,
+    shortDescription: common.shortDescription,
+    description: common.description,
+    application: common.application,
+    ingredients: common.ingredients,
+    categoryKey: common.categoryKey,
     attributes: product.attributes ?? {},
     images: Array.isArray(product.images) ? product.images : [],
     purchasePrice: product.purchasePrice,
@@ -96,6 +101,7 @@ function serializeProduct(product: {
 }
 
 const productInclude = {
+  masterProduct:{select:{id:true,title:true,brand:true,shortDescription:true,description:true,application:true,ingredients:true,categoryKey:true,updatedAt:true}},
   inventory: {
     include: {
       warehouse: {
@@ -153,6 +159,7 @@ export async function createCatalogProduct(raw: unknown) {
       });
     }
 
+    await tx.outboxEvent.create({data:{id:crypto.randomUUID(),organizationId:input.organizationId,topic:"catalog.product_changed",payload:{productId:product.id,created:true,actor:"node:internal"}}});
     const created = await tx.product.findUniqueOrThrow({
       where: { id: product.id },
       include: productInclude,
@@ -198,27 +205,20 @@ export async function listCatalogProducts(raw: unknown) {
   const query = catalogListQuerySchema.parse(raw);
   const q = query.q?.trim();
 
+  const shared=(condition:Prisma.ProductWhereInput):Prisma.ProductWhereInput=>({OR:[
+    {AND:[{masterProductId:null},condition]}, {masterProduct:{is:condition}},
+  ]});
+  const commonIncomplete:Prisma.ProductWhereInput={OR:[
+    {categoryKey:null},{categoryKey:""},{categoryKey:"Без категории"},
+    ...(["brand","shortDescription","description","application","ingredients"] as const).flatMap(field=>[{[field]:null},{[field]:""}]),
+  ]};
   const where: Prisma.ProductWhereInput = {
-    organizationId: query.organizationId,
-    AND: [
-      ...(query.category ? [query.category === "__uncategorized__"
-        ? { OR: [{ categoryKey: null }, { categoryKey: "" }, { categoryKey: "Без категории" }] }
-        : { categoryKey: query.category }] : []),
-      ...(query.incomplete === "true" ? [{ OR: [
-        { categoryKey: null }, { categoryKey: "" }, { categoryKey: "Без категории" },
-        ...(["brand", "shortDescription", "description", "application", "ingredients"] as const)
-          .flatMap(field => [{ [field]: null }, { [field]: "" }]),
-        { images: { equals: [] } },
-        { images: { equals: Prisma.DbNull } },
-      ] }] : []),
-      ...(q ? [
-            { OR: [
-              { sku: { contains: q, mode: "insensitive" as const } },
-              { title: { contains: q, mode: "insensitive" as const } },
-              { brand: { contains: q, mode: "insensitive" as const } },
-              { barcode: { contains: q, mode: "insensitive" as const } },
-            ] },
-          ] : []),
+    organizationId:query.organizationId,
+    AND:[
+      ...(query.category?[shared(query.category==="__uncategorized__"?{OR:[{categoryKey:null},{categoryKey:""},{categoryKey:"Без категории"}]}:{categoryKey:query.category})]:[]),
+      ...(query.incomplete==="true"?[{OR:[shared(commonIncomplete),{images:{equals:[]}},{images:{equals:Prisma.DbNull}}]}]:[]),
+      ...(q?[{OR:[{sku:{contains:q,mode:"insensitive" as const}},{barcode:{contains:q,mode:"insensitive" as const}},
+        shared({OR:[{title:{contains:q,mode:"insensitive" as const}},{brand:{contains:q,mode:"insensitive" as const}}]})]}]:[]),
     ],
   };
 

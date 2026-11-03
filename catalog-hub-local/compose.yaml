@@ -23,6 +23,7 @@ services:
       SUPABASE_DB_URL: postgresql://catalog_test:catalog_test_only@db:5432/catalog_test
       DENO_NO_UPDATE_CHECK: "1"
       CATALOG_HUB_DB_POOL_MAX: "4"
+      CATALOG_CHANNEL_SECRET_TEST: "synthetic-test-only-32-byte-secret-value"
     volumes:
       - ../marketplace-hub/supabase/functions/catalog-hub:/app:ro
     ports:

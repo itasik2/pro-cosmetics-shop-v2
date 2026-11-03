@@ -676,7 +676,7 @@ export function ImportConsole({localMode=false,canWrite=true}:{localMode?:boolea
    {!localMode&&remoteHistory.length>0&&<section className="panel" style={{marginTop:14}}>
      <h2>История применённых прайсов</h2>
      <p className="subtle">Сохраняются результат по строкам и дата применения. Исходный файл для повторной проверки понадобится загрузить снова.</p>
-     <div className="list">{remoteHistory.filter(entry=>!supplierId||entry.supplierId===supplierId).map(entry=><div className="list-row" key={entry.id}>
+     <div className="list">{remoteHistory.filter(entry=>!supplierId||entry.supplierId===supplierId).map(entry=><div className="list-row import-history-row" key={entry.id}>
        <div><strong>{entry.filename}</strong> · {entry.supplierName}
          <div className="subtle">{entry.rowCount} строк · {new Date(entry.createdAt).toLocaleString("ru-RU")}</div></div>
        <span className="badge">{entry.status}</span>
@@ -696,7 +696,7 @@ export function ImportConsole({localMode=false,canWrite=true}:{localMode?:boolea
      </div>
      {historyError&&<div role="alert" className="error">{historyError}</div>}
      {historyMessage&&<p role="status" className="subtle">{historyMessage}</p>}
-     <div className="list">{history.slice(0,historyVisible).map(entry=><div key={entry.id} className="list-row">
+     <div className="list">{history.slice(0,historyVisible).map(entry=><div key={entry.id} className="list-row import-history-row">
        <div style={{display:"flex",gap:12,alignItems:"center"}}>
          <input type="checkbox" aria-label={"Выбрать запись " + entry.fileName}
            checked={historySelected.includes(entry.id)} disabled={historyBusy}
@@ -721,7 +721,7 @@ export function ImportConsole({localMode=false,canWrite=true}:{localMode?:boolea
      <p className="subtle">{applied.reminder}</p>
      {applied.historyWarning&&<p role="alert" className="error">{applied.historyWarning}</p>}
      {applied.partial&&<div className="error">Выполнение прервано при ошибке. Проверьте список перед повторной попыткой.</div>}
-     <div className="list">{applied.results.map(r=><div className="list-row" key={r.rowNumber}>
+     <div className="list">{applied.results.map(r=><div className="list-row import-history-row" key={r.rowNumber}>
        <span>{r.sku} · строка {r.rowNumber} · <strong>{r.status}</strong>
          {r.error&&<span className="error">{r.error}</span>}</span>
        {r.id&&<Link className="button" href={(r.status==="STAGED"?"/changes/":"/catalog/")+encodeURIComponent(r.id)}>Открыть →</Link>}

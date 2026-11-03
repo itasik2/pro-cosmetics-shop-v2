@@ -5,14 +5,15 @@ import { handleCategories } from "./categories-api.ts";
 import { handleRepricing } from "./repricing-api.ts";
 import postgres from "npm:postgres@3.4.7";
 import * as jose from "npm:jose@6.1.0";
-import { assertScope, legacyOrganization, RequestError, scopeRequest, type Principal } from "./request-context.ts";
+import { assertScope, boundedJson, legacyOrganization, RequestError, scopeRequest, type Principal } from "./request-context.ts";
 import { handleOrders } from "./orders-api.ts";
 import { handleStock } from "./stock-api.ts";
 import { handleChannels } from "./channels-api.ts";
 import { handleSync } from "./sync-api.ts";
 import { handleVariants } from "./variants-api.ts";
 import {handleImportRuns} from "./import-runs.ts";
-import {transactionalSql} from "./core-store.ts";
+import {verifyChannelSignature} from "./channel-signature.ts";
+import {transactionalSql,outbox} from "./core-store.ts";
 
 const databaseUrl = Deno.env.get("SUPABASE_DB_URL")!;
 const sql = postgres(databaseUrl, { prepare: false,
@@ -297,7 +298,7 @@ function optionalNonNegativeInt(value: unknown) {
   return n;
 }
 
-async function createProduct(body: any, db = sql) {
+async function createProduct(body: any, db = sql, actor="catalog-hub-ui") {
   const organizationId = optionalString(body?.organizationId);
   const warehouseId = optionalString(body?.warehouseId);
   const supplierId = optionalString(body?.supplierId);
@@ -399,6 +400,7 @@ async function createProduct(body: any, db = sql) {
           )
         `;
       }
+      await outbox(tx,organizationId,"catalog.product_changed",{productId:id,created:true,actor});
     });
   } catch (error) {
     const message = String((error as Error)?.message || error);
@@ -414,7 +416,7 @@ async function createProduct(body: any, db = sql) {
   return serializeProduct(rows[0], db);
 }
 
-async function bulkCreateProducts(body: any) {
+async function bulkCreateProducts(body: any, actor="catalog-hub-ui") {
   const items = Array.isArray(body?.items) ? body.items : null;
   if (!items) throw new Error("items_required");
   if (items.length < 1 || items.length > 100) {
@@ -425,7 +427,7 @@ async function bulkCreateProducts(body: any) {
   for (const item of items) {
     const sku = optionalString(item?.card?.sku);
     try {
-      const product = await createProduct(item);
+      const product = await createProduct(item,sql,actor);
       results.push({ sku, status: "CREATED", id: product.id });
     } catch (error) {
       const message = String((error as Error)?.message || error);
@@ -844,7 +846,7 @@ async function handleRequest(req: Request, requestId:string):Promise<Response> {
         service: "catalog-hub",
         version: "0.11.0-edge",
         apiVersion: 1,
-        capabilities: ["organization-scoped-auth", "api-scopes", "stock-movements-v1", "order-events-v1", "channels-v1", "outbox-v1", "variants-v1", "durable-imports-v1"],
+        capabilities: ["organization-scoped-auth", "api-scopes", "stock-movements-v1", "order-events-v1", "channels-v1", "outbox-v1", "variants-v1", "durable-imports-v1", "signed-order-events-v1", "shadow-diff-v1"],
         mode: "supabase-edge",
       });
     }
@@ -878,7 +880,23 @@ async function handleRequest(req: Request, requestId:string):Promise<Response> {
       return json({ error: "unauthorized" }, 401);
     }
     assertScope(principal, route, req.method);
+    const signedEvent=route.match(/^\/v1\/channels\/([A-Za-z0-9_-]+)\/order-events(\/preview)?$/);
+    const original=signedEvent&&req.method==="POST"?req.clone():null;
     req = await scopeRequest(req, url, principal);
+    if(signedEvent&&original){
+      const connectionId=signedEvent[1],body=await boundedJson(original);
+      const [connection]=await sql`SELECT "secretRef","adapter" FROM public."ChannelConnection" WHERE "organizationId"=${principal.organizationId} AND "id"=${connectionId}`;
+      if(!connection)throw new RequestError("channel_not_found",404);
+      if(connection.adapter!=="OWN_STORE")throw new RequestError("unsupported_operation",422);
+      if(body.connectionId!==undefined&&body.connectionId!==connectionId)throw new RequestError("channel_mismatch",409);
+      if(body.items!==undefined&&(!Array.isArray(body.items)||body.items.some(item=>!item||typeof item!=="object"||typeof item.sellerSku!=="string"||typeof item.externalWarehouseId!=="string")))throw new RequestError("channel_mapping_required");
+      const ref=String(connection.secretRef||"");
+      const secret=/^CATALOG_CHANNEL_SECRET_[A-Z0-9_]{1,80}$/.test(ref)?Deno.env.get(ref)||"":"";
+      await verifyChannelSignature({secret,connectionId,body,timestamp:original.headers.get("x-catalog-timestamp"),signature:original.headers.get("x-catalog-signature")});
+      const eventRequest=new Request(req.url,{method:"POST",headers:req.headers,body:JSON.stringify({...body,connectionId,organizationId:principal.organizationId})});
+      const reply=await handleOrders(eventRequest,"/v1/orders/events"+(signedEvent[2]||""),url,sql,principal);
+      if(reply)return reply;
+    }
 
     const importRun = await handleImportRuns(req,route,url,sql,principal,async(tx,action,actor)=>{
       const db=transactionalSql(tx);
@@ -886,13 +904,13 @@ async function handleRequest(req: Request, requestId:string):Promise<Response> {
       if(action.action==="CREATE") {
         const card=payload.card as Record<string,unknown> | undefined;
         if(!card||card.sku!==action.sku)throw new RequestError("import_sku_mismatch");
-        return await createProduct(payload,db);
+        return await createProduct(payload,db,actor.actor);
       }
       const path=action.action==="STAGE"?"/v1/staging/changesets":"/v1/price-import/auto";
       if(action.action==="STAGE"&&payload.sourceType!=="IMPORT")throw new RequestError("invalid_import_action");
       const nestedRequest=new Request(req.url,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload)});
       const nestedUrl=new URL(req.url);nestedUrl.searchParams.set("organizationId",actor.organizationId);
-      const reply=action.action==="STAGE"?await handleCardEditor(nestedRequest,path,nestedUrl,db):await handlePriceImport(nestedRequest,path,nestedUrl,db);
+      const reply=action.action==="STAGE"?await handleCardEditor(nestedRequest,path,nestedUrl,db,actor):await handlePriceImport(nestedRequest,path,nestedUrl,db,actor);
       if(!reply)throw new RequestError("invalid_import_action");
       const data=await reply.json();
       if(!reply.ok)throw new RequestError(String(data.error||"import_row_failed"),reply.status);
@@ -914,10 +932,10 @@ async function handleRequest(req: Request, requestId:string):Promise<Response> {
     const inventoryReply = await handleInventory(req, route, url, sql, principal);
     if (inventoryReply) return inventoryReply;
 
-    const cardEditor = await handleCardEditor(req, route, url, sql);
+    const cardEditor = await handleCardEditor(req, route, url, sql, principal);
     if (cardEditor) return cardEditor;
 
-    const priceImport = await handlePriceImport(req, route, url, sql);
+    const priceImport = await handlePriceImport(req, route, url, sql, principal);
     if (priceImport) return priceImport;
 
     if (route === "/v1/catalog/product-options" && req.method === "GET") {
@@ -997,7 +1015,7 @@ async function handleRequest(req: Request, requestId:string):Promise<Response> {
     if (route === "/v1/catalog/products/bulk" && req.method === "POST") {
       const body = await req.json();
       try {
-        return json(await bulkCreateProducts(body), 200);
+        return json(await bulkCreateProducts(body,principal.actor), 200);
       } catch (error) {
         const message = String((error as Error)?.message || error);
         if (message === "items_required" || message === "bulk_size_invalid") {
@@ -1010,7 +1028,7 @@ async function handleRequest(req: Request, requestId:string):Promise<Response> {
     if (route === "/v1/catalog/products" && req.method === "POST") {
       const body = await req.json();
       try {
-        const product = await createProduct(body);
+        const product = await createProduct(body,sql,principal.actor);
         return json(product, 201);
       } catch (error) {
         const message = String((error as Error)?.message || error);

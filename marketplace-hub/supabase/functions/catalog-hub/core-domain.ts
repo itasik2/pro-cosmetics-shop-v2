@@ -51,7 +51,7 @@ export function orderItems(value: unknown): OrderItem[] {
 }
 
 export const adapters = {
-  OWN_STORE: { kind: "OWN_STORE", capabilities: ["CATALOG_EXPORT", "ORDER_EVENTS", "SHADOW_DIFF"] },
+  OWN_STORE: { kind: "OWN_STORE", capabilities: ["CATALOG_EXPORT", "ORDER_EVENTS", "SIGNED_ORDER_EVENTS", "SHADOW_DIFF"] },
   KASPI_XML: { kind: "MARKETPLACE", capabilities: ["FULL_PRICE_FEED"] },
   OZON: { kind: "MARKETPLACE", capabilities: [] },
   WILDBERRIES: { kind: "MARKETPLACE", capabilities: [] },

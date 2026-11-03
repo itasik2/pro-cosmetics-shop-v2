@@ -21,6 +21,9 @@ const areas: Array<[RegExp, string]> = [
 ];
 
 export function requiredScope(route: string, method: string): string | null {
+  if(method==="POST"&&/^\/v1\/channels\/[A-Za-z0-9_-]+\/shadow-preview$/.test(route))return "channels:read";
+  const channelEvent=route.match(/^\/v1\/channels\/([A-Za-z0-9_-]+)\/order-events(?:\/preview)?$/);
+  if(channelEvent&&method==="POST")return "orders:write:"+channelEvent[1];
   const area = areas.find(([pattern]) => pattern.test(route))?.[1];
   if (!area) return null;
   return area + (method === "GET" || method === "HEAD" ? ":read" : ":write");
@@ -28,7 +31,7 @@ export function requiredScope(route: string, method: string): string | null {
 
 export function assertScope(principal: Principal, route: string, method: string) {
   const scope = requiredScope(route, method);
-  if (!scope || !principal.scopes.some(s => s === "*" || s === scope)) {
+  if (!scope || !principal.scopes.some(s => s === "*" || s === scope || (scope.startsWith("orders:write:")&&s==="orders:write"))) {
     throw new RequestError("scope_forbidden", 403);
   }
 }

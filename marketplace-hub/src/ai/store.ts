@@ -1,3 +1,4 @@
+import {resolveSharedProduct} from "../offline/shared-product.js";
 import {
   CatalogEnrichmentJobStatus,
   CatalogEnrichmentProposalStatus,
@@ -78,6 +79,7 @@ async function resolveProduct(input: z.infer<typeof jobInputSchema>) {
         organizationId: input.organizationId,
       },
       include: {
+        masterProduct:true,
         supplierLinks: {
           include: {
             supplier: {
@@ -102,6 +104,7 @@ async function resolveProduct(input: z.infer<typeof jobInputSchema>) {
       },
     },
     include: {
+      masterProduct:true,
       supplierLinks: {
         include: {
           supplier: {
@@ -197,6 +200,7 @@ export async function runCatalogEnrichmentJob(input: {
     include: {
       product: {
         include: {
+          masterProduct:true,
           supplierLinks: {
             include: {
               supplier: {
@@ -221,6 +225,7 @@ export async function runCatalogEnrichmentJob(input: {
     throw new Error("enrichment_job_not_runnable");
   }
 
+  job.product=resolveSharedProduct(job.product);
   const metadata = record(job.result);
   const policies = sourcePolicies(job.product);
   if (typeof metadata.sourceSupplierCode === "string") {
@@ -450,6 +455,7 @@ export async function stageCatalogEnrichmentProposal(raw: unknown) {
     include: {
       product: {
         include: {
+          masterProduct:true,
           inventory: true,
         },
       },
@@ -475,6 +481,7 @@ export async function stageCatalogEnrichmentProposal(raw: unknown) {
     selectedImage = variant.url;
   }
 
+  proposal.product=resolveSharedProduct(proposal.product);
   const stock = proposal.product.inventory.reduce(
     (sum, item) => sum + item.onHand,
     0,
@@ -504,6 +511,7 @@ export async function stageCatalogEnrichmentProposal(raw: unknown) {
     includeTitle: input.includeTitle, includeBrand: input.includeBrand,
     selectedImageUrl: selectedImage, replaceFilledFields: input.replaceFilledFields,
   }));
+  if(proposal.product.masterProductId)for(const field of ["title","brand","shortDescription","description","application","ingredients","categoryKey"] as const)delete proposed[field];
   if (!Object.keys(proposed).length) throw new Error("enrichment_no_missing_fields");
 
   return prisma.$transaction(async tx => {

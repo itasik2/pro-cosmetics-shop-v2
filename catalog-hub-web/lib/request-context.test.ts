@@ -37,3 +37,11 @@ test("chunked body is bounded without trusting Content-Length", async () => {
   const req = new Request("https://example.test", { method: "POST", body: JSON.stringify({ data: "x".repeat(100) }) });
   await assert.rejects(boundedJson(req, 20), /payload_too_large/);
 });
+
+test("a channel-bound event credential cannot send to another channel or the generic order endpoint",()=>{
+ const credential={...principal,scopes:["orders:write:store_a"]};
+ assert.doesNotThrow(()=>assertScope(credential,"/v1/channels/store_a/order-events","POST"));
+ assert.throws(()=>assertScope(credential,"/v1/channels/store_b/order-events","POST"),/scope_forbidden/);
+ assert.throws(()=>assertScope(credential,"/v1/orders/events","POST"),/scope_forbidden/);
+ assert.doesNotThrow(()=>assertScope({...principal,scopes:["channels:read"]},"/v1/channels/store_a/shadow-preview","POST"));
+});

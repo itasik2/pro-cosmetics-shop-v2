@@ -1,11 +1,24 @@
-import { adapters, available, integer, textField } from "./core-domain.ts";
+import { adapters, available, digest, integer, textField } from "./core-domain.ts";
 import { kaspiFeed, validateManifest, type FeedOffer } from "./channel-feed.ts";
 import { once, outbox, type Sql } from "./core-store.ts";
 import { RequestError, type Principal } from "./request-context.ts";
+import {jsonObject} from "./database-json.ts";
 import {assertFinancialPrice,channelCode,financialPolicy} from "./channel-pricing.ts";
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status,
   headers: { "content-type": "application/json", "cache-control": "no-store" } });
 type Adapter = keyof typeof adapters;
+function publicAttributes(value:unknown){
+  const data=jsonObject(value),attributes={...jsonObject(data.public)};
+  if(typeof data.volumeValue==="number"&&data.volumeValue>0&&typeof data.volumeUnit==="string"){
+    attributes.volumeValue=data.volumeValue;attributes.volumeUnit=data.volumeUnit;
+  }
+  return attributes;
+}
+function publicImages(value:unknown):string[]{
+  let data=value;
+  for(let n=0;n<2&&typeof data==="string";n++){try{data=JSON.parse(data);}catch{return [];}}
+  return Array.isArray(data)?data.filter((url):url is string=>typeof url==="string"&&/^https?:\/\//.test(url)):[];
+}
 
 export async function handleChannels(req: Request, route: string, url: URL, sql: Sql, principal: Principal): Promise<Response | null> {
   if (!route.startsWith("/v1/channels")) return null;
@@ -21,7 +34,7 @@ export async function handleChannels(req: Request, route: string, url: URL, sql:
     const body = await req.json(), name = textField(body.name, "channel_name"), adapter = textField(body.adapter, "adapter") as Adapter;
     if (!Object.hasOwn(adapters, adapter)) throw new RequestError("unsupported_adapter", 422);
     const environment = body.environment === "PRODUCTION" ? "PRODUCTION" : "TEST";
-    if (body.secretRef !== undefined && !/^[A-Z][A-Z0-9_]{2,100}$/.test(body.secretRef)) throw new RequestError("invalid_secret_ref");
+    if (body.secretRef !== undefined && !/^CATALOG_CHANNEL_SECRET_[A-Z0-9_]{1,80}$/.test(body.secretRef)) throw new RequestError("invalid_secret_ref");
     const result = await once(sql, req, principal, route, body, async tx => {
       const [created] = await tx`INSERT INTO public."ChannelConnection" ("id","organizationId","name","kind","adapter","environment","mode","secretRef","updatedAt")
         VALUES (${crypto.randomUUID()},${org},${name},${adapters[adapter].kind},${adapter},${environment},'SHADOW',${body.secretRef || null},now()) RETURNING *`;
@@ -30,7 +43,7 @@ export async function handleChannels(req: Request, route: string, url: URL, sql:
     });
     return json(result, 201);
   }
-  const match = route.match(/^\/v1\/channels\/([^/]+)(?:\/(mode|offers|mappings|feed-preview|export|health))?$/);
+  const match = route.match(/^\/v1\/channels\/([^/]+)(?:\/(mode|offers|mappings|feed-preview|export|health|shadow-preview))?$/);
   if (!match) return json({ error: "unsupported_operation" }, 422);
   const id = textField(decodeURIComponent(match[1]), "connection"), action = match[2];
   const [connection] = await sql`SELECT * FROM public."ChannelConnection" WHERE "id"=${id} AND "organizationId"=${org}`;
@@ -130,10 +143,42 @@ export async function handleChannels(req: Request, route: string, url: URL, sql:
       return updated;
     }));
   }
+  if(action==="shadow-preview"&&req.method==="POST"){
+    if(connection.adapter!=="OWN_STORE")throw new RequestError("unsupported_operation",422);
+    const body=await req.json();
+    if(!Array.isArray(body.items)||body.items.length>10000)throw new RequestError("invalid_shadow_snapshot");
+    const remote=new Map<string,{price:number;available:number;title?:string}>();
+    for(const item of body.items){
+      const sku=textField(item.sellerSku,"seller_sku");
+      if(remote.has(sku))throw new RequestError("duplicate_shadow_sku",409);
+      remote.set(sku,{price:integer(item.price,"offer_price",1,1_000_000_000),available:integer(item.available,"available",0,2_000_000_000),
+        ...(typeof item.title==="string"?{title:item.title.slice(0,500)}:{})});
+    }
+    // This is a comparison with an operator-supplied snapshot. No remote write,
+    // stock mutation or claim of a verified third-party connection takes place.
+    const exported=await handleChannels(new Request(req.url,{method:"GET"}),"/v1/channels/"+id+"/export",url,sql,principal);
+    if(!exported)throw new RequestError("unsupported_operation",422);
+    if(!exported.ok)return exported;
+    const current=await exported.json(),local=new Map<string,Record<string,unknown>>();
+    const missingInChannel:string[]=[],missingInCore:string[]=[],changed=[];
+    for(const item of current.items){
+      local.set(item.sellerSku,item);const other=remote.get(item.sellerSku);
+      if(!other){missingInChannel.push(item.sellerSku);continue;}
+      const available=item.availabilities.reduce((total:number,w:{stockCount:number})=>total+w.stockCount,0),fields=[];
+      if(other.price!==item.price)fields.push({field:"price",core:item.price,channel:other.price});
+      if(other.available!==available)fields.push({field:"available",core:available,channel:other.available});
+      if(other.title!==undefined&&other.title!==item.title)fields.push({field:"title",core:item.title,channel:other.title});
+      if(fields.length)changed.push({sellerSku:item.sellerSku,fields});
+    }
+    for(const sku of remote.keys())if(!local.has(sku))missingInCore.push(sku);
+    return json({mode:"SHADOW",changesApplied:false,remoteVerified:false,source:"OPERATOR_SNAPSHOT",connectionId:id,
+      coreCount:local.size,channelCount:remote.size,missingInChannel,missingInCore,changed,
+      matches:!missingInChannel.length&&!missingInCore.length&&!changed.length,fingerprint:await digest(current.items)});
+  }
   if ((action === "feed-preview" || action === "export") && req.method === "GET") {
     return json(await sql.begin("isolation level repeatable read", async tx => {
       const [current] = await tx`SELECT * FROM public."ChannelConnection" WHERE "organizationId"=${org} AND "id"=${id}`;
-      const offers = await tx`SELECT o.*,p."title",p."brand",p."basePrice",p."purchasePrice",p."categoryKey",p."images",p."description",p."attributes"
+      const offers = await tx`SELECT o.*,p."title",p."brand",p."basePrice",p."purchasePrice",p."categoryKey",p."images",p."description",p."attributes",p."masterProductId",p."sku" AS "internalSku",p."barcode",p."shortDescription",p."application",p."ingredients"
         FROM public."ChannelOffer" o JOIN public."CatalogProductRead" p ON p."id"=o."productId" AND p."organizationId"=o."organizationId"
         WHERE o."organizationId"=${org} AND o."connectionId"=${id} AND o."isActive"=true ORDER BY o."sellerSku"`;
       const mappings = await tx`SELECT m."externalId",m."warehouseId" FROM public."ChannelWarehouseMapping" m JOIN public."Warehouse" w
@@ -163,7 +208,9 @@ export async function handleChannels(req: Request, route: string, url: URL, sql:
             ...(offer.preorderDays ? { preorderDays: offer.preorderDays } : {}) };
         });
         snapshots.push({ sellerSku: offer.sellerSku, productId: offer.productId, title: offer.title, brand: offer.brand || "", price,
-          availabilities, offerVersion: offer.version, inventoryRevisions: stocks.map(s => ({ warehouseId: s.warehouseId, revision: s.revision })) });
+          availabilities, ...(current.adapter==="OWN_STORE"||current.adapter==="GENERIC_ERP"?{internalSku:offer.internalSku,masterProductId:offer.masterProductId,barcode:offer.barcode,
+            categoryKey:offer.categoryKey,description:offer.description,shortDescription:offer.shortDescription,application:offer.application,ingredients:offer.ingredients,
+            attributes:publicAttributes(offer.attributes),images:publicImages(offer.images)}:{}), offerVersion: offer.version, inventoryRevisions: stocks.map(s => ({ warehouseId: s.warehouseId, revision: s.revision })) });
       }
       if (action === "feed-preview") {
         if (current.adapter !== "KASPI_XML") throw new RequestError("unsupported_operation", 422);

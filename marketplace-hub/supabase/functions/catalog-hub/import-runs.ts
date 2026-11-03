@@ -15,7 +15,9 @@ function action(value:unknown):ImportAction {
   if(row.action!=="CREATE"&&(typeof expected!=="string"||!Number.isFinite(Date.parse(expected))))throw new RequestError("invalid_product_version");
   return {rowNumber,sku,action:row.action as ImportAction["action"],payload:row.payload as Record<string,unknown>,expectedUpdatedAt:typeof expected==="string"?expected:null};
 }
-const summary=`"id","fileName","fileSha256","manifestHash","supplierId","sourceDate","profile","expectedRows","uploadedRows","processedRows","failedRows","state","version","actor","createdAt","updatedAt"`;
+const summary=`"id","fileName","fileSha256","manifestHash","supplierId","sourceDate","profile","expectedRows","uploadedRows","processedRows","failedRows","state","version","actor","createdAt","updatedAt",
+ (SELECT count(*)::int FROM public."CatalogImportRow" r WHERE r."organizationId"="CatalogImportRun"."organizationId" AND r."runId"="CatalogImportRun"."id" AND r."state"='STAGED') AS "stagedRows",
+ (SELECT count(*)::int FROM public."CatalogImportRow" r WHERE r."organizationId"="CatalogImportRun"."organizationId" AND r."runId"="CatalogImportRun"."id" AND r."state"='APPLIED') AS "appliedRows"`;
 
 export async function handleImportRuns(req:Request,route:string,url:URL,sql:Sql,principal:Principal,execute:Executor):Promise<Response|null>{
   if(!route.startsWith("/v1/imports"))return null;

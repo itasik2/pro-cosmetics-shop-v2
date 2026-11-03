@@ -1,3 +1,5 @@
+import {outbox} from "./core-store.ts";
+import type {Principal} from "./request-context.ts";
 import { jsonParam,jsonObject } from "./database-json.ts";
 import type postgres from "npm:postgres@3.4.7";
 
@@ -29,7 +31,7 @@ async function bodyOf(req: Request) {
   return value as Record<string, unknown>;
 }
 
-export async function handlePriceImport(req: Request, route: string, url: URL, sql: Sql): Promise<Response | null> {
+export async function handlePriceImport(req: Request, route: string, url: URL, sql: Sql, principal?: Principal): Promise<Response | null> {
   try {
     if (route === "/v1/price-import/suppliers" && req.method === "POST") {
       const body = await bodyOf(req);
@@ -165,6 +167,7 @@ export async function handlePriceImport(req: Request, route: string, url: URL, s
       await tx`UPDATE public."SupplierProduct" SET "lastSeenAt"=now(),
         "purchasePrice"=${purchasePrice === undefined ? current.purchasePrice : purchasePrice as number},
         "updatedAt"=now() WHERE "id"=${link[0].id}`;
+      await outbox(tx,organizationId,"catalog.product_changed",{productId,changedFields:[...(price!==undefined?["price"]:[]),...(purchasePrice!==undefined?["purchasePrice"]:[])],actor:principal?.actor||"catalog-hub-price-import"});
       return { id: productId, status: "AUTO_APPLIED", price: price ?? current.basePrice,
         purchasePrice: purchasePrice ?? current.purchasePrice };
     });
