@@ -94,6 +94,13 @@ function main(){
  // Explicit localhost target overrides *any* inherited DATABASE_URL.
  run("npm",["--prefix",hub,"install"],null,{...process.env,DATABASE_URL:localDb});
  run("npm",["--prefix",hub,"run","prisma:push"],null,{...process.env,DATABASE_URL:localDb});
+ // Prisma does not express CHECK constraints or RLS; apply the same additive
+ // migration after creating the isolated schema, including on repeated setup.
+ const integrity=readFileSync(join(hub,"supabase/migrations/20261103082032_catalog_core_orders_and_scoped_keys.sql"),"utf8");
+ const roles="DO $$ BEGIN CREATE ROLE anon NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;\n"+
+   "DO $$ BEGIN CREATE ROLE authenticated NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;\n";
+ run("docker",[...compose,"exec","-T","db","psql","-q","-v","ON_ERROR_STOP=1",
+  "-U","catalog_test","-d","catalog_test"],"BEGIN;\n"+roles+integrity+"\nCOMMIT;");
  const credentials=getCredentials();
  run("docker",[...compose,"exec","-T","db","psql","-v","ON_ERROR_STOP=1",
   "-U","catalog_test","-d","catalog_test"],seedSql(credentials.key));

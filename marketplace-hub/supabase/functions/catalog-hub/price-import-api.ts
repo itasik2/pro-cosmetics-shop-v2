@@ -1,3 +1,4 @@
+import { jsonParam } from "./database-json.ts";
 import type postgres from "npm:postgres@3.4.7";
 
 type Sql = ReturnType<typeof postgres>;
@@ -67,11 +68,11 @@ export async function handlePriceImport(req: Request, route: string, url: URL, s
         AND "organizationId"=${organizationId} AND "isActive"=true`;
       if (!supplier.length) fail("supplier_not_found", 404);
       const id = string(body.id);
-      const rows = id ? await sql`UPDATE public."ImportProfile" SET "name"=${name},"mapping"=${sql.json(body.mapping)},
+      const rows = id ? await sql`UPDATE public."ImportProfile" SET "name"=${name},"mapping"=${jsonParam(sql,body.mapping)},
           "fileType"=${fileType},"updatedAt"=now() WHERE "id"=${id} AND "supplierId"=${supplierId}
           RETURNING "id","supplierId","name","mapping","fileType","updatedAt"`
         : await sql`INSERT INTO public."ImportProfile" ("id","supplierId","name","fileType","mapping","isDefault","createdAt","updatedAt")
-          VALUES (${crypto.randomUUID()},${supplierId},${name},${fileType},${sql.json(body.mapping)},false,now(),now())
+          VALUES (${crypto.randomUUID()},${supplierId},${name},${fileType},${jsonParam(sql,body.mapping)},false,now(),now())
           RETURNING "id","supplierId","name","mapping","fileType","updatedAt"`;
       if (!rows.length) fail("profile_not_found", 404);
       return json(rows[0], id ? 200 : 201);
@@ -110,8 +111,8 @@ export async function handlePriceImport(req: Request, route: string, url: URL, s
         for (const row of rows) {
           await tx`INSERT INTO public."PriceImportRow" ("id","importId","rowNumber","supplierSku","raw","errors","createdAt")
             VALUES (${crypto.randomUUID()},${id},${row.rowNumber},${row.sku},
-            ${tx.json({status:row.status,sourceDate,productId:row.productId||null,changeSetId:row.changeSetId||null})}::jsonb,
-            ${tx.json(row.error ? [String(row.error).slice(0,300)] : [])}::jsonb,now())`;
+            ${jsonParam(tx,{status:row.status,sourceDate,productId:row.productId||null,changeSetId:row.changeSetId||null})}::jsonb,
+            ${jsonParam(tx,row.error ? [String(row.error).slice(0,300)] : [])}::jsonb,now())`;
         }
       });
       return json({id}, 201);
@@ -156,11 +157,11 @@ export async function handlePriceImport(req: Request, route: string, url: URL, s
       const updatedAttributes = { ...source, supplierImport: { ...prior, supplierId, sourceDate,
         fileName, sha256: fileSha256 } };
       await tx`INSERT INTO public."ProductRevision" ("id","productId","reason","snapshot","createdBy","createdAt")
-        VALUES (${crypto.randomUUID()},${productId},'PRICE_IMPORT_AUTO',${tx.json({price:current.basePrice,
+        VALUES (${crypto.randomUUID()},${productId},'PRICE_IMPORT_AUTO',${jsonParam(tx,{price:current.basePrice,
           purchasePrice:current.purchasePrice,attributes:source})}::jsonb,'catalog-hub-price-import',now())`;
       await tx`UPDATE public."Product" SET "basePrice"=${price === undefined ? current.basePrice : price as number},
         "purchasePrice"=${purchasePrice === undefined ? current.purchasePrice : purchasePrice as number},
-        "attributes"=${tx.json(updatedAttributes)}::jsonb,"updatedAt"=now() WHERE "id"=${productId}`;
+        "attributes"=${jsonParam(tx,updatedAttributes)}::jsonb,"updatedAt"=now() WHERE "id"=${productId}`;
       await tx`UPDATE public."SupplierProduct" SET "lastSeenAt"=now(),
         "purchasePrice"=${purchasePrice === undefined ? current.purchasePrice : purchasePrice as number},
         "updatedAt"=now() WHERE "id"=${link[0].id}`;

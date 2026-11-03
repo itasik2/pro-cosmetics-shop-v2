@@ -116,6 +116,30 @@ app.addHook("onRequest", async (request, reply) => {
   }
 });
 
+app.addHook("preValidation", async (request, reply) => {
+  if (!request.url.startsWith("/v1/") || !authConfig.required) return;
+  let organizationId = process.env.CATALOG_HUB_ORGANIZATION_ID?.trim();
+  if (!organizationId) {
+    const organizations = await prisma.organization.findMany({ select: { id: true }, take: 2 });
+    if (organizations.length === 1) organizationId = organizations[0].id;
+  }
+  if (!organizationId) return reply.code(503).send({ error: "catalog_hub_organization_binding_required" });
+  const url = new URL(request.url,"http://localhost");
+  if (url.searchParams.getAll("organizationId").some(id => id !== organizationId)) {
+    return reply.code(403).send({ error: "organization_forbidden" });
+  }
+  const foreign = (value: unknown, depth = 0): boolean => {
+    if (depth > 30) return true;
+    if (!value || typeof value !== "object") return false;
+    return Object.entries(value).some(([name, child]) => name === "organizationId" && child !== organizationId || foreign(child,depth+1));
+  };
+  if (foreign(request.body)) return reply.code(403).send({ error: "organization_forbidden" });
+  request.query = { ...(request.query as Record<string,unknown> || {}), organizationId };
+  if (request.body && typeof request.body === "object" && !Array.isArray(request.body)) {
+    request.body = { ...request.body, organizationId };
+  }
+});
+
 app.addHook("onClose", async () => {
   await prisma.$disconnect();
 });

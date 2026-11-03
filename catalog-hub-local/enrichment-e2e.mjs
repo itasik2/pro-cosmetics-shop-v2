@@ -39,8 +39,7 @@ const job = await action({ action: "create", sku, supplierCode: "TEST-ENRICH", s
 assert.equal(job.status, "PENDING");
 const list = (await request(ai + "/v1/ai/enrichment/jobs?organizationId=" + org, { headers: apiHeaders })).data;
 assert.ok(list.some(item => item.id === job.id));
-const foreign = (await request(ai + "/v1/ai/enrichment/jobs?organizationId=unrelated-org", { headers: apiHeaders })).data;
-assert.equal(foreign.some(item => item.id === job.id), false);
+await request(ai + "/v1/ai/enrichment/jobs?organizationId=unrelated-org", { headers: apiHeaders }, 403);
 const failure = await action({ action: "run", id: job.id }, 400);
 assert.equal(failure.error, "source_ip_blocked");
 const failedJob = (await request(ai + "/v1/ai/enrichment/jobs/" + job.id + "?organizationId=" + org, { headers: apiHeaders })).data;

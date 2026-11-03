@@ -10,6 +10,9 @@ const items = [
   ["/catalog", "Каталог", "▦"],
   ["/categories", "Категории", "▤"],
   ["/import", "Импорт", "⇩"],
+  ["/inventory", "Склад", "▣"],
+  ["/orders", "Заказы", "▧"],
+  ["/channels", "Каналы", "⇆"],
   ["/ai", "AI", "✦"],
   ["/media", "Медиа", "◫"],
   ["/changes", "Изменения", "⇄"],
@@ -17,7 +20,7 @@ const items = [
   ["/settings", "Настройки", "⚙"],
 ] as const;
 
-export function Sidebar() {
+export function Sidebar({ organizationName, organizationId }: { organizationName: string; organizationId: string }) {
   const path = usePathname();
   const [navigatingTo, setNavigatingTo] = useState<string | null>(null);
   useEffect(() => setNavigatingTo(null), [path]);
@@ -54,8 +57,8 @@ export function Sidebar() {
 
       <div className="sidebar-foot">
         <span className="status-dot" />
-        ProCosmetics
-        <small>org_procosmetics</small>
+        {organizationName}
+        <small>{organizationId || "Организация не настроена"}</small>
         <LogoutButton />
       </div>
     </aside>

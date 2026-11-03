@@ -5,9 +5,15 @@ import { handleCategories } from "./categories-api.ts";
 import { handleRepricing } from "./repricing-api.ts";
 import postgres from "npm:postgres@3.4.7";
 import * as jose from "npm:jose@6.1.0";
+import { assertScope, legacyOrganization, RequestError, scopeRequest, type Principal } from "./request-context.ts";
+import { handleOrders } from "./orders-api.ts";
+import { handleStock } from "./stock-api.ts";
+import { handleChannels } from "./channels-api.ts";
+import { handleSync } from "./sync-api.ts";
 
 const databaseUrl = Deno.env.get("SUPABASE_DB_URL")!;
-const sql = postgres(databaseUrl, { prepare: false, max: 1 });
+const sql = postgres(databaseUrl, { prepare: false,
+  max: Math.max(1,Math.min(10,Number(Deno.env.get("CATALOG_HUB_DB_POOL_MAX")) || 1)) });
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -47,7 +53,7 @@ const VERCEL_PROJECT_ID = "prj_wOZAjfZrBuo3AK5mHW9FSdD7VAf1";
 const VERCEL_PROJECT_NAME = "catalog-hub-web";
 // Match the JWKS URL to the verified issuer mode (team or global).
 // Never fetch a URL supplied by a caller: only these two issuers are trusted.
-const VERCEL_JWKS_BY_ISSUER = new Map(
+const VERCEL_JWKS_BY_ISSUER = new Map<string, ReturnType<typeof jose.createRemoteJWKSet>>(
   VERCEL_OIDC_ISSUERS.map((issuer) => [
     issuer,
     jose.createRemoteJWKSet(new URL(issuer + "/.well-known/jwks")),
@@ -99,21 +105,38 @@ async function authorizeApiKey(req: Request) {
 
   const hash = await sha256Hex(value);
   const rows = await sql<
-    { id: string }[]
-  >`SELECT "id" FROM public."CatalogApiKey"
+    { id: string; organizationId: string | null; scopes: unknown; expiresAt: string | null }[]
+  >`SELECT "id", to_jsonb(k)->>'organizationId' AS "organizationId",
+      to_jsonb(k)->'scopes' AS "scopes", to_jsonb(k)->>'expiresAt' AS "expiresAt"
+      FROM public."CatalogApiKey" k
       WHERE "keyHash" = ${hash} AND "isActive" = true
       LIMIT 1`;
 
-  if (!rows.length) return false;
+  if (!rows.length) return null;
+  const key = rows[0];
+  if (key.expiresAt && (!Number.isFinite(Date.parse(key.expiresAt)) || Date.parse(key.expiresAt) <= Date.now())) return null;
+  const organizationId = key.organizationId || await singleOrganization();
+  if (!organizationId) return null;
+  const scopes = Array.isArray(key.scopes) ? key.scopes.filter((s): s is string => typeof s === "string")
+    : key.organizationId ? [] : ["*"];
 
   void sql`UPDATE public."CatalogApiKey"
            SET "lastUsedAt" = now()
            WHERE "id" = ${rows[0].id}`.catch(() => {});
-  return true;
+  return { actor: "key:" + key.id, organizationId, scopes } satisfies Principal;
 }
 
-async function authorize(req: Request) {
-  if (await authorizeVercelOidc(req)) return true;
+async function singleOrganization() {
+  const rows = await sql<{ id: string }[]>`SELECT "id" FROM public."Organization" ORDER BY "id" LIMIT 2`;
+  return legacyOrganization(rows.map(row => row.id));
+}
+
+async function authorize(req: Request): Promise<Principal | null | false> {
+  if (await authorizeVercelOidc(req)) {
+    const configured = Deno.env.get("CATALOG_HUB_AUTH_ORGANIZATION_ID")?.trim();
+    const organizationId = configured || await singleOrganization();
+    return organizationId ? { actor: "web:catalog-hub", organizationId, scopes: ["*"] } : null;
+  }
   return authorizeApiKey(req);
 }
 
@@ -282,6 +305,7 @@ async function createProduct(body: any) {
   const price = optionalNonNegativeInt(card.price);
   const stock =
     card.stock === undefined ? null : optionalNonNegativeInt(card.stock);
+  if (stock !== null && stock !== 0) throw new Error("stock_movement_required");
 
   if (stock !== null && !warehouseId) {
     throw new Error("warehouse_required_for_stock");
@@ -666,12 +690,16 @@ async function listChangeSetsForUi(url: URL) {
 
 async function listProductOptions(url: URL) {
   const organizationId = requiredOrganizationId(url);
+  const query = (url.searchParams.get("q") || "").slice(0,200);
+  const pattern = "%" + query + "%";
+  const limit = Math.max(1,Math.min(500,Number(url.searchParams.get("limit")) || 500));
   return sql`
     SELECT "id", "sku", "title", "purchasePrice", "basePrice" AS "price"
     FROM public."Product"
     WHERE "organizationId" = ${organizationId}
+      AND (${query}='' OR "sku" ILIKE ${pattern} OR "title" ILIKE ${pattern})
     ORDER BY "sku" ASC
-    LIMIT 500
+    LIMIT ${limit}
   `;
 }
 
@@ -803,7 +831,9 @@ Deno.serve(async (req: Request) => {
       return json({
         ok: true,
         service: "catalog-hub",
-        version: "0.9.1-edge",
+        version: "0.10.0-edge",
+        apiVersion: 1,
+        capabilities: ["organization-scoped-auth", "api-scopes", "stock-movements-v1", "order-events-v1", "channels-v1", "outbox-v1"],
         mode: "supabase-edge",
       });
     }
@@ -823,8 +853,16 @@ Deno.serve(async (req: Request) => {
       return json({ error: "not_found" }, 404);
     }
 
-    if (!(await authorize(req))) {
+    const principal = await authorize(req);
+    if (!principal) {
       return json({ error: "unauthorized" }, 401);
+    }
+    assertScope(principal, route, req.method);
+    req = await scopeRequest(req, url, principal);
+
+    for (const handler of [handleOrders, handleStock, handleChannels, handleSync]) {
+      const reply = await handler(req, route, url, sql, principal);
+      if (reply) return reply;
     }
 
     const repricingResponse = await handleRepricing(req, route, url, sql);
@@ -833,7 +871,7 @@ Deno.serve(async (req: Request) => {
     const categoriesReply = await handleCategories(req, route, url, sql);
     if (categoriesReply) return categoriesReply;
 
-    const inventoryReply = await handleInventory(req, route, url, sql);
+    const inventoryReply = await handleInventory(req, route, url, sql, principal);
     if (inventoryReply) return inventoryReply;
 
     const cardEditor = await handleCardEditor(req, route, url, sql);
@@ -953,9 +991,13 @@ Deno.serve(async (req: Request) => {
 
     return json({ error: "not_found" }, 404);
   } catch (error) {
+    if (error instanceof RequestError) return json({ error: error.message }, error.status);
+    const code = (error as { code?: string }).code;
+    if (code === "23505") return json({ error: "record_conflict" }, 409);
+    if (code === "42P01" || code === "42703") return json({ error: "core_migration_required" }, 503);
     console.error("catalog_hub_edge_error", error);
     return json(
-      { error: String((error as Error)?.message || error || "internal_error") },
+      { error: "internal_error" },
       500,
     );
   }

@@ -26,9 +26,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: catalog-hub-web/package.json
+          cache-dependency-path: catalog-hub-web/package-lock.json
       - name: Install
-        run: npm install
+        run: npm ci
       - name: Check isolated database scripts syntax
         run: |
           node --check ../catalog-hub-local/setup.mjs

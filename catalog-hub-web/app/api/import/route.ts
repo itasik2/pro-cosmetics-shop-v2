@@ -12,6 +12,7 @@ import {parsePriceRule,priceImportItems,type PriceRule} from "@/lib/import-prici
 import {defaultImportMapping,isJeudermPriceList} from "@/lib/import-price-preset";
 import {dateFromFileName,previousAppliedDate} from "@/lib/import-date";
 import {decideImportPrice,missingSupplierPositions,validSourceDate,type ImportPolicyRow} from "@/lib/import-policy";
+import {titleWithoutPackage} from "@/lib/supplier-package";
 
 export const dynamic="force-dynamic";
 export const runtime="nodejs";
@@ -115,6 +116,7 @@ async function prepare(request:NextRequest){
  if(supplierId&&supplierId.length>128)throw new Error("invalid_supplier");
  const effectiveMapping=priceRule.mode==="PRICE_AS_IS"?mapping:{...mapping,price:undefined};
  const items=priceImportItems(mapImport(table,effectiveMapping),priceRule);
+ for(const item of items)if(item.volume)item.title=titleWithoutPackage(item.title,item.volume);
  // PDF booklets have two unlabeled commercial amounts. Require an explicit
  // retail-price column choice; never create an unpriced or guessed-price card.
  if(table.format==="PDF"){
