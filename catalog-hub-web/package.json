@@ -17,7 +17,8 @@
     "testdb:remote": "node ../catalog-hub-local/switch.mjs remote",
     "testdb:stop": "docker compose -f ../catalog-hub-local/compose.yaml down",
     "testdb:status": "docker compose -f ../catalog-hub-local/compose.yaml ps",
-    "testdb:import-e2e": "node ../catalog-hub-local/import-e2e.mjs"
+    "testdb:import-e2e": "node ../catalog-hub-local/import-e2e.mjs",
+    "testdb:core-e2e": "node ../catalog-hub-local/core-e2e.mjs"
   },
   "dependencies": {
     "cheerio": "1.2.0",

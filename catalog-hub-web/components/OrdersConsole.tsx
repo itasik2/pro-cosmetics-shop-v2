@@ -6,14 +6,14 @@ import { coreMessage, coreRequest, type CoreConnection, type CoreOrder, type Cor
 const statuses:Record<string,string>={RESERVED:"В резерве",CANCELED:"Отменён",SHIPPED:"Отгружен",PARTIALLY_RETURNED:"Частичный возврат",RETURNED:"Возвращён"};
 type Preview={canReserve:boolean;checks:Array<{productId:string;quantity:number;available:number;canReserve:boolean}>};
 
-export function OrdersConsole({ orders,connections,products,warehouses }: {
-  orders:CoreOrder[];connections:CoreConnection[];products:CoreProduct[];warehouses:CoreWarehouse[];
+export function OrdersConsole({ orders,connections,products,warehouses,defaultWarehouseId }: {
+  orders:CoreOrder[];connections:CoreConnection[];products:CoreProduct[];warehouses:CoreWarehouse[];defaultWarehouseId?:string;
 }) {
   const router=useRouter();
   const [connectionId,setConnection]=useState(connections.find(c=>c.adapter==="OWN_STORE")?.id||"");
   const [externalOrderId,setExternalId]=useState("");
   const [productId,setProduct]=useState("");
-  const [warehouseId,setWarehouse]=useState(warehouses[0]?.id||"");
+  const [warehouseId,setWarehouse]=useState(warehouses.find(w=>w.id===defaultWarehouseId)?.id || warehouses[0]?.id||"");
   const [quantity,setQuantity]=useState("1");
   const [preview,setPreview]=useState<Preview|null>(null);
   const [confirmed,setConfirmed]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(""),[message,setMessage]=useState("");

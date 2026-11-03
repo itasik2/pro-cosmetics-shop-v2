@@ -397,3 +397,7 @@ ALTER TABLE public."OutboxEvent" ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public."ChannelConnection",public."ChannelOffer",public."ChannelWarehouseMapping",
   public."ChannelCategoryMapping",public."CoreOrder",public."CoreOrderItem",public."StockMovement",
   public."CoreMutation",public."InboxEvent",public."OutboxEvent" FROM PUBLIC,anon,authenticated;
+
+-- Fail the migration instead of silently carrying invalid legacy balances.
+-- Validation reads existing rows and never adjusts their quantities.
+ALTER TABLE public."Inventory" VALIDATE CONSTRAINT "inventory_balance_nonnegative";

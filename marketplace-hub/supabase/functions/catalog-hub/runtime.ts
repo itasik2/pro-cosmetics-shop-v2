@@ -257,7 +257,7 @@ async function serializeProduct(product: ProductRow & { __inventory?: InventoryR
       stock,
       reserved,
       safetyStock,
-      available: Math.max(0, stock - reserved - safetyStock),
+      available: inventory.reduce((sum,item)=>sum+Math.max(0,item.onHand-item.reserved-item.safetyStock),0),
     },
     createdAt: new Date(product.createdAt).toISOString(),
     updatedAt: new Date(product.updatedAt).toISOString(),
@@ -822,7 +822,7 @@ async function listProducts(url: URL) {
   };
 }
 
-Deno.serve(async (req: Request) => {
+async function handleRequest(req: Request, requestId:string):Promise<Response> {
   const route = routePath(req);
   const url = new URL(req.url);
 
@@ -845,8 +845,17 @@ Deno.serve(async (req: Request) => {
         FROM public."CatalogApiKey"
         WHERE "isActive" = true
       `;
-      const ready = ok === 1 && keys > 0;
-      return json({ ready, database: ok === 1, authConfigured: keys > 0 }, ready ? 200 : 503);
+      const [schema]=await sql`SELECT
+        NOT EXISTS (SELECT 1 FROM unnest(ARRAY['ChannelConnection','ChannelOffer','ChannelWarehouseMapping','ChannelCategoryMapping',
+          'CoreOrder','CoreOrderItem','CoreMutation','StockMovement','InboxEvent','OutboxEvent']) AS t(name)
+          WHERE to_regclass('public."'||t.name||'"') IS NULL) AS "tablesReady",
+        EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='public."Inventory"'::regclass AND attname='revision' AND NOT attisdropped) AS "revisionReady",
+        EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public."Inventory"'::regclass
+          AND conname='inventory_balance_nonnegative' AND convalidated) AS "stockConstraintValidated"`;
+      const schemaReady=Boolean(schema.tablesReady&&schema.revisionReady&&schema.stockConstraintValidated);
+      const ready = ok === 1 && keys > 0 && schemaReady;
+      return json({ ready, database: ok === 1, authConfigured: keys > 0,schemaReady,
+        apiVersion:1,...(!schemaReady?{requiredMigration:"20261103082032_catalog_core_orders_and_scoped_keys"}:{}) }, ready ? 200 : 503);
     }
 
     if (!route.startsWith("/v1/")) {
@@ -995,10 +1004,18 @@ Deno.serve(async (req: Request) => {
     const code = (error as { code?: string }).code;
     if (code === "23505") return json({ error: "record_conflict" }, 409);
     if (code === "42P01" || code === "42703") return json({ error: "core_migration_required" }, 503);
-    console.error("catalog_hub_edge_error", error);
+    console.error("catalog_hub_edge_error", {requestId,error});
     return json(
       { error: "internal_error" },
       500,
     );
   }
+}
+
+Deno.serve(async(req:Request)=>{
+  const supplied=req.headers.get("x-request-id") || "";
+  const requestId=/^[A-Za-z0-9_.:-]{8,64}$/.test(supplied)?supplied:crypto.randomUUID();
+  const reply=await handleRequest(req,requestId);
+  reply.headers.set("x-request-id",requestId);
+  return reply;
 });

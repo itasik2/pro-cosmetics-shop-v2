@@ -7,7 +7,7 @@ type Offer={productId:string;sellerSku:string;price:number|null;channelBuffer:nu
 type Feed={xml:string;count:number;checksum:string;deliveryStatus:string};
 const modes:Record<string,string>={SHADOW:"Сравнение",ACTIVE:"Включён",PAUSED:"Приостановлен"};
 
-export function ChannelsConsole({connections,products,warehouses}:{connections:CoreConnection[];products:CoreProduct[];warehouses:CoreWarehouse[]}){
+export function ChannelsConsole({connections,products,warehouses,defaultWarehouseId}:{connections:CoreConnection[];products:CoreProduct[];warehouses:CoreWarehouse[];defaultWarehouseId?:string}){
   const router=useRouter();
   const [selected,setSelected]=useState(connections[0]?.id||"");
   const [productId,setProduct]=useState("");
@@ -86,7 +86,7 @@ export function ChannelsConsole({connections,products,warehouses}:{connections:C
         <button className="button primary" disabled={!productId||offerLoading} type="submit">{offerLoading?"Загрузка…":"Сохранить предложение"}</button>
       </fieldset></form>
       <form className="panel" onSubmit={saveMappings} key={current.id+":"+current.version}><h2>Склад и параметры канала</h2><fieldset className="core-form single" disabled={busy}>
-        <label>Склад Catalog Hub<select className="input" name="warehouseId" required>{warehouses.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</select></label>
+        <label>Склад Catalog Hub<select className="input" name="warehouseId" defaultValue={defaultWarehouseId} required>{warehouses.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</select></label>
         <label>Код склада в канале<input className="input" name="externalId" required maxLength={128} placeholder={current.adapter==="KASPI_XML"?"Например, PP1":"Код склада магазина"} /></label>
         {current.adapter==="KASPI_XML"&&<><label>Компания<input className="input" name="company" required defaultValue={current.settings?.company||""} maxLength={200} /></label>
           <label>Merchant ID<input className="input" name="merchantId" required defaultValue={current.settings?.merchantId||""} maxLength={128} /></label>

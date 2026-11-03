@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { available, canonical, nextBalance, orderItems, retryDelay } from "../../marketplace-hub/supabase/functions/catalog-hub/core-domain";
 import { kaspiFeed, validateManifest } from "../../marketplace-hub/supabase/functions/catalog-hub/channel-feed";
+import {assertFinancialPrice} from "../../marketplace-hub/supabase/functions/catalog-hub/channel-pricing";
 
 test("channel buffer and safety stock protect availability without changing physical stock", () => {
   const balance = { onHand: 10, reserved: 3, safetyStock: 2, revision: 0 };
@@ -48,4 +49,12 @@ test("Kaspi export escapes XML, uses seller SKU and never includes purchase pric
   const later = await kaspiFeed("Тест & Co", "123", [{ sellerSku: "SELLER1", title: 'Товар <50>', brand: 'A&B',
     price: 200, availabilities: [{ storeId: "PP1", stockCount: 0 }] }], ["SELLER1"]);
   assert.equal(later.checksum, result.checksum);
+});
+test("channel writes and feeds enforce commission, shipping, target profit and margin",()=>{
+  const rule={minPrice:150,maxPrice:400,shippingCost:20,targetProfit:10,feePercent:10,minMarginPercent:20};
+  assert.equal(assertFinancialPrice(186,100,rule),186);
+  assert.throws(()=>assertFinancialPrice(185,100,rule),/offer_outside_financial_bounds/);
+  assert.throws(()=>assertFinancialPrice(401,100,rule),/offer_outside_financial_bounds/);
+  assert.throws(()=>assertFinancialPrice(200,null,rule),/cost_or_price_floor_invalid/);
+  assert.throws(()=>assertFinancialPrice(200,100,{...rule,feePercent:90}),/cost_or_price_floor_invalid/);
 });

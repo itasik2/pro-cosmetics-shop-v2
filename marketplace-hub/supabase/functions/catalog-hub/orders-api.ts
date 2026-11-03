@@ -37,14 +37,16 @@ export async function handleOrders(req: Request, route: string, url: URL, sql: S
   if (!route.startsWith("/v1/orders")) return null;
   const org = principal.organizationId;
   if (route === "/v1/orders" && req.method === "GET") {
-    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit")) || 50));
+    const limit = Math.min(100, Math.max(1, Math.trunc(Number(url.searchParams.get("limit"))) || 50));
     const cursor = url.searchParams.get("cursor") || "";
     const rows = await sql`SELECT o.*, c."name" AS "channelName",
       COALESCE((SELECT json_agg(json_build_object('productId',i."productId",'sku',p."sku",'warehouseId',i."warehouseId",
         'quantity',i."quantity",'returned',i."returned")) FROM public."CoreOrderItem" i JOIN public."Product" p ON p."id"=i."productId"
         WHERE i."organizationId"=o."organizationId" AND i."orderId"=o."id"),'[]'::json) AS items
       FROM public."CoreOrder" o JOIN public."ChannelConnection" c ON c."id"=o."connectionId" AND c."organizationId"=o."organizationId"
-      WHERE o."organizationId"=${org} AND (${cursor}='' OR o."id"<${cursor}) ORDER BY o."id" DESC LIMIT ${limit + 1}`;
+      WHERE o."organizationId"=${org}
+        AND (${cursor}='' OR (o."createdAt",o."id")<(SELECT "createdAt","id" FROM public."CoreOrder" WHERE "id"=${cursor} AND "organizationId"=${org}))
+      ORDER BY o."createdAt" DESC,o."id" DESC LIMIT ${limit + 1}`;
     const items = rows.slice(0, limit);
     return json({ items, nextCursor: rows.length > limit ? items.at(-1)?.id : null });
   }
@@ -89,6 +91,7 @@ export async function handleOrders(req: Request, route: string, url: URL, sql: S
       }
       let [order] = await tx`SELECT * FROM public."CoreOrder" WHERE "organizationId"=${org} AND "connectionId"=${connectionId}
         AND "externalOrderId"=${externalOrderId} FOR UPDATE`;
+      let changed=false;
       if (eventType === "CREATED") {
         const items = await resolveItems(tx, org, connectionId, body.items), itemHash = await digest(items);
         if (order) {
@@ -107,6 +110,7 @@ export async function handleOrders(req: Request, route: string, url: URL, sql: S
               VALUES (${crypto.randomUUID()},${org},${id},${item.productId},${item.warehouseId},${item.quantity})`;
           }
           [order] = await tx`SELECT * FROM public."CoreOrder" WHERE "id"=${id} AND "organizationId"=${org}`;
+          changed=true;
         }
       } else {
         if (!order) throw new RequestError("order_not_found", 404);
@@ -144,12 +148,13 @@ export async function handleOrders(req: Request, route: string, url: URL, sql: S
           const status = eventType === "RETURNED" ? remaining.count ? "PARTIALLY_RETURNED" : "RETURNED" : eventType;
           await tx`UPDATE public."CoreOrder" SET "status"=${status},"version"="version"+1,"updatedAt"=now()
             WHERE "id"=${order.id} AND "organizationId"=${org}`;
+          changed=true;
         }
       }
       const result = await orderRecord(tx, org, order.id);
       await tx`INSERT INTO public."InboxEvent" ("id","organizationId","connectionId","externalEventId","eventType","payloadHash","result")
         VALUES (${crypto.randomUUID()},${org},${connectionId},${eventId},${eventType},${hash},${tx.json(result)})`;
-      await outbox(tx, org, "order.changed", { id: result.id, connectionId, externalOrderId, status: result.status, version: result.version });
+      if(changed)await outbox(tx, org, "order.changed", { id: result.id, connectionId, externalOrderId, status: result.status, version: result.version });
       return result;
     });
     return json(result, 200);

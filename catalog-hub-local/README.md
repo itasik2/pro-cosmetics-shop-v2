@@ -21,3 +21,14 @@ localhost test database**. It never links to or migrates the real Supabase proje
 
 Do not execute `docker compose down -v` unless you intentionally want to
 delete all test records. Run `docker compose down` to stop without data loss.
+
+
+## Проверка складского ядра
+
+После `testdb:setup` можно выполнить из `catalog-hub-web`:
+
+```bash
+npm run testdb:core-e2e
+```
+
+Используются вымышленные товары и вторая тестовая организация. Проверяются конкурентный резерв последней единицы, повторные события, отгрузка, частичный возврат, перемещение, ревизии, финансовый пол, полнота XML, RLS и outbox lease. Проверка запрещает удалённый API и не обращается к рабочим маркетплейсам. Docker/PostgreSQL CI остаётся обязательным для многосессионной конкуренции; PGlite не заменяет его.

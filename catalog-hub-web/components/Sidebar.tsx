@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { LogoutButton } from "@/components/LogoutButton";
 
@@ -23,7 +23,13 @@ const items = [
 export function Sidebar({ organizationName, organizationId }: { organizationName: string; organizationId: string }) {
   const path = usePathname();
   const [navigatingTo, setNavigatingTo] = useState<string | null>(null);
+  const nav=useRef<HTMLElement|null>(null);
   useEffect(() => setNavigatingTo(null), [path]);
+  useEffect(()=>{
+    if(!window.matchMedia("(max-width:760px)").matches)return;
+    const container=nav.current,active=container?.querySelector<HTMLElement>('[aria-current="page"]');
+    if(container&&active)container.scrollBy({left:active.getBoundingClientRect().left-container.getBoundingClientRect().left-(container.clientWidth-active.clientWidth)/2,behavior:"instant"});
+  },[path]);
 
   return (
     <aside className="sidebar">
@@ -35,7 +41,7 @@ export function Sidebar({ organizationName, organizationId }: { organizationName
         </div>
       </div>
 
-      <nav>
+      <nav ref={nav}>
         {items.map(([href, label, icon]) => {
           const active = href === "/" ? path === "/" : path.startsWith(href);
           return (

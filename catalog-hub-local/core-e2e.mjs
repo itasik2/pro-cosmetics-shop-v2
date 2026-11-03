@@ -19,6 +19,21 @@ export function coreFixtures(keyB, readOnlyKey) {
     INSERT INTO public."Warehouse" ("id","organizationId","code","name","updatedAt") VALUES
       ('wh_core_second','org_procosmetics','CORE-2','Synthetic second warehouse',now()),
       ('wh_core_b','org_core_b','CORE-B','Synthetic B warehouse',now()) ON CONFLICT ("id") DO NOTHING;
+    INSERT INTO public."Product" ("id","organizationId","sku","title","purchasePrice","basePrice","updatedAt")
+      VALUES ('core-safety-product','org_procosmetics','CORE-SAFETY','Synthetic warehouse safety stock',100,200,now()) ON CONFLICT ("id") DO NOTHING;
+    INSERT INTO public."Inventory" ("id","productId","warehouseId","onHand","reserved","safetyStock","updatedAt") VALUES
+      ('core-safety-a','core-safety-product','wh_pav_01',0,0,5,now()),
+      ('core-safety-b','core-safety-product','wh_core_second',5,0,0,now()) ON CONFLICT ("id") DO NOTHING;
+    DO $guard$ DECLARE relation text; BEGIN
+      FOREACH relation IN ARRAY ARRAY['ChannelConnection','ChannelOffer','ChannelWarehouseMapping','ChannelCategoryMapping',
+        'CoreOrder','CoreOrderItem','StockMovement','CoreMutation','InboxEvent','OutboxEvent'] LOOP
+        IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid=format('public.%I',relation)::regclass)
+          OR has_table_privilege('anon',format('public.%I',relation),'SELECT,INSERT,UPDATE,DELETE')
+          OR has_table_privilege('authenticated',format('public.%I',relation),'SELECT,INSERT,UPDATE,DELETE') THEN
+          RAISE EXCEPTION 'Unsafe Data API access: %',relation;
+        END IF;
+      END LOOP;
+    END $guard$;
   `;
 }
 
@@ -29,11 +44,11 @@ export async function runCoreChecks({ baseUrl = "http://127.0.0.1:8000", key, ke
   let checks = 0;
   const suffix = randomUUID().slice(0, 8);
   async function api(path, { body, credential = key, idempotencyKey, method = body ? "POST" : "GET" } = {}) {
-    const response = await fetch(baseUrl + path, { method, headers: {
+    const response = await fetch(baseUrl + path, { method, signal:AbortSignal.timeout(15000), headers: {
       "x-catalog-hub-key": credential, ...(body ? { "content-type": "application/json", "idempotency-key": idempotencyKey || randomUUID() } : {}),
     }, ...(body ? { body: JSON.stringify(body) } : {}) });
     const data = await response.json();
-    return { status: response.status, data };
+    return { status: response.status, data, requestId:response.headers.get("x-request-id") };
   }
   function expect(reply, status, message) {
     assert.equal(reply.status, status, message + ": " + JSON.stringify(reply.data)); checks++;
@@ -59,8 +74,13 @@ export async function runCoreChecks({ baseUrl = "http://127.0.0.1:8000", key, ke
     return api("/v1/inventory/movements", { idempotencyKey, body: { productId: id, warehouseId: "wh_pav_01", kind, quantity,
       expectedRevision: before.revision, reason: "Synthetic acceptance test", ...extra } });
   }
-  const health = expect(await api("/health"), 200, "health contract");
+  const healthReply=await api("/health");
+  const health = expect(healthReply, 200, "health contract");
   assert.equal(health.apiVersion, 1);
+  assert.match(healthReply.requestId,/^[a-f0-9-]{36}$/);checks++;
+  assert.equal(expect(await api("/ready"),200,"schema, constraint and API readiness").schemaReady,true);checks++;
+  const safeAcrossWarehouses=expect(await api("/v1/catalog/products/core-safety-product"),200,"availability is clipped separately per warehouse");
+  assert.equal(safeAcrossWarehouses.totals.available,5);checks++;
   expect(await api("/v1/catalog/products?organizationId=org_core_b"), 403, "cross-tenant query rejected");
   expect(await api("/v1/catalog/products?organizationId=org_procosmetics&organizationId=org_core_b"), 403, "duplicate tenant query rejected");
   expect(await api("/v1/catalog/products", { credential: "invalid-test-key" }), 401, "invalid credential rejected");
@@ -71,6 +91,9 @@ export async function runCoreChecks({ baseUrl = "http://127.0.0.1:8000", key, ke
   expect(await movement(alien.id, "RECEIVE", 1), 404, "foreign product stock rejected");
 
   const ledger = await product("ledger");
+  const warehouseKey=randomUUID(),warehouseBody={name:"Synthetic added warehouse",code:"ADDED-"+suffix};
+  const newWarehouse=expect(await api("/v1/inventory/warehouses",{body:warehouseBody,idempotencyKey:warehouseKey}),201,"create warehouse through API");
+  assert.equal(expect(await api("/v1/inventory/warehouses",{body:warehouseBody,idempotencyKey:warehouseKey}),201,"warehouse creation replay").id,newWarehouse.id);checks++;
   expect(await movement(ledger.id, "RECEIVE", 10), 201, "receive ten");
   expect(await movement(ledger.id, "WRITE_OFF", 2), 201, "write off two");
   assert.equal((await stock(ledger.id)).onHand, 8);
@@ -117,6 +140,17 @@ export async function runCoreChecks({ baseUrl = "http://127.0.0.1:8000", key, ke
   expect(await api("/v1/orders/events", { body: returned }), 200, "duplicate return");
   assert.equal((await stock(last.id)).onHand, 1); checks++;
 
+  const partial=await product("partial-return");
+  expect(await movement(partial.id,"RECEIVE",3),201,"receive partial-return stock");
+  const partialId="partial-"+suffix;
+  expect(await api("/v1/orders/events",{body:event(connectionA,partialId,"CREATED",[{productId:partial.id,warehouseId:"wh_pav_01",quantity:3}])}),200,"reserve three units");
+  expect(await api("/v1/orders/events",{body:event(connectionA,partialId,"SHIPPED")}),200,"ship three units");
+  expect(await api("/v1/orders/events",{body:event(connectionA,partialId,"RETURNED",[{productId:partial.id,warehouseId:"wh_pav_01",quantity:1}])}),200,"partial return one");
+  assert.equal((await stock(partial.id)).onHand,1);checks++;
+  expect(await api("/v1/orders/events",{body:event(connectionA,partialId,"RETURNED",[{productId:partial.id,warehouseId:"wh_pav_01",quantity:3}])}),409,"over-return rejected");
+  expect(await api("/v1/orders/events",{body:event(connectionA,partialId,"RETURNED",[{productId:partial.id,warehouseId:"wh_pav_01",quantity:2}])}),200,"return remaining two");
+  assert.equal((await stock(partial.id)).onHand,3);checks++;
+
   const shortage = await product("shortage");
   const atomic = event(connectionA, "atomic-" + suffix, "CREATED", [
     { productId: ledger.id, warehouseId: "wh_pav_01", quantity: 1 },
@@ -136,11 +170,20 @@ export async function runCoreChecks({ baseUrl = "http://127.0.0.1:8000", key, ke
   expect(await api(`/v1/channels/${feed.id}/offers`, { body: { productId: ledger.id, sellerSku: "FEED1", expectedVersion: 0 } }), 200, "first feed offer");
   expect(await api(`/v1/channels/${feed.id}/feed-preview`), 409, "incomplete XML blocked");
   expect(await api(`/v1/channels/${feed.id}/offers`, { body: { productId: last.id, sellerSku: "FEED2", expectedVersion: 0 } }), 200, "second feed offer");
+  expect(await api(`/v1/channels/${feed.id}/feed-preview`),409,"publication preview requires financial policy");
+  const policy=(productId,minPrice=150)=>({productId,channel:"KASPI",strategy:"UNDERCUT",mode:"DRY_RUN",enabled:false,emergencyStop:true,
+    currentOfferPrice:200,minPrice,maxPrice:500,minMarginPercent:10,feePercent:10,shippingCost:0,targetProfit:0,
+    step:10,adjustment:10,maxChangePercent:5,maxAgeMinutes:60,cooldownMinutes:60});
+  expect(await api("/v1/repricing/policies",{body:policy(ledger.id)}),201,"create margin policy for feed product");
+  expect(await api("/v1/repricing/policies",{body:policy(last.id)}),201,"create second margin policy");
+  expect(await api(`/v1/channels/${feed.id}/offers`,{body:{productId:ledger.id,sellerSku:"FEED1",price:140,expectedVersion:1}}),409,"manual offer cannot bypass financial floor");
   const fullFeed = expect(await api(`/v1/channels/${feed.id}/feed-preview`), 200, "complete XML preview");
   assert.equal(fullFeed.count, 2);
   assert.equal(fullFeed.deliveryStatus, "NOT_PUBLISHED");
   assert.match(fullFeed.xml, /Synthetic &amp; Company/);
   assert.doesNotMatch(fullFeed.xml, /purchasePrice|onHand|organizationId/); checks++;
+  expect(await api("/v1/repricing/policies",{body:policy(ledger.id,210)}),201,"raise floor after offer was saved");
+  expect(await api(`/v1/channels/${feed.id}/feed-preview`),409,"feed rechecks the current financial policy");
 
   const claimed = expect(await api("/v1/sync/outbox/claim", { body: { limit: 2 } }), 200, "claim durable outbox");
   assert.equal(claimed.events.length, 2);

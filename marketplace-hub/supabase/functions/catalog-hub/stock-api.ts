@@ -1,13 +1,22 @@
 import { available, integer, textField } from "./core-domain.ts";
-import { balance, changeBalance, lockProducts, once, type Sql } from "./core-store.ts";
+import { balance, changeBalance, lockProducts, once, outbox, type Sql } from "./core-store.ts";
 import { RequestError, type Principal } from "./request-context.ts";
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status,
   headers: { "content-type": "application/json", "cache-control": "no-store" } });
 
 export async function handleStock(req: Request, route: string, url: URL, sql: Sql, principal: Principal): Promise<Response | null> {
   const org = principal.organizationId;
+  if(route==="/v1/inventory/warehouses"&&req.method==="POST"){
+    const body=await req.json(),name=textField(body.name,"warehouse_name"),code=textField(body.code,"warehouse_code",32).toLocaleUpperCase("ru-RU");
+    if(!/^[\p{L}\p{N}][\p{L}\p{N}_-]{0,31}$/u.test(code))throw new RequestError("invalid_warehouse_code");
+    return json(await once(sql,req,principal,route,body,async tx=>{
+      const [created]=await tx`INSERT INTO public."Warehouse" ("id","organizationId","code","name","isActive","updatedAt")
+        VALUES (${crypto.randomUUID()},${org},${code},${name},true,now()) RETURNING "id","code","name","isActive"`;
+      await outbox(tx,org,"warehouse.created",{id:created.id,code,actor:principal.actor});return created;
+    }),201);
+  }
   if (route === "/v1/inventory/balances" && req.method === "GET") {
-    const limit = Math.max(1, Math.min(100, Number(url.searchParams.get("limit")) || 50));
+    const limit = Math.max(1, Math.min(100, Math.trunc(Number(url.searchParams.get("limit"))) || 50));
     const cursor = url.searchParams.get("cursor") || "";
     const productId = url.searchParams.get("productId") || "";
     const rows = await sql`SELECT i.*,p."sku",p."title",w."name" AS "warehouseName" FROM public."Inventory" i
@@ -20,12 +29,13 @@ export async function handleStock(req: Request, route: string, url: URL, sql: Sq
   if (route !== "/v1/inventory/movements") return null;
   if (req.method === "GET") {
     const productId = url.searchParams.get("productId") || "", cursor = url.searchParams.get("cursor") || "";
-    const limit = Math.max(1, Math.min(100, Number(url.searchParams.get("limit")) || 50));
+    const limit = Math.max(1, Math.min(100, Math.trunc(Number(url.searchParams.get("limit"))) || 50));
     const rows = await sql`SELECT m.*,p."sku",w."name" AS "warehouseName" FROM public."StockMovement" m
       JOIN public."Product" p ON p."id"=m."productId" AND p."organizationId"=m."organizationId"
       JOIN public."Warehouse" w ON w."id"=m."warehouseId" AND w."organizationId"=m."organizationId"
-      WHERE m."organizationId"=${org} AND (${productId}='' OR m."productId"=${productId}) AND (${cursor}='' OR m."id"<${cursor})
-      ORDER BY m."id" DESC LIMIT ${limit + 1}`;
+      WHERE m."organizationId"=${org} AND (${productId}='' OR m."productId"=${productId})
+        AND (${cursor}='' OR (m."createdAt",m."id")<(SELECT "createdAt","id" FROM public."StockMovement" WHERE "id"=${cursor} AND "organizationId"=${org}))
+      ORDER BY m."createdAt" DESC,m."id" DESC LIMIT ${limit + 1}`;
     return json({ items: rows.slice(0, limit), nextCursor: rows.length > limit ? rows[limit - 1].id : null });
   }
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);

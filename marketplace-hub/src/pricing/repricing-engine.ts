@@ -38,7 +38,7 @@ function blocked(reason: string, mode: RepricingResult["mode"], extra?: Partial<
 }
 
 /** Cost + fee and margin must fit entirely inside the actual selling price. */
-export function profitFloor(cost: number, rule: RepricingPolicyInput): number | null {
+export function profitFloor(cost: number, rule: Pick<RepricingPolicyInput,"shippingCost"|"targetProfit"|"feePercent"|"minMarginPercent">): number | null {
   if (!isFiniteInt(cost) || cost === 0 || !isFiniteInt(rule.shippingCost) ||
       !isFiniteInt(rule.targetProfit)) return null;
   if (!Number.isFinite(rule.feePercent) || !Number.isFinite(rule.minMarginPercent) ||

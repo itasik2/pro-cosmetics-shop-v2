@@ -18,6 +18,8 @@ const messages: Record<string,string> = {
   channel_warehouses_required: "Сопоставьте хотя бы один склад канала.",
   cost_or_price_floor_invalid: "Не указана закупочная цена или цена продажи ниже допустимой.",
   price_below_cost: "Цена предложения ниже закупочной.",
+  offer_outside_financial_bounds: "Цена нарушает установленные границы, комиссию или минимальную маржу. Проверьте правило репрайсера.",
+  channel_financial_policy_required: "Перед выгрузкой настройте правило цены и маржи для товара в разделе «Репрайсер».",
   channel_not_active: "Канал работает в режиме сравнения или приостановлен.",
   production_cutover_not_enabled: "Включение рабочего канала будет доступно после проверки пилота.",
   invalid_kaspi_seller_sku: "SKU Kaspi: до 20 латинских букв и цифр.",

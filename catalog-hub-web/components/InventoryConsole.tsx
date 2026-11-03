@@ -1,15 +1,15 @@
 "use client";
-import { useRef, useState } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { CoreProductPicker } from "./CoreProductPicker";
 import { coreMessage, coreRequest, type CoreBalance, type CoreProduct, type CoreWarehouse } from "@/lib/core-client";
 type Movement = { id:string; sku:string; kind:string; deltaOnHand:number; deltaReserved:number; afterOnHand:number; afterReserved:number; reason:string; createdAt:string; warehouseName:string };
 const kinds:Record<string,string> = { RECEIVE:"Приход",WRITE_OFF:"Списание",COUNT:"Инвентаризация",TRANSFER:"Перемещение",RESERVE:"Резерв",RELEASE:"Снятие резерва",SHIP:"Отгрузка",RETURN:"Возврат" };
 
-export function InventoryConsole({ products,warehouses,movements }: { products:CoreProduct[];warehouses:CoreWarehouse[];movements:Movement[] }) {
+export function InventoryConsole({ products,warehouses,movements,defaultWarehouseId }: { products:CoreProduct[];warehouses:CoreWarehouse[];movements:Movement[];defaultWarehouseId?:string }) {
   const router=useRouter();
   const [productId,setProduct]=useState("");
-  const [warehouseId,setWarehouse]=useState(warehouses[0]?.id || "");
+  const [warehouseId,setWarehouse]=useState(warehouses.find(w=>w.id===defaultWarehouseId)?.id || warehouses[0]?.id || "");
   const [target,setTarget]=useState("");
   const [kind,setKind]=useState("RECEIVE");
   const [quantity,setQuantity]=useState("1");
@@ -18,6 +18,7 @@ export function InventoryConsole({ products,warehouses,movements }: { products:C
   const [confirmed,setConfirmed]=useState(false);
   const [busy,setBusy]=useState(false),[error,setError]=useState(""),[message,setMessage]=useState("");
   const key=useRef<string | null>(null);
+  const warehouseOperation=useRef<{signature:string;key:string}|null>(null);
   function edit(action:()=>void) { action();setPreview(null);setConfirmed(false);key.current=null;setError("");setMessage(""); }
   async function inspect() {
     setBusy(true);setError("");setMessage("");key.current=null;setConfirmed(false);
@@ -38,6 +39,13 @@ export function InventoryConsole({ products,warehouses,movements }: { products:C
       setMessage("Движение сохранено в журнале.");setPreview(null);setConfirmed(false);key.current=null;router.refresh();
     }catch(e){setError(coreMessage(e));}finally{setBusy(false);}
   }
+  async function addWarehouse(e:FormEvent<HTMLFormElement>){
+    e.preventDefault();if(busy)return;const data=new FormData(e.currentTarget),body={name:data.get("warehouseName"),code:data.get("warehouseCode")};
+    const signature=JSON.stringify(body);if(warehouseOperation.current?.signature!==signature)warehouseOperation.current={signature,key:crypto.randomUUID()};
+    setBusy(true);setError("");setMessage("");
+    try{await coreRequest("inventory/warehouses",body,warehouseOperation.current.key);setMessage("Склад добавлен.");router.refresh();}
+    catch(e){setError(coreMessage(e));}finally{setBusy(false);}
+  }
   const count=Number(quantity),after=preview?kind==="COUNT"?count:preview.source.onHand+(kind==="RECEIVE"?count:-count):0;
   const valid=!!productId&&!!warehouseId&&Number.isSafeInteger(count)&&count>=(kind==="COUNT"?0:1)&&count<=100000&&reason.trim().length>=5&&
     (kind!=="TRANSFER" || !!target&&target!==warehouseId);
@@ -56,6 +64,11 @@ export function InventoryConsole({ products,warehouses,movements }: { products:C
         <button className="button primary" disabled={!confirmed||busy||after<preview.source.reserved} onClick={()=>void apply()}>{busy?"Сохранение…":"Записать движение"}</button></div>}
       {error&&<p role="alert" className="error">{error}</p>}{message&&<p role="status" className="core-success">{message}</p>}
     </section>
+    <details className="panel core-section"><summary>Добавить склад</summary><form onSubmit={addWarehouse}><fieldset className="core-form core-section" disabled={busy}>
+      <label>Название склада<input className="input" name="warehouseName" required maxLength={128} /></label>
+      <label>Код склада<input className="input" name="warehouseCode" required maxLength={32} placeholder="Например, SKLAD-2" /></label>
+      <button className="button" type="submit">Добавить склад</button>
+    </fieldset></form></details>
     <section className="panel core-section"><h2>Журнал движений</h2>{!movements.length?<p className="subtle">Движений пока нет.</p>:<div className="table-wrap"><table><thead><tr><th>Дата</th><th>SKU / склад</th><th>Операция</th><th>Изменение</th><th>Итог / резерв</th><th>Основание</th></tr></thead><tbody>{movements.map(m=><tr key={m.id}>
       <td>{new Date(m.createdAt).toLocaleString("ru-RU")}</td><td>{m.sku}<div className="subtle">{m.warehouseName}</div></td><td>{kinds[m.kind]||m.kind}</td><td>{m.deltaOnHand>0?"+":""}{m.deltaOnHand}<div className="subtle">Резерв: {m.deltaReserved>0?"+":""}{m.deltaReserved}</div></td><td>{m.afterOnHand} / {m.afterReserved}</td><td>{m.reason}</td>
     </tr>)}</tbody></table></div>}</section>

@@ -1,7 +1,8 @@
 import { adapters, available, integer, textField } from "./core-domain.ts";
-import { kaspiFeed, type FeedOffer } from "./channel-feed.ts";
+import { kaspiFeed, validateManifest, type FeedOffer } from "./channel-feed.ts";
 import { once, outbox, type Sql } from "./core-store.ts";
 import { RequestError, type Principal } from "./request-context.ts";
+import {assertFinancialPrice,channelCode,financialPolicy} from "./channel-pricing.ts";
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status,
   headers: { "content-type": "application/json", "cache-control": "no-store" } });
 type Adapter = keyof typeof adapters;
@@ -70,7 +71,11 @@ export async function handleChannels(req: Request, route: string, url: URL, sql:
     return json(await once(sql, req, principal, route, body, async tx => {
       const [product] = await tx`SELECT "id","purchasePrice" FROM public."Product" WHERE "id"=${productId} AND "organizationId"=${org} FOR SHARE`;
       if (!product) throw new RequestError("product_not_found", 404);
-      if (price !== null && product.purchasePrice !== null && price < product.purchasePrice) throw new RequestError("price_below_cost", 409);
+      if (price !== null) {
+        const [policy]=await tx`SELECT * FROM public."ChannelRepricingPolicy" WHERE "organizationId"=${org}
+          AND "productId"=${productId} AND "channel"=${channelCode(connection.adapter) || ""} FOR SHARE`;
+        assertFinancialPrice(price,product.purchasePrice,financialPolicy(policy));
+      }
       const [old] = await tx`SELECT * FROM public."ChannelOffer" WHERE "organizationId"=${org} AND "connectionId"=${id} AND "productId"=${productId} FOR UPDATE`;
       if ((old?.version ?? 0) !== version) throw new RequestError("offer_version_conflict", 409);
       const offerId = old?.id || crypto.randomUUID();
@@ -134,12 +139,24 @@ export async function handleChannels(req: Request, route: string, url: URL, sql:
       const mappings = await tx`SELECT m."externalId",m."warehouseId" FROM public."ChannelWarehouseMapping" m JOIN public."Warehouse" w
         ON w."id"=m."warehouseId" AND w."organizationId"=m."organizationId" WHERE m."organizationId"=${org} AND m."connectionId"=${id} AND w."isActive"=true`;
       if (!mappings.length) throw new RequestError("channel_warehouses_required", 409);
+      if(action==="feed-preview")validateManifest(current.settings?.expectedSellerSkus,offers.map(o=>o.sellerSku));
+      const allStocks=await tx`SELECT i."productId",i."warehouseId",i."onHand",i."reserved",i."safetyStock",i."revision"
+        FROM public."Inventory" i JOIN public."ChannelOffer" o ON o."productId"=i."productId" AND o."organizationId"=${org}
+          AND o."connectionId"=${id} AND o."isActive"=true
+        JOIN public."ChannelWarehouseMapping" m ON m."warehouseId"=i."warehouseId" AND m."organizationId"=${org} AND m."connectionId"=${id}`;
+      const allPolicies=await tx`SELECT * FROM public."ChannelRepricingPolicy" WHERE "organizationId"=${org}
+        AND "channel"=${channelCode(current.adapter) || ""}`;
+      const policiesByProduct=new Map(allPolicies.map(p=>[p.productId,financialPolicy(p)]));
+      const stocksByProduct=new Map<string,Array<(typeof allStocks)[number]>>();
+      for(const stock of allStocks){const group=stocksByProduct.get(stock.productId)||[];group.push(stock);stocksByProduct.set(stock.productId,group);}
       const snapshots = [];
       for (const offer of offers) {
         const price = offer.price ?? offer.basePrice;
         if (!Number.isSafeInteger(price) || price < 1) throw new RequestError("offer_price_required", 409);
-        if (offer.purchasePrice === null || offer.purchasePrice < 1 || price < offer.purchasePrice) throw new RequestError("cost_or_price_floor_invalid", 409);
-        const stocks = await tx`SELECT "warehouseId","onHand","reserved","safetyStock","revision" FROM public."Inventory" WHERE "productId"=${offer.productId}`;
+        const policy=policiesByProduct.get(offer.productId) || null;
+        if(channelCode(current.adapter)&&!policy)throw new RequestError("channel_financial_policy_required",409);
+        assertFinancialPrice(price,offer.purchasePrice,policy);
+        const stocks = stocksByProduct.get(offer.productId) || [];
         const availabilities = mappings.map(mapping => {
           const stock = stocks.find(s => s.warehouseId === mapping.warehouseId);
           return { storeId: mapping.externalId, stockCount: stock ? available(stock as { onHand: number; reserved: number; safetyStock: number },offer.channelBuffer) : 0,
@@ -154,7 +171,7 @@ export async function handleChannels(req: Request, route: string, url: URL, sql:
         return kaspiFeed(settings.company || "", settings.merchantId || "", snapshots as FeedOffer[], settings.expectedSellerSkus);
       }
       if (!["OWN_STORE","GENERIC_ERP"].includes(current.adapter)) throw new RequestError("unsupported_operation", 422);
-      return { schema: "catalog-hub/channel-export", version: 1, connectionId: id, mode: current.mode, items: snapshots,
+      return { schema: "catalog-hub/channel-export", version: 1, semantics:"SELECTED_OFFERS", connectionId: id, mode: current.mode, items: snapshots,
         deliveryStatus: "NOT_PUBLISHED" };
     }));
   }
