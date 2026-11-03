@@ -1,4 +1,4 @@
-import { jsonParam } from "./database-json.ts";
+import { jsonParam,jsonObject } from "./database-json.ts";
 import type postgres from "npm:postgres@3.4.7";
 
 type Sql = ReturnType<typeof postgres>;
@@ -133,20 +133,20 @@ export async function handlePriceImport(req: Request, route: string, url: URL, s
       fail("invalid_price_import");
     const result = await sql.begin(async tx => {
       const rows = await tx`SELECT p."id",p."sku",p."title",p."brand",p."basePrice",p."purchasePrice",
-        p."attributes",p."updatedAt" FROM public."Product" p WHERE p."id"=${productId}
-        AND p."organizationId"=${organizationId} FOR UPDATE`;
+        p."attributes",p."updatedAt",c."title" AS "identityTitle",c."brand" AS "identityBrand" FROM public."Product" p
+        JOIN public."CatalogProductRead" c ON c."id"=p."id" AND c."organizationId"=p."organizationId" WHERE p."id"=${productId}
+        AND p."organizationId"=${organizationId} FOR UPDATE OF p`;
       if (!rows.length) fail("product_not_found", 404);
       const current = rows[0];
       const link = await tx`SELECT sp."id",sp."supplierSku" FROM public."SupplierProduct" sp
         JOIN public."Supplier" s ON s."id"=sp."supplierId" WHERE sp."productId"=${productId}
         AND sp."supplierId"=${supplierId} AND s."organizationId"=${organizationId} AND s."isActive"=true LIMIT 1`;
-      const source = current.attributes && typeof current.attributes === "object" && !Array.isArray(current.attributes)
-        ? current.attributes as Record<string, unknown> : {};
+      const source = jsonObject(current.attributes);
       const prior = source.supplierImport && typeof source.supplierImport === "object" && !Array.isArray(source.supplierImport)
         ? source.supplierImport as Record<string, unknown> : {};
       if (!link.length || !link[0].supplierSku || String(link[0].supplierSku).toUpperCase() !== sku.toUpperCase() ||
           prior.supplierId !== supplierId || !day(prior.sourceDate) || sourceDate <= String(prior.sourceDate) ||
-          current.sku.toUpperCase() !== sku.toUpperCase() || current.title !== title || current.brand !== brand)
+          current.sku.toUpperCase() !== sku.toUpperCase() || current.identityTitle !== title || current.identityBrand !== brand)
         fail("price_import_requires_review", 409);
       if ((price !== undefined && (typeof current.basePrice !== "number" || Number(price) < current.basePrice)) ||
           (purchasePrice !== undefined && (typeof current.purchasePrice !== "number" || Number(purchasePrice) < current.purchasePrice)))

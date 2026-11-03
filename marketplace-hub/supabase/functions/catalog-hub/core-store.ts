@@ -69,3 +69,13 @@ export async function changeBalance(tx: Tx, principal: Principal, input: {
   });
   return { onHand: after.onHand, reserved: after.reserved, safetyStock: after.safetyStock, revision: after.revision };
 }
+
+/** Existing transactional handlers can participate in a durable row checkpoint.
+ * begin() reuses the caller's transaction; no separate connection or commit.
+ */
+export function transactionalSql(tx: Tx): Sql {
+  return new Proxy(tx, {get(target,property,receiver) {
+    if(property === "begin") return async (callback: (tx:Tx)=>Promise<unknown>)=>callback(tx);
+    return Reflect.get(target,property,receiver);
+  }}) as unknown as Sql;
+}

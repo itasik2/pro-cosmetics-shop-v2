@@ -56,7 +56,7 @@ export async function handleChannels(req: Request, route: string, url: URL, sql:
   if (action === "offers" && req.method === "GET") {
     const productId=url.searchParams.get("productId") || "";
     const rows = await sql`SELECT o.*,p."title",p."sku" AS "internalSku" FROM public."ChannelOffer" o
-      JOIN public."Product" p ON p."id"=o."productId" AND p."organizationId"=o."organizationId"
+      JOIN public."CatalogProductRead" p ON p."id"=o."productId" AND p."organizationId"=o."organizationId"
       WHERE o."organizationId"=${org} AND o."connectionId"=${id} AND (${productId}='' OR o."productId"=${productId})
       ORDER BY o."sellerSku" LIMIT 100`;
     return json(rows);
@@ -134,7 +134,7 @@ export async function handleChannels(req: Request, route: string, url: URL, sql:
     return json(await sql.begin("isolation level repeatable read", async tx => {
       const [current] = await tx`SELECT * FROM public."ChannelConnection" WHERE "organizationId"=${org} AND "id"=${id}`;
       const offers = await tx`SELECT o.*,p."title",p."brand",p."basePrice",p."purchasePrice",p."categoryKey",p."images",p."description",p."attributes"
-        FROM public."ChannelOffer" o JOIN public."Product" p ON p."id"=o."productId" AND p."organizationId"=o."organizationId"
+        FROM public."ChannelOffer" o JOIN public."CatalogProductRead" p ON p."id"=o."productId" AND p."organizationId"=o."organizationId"
         WHERE o."organizationId"=${org} AND o."connectionId"=${id} AND o."isActive"=true ORDER BY o."sellerSku"`;
       const mappings = await tx`SELECT m."externalId",m."warehouseId" FROM public."ChannelWarehouseMapping" m JOIN public."Warehouse" w
         ON w."id"=m."warehouseId" AND w."organizationId"=m."organizationId" WHERE m."organizationId"=${org} AND m."connectionId"=${id} AND w."isActive"=true`;

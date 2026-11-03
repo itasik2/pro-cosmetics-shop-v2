@@ -16,8 +16,8 @@ const fields: Array<[Field,string]> = [
   ["application","Применение"], ["ingredients","Состав"],
 ];
 
-export function SharedProductSearch({product,enabled,canWrite,categoryKey,onSelect}:{
-  product:HubProduct;enabled:boolean;canWrite:boolean;categoryKey?:string;
+export function SharedProductSearch({product,enabled,canWrite,categoryKey,onSelect,imageOnly=false}:{
+  product:HubProduct;enabled:boolean;canWrite:boolean;categoryKey?:string;imageOnly?:boolean;
   onSelect?: (fields:Partial<Record<Field,string>> & {images?:string[];categoryKey?:string})=>void;
 }) {
   const [sourceUrl,setSourceUrl]=useState("");
@@ -43,9 +43,9 @@ export function SharedProductSearch({product,enabled,canWrite,categoryKey,onSele
       if(!response.ok)throw new Error(String(data?.error||"shared_search_failed"));
       const found=data as Result;
       setResult(found);setDraft({...found.fields});
-      setSelected(fields.filter(([key])=>!product[key]?.trim()&&Boolean(found.fields[key])).map(([key])=>key));
+      setSelected((imageOnly?[]:fields).filter(([key])=>!product[key]?.trim()&&Boolean(found.fields[key])).map(([key])=>key));
       setImage("");
-      if(!categoryKey){
+      if(!imageOnly&&!categoryKey){
         try{
           const suggestion=await fetch("/api/categories/suggest",{
             method:"POST",headers:{"content-type":"application/json"},
@@ -74,7 +74,7 @@ export function SharedProductSearch({product,enabled,canWrite,categoryKey,onSele
       if(!product[key]?.trim()&&draft[key].trim())proposed[key]=draft[key].trim();
     }
     if(!product.images?.length&&image)proposed.images=[image];
-    if(!categoryKey&&suggestedCategory)proposed.categoryKey=suggestedCategory;
+    if(!imageOnly&&!categoryKey&&suggestedCategory)proposed.categoryKey=suggestedCategory;
     if(!Object.keys(proposed).length){
       if(onSelect&&categoryKey&&suggestedCategory){setResult(null);return;}
       setError("Выберите данные для сохранения.");return;
@@ -96,9 +96,9 @@ export function SharedProductSearch({product,enabled,canWrite,categoryKey,onSele
     }catch(e){setError(enrichmentErrorMessage(e));}
     finally{setBusy(false);}
   }
-  const missing=fields.filter(([key])=>!product[key]?.trim()).map(([,label])=>label);
+  const missing=(imageOnly?[]:fields).filter(([key])=>!product[key]?.trim()).map(([,label])=>label);
   if(!product.images?.length)missing.push("Фотографии");
-  if(!categoryKey)missing.push("Категория");
+  if(!imageOnly&&!categoryKey)missing.push("Категория");
   return <section className="panel">
     <h2>Заполнить пустые поля и подобрать фото</h2>
     <p className="subtle">Не заполнено: {missing.join(", ")||"основные поля заполнены"}. Catalog Hub ищет товар на сайте производителя по бренду, SKU и названию. Результат поступает на проверку.</p>
@@ -125,7 +125,7 @@ export function SharedProductSearch({product,enabled,canWrite,categoryKey,onSele
         ?"Официальный сайт найден автоматически. Проверьте принадлежность бренду и фасовку."
         :"Проверьте источник, SKU и фасовку перед сохранением."}</p>
       {result.warnings?.map((warning,index)=><p className="import-warning" key={index}>{warning}</p>)}
-      {fields.filter(([key])=>!product[key]?.trim()&&Boolean(result.fields[key])).map(([key,label])=>
+      {(imageOnly?[]:fields).filter(([key])=>!product[key]?.trim()&&Boolean(result.fields[key])).map(([key,label])=>
         <label className="editor-field wide" key={key} style={{marginBottom:12}}>
           <span><input type="checkbox" checked={selected.includes(key)}
             onChange={event=>setSelected(previous=>event.target.checked?[...previous,key]:previous.filter(item=>item!==key))}/>

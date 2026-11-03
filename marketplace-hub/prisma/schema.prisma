@@ -108,6 +108,8 @@ model Organization {
   coreOrders CoreOrder[]
   coreMutations CoreMutation[]
   outboxEvents OutboxEvent[]
+  groupingOperations ProductGrouping[]
+  catalogImportRuns CatalogImportRun[]
 }
 
 model MarketplaceAccount {
@@ -165,10 +167,78 @@ model Product {
   coreOrderItems      CoreOrderItem[]
   stockMovements      StockMovement[]
   channelOffers       ChannelOffer[]
+  // Existing Product rows keep their SKU, inventory and commercial identity.
+  // Shared descriptive fields belong to the selected master row only.
+  masterProductId     String?
+  masterProduct       Product? @relation("ProductVariants", fields: [organizationId, masterProductId], references: [organizationId, id], onDelete: Restrict, map: "Product_variant_master_fkey")
+  variants            Product[] @relation("ProductVariants")
+  groupingHistory     ProductGrouping[]
 
   @@unique([organizationId, sku])
   @@unique([organizationId, id])
   @@index([barcode])
+  @@index([organizationId, masterProductId])
+}
+
+// Audit of a reversible grouping operation, never a second master card.
+model ProductGrouping {
+  id              String @id @default(uuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  masterProductId String
+  masterProduct   Product @relation(fields: [organizationId, masterProductId], references: [organizationId, id], onDelete: Restrict, map: "ProductGrouping_master_fkey")
+  beforeState     Json
+  afterState      Json
+  status          String @default("ACTIVE")
+  reason          String
+  actor           String
+  createdAt       DateTime @default(now())
+  undoneAt        DateTime?
+  @@index([organizationId, masterProductId, createdAt])
+}
+
+model CatalogImportRun {
+  id              String @id @default(uuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  fileName        String
+  fileSha256      String
+  manifestHash    String
+  supplierId      String?
+  sourceDate      String?
+  profile         Json
+  expectedRows    Int
+  uploadedRows    Int @default(0)
+  processedRows   Int @default(0)
+  failedRows      Int @default(0)
+  state           String @default("UPLOADING")
+  version         Int @default(1)
+  actor           String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  rows            CatalogImportRow[]
+  @@unique([organizationId, id])
+  @@index([organizationId, state, createdAt])
+}
+
+model CatalogImportRow {
+  id             String @id @default(uuid())
+  organizationId String
+  runId          String
+  run            CatalogImportRun @relation(fields: [organizationId, runId], references: [organizationId, id], onDelete: Cascade)
+  rowNumber      Int
+  sku            String
+  action         String
+  payload        Json
+  payloadHash    String
+  expectedUpdatedAt String?
+  state          String @default("PENDING")
+  attempts       Int @default(0)
+  errorCode      String?
+  result         Json?
+  updatedAt      DateTime @updatedAt
+  @@unique([organizationId, runId, rowNumber])
+  @@index([organizationId, runId, state, rowNumber])
 }
 
 model Supplier {

@@ -143,6 +143,7 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
         if (!products.length) fail("product_not_found", 404);
         const product = products[0];
         if (new Date(product.updatedAt).toISOString() !== expectedUpdatedAt) fail("product_changed_reload", 409);
+        if (product.masterProductId && Object.keys(proposed).some(field => ["title","brand","categoryKey","shortDescription","description","application","ingredients"].includes(field))) fail("variant_shared_fields_readonly",409);
         const before = card(product);
         const changed = fields.filter(field => Object.prototype.hasOwnProperty.call(proposed, field) &&
           !same(before[field], proposed[field]));
@@ -183,7 +184,7 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
       const proposed = normalizePatch(body.proposed);
       const isImport = body.sourceType === "IMPORT";
       const sourceRef = isImport ? requiredId(body.sourceRef, "sourceRef") : "catalog-hub-web";
-      if (isImport && (!/^supplierfile:[a-f0-9]{32}:[0-9]{1,3}$/.test(sourceRef))) {
+      if (isImport && (!/^supplierfile:[a-f0-9]{32}:[0-9]{1,5}$/.test(sourceRef))) {
         fail("invalid_import_source_ref");
       }
       const result = await sql.begin(async (tx) => {
@@ -297,6 +298,7 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
           FROM public."Product" WHERE "id" = ${cs.productId}
           AND "organizationId" = ${organizationId} FOR UPDATE`;
         if (!products.length) fail("product_not_found", 404);
+        if (products[0].masterProductId && approved.some(field => ["title","brand","categoryKey","shortDescription","description","application","ingredients"].includes(field))) fail("variant_shared_fields_readonly",409);
         const before = readJsonObject(cs.current);
         if (currentChanged(before, products[0])) fail("changeset_stale", 409);
         if (approved.includes("categoryKey")) {
@@ -381,6 +383,7 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
     return null;
   } catch (error) {
     const err = error as Error & { status?: number };
+    if (err.message === "variant_shared_fields_readonly") return json({error:err.message},409);
     if (err.status) return json({ error: err.message }, err.status);
     console.error("catalog_editor_error", err);
     return json({ error: "catalog_editor_failed" }, 500);

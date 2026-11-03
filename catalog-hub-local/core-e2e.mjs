@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Synthetic records only. This suite refuses remote API hosts.
 import assert from "node:assert/strict";
+import {runQueuedImportChecks} from "./import-queue-e2e.mjs";
 import { randomUUID, randomBytes, createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -26,7 +27,7 @@ export function coreFixtures(keyB, readOnlyKey) {
       ('core-safety-b','core-safety-product','wh_core_second',5,0,0,now()) ON CONFLICT ("id") DO NOTHING;
     DO $guard$ DECLARE relation text; BEGIN
       FOREACH relation IN ARRAY ARRAY['ChannelConnection','ChannelOffer','ChannelWarehouseMapping','ChannelCategoryMapping',
-        'CoreOrder','CoreOrderItem','StockMovement','CoreMutation','InboxEvent','OutboxEvent'] LOOP
+        'CoreOrder','CoreOrderItem','StockMovement','CoreMutation','InboxEvent','OutboxEvent','ProductGrouping','CatalogImportRun','CatalogImportRow'] LOOP
         IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid=format('public.%I',relation)::regclass)
           OR has_table_privilege('anon',format('public.%I',relation),'SELECT,INSERT,UPDATE,DELETE')
           OR has_table_privilege('authenticated',format('public.%I',relation),'SELECT,INSERT,UPDATE,DELETE') THEN
@@ -184,6 +185,54 @@ export async function runCoreChecks({ baseUrl = "http://127.0.0.1:8000", key, ke
   assert.doesNotMatch(fullFeed.xml, /purchasePrice|onHand|organizationId/); checks++;
   expect(await api("/v1/repricing/policies",{body:policy(ledger.id,210)}),201,"raise floor after offer was saved");
   expect(await api(`/v1/channels/${feed.id}/feed-preview`),409,"feed rechecks the current financial policy");
+
+  // Real SKU identities, commercial values and stock survive shared-card grouping.
+  const variants=[];
+  for(const [index,volume] of [30,210,1000].entries()) {
+    const created=await product("variant-"+volume);
+    const saved=expect(await api("/v1/catalog/manual-save",{body:{productId:created.id,expectedUpdatedAt:created.updatedAt,
+      proposed:{title:"Synthetic shared cream "+volume+" g",description:"Verified copy "+volume,
+        images:["https://example.invalid/variant-"+volume+".jpg"],attributes:{volumeValue:volume,volumeUnit:"g"}}}}),200,"prepare independent variant identity");
+    variants.push(expect(await api("/v1/catalog/products/"+saved.id),200,"read prepared variant"));
+    expect(await movement(created.id,"RECEIVE",index+2),201,"independent variant stock");
+  }
+  const groupInput={productIds:variants.map(v=>v.id),masterProductId:variants[0].id,title:"Synthetic shared cream",reason:"Synthetic verified identity"};
+  expect(await api("/v1/catalog/variants/preview",{credential:readOnlyKey,body:groupInput}),403,"reader cannot prepare a grouping");
+  expect(await api("/v1/catalog/variants/preview",{credential:keyB,body:groupInput}),404,"other tenant cannot inspect variants");
+  const staleGroup=expect(await api("/v1/catalog/variants/preview",{body:groupInput}),200,"group preview makes no changes");
+  expect(await api("/v1/catalog/manual-save",{body:{productId:variants[2].id,expectedUpdatedAt:variants[2].updatedAt,proposed:{description:"New verified copy"}}}),200,"change one previewed member");
+  expect(await api("/v1/catalog/variants/apply",{body:{...groupInput,fingerprint:staleGroup.fingerprint,confirmed:true,conflictsAcknowledged:true}}),409,"stale group blocked atomically");
+  let groupPreview=expect(await api("/v1/catalog/variants/preview",{body:groupInput}),200,"fresh grouping preview");
+  const groupKey=randomUUID(),groupBody={...groupInput,fingerprint:groupPreview.fingerprint,confirmed:true,conflictsAcknowledged:true};
+  const group=expect(await api("/v1/catalog/variants/apply",{body:groupBody,idempotencyKey:groupKey}),200,"apply shared card");
+  assert.equal(expect(await api("/v1/catalog/variants/apply",{body:groupBody,idempotencyKey:groupKey}),200,"grouping replay").groupingId,group.groupingId);checks++;
+  const member=expect(await api("/v1/catalog/products/"+variants[1].id),200,"member inherits shared title");
+  assert.equal(member.title,groupInput.title);assert.equal(member.description,variants[0].description);
+  assert.equal(member.sku,variants[1].sku);assert.deepEqual(member.images,variants[1].images);
+  assert.deepEqual(member.attributes,variants[1].attributes);assert.equal(member.price,variants[1].price);checks++;
+  assert.equal((await stock(member.id)).onHand,3);checks++;
+  expect(await api("/v1/catalog/manual-save",{body:{productId:member.id,expectedUpdatedAt:member.updatedAt,proposed:{title:"Second hidden master"}}}),409,"member common fields cannot diverge");
+  const groupedSearch=expect(await api("/v1/catalog/products?cards=true&q="+variants[1].sku),200,"member SKU finds single master card");
+  assert.equal(groupedSearch.items.length,1);assert.equal(groupedSearch.items[0].id,groupInput.masterProductId);
+  assert.equal(groupedSearch.items[0].variantSummary.count,3);assert.equal(groupedSearch.items[0].variantSummary.available,9);checks++;
+  const groupedSnapshot=expect(await api("/v1/catalog/snapshot"),200,"import snapshot retains all variants");
+  assert.equal(groupedSnapshot.items.find(v=>v.id===member.id).title,groupInput.title);checks++;
+  expect(await movement(member.id,"RECEIVE",1),201,"stock movement after grouping");
+  const undoKey=randomUUID(),undoPath="/v1/catalog/variants/groupings/"+group.groupingId+"/undo";
+  expect(await api(undoPath,{body:{confirmed:true},idempotencyKey:undoKey}),200,"undo grouping without undoing stock changes");
+  expect(await api(undoPath,{body:{confirmed:true},idempotencyKey:undoKey}),200,"undo replay");
+  const restored=expect(await api("/v1/catalog/products/"+member.id),200,"restored original card");
+  assert.equal(restored.masterProductId,null);assert.equal(restored.title,variants[1].title);assert.deepEqual(restored.images,variants[1].images);checks++;
+  assert.equal((await stock(member.id)).onHand,4);checks++;
+  groupPreview=expect(await api("/v1/catalog/variants/preview",{body:groupInput}),200,"regroup after undo");
+  const secondGroup=expect(await api("/v1/catalog/variants/apply",{body:{...groupInput,fingerprint:groupPreview.fingerprint,confirmed:true,conflictsAcknowledged:true}}),200,"second grouping");
+  const sharedMaster=expect(await api("/v1/catalog/products/"+variants[0].id),200,"current shared master");
+  expect(await api("/v1/catalog/manual-save",{body:{productId:sharedMaster.id,expectedUpdatedAt:sharedMaster.updatedAt,proposed:{description:"Updated shared text"}}}),200,"edit single shared description");
+  assert.equal(expect(await api("/v1/catalog/products/"+member.id),200,"member reads current common copy").description,"Updated shared text");checks++;
+  expect(await api("/v1/catalog/variants/groupings/"+secondGroup.groupingId+"/undo",{body:{confirmed:true}}),409,"undo detects later common edits");
+  assert.equal(expect(await api("/v1/catalog/variants/"+member.id),200,"variant family is visible from member").variants.length,3);checks++;
+
+  checks+=(await runQueuedImportChecks({baseUrl,key,keyB,readOnlyKey,workerCycle:(await import("../marketplace-hub/dist/worker/catalog-import-worker.js")).importWorkerCycle})).checks;
 
   const claimed = expect(await api("/v1/sync/outbox/claim", { body: { limit: 2 } }), 200, "claim durable outbox");
   assert.equal(claimed.events.length, 2);

@@ -12,6 +12,7 @@ import {parsePriceRule,priceImportItems,type PriceRule} from "@/lib/import-prici
 import {defaultImportMapping,isJeudermPriceList} from "@/lib/import-price-preset";
 import {dateFromFileName,previousAppliedDate} from "@/lib/import-date";
 import {decideImportPrice,missingSupplierPositions,validSourceDate,type ImportPolicyRow} from "@/lib/import-policy";
+import {digest as coreDigest} from "../../../../marketplace-hub/supabase/functions/catalog-hub/core-domain";
 import {titleWithoutPackage} from "@/lib/supplier-package";
 
 export const dynamic="force-dynamic";
@@ -25,6 +26,14 @@ const MAPPED_FIELDS=new Set<Field>([
  "sku","barcode","title","brand","volume","purchasePrice","price","description","categoryKey","stock"
 ]);
 
+function streamedJson(data:unknown){
+ const bytes=new TextEncoder().encode(JSON.stringify(data));let offset=0;
+ const stream=new ReadableStream<Uint8Array>({pull(controller){
+   if(offset>=bytes.length){controller.close();return;}
+   controller.enqueue(bytes.subarray(offset,offset+65536));offset+=65536;
+ }});
+ return new Response(stream,{headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store","x-content-type-options":"nosniff"}});
+}
 function responseError(message:string,status=400){
  return NextResponse.json({error:message},{status,headers:{"cache-control":"no-store"}});
 }
@@ -171,7 +180,7 @@ async function prepare(request:NextRequest){
  const universalCatalog=buildUniversalCatalog({fileName,fileSha256:hash,table,mapping,priceRule,items,review,originalRows});
  for(const row of universalCatalog.products){
    if(row.identity.productId){
-     row.identity.internalSku=currentCatalog.items.find(p=>p.id===row.identity.productId)?.sku||row.identity.internalSku;
+     row.identity.internalSku=byId.get(row.identity.productId)?.sku||row.identity.internalSku;
    }
  }
  const sourceBase=createHash("sha256").update(hash+JSON.stringify(mapping)+(supplierId||"")+(sourceDate||"")).digest("hex").slice(0,32);
@@ -194,82 +203,15 @@ async function prepare(request:NextRequest){
    appliedDate,olderThanApplied,missingPositions,universalCatalog,snapshot,byId,
    fingerprint:digest(hash,mapping,priceRule,review,supplierId,sourceDate)};
 }
-export async function POST(request:NextRequest) {
- if(!isSameOrigin(request))return responseError("invalid_origin",403);
- let state:Awaited<ReturnType<typeof prepare>>;
- try{state=await prepare(request);}
- catch(e){const msg=e instanceof Error?e.message:"import_preview_failed";
-   return responseError(msg,/too_large|size_limit|too_many/.test(msg)?413:400);}
- const {data,table,mapping,priceRule,review,fingerprint}=state;
- const action=data.get("action")==="apply"?"apply":"preview";
- const counts=Object.fromEntries(["CREATE","UPDATE","SAME","INVALID","CONFLICT","DUPLICATE"].map(s=>
-    [s,review.filter(r=>r.status===s).length]));
- if(action==="preview"){
-   let historyId:string|null=null;
-   let historyWarning:string|null=null;
-   if(process.env.CATALOG_HUB_LOCAL_MODE==="true"){
-     try{
-       const entry=await recordLocalImportEvent({
-         organizationId,profileId:state.profileId,
-         sourceDate:state.sourceDate,
-         fileName:state.fileName,format:table.format,action:"PREVIEW",
-         result:"PREVIEWED",totalRows:review.length,countByStatus:counts,
-         selectedRows:0,snapshot:state.snapshot,
-       });
-       historyId=entry.id;
-     }catch(e){console.error("local_import_history_failed",e);
-       historyWarning="Не удалось сохранить строки в локальной истории. Для повторной загрузки понадобится исходный файл.";}
-   }
-   return NextResponse.json({
-     format:table.format,fileName:state.fileName,headers:table.headers,mapping,priceRule,review,counts,fingerprint,
-     jeudermPriceRule:isJeudermPriceList(state.fileName,table.format,table.headers),
-     historyId,historyWarning,pdfSkuOverrides:state.snapshot.skuOverrides,
-     supplierId:state.supplierId,sourceDate:state.sourceDate,appliedDate:state.appliedDate,
-     olderThanApplied:state.olderThanApplied,missingPositions:state.missingPositions,
-     universalCatalog:state.universalCatalog,
-     warnings:table.warnings||[],pageCount:table.pageCount||null,
-     pdfSource:table.format==="PDF"?table.rows.map((x,index)=>({
-       index,page:x["Страница"]||"",
-       volume:x["Объем"]||"",
-       price1:x["Цена 1"]||"",
-       price2:x["Цена 2"]||"",
-     })):[],
-     needsManualSku:table.needsManualSku||false,
-     canApply:!isLocalReadOnly(),
-     note:"Проверяйте спорные цены и исчезнувшие позиции. Остатки в файле носят справочный характер."
-   },{headers:{"cache-control":"no-store"}});
- }
- if(data.get("confirmed")!=="yes")return responseError("confirmation_required");
- if(isLocalReadOnly())return responseError("local_read_only_mode: сохранение товаров отключено до подключения тестовой базы.",403);
- if(!state.supplierId&&process.env.CATALOG_HUB_LOCAL_MODE!=="true")return responseError("supplier_required");
- const signature=data.get("fingerprint");
- if(typeof signature!=="string"||!equalSignature(signature,fingerprint))
-   return responseError("preview_expired_or_catalog_changed",409);
- let selected:unknown;
- try{selected=JSON.parse(String(data.get("selected")||"[]"));}
- catch{return responseError("invalid_selection");}
- if(!Array.isArray(selected)||selected.length<1||selected.length>20||
-    selected.some(v=>!Number.isInteger(v)||v<0||v>=review.length)||
-    new Set(selected).size!==selected.length)return responseError("select_up_to_20_rows");
- const candidates=selected.map(i=>review[i as number]);
- if(candidates.some(r=>!["CREATE","UPDATE"].includes(r.status)&&
-      !(r.status==="SAME"&&r.priceDecision==="REVIEW_FIRST")||
-    (process.env.CATALOG_HUB_LOCAL_MODE!=="true"&&
-      ["NO_DATE","FUTURE","OLDER","BLOCKED"].includes(r.priceDecision))))
-   return responseError("selection_has_conflicts_or_unsafe_price",409);
- const results:Array<{rowNumber:number;sku:string;status:string;id?:string;error?:string}>=[];
- for(const item of candidates){
-  try{
+
+function plannedAction(state:Awaited<ReturnType<typeof prepare>>,item:ImportPolicyRow){
    if(item.priceDecision==="AUTO_INCREASE"&&item.productId){
      const current=state.byId.get(item.productId)!;
      const changed=Object.fromEntries(item.changes.filter(c=>c.field==="price"||c.field==="purchasePrice")
        .map(c=>[c.field,c.after]));
-     const applied=await hubFetch<{id:string}>("/v1/price-import/auto",{
-       method:"POST",body:JSON.stringify({organizationId,supplierId:state.supplierId,
+     return {action:"AUTO_INCREASE" as const,payload:{organizationId,supplierId:state.supplierId,
          productId:item.productId,sku:item.sku,title:current.title,brand:current.brand,
-         sourceDate:state.sourceDate,fileName:state.fileName,fileSha256:state.fileSha256,...changed}),
-     });
-     results.push({rowNumber:item.rowNumber,sku:item.sku,status:"AUTO_APPLIED",id:applied.id});
+         sourceDate:state.sourceDate,fileName:state.fileName,fileSha256:state.fileSha256,...changed}};
    }else if(item.status==="UPDATE"||item.status==="SAME"){
      const current=state.byId.get(item.productId!)!;
      const proposed:Record<string,unknown>=Object.fromEntries(item.changes.map(c=>[c.field,c.after]));
@@ -285,18 +227,14 @@ export async function POST(request:NextRequest) {
          sha256:state.fileSha256,
        }};
      }
-     const staged=await hubFetch<{id:string;status:string}>("/v1/staging/changesets",{
-       method:"POST",body:JSON.stringify({
+     return {action:"STAGE" as const,payload:{
          organizationId,productId:item.productId,
          sourceType:"IMPORT",sourceRef:"supplierfile:"+state.sourceBase+":"+item.index,
          proposed,
-       }),
-     });
-     results.push({rowNumber:item.rowNumber,sku:item.sku,status:"STAGED",id:staged.id});
+       }};
    }else{
      // No stock is created, even when the supplier file contains a quantity.
-     const created=await hubFetch<{id:string}>("/v1/catalog/products",{
-       method:"POST",body:JSON.stringify({
+     return {action:"CREATE" as const,payload:{
          organizationId,supplierId:state.supplierId,
          supplierSku:state.universalCatalog.products[item.index].identity.supplierSku,card:{
            sku:item.sku,title:item.title,
@@ -321,17 +259,118 @@ export async function POST(request:NextRequest) {
            ...(item.proposed.purchasePrice!==undefined?{purchasePrice:item.proposed.purchasePrice}:{}),
            ...(item.proposed.price!==undefined?{price:item.proposed.price}:{}),
          },
-       }),
-     });
-     results.push({rowNumber:item.rowNumber,sku:item.sku,status:"CREATED",id:created.id});
+       }};
    }
+}
+export async function POST(request:NextRequest) {
+ if(!isSameOrigin(request))return responseError("invalid_origin",403);
+ let state:Awaited<ReturnType<typeof prepare>>;
+ try{state=await prepare(request);}
+ catch(e){const msg=e instanceof Error?e.message:"import_preview_failed";
+   return responseError(msg,/too_large|size_limit|too_many/.test(msg)?413:400);}
+ const {data,table,mapping,priceRule,review,fingerprint}=state;
+ const action=data.get("action")==="enqueue"?"enqueue":data.get("action")==="apply"?"apply":"preview";
+ const counts=Object.fromEntries(["CREATE","UPDATE","SAME","INVALID","CONFLICT","DUPLICATE"].map(s=>
+    [s,review.filter(r=>r.status===s).length]));
+ if(action==="preview"){
+   let historyId:string|null=null;
+   let historyWarning:string|null=null;
+   if(process.env.CATALOG_HUB_LOCAL_MODE==="true"){
+     try{
+       const entry=await recordLocalImportEvent({
+         organizationId,profileId:state.profileId,
+         sourceDate:state.sourceDate,
+         fileName:state.fileName,format:table.format,action:"PREVIEW",
+         result:"PREVIEWED",totalRows:review.length,countByStatus:counts,
+         selectedRows:0,snapshot:state.snapshot,
+       });
+       historyId=entry.id;
+     }catch(e){console.error("local_import_history_failed",e);
+       historyWarning="Не удалось сохранить строки в локальной истории. Для повторной загрузки понадобится исходный файл.";}
+   }
+   return streamedJson({
+     format:table.format,fileName:state.fileName,headers:table.headers,mapping,priceRule,review,counts,fingerprint,
+     jeudermPriceRule:isJeudermPriceList(state.fileName,table.format,table.headers),
+     historyId,historyWarning,pdfSkuOverrides:state.snapshot.skuOverrides,
+     supplierId:state.supplierId,sourceDate:state.sourceDate,appliedDate:state.appliedDate,
+     olderThanApplied:state.olderThanApplied,missingPositions:state.missingPositions,
+     universalCatalog:state.universalCatalog,
+     warnings:table.warnings||[],pageCount:table.pageCount||null,
+     pdfSource:table.format==="PDF"?table.rows.map((x,index)=>({
+       index,page:x["Страница"]||"",
+       volume:x["Объем"]||"",
+       price1:x["Цена 1"]||"",
+       price2:x["Цена 2"]||"",
+     })):[],
+     needsManualSku:table.needsManualSku||false,
+     canApply:!isLocalReadOnly(),
+     note:"Проверяйте спорные цены и исчезнувшие позиции. Остатки в файле носят справочный характер."
+   });
+ }
+ if(data.get("confirmed")!=="yes")return responseError("confirmation_required");
+ if(isLocalReadOnly())return responseError("local_read_only_mode: сохранение товаров отключено до подключения тестовой базы.",403);
+ if(!state.supplierId&&process.env.CATALOG_HUB_LOCAL_MODE!=="true")return responseError("supplier_required");
+ const signature=data.get("fingerprint");
+ if(typeof signature!=="string"||!equalSignature(signature,fingerprint))
+   return responseError("preview_expired_or_catalog_changed",409);
+ let selected:unknown;
+ try{selected=JSON.parse(String(data.get("selected")||"[]"));}
+ catch{return responseError("invalid_selection");}
+ if(!Array.isArray(selected)||selected.length<1||selected.length>(action==="enqueue"?10000:20)||
+    selected.some(v=>!Number.isInteger(v)||v<0||v>=review.length)||
+    new Set(selected).size!==selected.length)return responseError("select_up_to_20_rows");
+ const candidates=selected.map(i=>review[i as number]);
+ if(candidates.some(r=>!["CREATE","UPDATE"].includes(r.status)&&
+      !(r.status==="SAME"&&r.priceDecision==="REVIEW_FIRST")||
+    (process.env.CATALOG_HUB_LOCAL_MODE!=="true"&&
+      ["NO_DATE","FUTURE","OLDER","BLOCKED"].includes(r.priceDecision))))
+   return responseError("selection_has_conflicts_or_unsafe_price",409);
+ const results:Array<{rowNumber:number;sku:string;status:string;id?:string;error?:string}>=[];
+ if(action==="enqueue") {
+   const actions=await Promise.all(candidates.map(async item=>{
+     const plan=plannedAction(state,item);
+     return {rowNumber:item.rowNumber,sku:item.sku,...plan,expectedUpdatedAt:item.currentUpdatedAt};
+   }));
+   const rows=(JSON.parse(JSON.stringify(actions)) as typeof actions).sort((a,b)=>a.rowNumber-b.rowNumber);
+   const hashes=await Promise.all(rows.map(async row=>({rowNumber:row.rowNumber,payloadHash:await coreDigest(row)})));
+   const manifestHash=await coreDigest(hashes);
+   const queueKey="import:"+await coreDigest({file:state.fileSha256,manifestHash});
+   const deadline=Date.now()+45000;
+   try {
+     const created=await hubFetch<{id:string}>("/v1/imports",{method:"POST",headers:{"idempotency-key":queueKey},body:JSON.stringify({
+       fileName:state.fileName,fileSha256:state.fileSha256,manifestHash,supplierId:state.supplierId,sourceDate:state.sourceDate,
+       expectedRows:rows.length,profile:{mapping,priceRule,format:table.format},
+     })});
+     let run=await hubFetch<{id:string;state:string;uploadedRows:number}>("/v1/imports/"+created.id);
+     if(run.state!=="UPLOADING")return NextResponse.json({queued:run,uploadPending:false},{headers:{"cache-control":"no-store"}});
+     const chunks:Array<typeof rows>=[];let chunk:typeof rows=[];
+     for(const row of rows){
+       if(chunk.length&&(chunk.length===100||JSON.stringify([...chunk,row]).length>350000)){chunks.push(chunk);chunk=[];}
+       chunk.push(row);
+     }
+     if(chunk.length)chunks.push(chunk);
+     let offset=0;
+     for(const [index,part] of chunks.entries()){
+       offset+=part.length;
+       if(offset<=run.uploadedRows)continue;
+       if(Date.now()>deadline)return NextResponse.json({queued:run,uploadPending:true},{status:202,headers:{"cache-control":"no-store"}});
+       run=await hubFetch<typeof run>("/v1/imports/"+created.id+"/rows",{method:"POST",headers:{"idempotency-key":created.id+":chunk:"+index},body:JSON.stringify({rows:part})});
+     }
+     const queued=await hubFetch("/v1/imports/"+created.id+"/seal",{method:"POST",headers:{"idempotency-key":created.id+":seal"},body:JSON.stringify({confirmed:true})});
+     return NextResponse.json({queued,uploadPending:false},{status:202,headers:{"cache-control":"no-store"}});
+   } catch(e){return responseError(e instanceof Error?e.message:"import_queue_failed",400);}
+ }
+ for(const item of candidates){
+  try{
+    const plan=plannedAction(state,item);
+    const endpoint=plan.action==="CREATE"?"/v1/catalog/products":plan.action==="STAGE"?"/v1/staging/changesets":"/v1/price-import/auto";
+    const saved=await hubFetch<{id:string}>(endpoint,{method:"POST",body:JSON.stringify(plan.payload)});
+    results.push({rowNumber:item.rowNumber,sku:item.sku,status:plan.action==="CREATE"?"CREATED":plan.action==="STAGE"?"STAGED":"AUTO_APPLIED",id:saved.id});
   }catch(e){
-   results.push({rowNumber:item.rowNumber,sku:item.sku,status:"ERROR",
-     error:e instanceof Error?e.message:"operation_failed"});
-   // Stop after first failure to avoid further partial batch writes.
-   break;
+    results.push({rowNumber:item.rowNumber,sku:item.sku,status:"ERROR",error:e instanceof Error?e.message:"operation_failed"});break;
   }
  }
+
  let historyWarning:string|null=null;
  if(process.env.CATALOG_HUB_LOCAL_MODE!=="true"&&state.supplierId&&state.sourceDate){
    try{

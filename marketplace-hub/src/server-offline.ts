@@ -1104,7 +1104,7 @@ app.get("/v1/staging/changesets/:id", async (request, reply) => {
   }
 
   const id = (request.params as { id: string }).id;
-  const result = await getChangeSet(id);
+  const result = await getChangeSet(id,(request.query as {organizationId:string}).organizationId);
   if (!result) return reply.code(404).send({ error: "changeset_not_found" });
   return result;
 });
@@ -1144,7 +1144,7 @@ app.post("/v1/staging/changesets/:id/approve", async (request, reply) => {
   }
 
   try {
-    return await approveChangeSet({ id, ...parsed.data });
+    return await approveChangeSet({ id, ...parsed.data, organizationId:(request.query as {organizationId:string}).organizationId });
   } catch (error) {
     return reply.code(400).send({
       error: error instanceof Error ? error.message : "changeset_approve_failed",
@@ -1171,7 +1171,7 @@ app.post("/v1/staging/changesets/:id/apply", async (request, reply) => {
   }
 
   try {
-    return await applyChangeSet({ id, ...parsed.data });
+    return await applyChangeSet({ id, ...parsed.data, organizationId:(request.query as {organizationId:string}).organizationId });
   } catch (error) {
     return reply.code(409).send({
       error: error instanceof Error ? error.message : "changeset_apply_failed",
@@ -1195,7 +1195,7 @@ app.post("/v1/staging/changesets/:id/reject", async (request, reply) => {
   }
 
   try {
-    return await rejectChangeSet({ id, ...parsed.data });
+    return await rejectChangeSet({ id, ...parsed.data, organizationId:(request.query as {organizationId:string}).organizationId });
   } catch (error) {
     return reply.code(400).send({
       error: error instanceof Error ? error.message : "changeset_reject_failed",

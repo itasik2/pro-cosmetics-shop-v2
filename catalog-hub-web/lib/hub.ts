@@ -24,6 +24,9 @@ export type HubProduct = {
   id: string;
   organizationId: string;
   sku: string;
+  masterProductId?: string | null;
+  masterUpdatedAt?: string | null;
+  variantSummary?: {count:number;minPrice:number|null;maxPrice:number|null;available:number} | null;
   barcode: string | null;
   title: string;
   brand: string | null;
@@ -130,6 +133,7 @@ export async function safeHub<T>(request: Promise<T>) {
 export function catalogPath(params?: {
   q?: string;
   incomplete?: boolean;
+  cards?: boolean;
   category?: string;
   limit?: number;
   offset?: number;
@@ -139,6 +143,7 @@ export function catalogPath(params?: {
     limit: String(params?.limit ?? 50),
     offset: String(params?.offset ?? 0),
   });
+  if (params?.cards) search.set("cards","true");
   if (params?.q) search.set("q", params.q);
   if (params?.incomplete) search.set("incomplete", "true");
   if (params?.category) search.set("category", params.category);

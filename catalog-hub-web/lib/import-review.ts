@@ -1,6 +1,7 @@
 import type {ImportItem} from "./import-parser";
 
 export type Existing = {
+ masterProductId?:string|null;
  id:string;sku:string;barcode:string|null;title:string;brand:string|null;
  purchasePrice:number|null;price:number|null;description:string|null;
  categoryKey:string|null;updatedAt:string;stock?:number;
@@ -58,6 +59,7 @@ export function evaluateImport(items:ImportItem[],existing:Existing[],categoryKe
    if(!product&&!item.title)errors.push("Новый товар требует название");
    const proposed:Reviewed["proposed"]={};
    const add=(field:string,value:string|number|undefined)=>{
+     if(product?.masterProductId&&["title","brand","description","categoryKey"].includes(field))return;
      if(value!==undefined&&value!=="")proposed[field]=value;
    };
    add("title",item.title);add("barcode",item.barcode);add("brand",item.brand);
@@ -79,7 +81,7 @@ export function evaluateImport(items:ImportItem[],existing:Existing[],categoryKe
    return {
      index,rowNumber:item.rowNumber,sku:item.sku,title:item.title||product?.title||"",
      barcode:item.barcode,matchedBy:skuMatch?"SKU":supplierMatch?"SUPPLIER_SKU":barcodeMatch?"BARCODE":null,
-     productId:product?.id||null,status,reasons:errors,
+     productId:product?.id||null,status,reasons:product?.masterProductId?[...errors,"Общие тексты сохраняются в основной карточке; импорт этого SKU меняет только его индивидуальные поля."]:errors,
      currentUpdatedAt:product?.updatedAt||null,proposed,changes,
      sourceStock:item.stock??null,
    };

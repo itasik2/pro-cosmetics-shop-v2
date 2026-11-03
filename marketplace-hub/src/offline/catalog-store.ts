@@ -88,7 +88,7 @@ function serializeProduct(product: {
       stock,
       reserved,
       safetyStock,
-      available: Math.max(0, stock - reserved - safetyStock),
+      available: inventory.reduce((sum,item)=>sum+Math.max(0,item.onHand-item.reserved-item.safetyStock),0),
     },
     createdAt: product.createdAt.toISOString(),
     updatedAt: product.updatedAt.toISOString(),
@@ -114,11 +114,16 @@ export async function createCatalogProduct(raw: unknown) {
   const input = createCatalogProductSchema.parse(raw);
   const card = input.card;
 
+  if (card.stock !== undefined && card.stock !== 0) throw new Error("stock_movement_required");
   if (card.stock !== undefined && !input.warehouseId) {
     throw new Error("warehouse_required_for_stock");
   }
 
   return prisma.$transaction(async (tx) => {
+    if(input.warehouseId){
+      const warehouse=await tx.warehouse.findFirst({where:{id:input.warehouseId,organizationId:input.organizationId,isActive:true}});
+      if(!warehouse)throw new Error("warehouse_not_found");
+    }
     const product = await tx.product.create({
       data: {
         organizationId: input.organizationId,

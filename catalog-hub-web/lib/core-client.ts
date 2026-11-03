@@ -7,6 +7,17 @@ export type CoreOrder = { id: string; connectionId: string; externalOrderId: str
   items: Array<{ productId: string; warehouseId: string; sku: string; quantity: number; returned: number }> };
 
 const messages: Record<string,string> = {
+  variant_group_size_invalid: "Выберите от 2 до 50 разных SKU.",
+  variant_already_grouped: "Один из товаров уже входит в группу. Сначала проверьте существующее объединение.",
+  variant_preview_stale: "Карточки изменились после предпросмотра. Проверьте объединение заново.",
+  variant_undo_conflict: "После объединения карточка была изменена. Автоматический откат заблокирован для сохранения правок.",
+  variant_shared_fields_readonly: "Общие поля редактируются в основной карточке товара.",
+  import_row_stale: "Карточка изменилась после проверки. Загрузите прайс заново для нового предпросмотра.",
+  import_version_conflict: "Прогресс задачи изменился. Обновите данные перед действием.",
+  import_incomplete_manifest: "Загружены не все подтверждённые строки. Продолжите подготовку файла.",
+  import_queue_limit: "В очереди уже десять незавершённых импортов. Дождитесь завершения или остановите ненужные.",
+  import_retry_limit: "Достигнут лимит повторов. Исправьте причину и создайте новый предпросмотр.",
+  record_conflict: "SKU или другая уникальная связь уже существует. Создайте новый предпросмотр.",
   core_migration_required: "Для раздела требуется обновление серверной части.",
   inventory_version_conflict: "Остаток изменился. Обновите данные и проверьте операцию ещё раз.",
   channel_version_conflict: "Настройки канала изменились. Обновите страницу.",

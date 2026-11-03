@@ -111,6 +111,7 @@ export async function createChangeSet(input: {
 
 export async function approveChangeSet(input: {
   id: string;
+  organizationId: string;
   approvedFields: MutableCardField[];
   approvedBy?: string;
 }) {
@@ -118,7 +119,7 @@ export async function approveChangeSet(input: {
     where: { id: input.id },
     include: { fields: true },
   });
-  if (!changeSet) throw new Error("changeset_not_found");
+  if (!changeSet || changeSet.organizationId !== input.organizationId) throw new Error("changeset_not_found");
   if (["APPLIED", "REJECTED"].includes(changeSet.status)) {
     throw new Error("changeset_closed");
   }
@@ -158,6 +159,7 @@ export async function approveChangeSet(input: {
 
 export async function rejectChangeSet(input: {
   id: string;
+  organizationId: string;
   rejectedBy?: string;
 }) {
   const now = new Date();
@@ -166,7 +168,7 @@ export async function rejectChangeSet(input: {
       where: { id: input.id },
       include: { fields: true },
     });
-    if (!changeSet) throw new Error("changeset_not_found");
+    if (!changeSet || changeSet.organizationId !== input.organizationId) throw new Error("changeset_not_found");
     if (changeSet.status === "APPLIED") throw new Error("changeset_already_applied");
 
     await tx.catalogFieldChange.updateMany({
@@ -197,6 +199,7 @@ export async function rejectChangeSet(input: {
 
 export async function applyChangeSet(input: {
   id: string;
+  organizationId: string;
   appliedBy?: string;
   warehouseId?: string;
 }) {
@@ -205,7 +208,7 @@ export async function applyChangeSet(input: {
       where: { id: input.id },
       include: { fields: true },
     });
-    if (!changeSet) throw new Error("changeset_not_found");
+    if (!changeSet || changeSet.organizationId !== input.organizationId) throw new Error("changeset_not_found");
     if (!changeSet.productId) throw new Error("changeset_product_required");
     if (changeSet.status !== "APPROVED") throw new Error("changeset_not_approved");
 
@@ -214,14 +217,13 @@ export async function applyChangeSet(input: {
       .map((field) => field.field as MutableCardField);
 
     if (!approvedFields.length) throw new Error("approved_fields_empty");
-    if (approvedFields.includes("stock") && !input.warehouseId) {
-      throw new Error("warehouse_required_for_stock");
-    }
+    if (approvedFields.includes("stock")) throw new Error("stock_movement_required");
 
     const product = await tx.product.findUnique({
       where: { id: changeSet.productId },
     });
-    if (!product) throw new Error("product_not_found");
+    if (!product || product.organizationId!==input.organizationId) throw new Error("product_not_found");
+    if (product.masterProductId && approvedFields.some(field=>["title","brand","shortDescription","description","application","ingredients","categoryKey"].includes(field))) throw new Error("variant_shared_fields_readonly");
 
     let stock: number | undefined;
     if (input.warehouseId) {
@@ -312,22 +314,6 @@ export async function applyChangeSet(input: {
       });
     }
 
-    if (applied.appliedFields.includes("stock")) {
-      await tx.inventory.upsert({
-        where: {
-          productId_warehouseId: {
-            productId: product.id,
-            warehouseId: input.warehouseId!,
-          },
-        },
-        update: { onHand: revised.stock ?? 0 },
-        create: {
-          productId: product.id,
-          warehouseId: input.warehouseId!,
-          onHand: revised.stock ?? 0,
-        },
-      });
-    }
 
     await tx.productRevision.create({
       data: {
@@ -378,9 +364,10 @@ export async function applyChangeSet(input: {
   });
 }
 
-export async function getChangeSet(id: string) {
-  return prisma.catalogChangeSet.findUnique({
-    where: { id },
+export async function getChangeSet(id: string,organizationId:string) {
+  if(!organizationId)return null;
+  return prisma.catalogChangeSet.findFirst({
+    where: { id,organizationId },
     include: {
       fields: { orderBy: [{ risk: "desc" }, { createdAt: "asc" }] },
       revisions: { orderBy: { createdAt: "desc" } },

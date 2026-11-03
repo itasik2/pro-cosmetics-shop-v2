@@ -15,7 +15,8 @@
     "prisma:push": "prisma db push",
     "db:validate": "prisma validate",
     "db:bootstrap": "prisma db push",
-    "service:check": "npm run prisma:generate && npm run typecheck && npm test"
+    "service:check": "npm run prisma:generate && npm run typecheck && npm test",
+    "worker:imports": "tsx src/worker/catalog-import-worker.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.1",

@@ -10,6 +10,9 @@ import { handleOrders } from "./orders-api.ts";
 import { handleStock } from "./stock-api.ts";
 import { handleChannels } from "./channels-api.ts";
 import { handleSync } from "./sync-api.ts";
+import { handleVariants } from "./variants-api.ts";
+import {handleImportRuns} from "./import-runs.ts";
+import {transactionalSql} from "./core-store.ts";
 
 const databaseUrl = Deno.env.get("SUPABASE_DB_URL")!;
 const sql = postgres(databaseUrl, { prepare: false,
@@ -158,6 +161,9 @@ type ProductRow = {
   basePrice: number | null;
   createdAt: string | Date;
   updatedAt: string | Date;
+  masterProductId?: string | null;
+  masterUpdatedAt?: string | Date | null;
+  variantSummary?: {count:number;minPrice:number|null;maxPrice:number|null;available:number};
 };
 
 // Old catalog imports stored JSON objects and arrays as serialized strings
@@ -192,10 +198,10 @@ type InventoryRow = {
   name: string;
 };
 
-async function serializeProduct(product: ProductRow & { __inventory?: InventoryRow[] }) {
+async function serializeProduct(product: ProductRow & { __inventory?: InventoryRow[] }, db = sql) {
   // List endpoints include inventory in the product query. Single-card lookups
   // retain the existing fallback for backwards compatibility.
-  const inventory = product.__inventory ?? await sql<
+  const inventory = product.__inventory ?? await db<
     {
       warehouseId: string;
       onHand: number;
@@ -229,6 +235,9 @@ async function serializeProduct(product: ProductRow & { __inventory?: InventoryR
     id: product.id,
     organizationId: product.organizationId,
     sku: product.sku,
+    masterProductId: product.masterProductId || null,
+    masterUpdatedAt: product.masterUpdatedAt ? new Date(product.masterUpdatedAt).toISOString() : null,
+    variantSummary: product.variantSummary || null,
     barcode: product.barcode,
     title: product.title,
     brand: product.brand,
@@ -267,7 +276,7 @@ async function serializeProduct(product: ProductRow & { __inventory?: InventoryR
 async function getBySku(organizationId: string, sku: string) {
   const rows = await sql<ProductRow[]>`
     SELECT *
-    FROM public."Product"
+    FROM public."CatalogProductRead"
     WHERE "organizationId" = ${organizationId}
       AND "sku" = ${sku}
     LIMIT 1
@@ -288,7 +297,7 @@ function optionalNonNegativeInt(value: unknown) {
   return n;
 }
 
-async function createProduct(body: any) {
+async function createProduct(body: any, db = sql) {
   const organizationId = optionalString(body?.organizationId);
   const warehouseId = optionalString(body?.warehouseId);
   const supplierId = optionalString(body?.supplierId);
@@ -311,7 +320,7 @@ async function createProduct(body: any) {
     throw new Error("warehouse_required_for_stock");
   }
 
-  const organization = await sql<{ id: string }[]>`
+  const organization = await db<{ id: string }[]>`
     SELECT "id" FROM public."Organization"
     WHERE "id" = ${organizationId}
     LIMIT 1
@@ -319,7 +328,7 @@ async function createProduct(body: any) {
   if (!organization.length) throw new Error("organization_not_found");
 
   if (warehouseId) {
-    const warehouse = await sql<{ id: string }[]>`
+    const warehouse = await db<{ id: string }[]>`
       SELECT "id" FROM public."Warehouse"
       WHERE "id" = ${warehouseId}
         AND "organizationId" = ${organizationId}
@@ -330,26 +339,18 @@ async function createProduct(body: any) {
   }
   if (supplierId) {
     if (supplierSku && supplierSku.length > 100) throw new Error("supplier_sku_invalid");
-    const suppliers = await sql`SELECT "id" FROM public."Supplier" WHERE "id"=${supplierId}
+    const suppliers = await db`SELECT "id" FROM public."Supplier" WHERE "id"=${supplierId}
       AND "organizationId"=${organizationId} AND "isActive"=true LIMIT 1`;
     if (!suppliers.length) throw new Error("supplier_not_found");
   }
 
   const id = crypto.randomUUID();
   const now = new Date();
-  const attributes = JSON.stringify(
-    card.attributes && typeof card.attributes === "object"
-      ? card.attributes
-      : {},
-  );
-  const images = JSON.stringify(
-    Array.isArray(card.images)
-      ? card.images.filter((value: unknown) => typeof value === "string")
-      : [],
-  );
+  const attributes = card.attributes && typeof card.attributes === "object" && !Array.isArray(card.attributes) ? card.attributes : {};
+  const images = Array.isArray(card.images) ? card.images.filter((value: unknown) => typeof value === "string") : [];
 
   try {
-    await sql.begin(async (tx) => {
+    await db.begin(async (tx) => {
       await tx`
         INSERT INTO public."Product" (
           "id","organizationId","sku","barcode","title","brand",
@@ -368,8 +369,8 @@ async function createProduct(body: any) {
           ${optionalString(card.application)},
           ${optionalString(card.ingredients)},
           ${optionalString(card.categoryKey)},
-          ${attributes}::jsonb,
-          ${images}::jsonb,
+          ${tx.json(attributes as postgres.JSONValue)}::jsonb,
+          ${tx.json(images as postgres.JSONValue)}::jsonb,
           ${purchasePrice},
           ${price},
           ${now},
@@ -407,10 +408,10 @@ async function createProduct(body: any) {
     throw error;
   }
 
-  const rows = await sql<ProductRow[]>`
+  const rows = await db<ProductRow[]>`
     SELECT * FROM public."Product" WHERE "id" = ${id} LIMIT 1
   `;
-  return serializeProduct(rows[0]);
+  return serializeProduct(rows[0], db);
 }
 
 async function bulkCreateProducts(body: any) {
@@ -494,6 +495,7 @@ async function catalogSnapshot(url: URL) {
     SELECT
       p."id",
       p."sku",
+      p."masterProductId",
       p."barcode",
       p."title",
       p."brand",
@@ -508,17 +510,15 @@ async function catalogSnapshot(url: URL) {
       p."basePrice" AS "price",
       COALESCE((SELECT json_agg(json_build_object('supplierId',sp."supplierId",'supplierSku',sp."supplierSku"))
         FROM public."SupplierProduct" sp WHERE sp."productId"=p."id"),'[]'::json) AS "supplierLinks",
-      COALESCE(SUM(i."onHand"), 0)::int AS "stock",
-      COALESCE(
-        SUM(GREATEST(i."onHand" - i."reserved" - i."safetyStock", 0)),
-        0
-      )::int AS "available",
+      COALESCE(i."stock", 0)::int AS "stock",
+      COALESCE(i."available",0)::int AS "available",
       p."createdAt",
       p."updatedAt"
-    FROM public."Product" p
-    LEFT JOIN public."Inventory" i ON i."productId" = p."id"
+    FROM public."CatalogProductRead" p
+    LEFT JOIN LATERAL (SELECT sum(v."onHand")::int AS "stock",
+      sum(greatest(0,v."onHand"-v."reserved"-v."safetyStock"))::int AS "available"
+      FROM public."Inventory" v WHERE v."productId"=p."id") i ON true
     WHERE p."organizationId" = ${organizationId}
-    GROUP BY p."id"
     ORDER BY p."sku" ASC
   `;
 
@@ -544,7 +544,7 @@ async function getProductById(url: URL, id: string) {
   const organizationId = requiredOrganizationId(url);
   const rows = await sql<ProductRow[]>`
     SELECT *
-    FROM public."Product"
+    FROM public."CatalogProductRead"
     WHERE "id" = ${id}
       AND "organizationId" = ${organizationId}
     LIMIT 1
@@ -695,7 +695,7 @@ async function listProductOptions(url: URL) {
   const limit = Math.max(1,Math.min(500,Number(url.searchParams.get("limit")) || 500));
   return sql`
     SELECT "id", "sku", "title", "purchasePrice", "basePrice" AS "price"
-    FROM public."Product"
+    FROM public."CatalogProductRead"
     WHERE "organizationId" = ${organizationId}
       AND (${query}='' OR "sku" ILIKE ${pattern} OR "title" ILIKE ${pattern})
     ORDER BY "sku" ASC
@@ -708,15 +708,15 @@ async function getDashboardSummary(url: URL) {
   const organizationId = requiredOrganizationId(url);
   const rows = await sql`
     SELECT
-      (SELECT count(*)::int FROM public."Product"
+      (SELECT count(*)::int FROM public."CatalogProductRead"
        WHERE "organizationId"=${organizationId}) AS "productCount",
       (SELECT COALESCE(sum(i."onHand"),0)::int
-       FROM public."Inventory" i JOIN public."Product" p ON p."id"=i."productId"
+       FROM public."Inventory" i JOIN public."CatalogProductRead" p ON p."id"=i."productId"
        WHERE p."organizationId"=${organizationId}) AS "stockTotal",
-      (SELECT COALESCE(avg("basePrice"),0)::int FROM public."Product"
+      (SELECT COALESCE(avg("basePrice"),0)::int FROM public."CatalogProductRead"
        WHERE "organizationId"=${organizationId}) AS "averagePrice",
       (SELECT count(*)::int FROM public."CatalogEnrichmentProposal" e
-       JOIN public."Product" p ON p."id"=e."productId"
+       JOIN public."CatalogProductRead" p ON p."id"=e."productId"
        WHERE p."organizationId"=${organizationId} AND e."status"='PENDING') AS "proposalCount",
       (SELECT count(*)::int FROM public."CatalogChangeSet"
        WHERE "organizationId"=${organizationId} AND "status" IN ('PREVIEW','APPROVED')) AS "changeCount",
@@ -729,7 +729,7 @@ async function getDashboardSummary(url: URL) {
            SELECT sum(greatest(0,i."onHand"-i."reserved"-i."safetyStock"))::int
            FROM public."Inventory" i WHERE i."productId"=p."id"
          ),0) AS "available"
-         FROM public."Product" p
+         FROM public."CatalogProductRead" p
          WHERE p."organizationId"=${organizationId}
          ORDER BY p."updatedAt" DESC,p."id" ASC LIMIT 6
        ) AS recent) AS "recentProducts"
@@ -741,6 +741,7 @@ async function listProducts(url: URL) {
   const organizationId = (url.searchParams.get("organizationId") || "").trim();
   if (!organizationId) throw new Error("organizationId_required");
 
+  const cards = url.searchParams.get("cards") === "true";
   const q = (url.searchParams.get("q") || "").trim();
   const category = (url.searchParams.get("category") || "").trim();
   const incomplete = url.searchParams.get("incomplete") === "true";
@@ -756,6 +757,10 @@ async function listProducts(url: URL) {
 
   const items = await sql<(ProductRow & { __inventory: InventoryRow[] })[]>`
     SELECT p.*,
+      (SELECT json_build_object('count',count(*)::int,'minPrice',min(v."basePrice"),'maxPrice',max(v."basePrice"),
+        'available',COALESCE(sum((SELECT COALESCE(sum(greatest(0,i."onHand"-i."reserved"-i."safetyStock")),0)
+          FROM public."Inventory" i WHERE i."productId"=v."id")),0)::int)
+       FROM public."Product" v WHERE v."organizationId"=p."organizationId" AND (v."id"=p."id" OR v."masterProductId"=p."id")) AS "variantSummary",
       COALESCE((
         SELECT json_agg(json_build_object(
           'warehouseId', i."warehouseId",
@@ -769,8 +774,9 @@ async function listProducts(url: URL) {
         JOIN public."Warehouse" w ON w."id" = i."warehouseId"
         WHERE i."productId" = p."id"
       ), '[]'::json) AS "__inventory"
-    FROM public."Product" p
-    WHERE "organizationId" = ${organizationId}
+    FROM public."CatalogProductRead" p
+    WHERE p."organizationId" = ${organizationId}
+      AND (NOT ${cards} OR p."masterProductId" IS NULL)
       AND (${category} = '' OR (${category} = '__uncategorized__' AND (p."categoryKey" IS NULL OR p."categoryKey" IN ('', 'Без категории'))) OR p."categoryKey" = ${category})
       AND (NOT ${incomplete} OR p."categoryKey" IS NULL OR p."categoryKey" IN ('', 'Без категории')
         OR p."brand" IS NULL OR p."brand" = ''
@@ -785,6 +791,8 @@ async function listProducts(url: URL) {
         OR "title" ILIKE ${pattern}
         OR COALESCE("brand",'') ILIKE ${pattern}
         OR COALESCE("barcode",'') ILIKE ${pattern}
+        OR (${cards} AND EXISTS (SELECT 1 FROM public."Product" v WHERE v."organizationId"=p."organizationId"
+          AND v."masterProductId"=p."id" AND (v."sku" ILIKE ${pattern} OR v."barcode" ILIKE ${pattern})))
       )
     ORDER BY p."updatedAt" DESC, p."id" ASC
     LIMIT ${limit} OFFSET ${offset}
@@ -792,8 +800,9 @@ async function listProducts(url: URL) {
 
   const [{ count }] = await sql<{ count: number }[]>`
     SELECT count(*)::int AS count
-    FROM public."Product" p
-    WHERE "organizationId" = ${organizationId}
+    FROM public."CatalogProductRead" p
+    WHERE p."organizationId" = ${organizationId}
+      AND (NOT ${cards} OR p."masterProductId" IS NULL)
       AND (${category} = '' OR (${category} = '__uncategorized__' AND (p."categoryKey" IS NULL OR p."categoryKey" IN ('', 'Без категории'))) OR p."categoryKey" = ${category})
       AND (NOT ${incomplete} OR p."categoryKey" IS NULL OR p."categoryKey" IN ('', 'Без категории')
         OR p."brand" IS NULL OR p."brand" = ''
@@ -808,11 +817,13 @@ async function listProducts(url: URL) {
         OR "title" ILIKE ${pattern}
         OR COALESCE("brand",'') ILIKE ${pattern}
         OR COALESCE("barcode",'') ILIKE ${pattern}
+        OR (${cards} AND EXISTS (SELECT 1 FROM public."Product" v WHERE v."organizationId"=p."organizationId"
+          AND v."masterProductId"=p."id" AND (v."sku" ILIKE ${pattern} OR v."barcode" ILIKE ${pattern})))
       )
   `;
 
   return {
-    items: await Promise.all(items.map(serializeProduct)),
+    items: await Promise.all(items.map(item=>serializeProduct(item))),
     pagination: {
       total: count,
       limit,
@@ -831,9 +842,9 @@ async function handleRequest(req: Request, requestId:string):Promise<Response> {
       return json({
         ok: true,
         service: "catalog-hub",
-        version: "0.10.0-edge",
+        version: "0.11.0-edge",
         apiVersion: 1,
-        capabilities: ["organization-scoped-auth", "api-scopes", "stock-movements-v1", "order-events-v1", "channels-v1", "outbox-v1"],
+        capabilities: ["organization-scoped-auth", "api-scopes", "stock-movements-v1", "order-events-v1", "channels-v1", "outbox-v1", "variants-v1", "durable-imports-v1"],
         mode: "supabase-edge",
       });
     }
@@ -847,7 +858,7 @@ async function handleRequest(req: Request, requestId:string):Promise<Response> {
       `;
       const [schema]=await sql`SELECT
         NOT EXISTS (SELECT 1 FROM unnest(ARRAY['ChannelConnection','ChannelOffer','ChannelWarehouseMapping','ChannelCategoryMapping',
-          'CoreOrder','CoreOrderItem','CoreMutation','StockMovement','InboxEvent','OutboxEvent']) AS t(name)
+          'CoreOrder','CoreOrderItem','CoreMutation','StockMovement','InboxEvent','OutboxEvent','ProductGrouping','CatalogProductRead','CatalogImportRun','CatalogImportRow']) AS t(name)
           WHERE to_regclass('public."'||t.name||'"') IS NULL) AS "tablesReady",
         EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='public."Inventory"'::regclass AND attname='revision' AND NOT attisdropped) AS "revisionReady",
         EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public."Inventory"'::regclass
@@ -855,7 +866,7 @@ async function handleRequest(req: Request, requestId:string):Promise<Response> {
       const schemaReady=Boolean(schema.tablesReady&&schema.revisionReady&&schema.stockConstraintValidated);
       const ready = ok === 1 && keys > 0 && schemaReady;
       return json({ ready, database: ok === 1, authConfigured: keys > 0,schemaReady,
-        apiVersion:1,...(!schemaReady?{requiredMigration:"20261103082032_catalog_core_orders_and_scoped_keys"}:{}) }, ready ? 200 : 503);
+        apiVersion:1,...(!schemaReady?{requiredMigration:"20261103122000_catalog_import_queue"}:{}) }, ready ? 200 : 503);
     }
 
     if (!route.startsWith("/v1/")) {
@@ -869,7 +880,27 @@ async function handleRequest(req: Request, requestId:string):Promise<Response> {
     assertScope(principal, route, req.method);
     req = await scopeRequest(req, url, principal);
 
-    for (const handler of [handleOrders, handleStock, handleChannels, handleSync]) {
+    const importRun = await handleImportRuns(req,route,url,sql,principal,async(tx,action,actor)=>{
+      const db=transactionalSql(tx);
+      const payload:Record<string,unknown>={...action.payload,organizationId:actor.organizationId};
+      if(action.action==="CREATE") {
+        const card=payload.card as Record<string,unknown> | undefined;
+        if(!card||card.sku!==action.sku)throw new RequestError("import_sku_mismatch");
+        return await createProduct(payload,db);
+      }
+      const path=action.action==="STAGE"?"/v1/staging/changesets":"/v1/price-import/auto";
+      if(action.action==="STAGE"&&payload.sourceType!=="IMPORT")throw new RequestError("invalid_import_action");
+      const nestedRequest=new Request(req.url,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload)});
+      const nestedUrl=new URL(req.url);nestedUrl.searchParams.set("organizationId",actor.organizationId);
+      const reply=action.action==="STAGE"?await handleCardEditor(nestedRequest,path,nestedUrl,db):await handlePriceImport(nestedRequest,path,nestedUrl,db);
+      if(!reply)throw new RequestError("invalid_import_action");
+      const data=await reply.json();
+      if(!reply.ok)throw new RequestError(String(data.error||"import_row_failed"),reply.status);
+      return data;
+    });
+    if(importRun)return importRun;
+
+    for (const handler of [handleOrders, handleStock, handleChannels, handleSync, handleVariants]) {
       const reply = await handler(req, route, url, sql, principal);
       if (reply) return reply;
     }
@@ -1001,6 +1032,7 @@ async function handleRequest(req: Request, requestId:string):Promise<Response> {
     return json({ error: "not_found" }, 404);
   } catch (error) {
     if (error instanceof RequestError) return json({ error: error.message }, error.status);
+    if (error instanceof Error && error.message === "variant_shared_fields_readonly") return json({error:error.message},409);
     const code = (error as { code?: string }).code;
     if (code === "23505") return json({ error: "record_conflict" }, 409);
     if (code === "42P01" || code === "42703") return json({ error: "core_migration_required" }, 503);
