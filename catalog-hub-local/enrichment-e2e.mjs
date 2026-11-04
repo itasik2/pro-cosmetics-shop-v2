@@ -89,6 +89,25 @@ const proposals = (await request(ai + "/v1/ai/enrichment/proposals?organizationI
 assert.equal(proposals.find(p => p.id === proposalId)?.status, "APPLIED");
 console.log("PASS: source configuration, tenant-scoped queue, failed job audit, fill-only staging, image selection, review page, partial restaging, approve/apply, unchanged prices and stock.");
 
+const historyPath = api + "/v1/catalog/products/" + product.id + "/revisions";
+const history = (await request(historyPath, { headers: apiHeaders })).data;
+const nodeRevision = history.items.find(item => item.changeSetId === remaining.id);
+assert.ok(nodeRevision, "Node changeset writes an Edge-readable revision");
+const detail = (await request(historyPath + "/" + nodeRevision.id, { headers: apiHeaders })).data;
+assert.deepEqual(detail.changes, [{ field: "ingredients", before: null, after: "Aqua, Glycerin" }]);
+await request(historyPath + "/" + nodeRevision.id + "/rollback", {
+  method: "POST",
+  headers: { ...apiHeaders, "content-type": "application/json", "idempotency-key": "node-revision-" + randomBytes(12).toString("hex") },
+  body: JSON.stringify({ confirmed: true, reason: "Synthetic cross-runtime restoration", expectedVersion: detail.expectedVersion }),
+});
+const restored = await snapshot();
+assert.equal(restored.ingredients, null);
+assert.equal(restored.application, after.application);
+assert.deepEqual(restored.images, after.images);
+assert.equal(restored.price, after.price);
+assert.equal(restored.stock, after.stock);
+console.log("PASS: Edge restores a Node revision while preserving earlier approved fields, price and stock.");
+
 // Check direct IDs, not just a forged organizationId query parameter.
 const foreignOrg="org-node-foreign-"+randomBytes(4).toString("hex"),foreignProduct="node-foreign-product-"+randomBytes(5).toString("hex"),foreignSet="node-foreign-change-"+randomBytes(5).toString("hex");
 const foreignSql=`UPDATE public."CatalogApiKey" SET "organizationId"=${quote(org)},"scopes"='["*"]'::jsonb WHERE "id"='catalog-ubuntu-test';

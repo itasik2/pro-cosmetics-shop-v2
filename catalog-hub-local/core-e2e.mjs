@@ -25,6 +25,9 @@ export function coreFixtures(keyB, readOnlyKey) {
     INSERT INTO public."Inventory" ("id","productId","warehouseId","onHand","reserved","safetyStock","updatedAt") VALUES
       ('core-safety-a','core-safety-product','wh_pav_01',0,0,5,now()),
       ('core-safety-b','core-safety-product','wh_core_second',5,0,0,now()) ON CONFLICT ("id") DO NOTHING;
+    INSERT INTO public."ProductRevision" ("id","productId","reason","snapshot")
+      VALUES ('legacy-core-revision','core-safety-product','MANUAL_CARD_EDIT','{"title":"Earlier title","basePrice":150}'::jsonb)
+      ON CONFLICT ("id") DO NOTHING;
     DO $guard$ DECLARE relation text; BEGIN
       FOREACH relation IN ARRAY ARRAY['ChannelConnection','ChannelOffer','ChannelWarehouseMapping','ChannelCategoryMapping',
         'CoreOrder','CoreOrderItem','StockMovement','CoreMutation','InboxEvent','OutboxEvent','ProductGrouping','CatalogImportRun','CatalogImportRow'] LOOP
@@ -82,6 +85,9 @@ export async function runCoreChecks({ baseUrl = "http://127.0.0.1:8000", key, ke
   assert.equal(expect(await api("/ready"),200,"schema, constraint and API readiness").schemaReady,true);checks++;
   const safeAcrossWarehouses=expect(await api("/v1/catalog/products/core-safety-product"),200,"availability is clipped separately per warehouse");
   assert.equal(safeAcrossWarehouses.totals.available,5);checks++;
+  const legacy = expect(await api("/v1/catalog/products/core-safety-product/revisions/legacy-core-revision"), 200, "old snapshots remain visible");
+  assert.equal(legacy.blocked, "revision_snapshot_unavailable");
+  assert.deepEqual(legacy.legacyValues.find(value => value.field === "price"), {field:"price",before:150});
   expect(await api("/v1/catalog/products?organizationId=org_core_b"), 403, "cross-tenant query rejected");
   expect(await api("/v1/catalog/products?organizationId=org_procosmetics&organizationId=org_core_b"), 403, "duplicate tenant query rejected");
   expect(await api("/v1/catalog/products", { credential: "invalid-test-key" }), 401, "invalid credential rejected");
@@ -90,6 +96,45 @@ export async function runCoreChecks({ baseUrl = "http://127.0.0.1:8000", key, ke
   const alien = await product("tenant-b", keyB);
   expect(await api("/v1/catalog/products/" + alien.id), 404, "direct foreign product ID rejected");
   expect(await movement(alien.id, "RECEIVE", 1), 404, "foreign product stock rejected");
+
+  {
+    const edited = await product("card-revision");
+    const cardPath = "/v1/catalog/products/" + edited.id;
+    const edits = expect(await api("/v1/catalog/manual-save", { body: {
+      productId: edited.id, expectedUpdatedAt: edited.updatedAt,
+      proposed: { title: "Updated synthetic card", price: 250, attributes: { nested: { z: 1, a: 2 } } },
+    } }), 200, "record manual card revision");
+    const revisionsPath = cardPath + "/revisions";
+    const detailPath = revisionsPath + "/" + edits.revisionId;
+    const revisions = expect(await api(revisionsPath, {credential:readOnlyKey}), 200, "read card history");
+    assert.equal(revisions.items[0].id, edits.revisionId);
+    expect(await api(revisionsPath, {credential:keyB}), 404, "foreign card history hidden");
+    const revision = expect(await api(detailPath), 200, "preview stored before and after values");
+    assert.equal(revision.blocked, null);
+    assert.deepEqual(revision.changes.find(change => change.field === "price"), {field:"price", before:200, after:250});
+    expect(await movement(edited.id, "RECEIVE", 3), 201, "receive stock independently of card edit");
+    const rollbackBody = {confirmed:true, reason:"Restore tested values", expectedVersion:revision.expectedVersion};
+    expect(await api(detailPath + "/rollback", {body:rollbackBody, credential:readOnlyKey}), 403, "reader cannot restore card");
+    expect(await api(detailPath + "/rollback", {body:{...rollbackBody,confirmed:false}}), 400, "explicit rollback confirmation required");
+    const rollbackKey = randomUUID();
+    const rolledBack = expect(await api(detailPath + "/rollback", {body:rollbackBody,idempotencyKey:rollbackKey}), 200, "restore card with compare and set");
+    const repeated = expect(await api(detailPath + "/rollback", {body:rollbackBody,idempotencyKey:rollbackKey}), 200, "rollback retry is idempotent");
+    assert.equal(repeated.revisionId, rolledBack.revisionId);
+    expect(await api(detailPath + "/rollback", {body:rollbackBody}), 409, "old revision cannot apply again");
+    const restored = expect(await api(cardPath), 200, "read restored fields");
+    assert.equal(restored.title, edited.title); assert.equal(restored.price, edited.price);
+    assert.equal((await stock(edited.id)).onHand, 3);
+    const rollbackEntry = expect(await api(revisionsPath + "/" + rolledBack.revisionId), 200, "rollback is separately audited");
+    assert.equal(rollbackEntry.rollbackOf, edits.revisionId); assert.equal(rollbackEntry.note, rollbackBody.reason);
+    assert.equal(rollbackEntry.blocked, null);
+    expect(await api("/v1/catalog/manual-save", {body:{
+      productId:edited.id, expectedUpdatedAt:restored.updatedAt, proposed:{brand:"Later edit"},
+    }}), 200, "later card change");
+    expect(await api(revisionsPath + "/" + rolledBack.revisionId + "/rollback", {
+      body:{...rollbackBody,expectedVersion:rollbackEntry.expectedVersion},
+    }), 409, "a preview loses eligibility after another edit");
+    assert.equal(expect(await api(cardPath), 200, "conflict preserves later change").brand, "Later edit");
+  }
 
   const ledger = await product("ledger");
   const warehouseKey=randomUUID(),warehouseBody={name:"Synthetic added warehouse",code:"ADDED-"+suffix};

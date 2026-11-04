@@ -7,6 +7,12 @@ export type CoreOrder = { id: string; connectionId: string; externalOrderId: str
   items: Array<{ productId: string; warehouseId: string; sku: string; quantity: number; returned: number }> };
 
 const messages: Record<string,string> = {
+  revision_conflict: "Карточка изменилась после этой правки. Откат заблокирован.",
+  revision_supplier_conflict: "Связь с поставщиком изменилась или прежний артикул уже занят.",
+  revision_snapshot_unavailable: "Для этой записи нет полной пары значений до и после. Восстановление недоступно.",
+  revision_category_unavailable: "Прежняя категория больше не активна.",
+  revision_import_scope_required: "Для восстановления записи поставщика требуется право на импорт.",
+  revision_not_found: "Запись истории не найдена.",
   variant_group_size_invalid: "Выберите от 2 до 50 разных SKU.",
   variant_already_grouped: "Один из товаров уже входит в группу. Сначала проверьте существующее объединение.",
   variant_preview_stale: "Карточки изменились после предпросмотра. Проверьте объединение заново.",

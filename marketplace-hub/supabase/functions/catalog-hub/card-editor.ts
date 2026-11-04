@@ -1,3 +1,4 @@
+import { cardFields as fields, readCard, readSupplierLink, recordCardRevision, sharedFields, valuesEqual, type CardField as Field } from "./card-revision-data.ts";
 import {outbox} from "./core-store.ts";
 import type {Principal} from "./request-context.ts";
 import { jsonParam } from "./database-json.ts";
@@ -13,12 +14,6 @@ type Product = {
   snapshotVersion: string;
   [key: string]: unknown;
 };
-const fields = [
-  "title", "barcode", "brand", "categoryKey", "shortDescription",
-  "description", "application", "ingredients", "purchasePrice",
-  "price", "attributes", "images",
-] as const;
-type Field = typeof fields[number];
 const allowed = new Set<string>(fields);
 const textFields = new Set<string>([
   "title", "barcode", "brand", "categoryKey", "shortDescription",
@@ -92,7 +87,7 @@ function normalizePatch(input: unknown): Partial<Record<Field, unknown>> {
   return patch;
 }
 function same(a: unknown, b: unknown) {
-  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+  return valuesEqual(a ?? null, b ?? null);
 }
 async function parseBody(req: Request) {
   if (Number(req.headers.get("content-length") || 0) > 100000) fail("payload_too_large", 413);
@@ -146,7 +141,7 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
         if (!products.length) fail("product_not_found", 404);
         const product = products[0];
         if (new Date(product.updatedAt).toISOString() !== expectedUpdatedAt) fail("product_changed_reload", 409);
-        if (product.masterProductId && Object.keys(proposed).some(field => ["title","brand","categoryKey","shortDescription","description","application","ingredients"].includes(field))) fail("variant_shared_fields_readonly",409);
+        if (product.masterProductId && Object.keys(proposed).some(field => sharedFields.has(field as Field))) fail("variant_shared_fields_readonly",409);
         const before = card(product);
         const changed = fields.filter(field => Object.prototype.hasOwnProperty.call(proposed, field) &&
           !same(before[field], proposed[field]));
@@ -157,9 +152,6 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
           if (!categories.length) fail("category_not_in_dictionary");
         }
         const after: Record<string, unknown> = {...before,...proposed};
-        await tx`INSERT INTO public."ProductRevision"
-          ("id","productId","reason","snapshot","createdBy","createdAt") VALUES
-          (${crypto.randomUUID()},${productId},'MANUAL_CARD_EDIT',${jsonParam(tx,before)}::jsonb,${actor},now())`;
         await tx`UPDATE public."Product" SET
           "title"=CASE WHEN ${changed.includes("title")} THEN ${after.title as string} ELSE "title" END,
           "barcode"=CASE WHEN ${changed.includes("barcode")} THEN ${after.barcode as string|null} ELSE "barcode" END,
@@ -173,11 +165,16 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
           "basePrice"=CASE WHEN ${changed.includes("price")} THEN ${after.price as number|null} ELSE "basePrice" END,
           "attributes"=CASE WHEN ${changed.includes("attributes")} THEN ${jsonParam(tx,after.attributes)}::jsonb ELSE "attributes" END,
           "images"=CASE WHEN ${changed.includes("images")} THEN ${jsonParam(tx,after.images)}::jsonb ELSE "images" END,
-          "updatedAt"=now() WHERE "id"=${productId} AND "organizationId"=${organizationId}`;
-        const updated = await tx`SELECT "updatedAt" FROM public."Product" WHERE "id"=${productId}`;
-        await outbox(tx,organizationId,"catalog.product_changed",{productId,changedFields:changed,actor});
-        return {id:productId,status:"APPLIED",changedFields:changed,
-          updatedAt:new Date(updated[0].updatedAt).toISOString()};
+          "updatedAt"=GREATEST(clock_timestamp()::timestamp(3),"updatedAt"+interval '1 millisecond')
+          WHERE "id"=${productId} AND "organizationId"=${organizationId}`;
+        const updated = await readCard(tx, organizationId, productId);
+        const revisionId = await recordCardRevision(tx, {
+          productId, actor, reason: "MANUAL_CARD_EDIT", before: product, after: updated,
+          fields: changed, legacySnapshot: before, source: "MANUAL",
+        });
+        await outbox(tx, organizationId, "catalog.product_changed", {productId, changedFields: changed, actor, revisionId});
+        return {id: productId, status: "APPLIED", changedFields: changed, revisionId,
+          updatedAt: new Date(updated.updatedAt).toISOString()};
       });
       return json(result);
     }
@@ -302,7 +299,7 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
           FROM public."Product" WHERE "id" = ${cs.productId}
           AND "organizationId" = ${organizationId} FOR UPDATE`;
         if (!products.length) fail("product_not_found", 404);
-        if (products[0].masterProductId && approved.some(field => ["title","brand","categoryKey","shortDescription","description","application","ingredients"].includes(field))) fail("variant_shared_fields_readonly",409);
+        if (products[0].masterProductId && approved.some(field => sharedFields.has(field as Field))) fail("variant_shared_fields_readonly",409);
         const before = readJsonObject(cs.current);
         if (currentChanged(before, products[0])) fail("changeset_stale", 409);
         if (approved.includes("categoryKey")) {
@@ -343,10 +340,9 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
           }
           }
         }
-        await tx`INSERT INTO public."ProductRevision"
-          ("id","productId","changeSetId","reason","snapshot","createdBy","createdAt")
-          VALUES (${crypto.randomUUID()},${cs.productId},${id},'CHANGESET_APPLY',
-            ${jsonParam(tx,before)}::jsonb,${actor},now())`;
+        const previousLink = supplierId
+          ? await readSupplierLink(tx, organizationId, cs.productId, supplierId, true)
+          : null;
         await tx`UPDATE public."Product" SET
           "title"=CASE WHEN ${approved.includes("title")} THEN ${after.title} ELSE "title" END,
           "barcode"=CASE WHEN ${approved.includes("barcode")} THEN ${after.barcode as string|null} ELSE "barcode" END,
@@ -360,7 +356,7 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
           "basePrice"=CASE WHEN ${approved.includes("price")} THEN ${after.price as number|null} ELSE "basePrice" END,
           "attributes"=CASE WHEN ${approved.includes("attributes")} THEN ${jsonParam(tx,after.attributes)}::jsonb ELSE "attributes" END,
           "images"=CASE WHEN ${approved.includes("images")} THEN ${jsonParam(tx,after.images)}::jsonb ELSE "images" END,
-          "updatedAt"=now()
+          "updatedAt"=GREATEST(clock_timestamp()::timestamp(3),"updatedAt"+interval '1 millisecond')
           WHERE "id"=${cs.productId} AND "organizationId"=${organizationId}`;
         if (supplierId) {
           await tx`INSERT INTO public."SupplierProduct" ("id","supplierId","productId","supplierSku",
@@ -379,8 +375,17 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
         await tx`UPDATE public."CatalogChangeSet" SET "status"=${status}::public."ChangeSetStatus",
           "appliedFields"=${jsonParam(tx,approved)}::jsonb,"appliedBy"=${actor},
           "appliedAt"=now(),"updatedAt"=now() WHERE "id"=${id}`;
-        await outbox(tx,organizationId,"catalog.product_changed",{productId:cs.productId,changedFields:approved,actor});
-        return { id, status, productId: cs.productId };
+        const updated = await readCard(tx, organizationId, cs.productId);
+        const revisionId = await recordCardRevision(tx, {
+          productId: cs.productId, actor, reason: "CHANGESET_APPLY", before: products[0], after: updated,
+          fields: approved, legacySnapshot: before, changeSetId: id, source: cs.sourceRef ?? cs.sourceType,
+          supplierLink: supplierId ? {
+            supplierId, before: previousLink,
+            after: await readSupplierLink(tx, organizationId, cs.productId, supplierId),
+          } : undefined,
+        });
+        await outbox(tx, organizationId, "catalog.product_changed", {productId: cs.productId, changedFields: approved, actor, revisionId});
+        return { id, status, productId: cs.productId, revisionId };
       });
       return json(result);
     }

@@ -1,3 +1,4 @@
+import { readCard, readSupplierLink, recordCardRevision, type CardField } from "./card-revision-data.ts";
 import {outbox} from "./core-store.ts";
 import type {Principal} from "./request-context.ts";
 import { jsonParam,jsonObject } from "./database-json.ts";
@@ -158,18 +159,28 @@ export async function handlePriceImport(req: Request, route: string, url: URL, s
         fail("price_unchanged", 409);
       const updatedAttributes = { ...source, supplierImport: { ...prior, supplierId, sourceDate,
         fileName, sha256: fileSha256 } };
-      await tx`INSERT INTO public."ProductRevision" ("id","productId","reason","snapshot","createdBy","createdAt")
-        VALUES (${crypto.randomUUID()},${productId},'PRICE_IMPORT_AUTO',${jsonParam(tx,{price:current.basePrice,
-          purchasePrice:current.purchasePrice,attributes:source})}::jsonb,'catalog-hub-price-import',now())`;
+      const previousLink = await readSupplierLink(tx, organizationId, productId, supplierId, true);
+      const actor = principal?.actor || "catalog-hub-price-import";
       await tx`UPDATE public."Product" SET "basePrice"=${price === undefined ? current.basePrice : price as number},
         "purchasePrice"=${purchasePrice === undefined ? current.purchasePrice : purchasePrice as number},
-        "attributes"=${jsonParam(tx,updatedAttributes)}::jsonb,"updatedAt"=now() WHERE "id"=${productId}`;
+        "attributes"=${jsonParam(tx,updatedAttributes)}::jsonb,
+        "updatedAt"=GREATEST(clock_timestamp()::timestamp(3),"updatedAt"+interval '1 millisecond') WHERE "id"=${productId}`;
       await tx`UPDATE public."SupplierProduct" SET "lastSeenAt"=now(),
         "purchasePrice"=${purchasePrice === undefined ? current.purchasePrice : purchasePrice as number},
         "updatedAt"=now() WHERE "id"=${link[0].id}`;
-      await outbox(tx,organizationId,"catalog.product_changed",{productId,changedFields:[...(price!==undefined?["price"]:[]),...(purchasePrice!==undefined?["purchasePrice"]:[])],actor:principal?.actor||"catalog-hub-price-import"});
+      const changedFields: CardField[] = ["attributes"];
+      if (price !== undefined && price !== current.basePrice) changedFields.push("price");
+      if (purchasePrice !== undefined && purchasePrice !== current.purchasePrice) changedFields.push("purchasePrice");
+      const revisionId = await recordCardRevision(tx, {
+        productId, actor, reason: "PRICE_IMPORT_AUTO", before: current,
+        after: await readCard(tx, organizationId, productId), fields: changedFields,
+        legacySnapshot: {price: current.basePrice, purchasePrice: current.purchasePrice, attributes: source},
+        source: fileName + " · " + sourceDate,
+        supplierLink: {supplierId, before: previousLink, after: await readSupplierLink(tx, organizationId, productId, supplierId)},
+      });
+      await outbox(tx, organizationId, "catalog.product_changed", {productId, changedFields, actor, revisionId});
       return { id: productId, status: "AUTO_APPLIED", price: price ?? current.basePrice,
-        purchasePrice: purchasePrice ?? current.purchasePrice };
+        purchasePrice: purchasePrice ?? current.purchasePrice, revisionId };
     });
     return json(result);
   } catch (error) {

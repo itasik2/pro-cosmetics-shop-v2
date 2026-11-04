@@ -1,3 +1,4 @@
+import { handleRevisions } from "./revisions-api.ts";
 import { handleCardEditor } from "./card-editor.ts";
 import { handlePriceImport } from "./price-import-api.ts";
 import { handleInventory } from "./inventory-api.ts";
@@ -931,6 +932,9 @@ async function handleRequest(req: Request, requestId:string):Promise<Response> {
 
     const inventoryReply = await handleInventory(req, route, url, sql, principal);
     if (inventoryReply) return inventoryReply;
+
+    const revisions = await handleRevisions(req, route, url, sql, principal);
+    if (revisions) return revisions;
 
     const cardEditor = await handleCardEditor(req, route, url, sql, principal);
     if (cardEditor) return cardEditor;

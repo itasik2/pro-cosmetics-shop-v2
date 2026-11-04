@@ -82,6 +82,42 @@ export async function runQueuedImportChecks({baseUrl="http://127.0.0.1:8000",key
   const updated=expect(await api("/v1/catalog/products/"+priced.id),200,"read queued price result");
   assert.equal(updated.purchasePrice,150);assert.equal(updated.price,250);assert.equal(updated.totals.stock,0);checks++;
 
+  const historyPath = "/v1/catalog/products/" + priced.id + "/revisions";
+  const priceRevision = expect(await api(historyPath), 200, "automatic import in card history").items[0];
+  const pricePreview = expect(await api(historyPath + "/" + priceRevision.id), 200, "price rollback preview");
+  assert.equal(pricePreview.supplierChanged, true);
+  assert.equal(pricePreview.blocked, null);
+  expect(await api(historyPath + "/" + priceRevision.id + "/rollback", {
+    confirmed:true, expectedVersion:pricePreview.expectedVersion, reason:"Restore synthetic supplier price",
+  }), 200, "restore price, supplier link and source together");
+  const restored = expect(await api("/v1/catalog/products/" + priced.id), 200, "restored supplier price");
+  assert.equal(restored.purchasePrice,100);
+  assert.equal(restored.price,200);
+  assert.equal(restored.attributes.supplierImport.sourceDate,"2026-10-01");
+
+  const unlinked = expect(await api("/v1/catalog/products/" + original.id), 200, "read unlinked product");
+  const linkRun = await submitRows([{ rowNumber: 1, sku: unlinked.sku, action: "STAGE", expectedUpdatedAt: unlinked.updatedAt,
+    payload: { productId: unlinked.id, sourceType: "IMPORT", sourceRef: "supplierfile:" + randomUUID().replaceAll("-", "") + ":1",
+      proposed: { attributes: { supplierImport: { supplierId: supplier.id, supplierSku: unlinked.sku, sourceDate: "2026-10-28" } } } } }], { supplierId: supplier.id });
+  const linkRows = expect(await api("/v1/imports/" + linkRun.id + "/rows"), 200, "report staged supplier link");
+  const linkSet = "/v1/staging/changesets/" + linkRows.items[0].result.id;
+  expect(await api(linkSet + "/approve", { approvedFields: ["attributes"] }), 200, "approve new supplier link");
+  const appliedLink = expect(await api(linkSet + "/apply", {}), 200, "apply new supplier link");
+  const linkHistory = "/v1/catalog/products/" + unlinked.id + "/revisions/";
+  const links = async () => expect(await api("/v1/catalog/snapshot"), 200, "read supplier links")
+    .items.find(item => item.id === unlinked.id).supplierLinks;
+  const undo = async revisionId => {
+    const detail = expect(await api(linkHistory + revisionId), 200, "preview supplier link restoration");
+    return expect(await api(linkHistory + revisionId + "/rollback", {
+      confirmed: true, expectedVersion: detail.expectedVersion, reason: "Restore synthetic supplier link state",
+    }), 200, "restore supplier link state");
+  };
+  assert.deepEqual(await links(), [{ supplierId: supplier.id, supplierSku: unlinked.sku }]);
+  const removedLink = await undo(appliedLink.revisionId);
+  assert.deepEqual(await links(), []);
+  await undo(removedLink.revisionId);
+  assert.deepEqual(await links(), [{ supplierId: supplier.id, supplierSku: unlinked.sku }]);
+
   // An unsafe row rolls back before the checkpoint; safe rows are not replayed.
   const bad=row(10001,{stock:50}),partial=await create([bad]);
   expect(await api("/v1/imports/"+partial.id+"/rows",{rows:[bad]}),200,"upload rejected stock operation");

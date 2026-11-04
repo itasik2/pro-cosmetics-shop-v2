@@ -22,7 +22,10 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
     <div className="page-head">
       <div><span className="eyebrow">{product.sku}</span><h1>{product.title}</h1>
         <p>{product.brand || "Без бренда"} · {product.categoryKey || "Без категории"}</p></div>
-      <Link className="button" href="/catalog">← Каталог</Link>
+      <div className="actions">
+        <Link className="button" href={"/catalog/" + encodeURIComponent(id) + "/history"}>История правок</Link>
+        <Link className="button" href="/catalog">← Каталог</Link>
+      </div>
     </div>
     {variants.ok ? <ProductVariants key={product.updatedAt} product={product} initial={variants.data} canWrite={!isLocalReadOnly()}/>
       : <p className="error" role="alert">Варианты недоступны: {variants.error}</p>}

@@ -39,6 +39,9 @@ WHERE i."onHand"<0 OR i."reserved"<0 OR i."reserved">i."onHand"
 
 | Маршрут | Назначение | Scope |
 | --- | --- | --- |
+| `GET /v1/catalog/products/{id}/revisions` | История карточки, по 20 записей с курсором | `catalog:read` |
+| `GET /v1/catalog/products/{id}/revisions/{revisionId}` | Значения до и после, причина блокировки отката | `catalog:read` |
+| `POST /v1/catalog/products/{id}/revisions/{revisionId}/rollback` | Восстановление с `confirmed`, `reason`, `expectedVersion` и Idempotency-Key | `catalog:write`; для связи поставщика также `imports:write` |
 | `GET /v1/inventory/balances` | Балансы, ревизии, курсор | `inventory:read` |
 | `GET/POST /v1/inventory/movements` | Журнал / подтверждённое движение | `inventory:read/write` |
 | `GET /v1/orders` | Общие заказы, курсор | `orders:read` |
@@ -59,6 +62,8 @@ API не хранит реквизиты оплаты и персональны�
 Ответы Edge содержат `X-Request-Id`; прокси кабинета передаёт тот же идентификатор серверу. JSON ограничен при чтении потока, включая запросы без Content-Length.
 
 Порядок блокировок: idempotency key → внешний заказ (для событий) → строка заказа → Product по отсортированным id → Inventory. Корректировки из существующего редактора тоже блокируют Product и пишут StockMovement/Outbox в той же транзакции.
+
+Откат карточки проверяет версию Product и состояние SupplierProduct под блокировкой. Он записывает новую ProductRevision и событие `catalog.product_changed` в той же транзакции. Старые записи с одним снимком доступны в истории. Для новых снимков используется существующее JSON-поле ProductRevision.
 
 ## Очередь
 

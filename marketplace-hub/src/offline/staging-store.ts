@@ -206,6 +206,8 @@ export async function applyChangeSet(input: {
   warehouseId?: string;
 }) {
   return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM public."CatalogChangeSet"
+      WHERE "id"=${input.id} AND "organizationId"=${input.organizationId} FOR UPDATE`;
     const changeSet = await tx.catalogChangeSet.findUnique({
       where: { id: input.id },
       include: { fields: true },
@@ -221,6 +223,8 @@ export async function applyChangeSet(input: {
     if (!approvedFields.length) throw new Error("approved_fields_empty");
     if (approvedFields.includes("stock")) throw new Error("stock_movement_required");
 
+    await tx.$queryRaw`SELECT "id" FROM public."Product"
+      WHERE "id"=${changeSet.productId} AND "organizationId"=${input.organizationId} FOR UPDATE`;
     const product = await tx.product.findUnique({
       where: { id: changeSet.productId },include:{masterProduct:true},
     });
@@ -309,24 +313,42 @@ export async function applyChangeSet(input: {
       updateData.basePrice = revised.price ?? null;
     }
 
+    const revisionId = crypto.randomUUID();
+    const actor = "node:internal";
     if (Object.keys(updateData).length) {
-      await tx.product.update({
-        where: { id: product.id },
-        data: updateData,
+      updateData.updatedAt = new Date(Math.max(Date.now(), product.updatedAt.getTime() + 1));
+      const updated = await tx.product.update({ where: { id: product.id }, data: updateData });
+      const [version] = await tx.$queryRaw<{ value: string }[]>`SELECT "updatedAt"::text AS value
+        FROM public."Product" WHERE "id"=${product.id}`;
+      const snapshotValues = (row: typeof updated) => Object.fromEntries(applied.appliedFields
+        .filter(field => field !== "stock")
+        .map(field => [field, row[field === "price" ? "basePrice" : field]]));
+      await tx.productRevision.create({
+        data: {
+          id: revisionId,
+          productId: product.id,
+          changeSetId: changeSet.id,
+          reason: "CHANGESET_APPLY",
+          snapshot: json({
+            ...actual,
+            cardRevision: {
+              before: snapshotValues(product),
+              after: snapshotValues(updated),
+              afterVersion: version.value,
+              masterProductId: updated.masterProductId,
+              source: changeSet.sourceRef ?? changeSet.sourceType,
+            },
+          }),
+          createdBy: actor,
+        },
       });
-      await tx.outboxEvent.create({data:{id:crypto.randomUUID(),organizationId:product.organizationId,topic:"catalog.product_changed",payload:{productId:product.id,changedFields:applied.appliedFields,actor:input.appliedBy||"node:internal"}}});
+      await tx.outboxEvent.create({
+        data: {
+          id: crypto.randomUUID(), organizationId: product.organizationId, topic: "catalog.product_changed",
+          payload: {productId: product.id, changedFields: applied.appliedFields, actor, revisionId},
+        },
+      });
     }
-
-
-    await tx.productRevision.create({
-      data: {
-        productId: product.id,
-        changeSetId: changeSet.id,
-        reason: "CHANGESET_APPLY",
-        snapshot: json(actual),
-        createdBy: input.appliedBy,
-      },
-    });
 
     const now = new Date();
     await tx.catalogFieldChange.updateMany({
