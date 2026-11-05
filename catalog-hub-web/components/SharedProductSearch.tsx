@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { enrichmentErrorMessage } from "@/lib/enrichment-messages";
+import { enrichmentErrorMessage, enrichmentWarningMessage } from "@/lib/enrichment-messages";
 import { chooseAutomaticCategory, type CategorySuggestion } from "@/lib/category-choice";
 import type { HubProduct } from "@/lib/hub";
 
@@ -18,7 +18,7 @@ const fields: Array<[Field,string]> = [
 
 export function SharedProductSearch({product,enabled,canWrite,categoryKey,onSelect,imageOnly=false}:{
   product:HubProduct;enabled:boolean;canWrite:boolean;categoryKey?:string;imageOnly?:boolean;
-  onSelect?: (fields:Partial<Record<Field,string>> & {images?:string[];categoryKey?:string})=>void;
+  onSelect?: (fields:Partial<Record<Field,string>> & {images?:string[];categoryKey?:string}, sourceUrl?:string)=>void;
 }) {
   const [sourceUrl,setSourceUrl]=useState("");
   const [external,setExternal]=useState(false);
@@ -80,7 +80,7 @@ export function SharedProductSearch({product,enabled,canWrite,categoryKey,onSele
       setError("Выберите данные для сохранения.");return;
     }
     if(onSelect){
-      onSelect(proposed as Partial<Record<Field,string>> & {images?:string[];categoryKey?:string});
+      onSelect(proposed as Partial<Record<Field,string>> & {images?:string[];categoryKey?:string}, result.sourceUrl);
       setResult(null);
       return;
     }
@@ -88,7 +88,7 @@ export function SharedProductSearch({product,enabled,canWrite,categoryKey,onSele
     try{
       const response=await fetch("/api/catalog/changes",{
         method:"POST",headers:{"content-type":"application/json"},
-        body:JSON.stringify({productId:product.id,proposed}),
+        body:JSON.stringify({productId:product.id,proposed,sourceUrl:result.sourceUrl,expectedUpdatedAt:product.updatedAt}),
       });
       const data=await response.json().catch(()=>null);
       if(!response.ok)throw new Error(String(data?.error||"changeset_failed"));
@@ -124,7 +124,7 @@ export function SharedProductSearch({product,enabled,canWrite,categoryKey,onSele
       <p className="subtle">{result.sourceType==="official_unverified"
         ?"Официальный сайт найден автоматически. Проверьте принадлежность бренду и фасовку."
         :"Проверьте источник, SKU и фасовку перед сохранением."}</p>
-      {result.warnings?.map((warning,index)=><p className="import-warning" key={index}>{warning}</p>)}
+      {result.warnings?.map((warning,index)=><p className="import-warning" key={index}>{enrichmentWarningMessage(warning)}</p>)}
       {(imageOnly?[]:fields).filter(([key])=>!product[key]?.trim()&&Boolean(result.fields[key])).map(([key,label])=>
         <label className="editor-field wide" key={key} style={{marginBottom:12}}>
           <span><input type="checkbox" checked={selected.includes(key)}

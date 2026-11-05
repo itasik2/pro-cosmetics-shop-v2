@@ -23,6 +23,16 @@ const risk = (field: Field) =>
   field === "price" || field === "purchasePrice" ? "HIGH" :
   field === "attributes" || field === "images" ? "MEDIUM" : "LOW";
 
+function optionalSourceUrl(value: unknown) {
+  if (value === undefined) return null;
+  if (typeof value !== "string" || value.length > 2048) fail("invalid_source_url");
+  let url: URL;
+  try { url = new URL(value); }
+  catch { fail("invalid_source_url"); }
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) fail("invalid_source_url");
+  return url.href;
+}
+
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -135,6 +145,7 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
       if (!Number.isFinite(Date.parse(expectedUpdatedAt)) ||
           new Date(expectedUpdatedAt).toISOString() !== expectedUpdatedAt) fail("invalid_product_version");
       const proposed = normalizePatch(body.proposed);
+      const sourceUrl = optionalSourceUrl(body.sourceUrl);
       const result = await sql.begin(async (tx) => {
         const products = await tx<Product[]>`SELECT *, "updatedAt"::text AS "snapshotVersion"
           FROM public."Product" WHERE "id"=${productId} AND "organizationId"=${organizationId} FOR UPDATE`;
@@ -170,7 +181,7 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
         const updated = await readCard(tx, organizationId, productId);
         const revisionId = await recordCardRevision(tx, {
           productId, actor, reason: "MANUAL_CARD_EDIT", before: product, after: updated,
-          fields: changed, legacySnapshot: before, source: "MANUAL",
+          fields: changed, legacySnapshot: before, source: sourceUrl ?? "MANUAL",
         });
         await outbox(tx, organizationId, "catalog.product_changed", {productId, changedFields: changed, actor, revisionId});
         return {id: productId, status: "APPLIED", changedFields: changed, revisionId,
@@ -184,7 +195,8 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
       const productId = requiredId(body.productId, "productId");
       const proposed = normalizePatch(body.proposed);
       const isImport = body.sourceType === "IMPORT";
-      const sourceRef = isImport ? requiredId(body.sourceRef, "sourceRef") : "catalog-hub-web";
+      const sourceUrl = optionalSourceUrl(body.sourceUrl);
+      const sourceRef = isImport ? requiredId(body.sourceRef, "sourceRef") : sourceUrl || "catalog-hub-web";
       if (isImport && (!/^supplierfile:[a-f0-9]{32}:[0-9]{1,5}$/.test(sourceRef))) {
         fail("invalid_import_source_ref");
       }
@@ -193,6 +205,8 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
           FROM public."Product" WHERE "id" = ${productId}
             AND "organizationId" = ${organizationId} FOR UPDATE`;
         if (!products.length) fail("product_not_found", 404);
+        if (body.expectedUpdatedAt !== undefined &&
+          body.expectedUpdatedAt !== new Date(products[0].updatedAt).toISOString()) fail("changeset_stale", 409);
         if (isImport) {
           // The Product row lock serializes attempts for the same file row
           // and prevents repeated changesets on an HTTP retry.

@@ -80,6 +80,7 @@ export function ProductEditor({ product, categories, searchEnabled, canWrite }: 
   const [error, setError] = useState("");
   const [success,setSuccess]=useState("");
   const [version,setVersion]=useState(product.updatedAt);
+  const [enrichmentSource,setEnrichmentSource]=useState("");
   const separated = separateProductSections(form);
 
   useEffect(() => {
@@ -179,11 +180,12 @@ export function ProductEditor({ product, categories, searchEnabled, canWrite }: 
       const response = await fetch("/api/catalog/save", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ productId: product.id, expectedUpdatedAt:version, proposed }),
+        body: JSON.stringify({ productId: product.id, expectedUpdatedAt:version, proposed, sourceUrl:enrichmentSource || undefined }),
       });
       const data = await response.json().catch(() => null);
       if (!response.ok) throw new Error(String(data?.error || "Не удалось сохранить изменения"));
       setVersion(data.updatedAt);
+      setEnrichmentSource("");
       setDirty(new Set());
       setSuccess("Изменения сохранены в карточке.");
       router.refresh();
@@ -279,7 +281,8 @@ export function ProductEditor({ product, categories, searchEnabled, canWrite }: 
       <div style={{marginTop:14}}>
         <SharedProductSearch product={product} enabled={searchEnabled} canWrite={canWrite} imageOnly={sharedReadonly}
           categoryKey={form.categoryKey}
-          onSelect={proposal=>{
+          onSelect={(proposal,sourceUrl)=>{
+            if(sourceUrl)setEnrichmentSource(sourceUrl);
             for(const [key,value] of Object.entries(proposal)){
               if(key==="images") update("images",(value as string[]).join("\n"));
               else if(key==="categoryKey"){

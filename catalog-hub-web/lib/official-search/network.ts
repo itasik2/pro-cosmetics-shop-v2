@@ -362,7 +362,7 @@ export function safeFetchHtml(
   });
 }
 
-export function safeFetchImage(url: string, policies: AllowedSourcePolicy[]) {
+export function safeFetchImage(url: string, policies: AllowedSourcePolicy[], options: { timeoutMs?: number } = {}) {
   return safeFetchExternal(url, {
     policies,
     maxBytes: 10 * 1024 * 1024,
@@ -372,7 +372,7 @@ export function safeFetchImage(url: string, policies: AllowedSourcePolicy[]) {
       "image/webp",
       "image/avif",
     ],
-    timeoutMs: 15_000,
+    timeoutMs: options.timeoutMs ?? 15_000,
     maxRedirects: 3,
   });
 }

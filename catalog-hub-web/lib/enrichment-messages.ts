@@ -24,5 +24,24 @@ export function enrichmentErrorMessage(cause: unknown) {
     return "Источник не совпадает с товаром по SKU, бренду или объёму. Проверьте ссылку и фасовку.";
   if (message === "source_domain_not_allowed")
     return "Источник отклонён. Проверьте ссылку на страницу товара и разрешённые домены.";
+  if (message === "photo_product_changed")
+    return "Карточка изменилась после поиска фото. Выполните поиск для актуального SKU и фасовки.";
   return message;
+}
+
+export function enrichmentWarningMessage(code: string) {
+  const messages: Record<string,string> = {
+    photo_files_rejected: "Часть ссылок не прошла проверку изображения или разрешения.",
+    photo_identity_or_file_unconfirmed: "Подходящее фото не подтверждено. Проверьте точную страницу товара.",
+    photo_sku_mismatch: "Артикул фотографии относится к другой позиции.",
+    photo_brand_mismatch: "Бренд фотографии отличается от бренда товара.",
+    photo_brand_unconfirmed: "Бренд фотографии не подтверждён источником.",
+    photo_volume_mismatch: "Фото относится к другой фасовке.",
+    photo_volume_ambiguous: "Источник содержит несколько фасовок без однозначной привязки фото.",
+    photo_volume_unconfirmed: "Фасовка фотографии не подтверждена источником.",
+    photo_name_mismatch: "Название товара на странице фотографии отличается.",
+    unverified_official_site_manual_review_required: "Проверьте принадлежность источника производителю.",
+    external_source_manual_review_required: "Данные другого продавца требуют проверки.",
+  };
+  return messages[code] || code;
 }

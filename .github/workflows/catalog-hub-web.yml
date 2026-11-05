@@ -7,11 +7,15 @@ on:
     paths:
       - "catalog-hub-web/**"
       - "catalog-hub-local/**"
+      - "marketplace-hub/src/ai/photo-identity.ts"
+      - "marketplace-hub/src/ai/verified-photos.ts"
       - ".github/workflows/catalog-hub-web.yml"
   pull_request:
     paths:
       - "catalog-hub-web/**"
       - "catalog-hub-local/**"
+      - "marketplace-hub/src/ai/photo-identity.ts"
+      - "marketplace-hub/src/ai/verified-photos.ts"
       - ".github/workflows/catalog-hub-web.yml"
 
 jobs:

@@ -6,6 +6,7 @@ import {
 } from "@prisma/client";
 import { z } from "zod";
 import { buildEnrichmentProposal } from "./enrich.js";
+import { photoIdentityKey } from "./photo-identity.js";
 import { prisma } from "../offline/staging-store.js";
 import { createChangeSet } from "../offline/staging-store.js";
 import { masterCardSchema } from "../offline/master-card.js";
@@ -241,6 +242,9 @@ export async function runCatalogEnrichmentJob(input: {
     }
   }
   const volume = productVolume(job.product.attributes);
+  const matchingLinks = job.product.supplierLinks.filter(link => link.supplier.isActive && link.supplierSku &&
+    (typeof metadata.sourceSupplierCode !== "string" || link.supplier.code === metadata.sourceSupplierCode));
+  const supplierSku = matchingLinks.length === 1 ? matchingLinks[0].supplierSku : null;
 
   const claimed = await prisma.catalogEnrichmentJob.updateMany({
     where: { id: job.id, status: { in: [CatalogEnrichmentJobStatus.PENDING, CatalogEnrichmentJobStatus.FAILED] } },
@@ -257,8 +261,8 @@ export async function runCatalogEnrichmentJob(input: {
   try {
     const result = await buildEnrichmentProposal({
       product: {
-        sku: job.product.sku,
-        skuIsInternal: true,
+        sku: supplierSku || job.product.sku,
+        skuIsInternal: !supplierSku,
         title: job.product.title,
         brand: job.product.brand || undefined,
         barcode: job.product.barcode || undefined,
@@ -339,6 +343,9 @@ export async function runCatalogEnrichmentJob(input: {
           extracted: result.extracted,
           draft: result.draft,
           imageCandidates: result.imageCandidates,
+          imageIdentity: photoIdentityKey({
+            sku: job.product.sku, title: job.product.title, brand: job.product.brand, ...volume,
+          }),
         }),
         warnings: json(result.warnings),
         evaluation: json(result.evaluation),
@@ -465,6 +472,13 @@ export async function stageCatalogEnrichmentProposal(raw: unknown) {
 
   const proposalImages = strings(proposal.images);
   let selectedImage = input.selectedImageUrl?.trim();
+  const effectiveProduct = resolveSharedProduct(proposal.product);
+  const savedIdentity = record(proposal.facts).imageIdentity;
+  if ((selectedImage || input.selectedMediaVariantId) && typeof savedIdentity === "string" &&
+    savedIdentity !== photoIdentityKey({
+      sku: effectiveProduct.sku, title: effectiveProduct.title, brand: effectiveProduct.brand,
+      ...productVolume(effectiveProduct.attributes),
+    })) throw new Error("photo_product_changed");
   if (selectedImage && !proposalImages.includes(selectedImage)) {
     throw new Error("selected_image_not_in_proposal");
   }

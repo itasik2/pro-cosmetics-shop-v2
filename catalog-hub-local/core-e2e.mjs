@@ -102,6 +102,7 @@ export async function runCoreChecks({ baseUrl = "http://127.0.0.1:8000", key, ke
     const cardPath = "/v1/catalog/products/" + edited.id;
     const edits = expect(await api("/v1/catalog/manual-save", { body: {
       productId: edited.id, expectedUpdatedAt: edited.updatedAt,
+      sourceUrl: "https://fixture.example/verified-photo-page",
       proposed: { title: "Updated synthetic card", price: 250, attributes: { nested: { z: 1, a: 2 } } },
     } }), 200, "record manual card revision");
     const revisionsPath = cardPath + "/revisions";
@@ -111,6 +112,7 @@ export async function runCoreChecks({ baseUrl = "http://127.0.0.1:8000", key, ke
     expect(await api(revisionsPath, {credential:keyB}), 404, "foreign card history hidden");
     const revision = expect(await api(detailPath), 200, "preview stored before and after values");
     assert.equal(revision.blocked, null);
+    assert.equal(revision.source, "https://fixture.example/verified-photo-page");
     assert.deepEqual(revision.changes.find(change => change.field === "price"), {field:"price", before:200, after:250});
     expect(await movement(edited.id, "RECEIVE", 3), 201, "receive stock independently of card edit");
     const rollbackBody = {confirmed:true, reason:"Restore tested values", expectedVersion:revision.expectedVersion};
@@ -134,6 +136,18 @@ export async function runCoreChecks({ baseUrl = "http://127.0.0.1:8000", key, ke
       body:{...rollbackBody,expectedVersion:rollbackEntry.expectedVersion},
     }), 409, "a preview loses eligibility after another edit");
     assert.equal(expect(await api(cardPath), 200, "conflict preserves later change").brand, "Later edit");
+    expect(await api("/v1/staging/changesets", {body:{
+      productId:edited.id, expectedUpdatedAt:restored.updatedAt,
+      proposed:{images:["https://fixture.example/old-variant.png"]},
+    }}), 409, "stale enrichment cannot stage over an operator change");
+    const latest = expect(await api(cardPath), 200, "read current enrichment target");
+    const proposal = expect(await api("/v1/staging/changesets", {body:{
+      productId:edited.id, expectedUpdatedAt:latest.updatedAt,
+      sourceUrl:"https://fixture.example/confirmed-variant",
+      proposed:{images:["https://fixture.example/confirmed-variant.png"]},
+    }}), 201, "stage checked photo with source");
+    assert.equal(expect(await api("/v1/staging/changesets/" + proposal.id), 200, "read photo provenance").sourceRef,
+      "https://fixture.example/confirmed-variant");
   }
 
   const ledger = await product("ledger");

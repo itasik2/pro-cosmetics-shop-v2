@@ -1,3 +1,4 @@
+import { Agent, fetch as undiciFetch } from "undici";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import type { AllowedSourcePolicy } from "./types.js";
@@ -48,7 +49,16 @@ export type SafeFetchResult = {
 };
 
 const USER_AGENT =
-  "CatalogHubSourceMonitor/0.6 (+https://procosmetics.kz; admin-managed sources)";
+  "CatalogHubSourceMonitor/1.0";
+
+export function pinnedSourceLookup(pinned: { address: string; family: number }) {
+  return (_hostname: string, options: { all?: boolean }, callback: (
+    error: null, address: string | Array<{ address: string; family: number }>, family?: number,
+  ) => void) => {
+    if (options.all) callback(null, [pinned]);
+    else callback(null, pinned.address, pinned.family);
+  };
+}
 
 function normalizeHostname(value: string) {
   return value.trim().toLowerCase().replace(/\.$/, "");
@@ -165,7 +175,7 @@ async function assertSafeUrl(
   }
 
   url.hash = "";
-  return url;
+  return { url, addresses };
 }
 
 async function readLimitedBody(
@@ -220,7 +230,6 @@ export async function safeFetchExternal(
   const timeoutMs = Math.max(1000, options.timeoutMs ?? 12_000);
   const maxRedirects = Math.min(5, Math.max(0, options.maxRedirects ?? 3));
   let currentUrl = rawUrl;
-  const fetcher = dependencies.fetcher ?? fetch;
   const resolveHostname =
     dependencies.resolveHostname ??
     ((hostname: string) => lookup(hostname, { all: true, verbatim: true }));
@@ -234,15 +243,28 @@ export async function safeFetchExternal(
       redirectCount += 1
     ) {
       if (controller.signal.aborted) throw new Error("source_timeout");
-      const url = await untilAbort(
+      const { url, addresses } = await untilAbort(
         assertSafeUrl(currentUrl, options.policies, resolveHostname),
         controller.signal,
       );
 
+      // Pin the connection to the address checked above. A second, unguarded
+      // DNS lookup inside fetch would allow a DNS rebinding to a private IP.
+      const pinned = addresses[0];
+      const agent = dependencies.fetcher ? null : new Agent({
+        connect: { lookup: pinnedSourceLookup(pinned) },
+      });
+
       let response: Response;
       try {
         response = await untilAbort(
-          fetcher(url, {
+          (dependencies.fetcher ?? ((target, init) => undiciFetch(String(target), {
+            method: "GET",
+            redirect: "manual",
+            headers: init?.headers as Record<string, string>,
+            signal: init?.signal as AbortSignal,
+            dispatcher: agent!,
+          }) as unknown as Promise<Response>))(url, {
             method: "GET",
             redirect: "manual",
             cache: "no-store",
@@ -254,63 +276,67 @@ export async function safeFetchExternal(
           }),
           controller.signal,
         );
-      } catch (error) {
-        if (error instanceof Error && error.name === "AbortError")
-          throw new Error("source_timeout");
+      } catch (error: any) {
+        await agent?.destroy();
+        if (error?.name === "AbortError") throw new Error("source_timeout");
         throw new Error(
-          `source_fetch_failed:${error instanceof Error ? error.message : String(error)}`,
+          `source_fetch_failed:${String(error?.message || error)}`,
         );
       }
 
-      if ([301, 302, 303, 307, 308].includes(response.status)) {
-        if (redirectCount >= maxRedirects) {
-          throw new Error("source_too_many_redirects");
+      try {
+        if ([301, 302, 303, 307, 308].includes(response.status)) {
+          if (redirectCount >= maxRedirects) {
+            throw new Error("source_too_many_redirects");
+          }
+          const location = response.headers.get("location");
+          if (!location) throw new Error("source_redirect_without_location");
+          if (response.body)
+            await untilAbort(
+              response.body.cancel().catch(() => undefined),
+              controller.signal,
+            );
+          currentUrl = new URL(location, url).toString();
+          continue;
         }
-        const location = response.headers.get("location");
-        if (!location) throw new Error("source_redirect_without_location");
-        if (response.body)
-          await untilAbort(
-            response.body.cancel().catch(() => undefined),
-            controller.signal,
+
+        const contentType = (response.headers.get("content-type") || "")
+          .split(";", 1)[0]
+          .trim()
+          .toLowerCase();
+
+        if (!response.ok) {
+          throw new Error(`source_http_${response.status}`);
+        }
+        if (
+          !options.acceptedContentTypes.some(
+            (type) => contentType === type || contentType.startsWith(`${type}+`),
+          )
+        ) {
+          throw new Error(
+            `source_content_type_not_allowed:${contentType || "unknown"}`,
           );
-        currentUrl = new URL(location, url).toString();
-        continue;
-      }
+        }
 
-      const contentType = (response.headers.get("content-type") || "")
-        .split(";", 1)[0]
-        .trim()
-        .toLowerCase();
-
-      if (!response.ok) {
-        throw new Error(`source_http_${response.status}`);
-      }
-      if (
-        !options.acceptedContentTypes.some(
-          (type) => contentType === type || contentType.startsWith(`${type}+`),
-        )
-      ) {
-        throw new Error(
-          `source_content_type_not_allowed:${contentType || "unknown"}`,
+        const buffer = await untilAbort(
+          readLimitedBody(response, options.maxBytes, controller.signal),
+          controller.signal,
         );
+        const headers: Record<string, string> = {};
+        response.headers.forEach((value, key) => {
+          headers[key] = value;
+        });
+
+        return {
+          buffer,
+          contentType,
+          finalUrl: url.toString(),
+          status: response.status,
+          headers,
+        };
+      } finally {
+        await agent?.destroy();
       }
-
-      const buffer = await untilAbort(
-        readLimitedBody(response, options.maxBytes, controller.signal),
-        controller.signal,
-      );
-      const headers: Record<string, string> = {};
-      response.headers.forEach((value, key) => {
-        headers[key] = value;
-      });
-
-      return {
-        buffer,
-        contentType,
-        finalUrl: url.toString(),
-        status: response.status,
-        headers,
-      };
     }
 
     throw new Error("source_fetch_failed");
@@ -333,10 +359,10 @@ export function safeFetchHtml(url: string, policies: AllowedSourcePolicy[]) {
   });
 }
 
-export function safeFetchImage(url: string, policies: AllowedSourcePolicy[]) {
+export function safeFetchImage(url: string, policies: AllowedSourcePolicy[], options: { timeoutMs?: number; maxBytes?: number } = {}) {
   return safeFetchExternal(url, {
     policies,
-    maxBytes: 20 * 1024 * 1024,
+    maxBytes: options.maxBytes ?? 20 * 1024 * 1024,
     acceptedContentTypes: [
       "image/jpeg",
       "image/png",
@@ -344,7 +370,7 @@ export function safeFetchImage(url: string, policies: AllowedSourcePolicy[]) {
       "image/avif",
       "image/tiff",
     ],
-    timeoutMs: 15_000,
+    timeoutMs: options.timeoutMs ?? 15_000,
     maxRedirects: 3,
   });
 }

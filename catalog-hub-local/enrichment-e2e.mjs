@@ -49,12 +49,20 @@ assert.equal(failedJob.attempt, 1);
 // Seed an extracted proposal to verify review/apply without network or model calls.
 const proposalId = "synthetic-" + randomBytes(5).toString("hex");
 const quote = value => "'" + String(value).replaceAll("'", "''") + "'";
+const photoFacts = JSON.stringify({ extracted: { brand: "Demo" },
+  imageIdentity: JSON.stringify([sku, product.title, "Demo", 50, "ml"]) });
 const sql = `INSERT INTO public."CatalogEnrichmentProposal"
  ("id","productId","sourceUrl","confidence","description","application","ingredients","images","facts","warnings","status","createdAt","updatedAt") VALUES
  (${quote(proposalId)},${quote(product.id)},'https://fixture.example/cream',97,'AI must not overwrite reviewed copy','Apply daily','Aqua, Glycerin',
- '["https://fixture.example/cream.jpg"]'::jsonb,'{"extracted":{"brand":"Demo"}}'::jsonb,'[]'::jsonb,'PENDING',now(),now());`;
+ '["https://fixture.example/cream.jpg"]'::jsonb,${quote(photoFacts)}::jsonb,'[]'::jsonb,'PENDING',now(),now());
+ INSERT INTO public."CatalogEnrichmentProposal"
+ ("id","productId","sourceUrl","confidence","images","facts","warnings","status","createdAt","updatedAt")
+ VALUES (${quote(proposalId + "-stale")},${quote(product.id)},'https://fixture.example/cream',97,
+ '["https://fixture.example/cream.jpg"]'::jsonb,'{"imageIdentity":"outdated-photo-identity"}'::jsonb,'[]'::jsonb,'PENDING',now(),now());`;
 const seed = spawnSync("docker", ["compose", "-f", resolve(root, "catalog-hub-local/compose.yaml"), "exec", "-T", "db", "psql", "-v", "ON_ERROR_STOP=1", "-U", "catalog_test", "-d", "catalog_test"], { input: sql, encoding: "utf8" });
 assert.equal(seed.status, 0, seed.stderr);
+const stalePhoto = await action({ action: "stage", id: proposalId + "-stale", selectedImageUrl: "https://fixture.example/cream.jpg" }, 400);
+assert.equal(stalePhoto.error, "photo_product_changed", "A photo proposal cannot move to another product identity");
 const changes = await action({ action: "stage", id: proposalId, selectedImageUrl: "https://fixture.example/cream.jpg" });
 assert.match(changes.id, /^c[a-z0-9]{24}$/);
 assert.deepEqual(changes.fields.map(field => field.field).sort(), ["application", "images", "ingredients"]);
