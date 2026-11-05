@@ -1,11 +1,16 @@
 import { available, integer, textField } from "./core-domain.ts";
 import { balance, changeBalance, lockProducts, once, outbox, type Sql } from "./core-store.ts";
 import { RequestError, type Principal } from "./request-context.ts";
+import { reconcileReservations } from "./inventory-reconciliation.ts";
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status,
   headers: { "content-type": "application/json", "cache-control": "no-store" } });
 
 export async function handleStock(req: Request, route: string, url: URL, sql: Sql, principal: Principal): Promise<Response | null> {
   const org = principal.organizationId;
+  if (route === "/v1/inventory/reconciliation") {
+    if (req.method !== "GET") return json({ error:"method_not_allowed" },405);
+    return json(await reconcileReservations(sql,principal,url));
+  }
   if(route==="/v1/inventory/warehouses"&&req.method==="POST"){
     const body=await req.json(),name=textField(body.name,"warehouse_name"),code=textField(body.code,"warehouse_code",32).toLocaleUpperCase("ru-RU");
     if(!/^[\p{L}\p{N}][\p{L}\p{N}_-]{0,31}$/u.test(code))throw new RequestError("invalid_warehouse_code");

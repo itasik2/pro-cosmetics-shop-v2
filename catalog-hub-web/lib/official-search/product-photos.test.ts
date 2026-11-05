@@ -60,3 +60,31 @@ test("shared preview returns decoded product photos sorted by resolution and exc
     if (key !== undefined) process.env.OPENAI_API_KEY = key;
   }
 });
+
+test("OpenCart account headings do not mask the exact product gallery", () => {
+  const buffer = Buffer.from('<div class="ajax-body-login"><h1>Login</h1><h1>Register</h1></div><div id="content"><h1>Brand Hydrating Mask 30 g</h1><ul class="list-unstyled"><li>Артикул: MASK-30</li></ul><div class="product-zoom-image"><img src="/30.png"></div><div id="product"></div></div>');
+  assert.deepEqual(extractImagesForProduct({ buffer, finalUrl, product }), ["https://brand.example/30.png"]);
+});
+
+test("shared Tilda search resolves the exact edition before decoding its photo", async () => {
+  const sourceUrl = "https://skinosophy.kz/products/demo-mask";
+  const buffer = Buffer.from('<div id="allrecords" data-tilda-root-zone="pro"><div class="js-store-product_single" data-product-gen-uid="123456789012"></div><h1>Demo mask</h1></div>');
+  const photo = await sharp({ create: { width: 640, height: 640, channels: 3, background: "#ddccbb" } }).png().toBuffer();
+  const savedKey = process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+  try {
+    const found = await searchSharedCatalogProduct({ sourceUrl, product: { sku: "DEMO-30", title: "Demo mask", brand: "Skinosophy", volumeValue: 30, volumeUnit: "g" } }, {
+      fetchHtml: async () => ({ buffer, finalUrl: sourceUrl, status: 200, contentType: "text/html", headers: {} }),
+      fetchCatalogJson: async () => ({ products: [{ uid: "123456789012", url: sourceUrl, title: "Demo mask",
+        json_options: [{ title: "Package" }], editions: [
+          { sku: "DEMO-210", Package: "Jar 210 g", img: "https://static.tildacdn.pro/210.png" },
+          { sku: "DEMO-30", Package: "Sachet 30 g", img: "https://static.tildacdn.pro/30.png" },
+        ] }] }),
+      fetchImage: async url => {
+        assert.equal(url, "https://static.tildacdn.pro/30.png");
+        return { buffer: photo, finalUrl: url, status: 200, contentType: "image/png", headers: {} };
+      },
+    });
+    assert.deepEqual(found.images, ["https://static.tildacdn.pro/30.png"]);
+  } finally { if (savedKey !== undefined) process.env.OPENAI_API_KEY = savedKey; }
+});

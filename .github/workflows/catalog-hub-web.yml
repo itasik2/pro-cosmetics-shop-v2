@@ -9,6 +9,8 @@ on:
       - "catalog-hub-local/**"
       - "marketplace-hub/src/ai/photo-identity.ts"
       - "marketplace-hub/src/ai/verified-photos.ts"
+      - "marketplace-hub/src/ai/official-sources.ts"
+      - "marketplace-hub/src/ai/tilda-product.ts"
       - ".github/workflows/catalog-hub-web.yml"
   pull_request:
     paths:
@@ -16,6 +18,8 @@ on:
       - "catalog-hub-local/**"
       - "marketplace-hub/src/ai/photo-identity.ts"
       - "marketplace-hub/src/ai/verified-photos.ts"
+      - "marketplace-hub/src/ai/official-sources.ts"
+      - "marketplace-hub/src/ai/tilda-product.ts"
       - ".github/workflows/catalog-hub-web.yml"
 
 jobs:

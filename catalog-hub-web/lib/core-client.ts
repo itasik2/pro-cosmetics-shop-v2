@@ -30,6 +30,8 @@ const messages: Record<string,string> = {
   channel_signing_not_configured: "Для подключения не настроен серверный секрет подписи.",
   core_migration_required: "Для раздела требуется обновление серверной части.",
   inventory_version_conflict: "Остаток изменился. Обновите данные и проверьте операцию ещё раз.",
+  invalid_reconciliation_cursor: "Позиция сверки устарела или некорректна. Запустите сверку сначала.",
+  reservation_total_too_large: "Сумма резервов превышает допустимый диапазон. Проверьте количество в заказах.",
   channel_version_conflict: "Настройки канала изменились. Обновите страницу.",
   offer_version_conflict: "Предложение изменилось. Выберите товар заново.",
   insufficient_available_stock: "Недостаточно свободного остатка для резерва.",

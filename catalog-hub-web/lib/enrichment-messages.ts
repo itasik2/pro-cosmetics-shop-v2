@@ -26,6 +26,10 @@ export function enrichmentErrorMessage(cause: unknown) {
     return "Источник отклонён. Проверьте ссылку на страницу товара и разрешённые домены.";
   if (message === "photo_product_changed")
     return "Карточка изменилась после поиска фото. Выполните поиск для актуального SKU и фасовки.";
+  if (message === "source_catalog_product_mismatch" || message === "source_catalog_reference_invalid")
+    return "Каталог источника не подтвердил эту страницу товара. Проверьте ссылку.";
+  if (message === "source_catalog_invalid_json")
+    return "Каталог источника вернул некорректные данные. Повторите поиск позже.";
   return message;
 }
 
@@ -39,6 +43,7 @@ export function enrichmentWarningMessage(code: string) {
     photo_volume_mismatch: "Фото относится к другой фасовке.",
     photo_volume_ambiguous: "Источник содержит несколько фасовок без однозначной привязки фото.",
     photo_volume_unconfirmed: "Фасовка фотографии не подтверждена источником.",
+    photo_variant_unconfirmed: "Каталог источника не подтвердил единственный вариант с этой фасовкой.",
     photo_name_mismatch: "Название товара на странице фотографии отличается.",
     unverified_official_site_manual_review_required: "Проверьте принадлежность источника производителю.",
     external_source_manual_review_required: "Данные другого продавца требуют проверки.",

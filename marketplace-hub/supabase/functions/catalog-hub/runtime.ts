@@ -847,7 +847,7 @@ async function handleRequest(req: Request, requestId:string):Promise<Response> {
         service: "catalog-hub",
         version: "0.11.0-edge",
         apiVersion: 1,
-        capabilities: ["organization-scoped-auth", "api-scopes", "stock-movements-v1", "order-events-v1", "channels-v1", "outbox-v1", "variants-v1", "durable-imports-v1", "signed-order-events-v1", "shadow-diff-v1"],
+        capabilities: ["organization-scoped-auth", "api-scopes", "stock-movements-v1", "order-events-v1", "channels-v1", "outbox-v1", "variants-v1", "durable-imports-v1", "signed-order-events-v1", "shadow-diff-v1", "inventory-reconciliation-v1"],
         mode: "supabase-edge",
       });
     }

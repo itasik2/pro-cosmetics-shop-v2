@@ -43,6 +43,7 @@ WHERE i."onHand"<0 OR i."reserved"<0 OR i."reserved">i."onHand"
 | `GET /v1/catalog/products/{id}/revisions/{revisionId}` | Значения до и после, причина блокировки отката | `catalog:read` |
 | `POST /v1/catalog/products/{id}/revisions/{revisionId}/rollback` | Восстановление с `confirmed`, `reason`, `expectedVersion` и Idempotency-Key | `catalog:write`; для связи поставщика также `imports:write` |
 | `GET /v1/inventory/balances` | Балансы, ревизии, курсор | `inventory:read` |
+| `GET /v1/inventory/reconciliation` | Сверка резервов с активными заказами, до 100 пар товар/склад | `inventory:read` и `orders:read` |
 | `GET/POST /v1/inventory/movements` | Журнал / подтверждённое движение | `inventory:read/write` |
 | `GET /v1/orders` | Общие заказы, курсор | `orders:read` |
 | `POST /v1/orders/events/preview` | Проверка резерва без записи | `orders:write` |
@@ -110,3 +111,9 @@ API не хранит реквизиты оплаты и персональны�
 Позиции внешнего события содержат sellerSku, externalWarehouseId и quantity; используются только сопоставленные SKU/склады. Отсутствующая, устаревшая или подменённая подпись отклоняется. HMAC не включает реальный магазин автоматически: сначала TEST, затем проверяемый pilot/cutover и отдельный допуск.
 
 Создание и изменение карточек (Edge и Node), безопасное применение цены, склад и заказы записывают события в Outbox в той же транзакции. Внешний delivery worker остаётся отдельным подключением; import worker не подтверждает доставку в магазины.
+
+## Сверка резервов
+
+`GET /v1/inventory/reconciliation` сравнивает Inventory.reserved с количеством в CoreOrderItem для заказов RESERVED. Каждая порция использует один SQL-снимок. Проверка включает пары из активных заказов даже при отсутствующей складской записи. Возвращаются MATCH, RESERVATION_SHORTFALL, UNASSIGNED_RESERVED или MISSING_BALANCE, текущая ревизия и время проверки. Необязательны productId, limit до 100 и cursor из nextCursor предыдущей порции.
+
+Непривязанный резерв может относиться к прежней системе. Разбор проводится по документам и состоянию заказа. Отчёт доступен в разделе «Склад» и требует одновременно inventory:read и orders:read. Новая миграция для этого отчёта не нужна.

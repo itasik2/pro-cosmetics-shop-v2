@@ -1,10 +1,12 @@
 import { z } from "zod";
 import sharp from "sharp";
-import { extractProductFromHtml, extractImagesForProduct } from "./extractProduct";
+import { extractProductFromHtml, extractImagesForProduct, extractTildaReference } from "./extractProduct";
 import { scoreProductMatch, type MatchableProduct } from "./matchProduct";
-import { safeFetchHtml, safeFetchImage } from "./network";
+import { safeFetchHtml, safeFetchImage, safeFetchCatalogJson } from "./network";
 import { verifyProductImages } from "../../../marketplace-hub/src/ai/verified-photos";
 import { isInternalPhotoSku } from "../../../marketplace-hub/src/ai/photo-identity";
+import { isKnownBrandSource, knownOfficialDomains } from "../../../marketplace-hub/src/ai/official-sources";
+import { readTildaEdition } from "../../../marketplace-hub/src/ai/tilda-product";
 import { separateProductSections } from "../product-sections";
 import {
   fallbackDescription, findExternalProductUrl, findOfficialBrandSite,
@@ -28,6 +30,7 @@ export const sharedSearchInput = z.object({
 export async function searchSharedCatalogProduct(raw: unknown, dependencies: {
   fetchHtml?: typeof safeFetchHtml;
   fetchImage?: typeof safeFetchImage;
+  fetchCatalogJson?: typeof safeFetchCatalogJson;
 } = {}) {
   const input = sharedSearchInput.parse(raw);
   if (!process.env.OPENAI_API_KEY && !input.sourceUrl) throw new Error("openai_not_configured");
@@ -46,10 +49,11 @@ export async function searchSharedCatalogProduct(raw: unknown, dependencies: {
   let stage: "official_unverified" | "external" | "provided" = sourceUrl ? "provided" : "external";
   let domain = "";
   if (!sourceUrl && product.brand) {
-    const site = await findOfficialBrandSite({ product });
+    const known = knownOfficialDomains(product.brand.name);
+    const site = known.length ? { domain: known[0] } : await findOfficialBrandSite({ product });
     if (site.domain) {
       domain = site.domain;
-      const match = await findOfficialProductUrl({ product, allowedDomains: [domain] });
+      const match = await findOfficialProductUrl({ product, allowedDomains: known.length ? known : [domain] });
       if (match.found && match.url) {
         sourceUrl = match.url;
         stage = "official_unverified";
@@ -69,12 +73,21 @@ export async function searchSharedCatalogProduct(raw: unknown, dependencies: {
   domain = new URL(sourceUrl).hostname.replace(/^www\./, "");
   const fetched = await (dependencies.fetchHtml ?? safeFetchHtml)(sourceUrl, [{ domain, allowSubdomains: true }]);
   const extracted = extractProductFromHtml({ buffer: fetched.buffer, finalUrl: fetched.finalUrl, expectedSku: product.supplierSku, expectedProduct: input.product });
+  const reference = extractTildaReference(fetched.buffer);
+  const edition = reference ? await readTildaEdition({
+    reference, sourceUrl: fetched.finalUrl, product: input.product,
+    brandConfirmed: isKnownBrandSource(input.product.brand, fetched.finalUrl),
+  }, (url, jsonBody) => (dependencies.fetchCatalogJson ?? safeFetchCatalogJson)(
+    url, [{ domain: reference.host, allowSubdomains: false }], { sourceUrl: fetched.finalUrl, jsonBody },
+  )) : null;
+  if (edition) Object.assign(extracted, edition);
   const match = scoreProductMatch(product, extracted);
   if (match.confidence < 25 || match.evidence.sku === "mismatch" ||
       match.evidence.brand === "mismatch" || match.evidence.volume === "mismatch")
     throw new Error("product_match_not_confirmed");
   const photoIssues = new Set<string>();
-  const urls = extractImagesForProduct({ ...fetched, product: input.product, issues: photoIssues });
+  if (reference && !edition) photoIssues.add("photo_variant_unconfirmed");
+  const urls = edition?.images ?? (reference ? [] : extractImagesForProduct({ ...fetched, product: input.product, issues: photoIssues }));
   const photos = await verifyProductImages(urls.filter(url => Boolean(validatedExternalProductUrl(url))), url =>
     (dependencies.fetchImage ?? safeFetchImage)(url, [{ domain: new URL(url).hostname, allowSubdomains: false }], { timeoutMs: 6000 }),
   async bytes => {

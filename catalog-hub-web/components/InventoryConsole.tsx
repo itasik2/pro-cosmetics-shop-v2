@@ -2,6 +2,7 @@
 import { useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { CoreProductPicker } from "./CoreProductPicker";
+import { InventoryReconciliation } from "./InventoryReconciliation";
 import { coreMessage, coreRequest, type CoreBalance, type CoreProduct, type CoreWarehouse } from "@/lib/core-client";
 type Movement = { id:string; sku:string; kind:string; deltaOnHand:number; deltaReserved:number; afterOnHand:number; afterReserved:number; reason:string; createdAt:string; warehouseName:string };
 const kinds:Record<string,string> = { RECEIVE:"Приход",WRITE_OFF:"Списание",COUNT:"Инвентаризация",TRANSFER:"Перемещение",RESERVE:"Резерв",RELEASE:"Снятие резерва",SHIP:"Отгрузка",RETURN:"Возврат" };
@@ -69,6 +70,7 @@ export function InventoryConsole({ products,warehouses,movements,defaultWarehous
       <label>Код склада<input className="input" name="warehouseCode" required maxLength={32} placeholder="Например, SKLAD-2" /></label>
       <button className="button" type="submit">Добавить склад</button>
     </fieldset></form></details>
+    <InventoryReconciliation />
     <section className="panel core-section"><h2>Журнал движений</h2>{!movements.length?<p className="subtle">Движений пока нет.</p>:<div className="table-wrap"><table><thead><tr><th>Дата</th><th>SKU / склад</th><th>Операция</th><th>Изменение</th><th>Итог / резерв</th><th>Основание</th></tr></thead><tbody>{movements.map(m=><tr key={m.id}>
       <td>{new Date(m.createdAt).toLocaleString("ru-RU")}</td><td>{m.sku}<div className="subtle">{m.warehouseName}</div></td><td>{kinds[m.kind]||m.kind}</td><td>{m.deltaOnHand>0?"+":""}{m.deltaOnHand}<div className="subtle">Резерв: {m.deltaReserved>0?"+":""}{m.deltaReserved}</div></td><td>{m.afterOnHand} / {m.afterReserved}</td><td>{m.reason}</td>
     </tr>)}</tbody></table></div>}</section>

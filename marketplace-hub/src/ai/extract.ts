@@ -1,3 +1,5 @@
+import { isKnownBrandSource } from "./official-sources.js";
+import type { TildaReference } from "./tilda-product.js";
 import { photoSku, productPhotoIssue, photoHasVariants, type PhotoProduct } from "./photo-identity.js";
 import * as cheerio from "cheerio";
 import type { ExtractedProductData } from "./types.js";
@@ -133,6 +135,11 @@ function likelyImage(value: string) {
   );
 }
 
+function productHeadings($: cheerio.CheerioAPI) {
+  return $("h1").filter((_, element) =>
+    !$(element).closest(".modal, [role='dialog'], [hidden], [aria-hidden='true'], .ajax-container, .ajax-body-login, .account-login, .account-register").length);
+}
+
 export function extractProductFromHtml(input: {
   buffer: Buffer;
   finalUrl: string;
@@ -147,12 +154,15 @@ export function extractProductFromHtml(input: {
       sku: cleanText(node.sku || node.mpn || node.productID), title: cleanText(node.name),
       brand: readBrand(node.brand), description: cleanText(node.description), hasVariants: photoHasVariants(node),
     })) : null) || products[0] || null;
+  const skuLabel = $("#content .list-unstyled li").map((_, element) => $(element).text()).get()
+    .find(value => /^\s*(?:артикул|sku)\s*[:#]/iu.test(value));
+  const labeledSku = skuLabel?.match(/(?:артикул|sku)\s*[:#]\s*([\p{L}\p{N}_.\/-]+)/iu)?.[1] || null;
   const body = cleanText($("body").text(), 200_000) || "";
 
   const title =
     cleanText(product?.name, 500) ||
     cleanText($("meta[property='og:title']").attr("content"), 500) ||
-    cleanText($("h1").first().text(), 500);
+    cleanText(productHeadings($).first().text(), 500);
 
   const description =
     cleanText(product?.description) ||
@@ -168,7 +178,7 @@ export function extractProductFromHtml(input: {
   );
   if (ogImage) images.push(ogImage);
 
-  $(".product-image img, .product-gallery img, .product-photos img, [itemprop='image']").each((_, element) => {
+  $(".product-image img, .product-gallery img, .product-photos img, .product-zoom-image img, a.cloud-zoom-gallery img, [itemprop='image']").each((_, element) => {
     const raw =
       $(element).attr("src") ||
       $(element).attr("data-src") ||
@@ -202,8 +212,10 @@ export function extractProductFromHtml(input: {
     sku:
       cleanText(product?.sku, 100) ||
       cleanText(product?.mpn, 100) ||
-      cleanText(product?.productID, 100),
-    brand: readBrand(product?.brand),
+      cleanText(product?.productID, 100) || labeledSku,
+    brand: readBrand(product?.brand) ||
+      cleanText($("meta[property='product:brand'], meta[name='brand']").first().attr("content"), 200) ||
+      (isKnownBrandSource(input.expectedProduct?.brand, input.finalUrl) ? input.expectedProduct?.brand || null : null),
     canonicalUrl,
     images: [...new Set(images.filter(likelyImage))].slice(0, 12),
     ingredients,
@@ -274,9 +286,21 @@ export function extractImagesForProduct(input: {
       collectImages(item.attr("content") || item.attr("data-src") || item.attr("src"), input.finalUrl, images);
     });
   });
-  if (!products.length && !scopes.length && $("h1").length === 1) {
-    const extracted = extractProductFromHtml(input);
-    accept({ ...extracted, sku: null }, extracted.images);
+  const headings = productHeadings($);
+  if (!products.length && !scopes.length && headings.length === 1) {
+    const extracted = extractProductFromHtml({ ...input, expectedProduct: input.product });
+    accept(extracted, extracted.images);
   }
   return [...new Set(images.filter(likelyImage))].slice(0, 8);
+}
+
+
+export function extractTildaReference(buffer: Buffer): TildaReference | null {
+  const $ = cheerio.loadBuffer(buffer, { encoding: { defaultEncoding: "utf-8" } });
+  const single = $(".js-store-product_single, .js-product-single");
+  if (single.length !== 1) return null;
+  const uid = single.first().attr("data-product-gen-uid")?.replace(/^product id:\s*/i, "");
+  const zone = $("#allrecords").attr("data-tilda-root-zone") || "com";
+  return uid && /^\d{6,20}$/.test(uid) && ["com", "pro", "info"].includes(zone)
+    ? { uid, host: "store.tildaapi." + zone } : null;
 }

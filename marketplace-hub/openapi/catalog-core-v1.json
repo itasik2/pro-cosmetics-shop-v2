@@ -3406,6 +3406,145 @@
           }
         }
       }
+    },
+    "/v1/inventory/reconciliation": {
+      "get": {
+        "summary": "Compare warehouse reservations with active core orders",
+        "security": [
+          {
+            "CatalogApiKey": []
+          }
+        ],
+        "x-required-scopes": [
+          "inventory:read",
+          "orders:read"
+        ],
+        "parameters": [
+          {
+            "name": "productId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 400
+            },
+            "description": "Pass nextCursor from the previous page."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "items",
+                    "checked",
+                    "mismatches",
+                    "checkedAt",
+                    "nextCursor"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "productId": {
+                            "type": "string"
+                          },
+                          "warehouseId": {
+                            "type": "string"
+                          },
+                          "reserved": {
+                            "type": "integer"
+                          },
+                          "expectedReserved": {
+                            "type": "integer"
+                          },
+                          "difference": {
+                            "type": "integer"
+                          },
+                          "status": {
+                            "enum": [
+                              "MATCH",
+                              "MISSING_BALANCE",
+                              "RESERVATION_SHORTFALL",
+                              "UNASSIGNED_RESERVED"
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "checked": {
+                      "type": "integer"
+                    },
+                    "mismatches": {
+                      "type": "integer"
+                    },
+                    "checkedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "nextCursor": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        },
+        "description": "One statement checks each page against a single snapshot. No balances or movements are written. Extra reservations may belong to a prior system and need review. Up to 100 product/warehouse pairs per page."
+      }
     }
   },
   "components": {

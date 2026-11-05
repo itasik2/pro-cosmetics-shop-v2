@@ -17,6 +17,10 @@ export function coreFixtures(keyB, readOnlyKey) {
       ('core-key-b','Synthetic B','${hash(keyB)}','org_core_b','["*"]'::jsonb),
       ('core-key-read','Synthetic reader','${hash(readOnlyKey)}','org_procosmetics','["catalog:read"]'::jsonb)
       ON CONFLICT ("id") DO UPDATE SET "keyHash"=EXCLUDED."keyHash","organizationId"=EXCLUDED."organizationId","scopes"=EXCLUDED."scopes";
+    INSERT INTO public."CatalogApiKey" ("id","name","keyHash","organizationId","scopes")
+      VALUES ('core-key-inventory','Synthetic inventory reader','${hash("inventory-only:" + readOnlyKey)}',
+        'org_procosmetics','["inventory:read"]'::jsonb)
+      ON CONFLICT ("id") DO UPDATE SET "keyHash"=EXCLUDED."keyHash";
     INSERT INTO public."Warehouse" ("id","organizationId","code","name","updatedAt") VALUES
       ('wh_core_second','org_procosmetics','CORE-2','Synthetic second warehouse',now()),
       ('wh_core_b','org_core_b','CORE-B','Synthetic B warehouse',now()) ON CONFLICT ("id") DO NOTHING;
@@ -27,6 +31,24 @@ export function coreFixtures(keyB, readOnlyKey) {
       ('core-safety-b','core-safety-product','wh_core_second',5,0,0,now()) ON CONFLICT ("id") DO NOTHING;
     INSERT INTO public."ProductRevision" ("id","productId","reason","snapshot")
       VALUES ('legacy-core-revision','core-safety-product','MANUAL_CARD_EDIT','{"title":"Earlier title","basePrice":150}'::jsonb)
+      ON CONFLICT ("id") DO NOTHING;
+    INSERT INTO public."Product" ("id","organizationId","sku","title","updatedAt") VALUES
+      ('core-unassigned-reserve','org_procosmetics','CORE-UNASSIGNED','Synthetic prior-system reserve',now()),
+      ('core-short-reserve','org_procosmetics','CORE-SHORT','Synthetic reservation shortfall',now()),
+      ('core-missing-balance','org_procosmetics','CORE-MISSING','Synthetic missing balance',now())
+      ON CONFLICT ("id") DO NOTHING;
+    INSERT INTO public."Inventory" ("id","productId","warehouseId","onHand","reserved","updatedAt") VALUES
+      ('core-unassigned-balance','core-unassigned-reserve','wh_pav_01',5,2,now()),
+      ('core-short-balance','core-short-reserve','wh_pav_01',5,1,now()) ON CONFLICT ("id") DO NOTHING;
+    INSERT INTO public."ChannelConnection" ("id","organizationId","name","kind","adapter","mode","updatedAt")
+      VALUES ('core-check-connection','org_procosmetics','Synthetic reserve check','OWN_STORE','OWN_STORE','ACTIVE',now())
+      ON CONFLICT ("id") DO NOTHING;
+    INSERT INTO public."CoreOrder" ("id","organizationId","connectionId","externalOrderId","status","itemHash","updatedAt")
+      VALUES ('core-check-order','org_procosmetics','core-check-connection','synthetic-check-order','RESERVED','synthetic',now())
+      ON CONFLICT ("id") DO NOTHING;
+    INSERT INTO public."CoreOrderItem" ("id","organizationId","orderId","productId","warehouseId","quantity") VALUES
+      ('core-short-item','org_procosmetics','core-check-order','core-short-reserve','wh_pav_01',2),
+      ('core-missing-item','org_procosmetics','core-check-order','core-missing-balance','wh_pav_01',1)
       ON CONFLICT ("id") DO NOTHING;
     DO $guard$ DECLARE relation text; BEGIN
       FOREACH relation IN ARRAY ARRAY['ChannelConnection','ChannelOffer','ChannelWarehouseMapping','ChannelCategoryMapping',
@@ -96,6 +118,27 @@ export async function runCoreChecks({ baseUrl = "http://127.0.0.1:8000", key, ke
   const alien = await product("tenant-b", keyB);
   expect(await api("/v1/catalog/products/" + alien.id), 404, "direct foreign product ID rejected");
   expect(await movement(alien.id, "RECEIVE", 1), 404, "foreign product stock rejected");
+  const reconcilePath = "/v1/inventory/reconciliation";
+  expect(await api(reconcilePath,{credential:"inventory-only:"+readOnlyKey}),403,"reconciliation requires order read permission too");
+  expect(await api(reconcilePath+"?productId="+alien.id),404,"reconciliation cannot inspect a foreign product");
+  expect(await api(reconcilePath+"?cursor=invalid"),400,"reconciliation validates its cursor");
+  expect(await api(reconcilePath,{body:{}}),405,"reconciliation is read-only");
+  for (const [id,status,expected,reserved] of [
+    ["core-unassigned-reserve","UNASSIGNED_RESERVED",0,2],
+    ["core-short-reserve","RESERVATION_SHORTFALL",2,1],
+    ["core-missing-balance","MISSING_BALANCE",1,0],
+  ]) {
+    const report=expect(await api(reconcilePath+"?productId="+id),200,"report reservation inconsistency");
+    assert.equal(report.checked,1);assert.equal(report.mismatches,1);
+    assert.equal(report.items[0].status,status);
+    assert.equal(report.items[0].expectedReserved,expected);assert.equal(report.items[0].reserved,reserved);
+    assert.equal((await stock(id)).reserved,reserved,"report does not adjust balances");
+    assert.equal(expect(await api("/v1/inventory/movements?productId="+id),200,"report adds no movements").items.length,0);
+  }
+  const firstPage=expect(await api(reconcilePath+"?limit=1"),200,"bounded reconciliation page");
+  assert.equal(firstPage.items.length,1);assert.ok(firstPage.nextCursor);
+  const secondPage=expect(await api(reconcilePath+"?limit=1&cursor="+encodeURIComponent(firstPage.nextCursor)),200,"continue reconciliation by pair");
+  assert.notEqual(secondPage.items[0].productId+secondPage.items[0].warehouseId,firstPage.items[0].productId+firstPage.items[0].warehouseId);
 
   {
     const edited = await product("card-revision");
@@ -181,6 +224,8 @@ export async function runCoreChecks({ baseUrl = "http://127.0.0.1:8000", key, ke
   const race = await Promise.all([api("/v1/orders/events", { body: attemptA }), api("/v1/orders/events", { body: attemptB })]);
   assert.deepEqual(race.map(r => r.status).sort(), [200, 409]); checks++;
   assert.equal((await stock(last.id)).reserved, 1);
+  const matchedReserve=expect(await api(reconcilePath+"?productId="+last.id),200,"concurrent winning order matches stock reservation");
+  assert.equal(matchedReserve.mismatches,0);assert.equal(matchedReserve.items[0].expectedReserved,1);
   const winner = race[0].status === 200 ? attemptA : attemptB, winningChannel = winner.connectionId === connectionA.id ? connectionA : connectionB;
   expect(await api("/v1/orders/events", { body: winner }), 200, "duplicate webhook with a new delivery key");
   assert.equal((await stock(last.id)).reserved, 1); checks++;
@@ -194,6 +239,8 @@ export async function runCoreChecks({ baseUrl = "http://127.0.0.1:8000", key, ke
   expect(await api("/v1/orders/events", { body: event(connectionA, next, "SHIPPED") }), 200, "repeated shipped status");
   assert.equal((await stock(last.id)).onHand, 0);
   assert.equal((await stock(last.id)).reserved, 0); checks++;
+  const shippedCheck=expect(await api(reconcilePath+"?productId="+last.id),200,"shipped orders no longer require reservations");
+  assert.equal(shippedCheck.mismatches,0);assert.equal(shippedCheck.items[0].expectedReserved,0);
   expect(await api("/v1/orders/events", { body: event(connectionA, next, "CANCELED") }), 409, "shipped order cannot cancel reservation");
   const returned = event(connectionA, next, "RETURNED");
   expect(await api("/v1/orders/events", { body: returned }), 200, "return restores physical stock");

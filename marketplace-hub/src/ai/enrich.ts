@@ -1,11 +1,12 @@
 import { z } from "zod";
 import { discoverProductSource } from "./discovery.js";
-import { extractProductFromHtml, extractImagesForProduct } from "./extract.js";
+import { extractProductFromHtml, extractImagesForProduct, extractTildaReference } from "./extract.js";
 import { scoreProductMatch } from "./match.js";
-import { safeFetchHtml, safeFetchImage, sourcePolicyForUrl } from "./network.js";
+import { safeFetchHtml, safeFetchImage, safeFetchCatalogJson, sourcePolicyForUrl } from "./network.js";
 import { verifyProductImages } from "./verified-photos.js";
 import { decodeProductPhoto } from "../media/image.js";
-import { knownOfficialDomains } from "./official-sources.js";
+import { knownOfficialDomains, isKnownBrandSource } from "./official-sources.js";
+import { readTildaEdition } from "./tilda-product.js";
 import {
   fallbackProductCopy,
   findExternalProductUrl,
@@ -58,6 +59,7 @@ function exactPolicy(url: string): AllowedSourcePolicy {
 export async function buildEnrichmentProposal(raw: EnrichmentRequest, dependencies: {
   fetchHtml?: typeof safeFetchHtml;
   fetchImage?: typeof safeFetchImage;
+  fetchCatalogJson?: typeof safeFetchCatalogJson;
 } = {}) {
   const input = enrichmentRequestSchema.parse(raw);
   const product = input.product as CatalogProductInput;
@@ -136,12 +138,21 @@ export async function buildEnrichmentProposal(raw: EnrichmentRequest, dependenci
     expectedSku: product.skuIsInternal ? undefined : product.sku,
     expectedProduct: product,
   });
+  const reference = extractTildaReference(fetched.buffer);
+  const edition = reference ? await readTildaEdition({
+    reference, sourceUrl: fetched.finalUrl, product,
+    brandConfirmed: finalPolicy.sourceType === "OFFICIAL_SITE" || isKnownBrandSource(product.brand, fetched.finalUrl),
+  }, (url, jsonBody) => (dependencies.fetchCatalogJson ?? safeFetchCatalogJson)(
+    url, [{ domain: reference.host, allowSubdomains: false }], { sourceUrl: fetched.finalUrl, jsonBody },
+  )) : null;
+  if (edition) Object.assign(extracted, edition);
   const match = scoreProductMatch(product, extracted);
   if (match.evidence.sku === "mismatch" || match.evidence.brand === "mismatch" || match.evidence.volume === "mismatch") {
     throw new Error("product_match_not_confirmed");
   }
   const photoIssues = new Set<string>();
-  const photoUrls = extractImagesForProduct({ ...fetched, product, issues: photoIssues });
+  if (reference && !edition) photoIssues.add("photo_variant_unconfirmed");
+  const photoUrls = edition?.images ?? (reference ? [] : extractImagesForProduct({ ...fetched, product, issues: photoIssues }));
   const photos = await verifyProductImages(photoUrls, url => {
     // A CDN URL must originate in a product-scoped image candidate.
     const policy = exactPolicy(url);
