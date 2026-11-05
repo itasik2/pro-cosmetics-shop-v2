@@ -163,10 +163,15 @@ export async function POST(req: Request) {
         if (!product) throw new Error("product_missing");
 
         if (!item.variantId) {
-          await tx.product.update({
-            where: { id: item.productId },
+          const reserved = await tx.product.updateMany({
+            where: {
+              id: item.productId,
+              isPublished: true,
+              stock: { gte: item.qty },
+            },
             data: { stock: { decrement: item.qty } },
           });
+          if (reserved.count !== 1) throw new Error("out_of_stock");
           continue;
         }
 
@@ -238,6 +243,10 @@ export async function POST(req: Request) {
           paymentDueAt: true,
         },
       });
+    }, {
+      // A second checkout must not overwrite stock read by the first checkout,
+      // including the JSON variants stored in the product row.
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     });
 
     const notificationArgs = {
@@ -263,14 +272,24 @@ export async function POST(req: Request) {
       })),
     };
 
-    const notification = await notifyAdminNewOrder(notificationArgs);
-    await recordOrderNotificationResult(created.id, notification);
+    // The order has already committed. A failed notification must not turn the
+    // checkout response into 500 and cause the customer to submit it again.
+    try {
+      const notification = await notifyAdminNewOrder(notificationArgs);
+      await recordOrderNotificationResult(created.id, notification);
+    } catch (error) {
+      console.error("CHECKOUT ADMIN NOTIFICATION ERROR", error);
+    }
 
-    if (email) {
-      const customerNotification = await notifyCustomerOrderCreated(notificationArgs);
-      await recordCustomerNotificationResult(created.id, customerNotification);
-    } else {
-      await sendOrderMessengerNotification(created.id, "ORDER_CREATED");
+    try {
+      if (email) {
+        const customerNotification = await notifyCustomerOrderCreated(notificationArgs);
+        await recordCustomerNotificationResult(created.id, customerNotification);
+      } else {
+        await sendOrderMessengerNotification(created.id, "ORDER_CREATED");
+      }
+    } catch (error) {
+      console.error("CHECKOUT CUSTOMER NOTIFICATION ERROR", error);
     }
 
     return NextResponse.json(
@@ -293,6 +312,15 @@ export async function POST(req: Request) {
     }
 
     const message = String(error?.message || "");
+    if (error?.code === "P2034") {
+      return NextResponse.json(
+        {
+          error: "stock_conflict",
+          message: "Остатки изменились во время оформления. Повторите заказ.",
+        },
+        { status: 409 },
+      );
+    }
     if (message === "out_of_stock") {
       return NextResponse.json(
         {
