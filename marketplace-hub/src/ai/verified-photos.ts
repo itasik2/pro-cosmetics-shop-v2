@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 type PhotoResponse = { buffer: Buffer; contentType: string; finalUrl: string };
-type ImageInfo = { width?: number; height?: number; format?: string; pages?: number };
+type ImageInfo = { width?: number; height?: number; format?: string; compression?: string; pages?: number };
 export type VerifiedPhoto = {
   url: string; requestedUrl: string; width: number; height: number;
   sha256: string; checkedAt: string; status: "REVIEW_REQUIRED";
@@ -17,7 +17,8 @@ export async function verifyProductImages(
     const response = await fetchImage(url);
     const info = await decodeImage(response.buffer);
     const { width, height } = info;
-    const mime = info.format === "jpg" ? "image/jpeg" : "image/" + info.format;
+    const format = info.format === "heif" && info.compression === "av1" ? "avif" : info.format;
+    const mime = format === "jpg" ? "image/jpeg" : "image/" + format;
     if (!width || !height || Math.min(width, height) < 200 ||
       Math.max(width, height) / Math.min(width, height) > 5 ||
       (info.pages ?? 1) > 1 || response.contentType !== mime) {

@@ -5,6 +5,8 @@ import { extractImagesForProduct, extractProductFromHtml } from "./extract.js";
 import { scoreProductMatch } from "./match.js";
 import { photoSku, productVolumes, productPhotoIssue } from "./photo-identity.js";
 import { buildEnrichmentProposal } from "./enrich.js";
+import { verifyProductImages } from "./verified-photos.js";
+import { decodeProductPhoto } from "../media/image.js";
 import { safeFetchExternal, pinnedSourceLookup } from "./network.js";
 
 const finalUrl = "https://brand.example/mask";
@@ -76,6 +78,10 @@ test("normal enrichment verifies files, removes duplicate bytes and selects the 
     assert.equal(proposal.imageCandidates[0].width, 1200);
     assert.equal(proposal.imageCandidates[0].sha256.length, 64);
     assert.ok(proposal.warnings.includes("photo_files_rejected"));
+    const avif = await sharp({ create: { width: 240, height: 240, channels: 3, background: "#ccbbaa" } }).avif({ effort: 0 }).toBuffer();
+    const avifResult = await verifyProductImages(["https://brand.example/product.avif"],
+      async url => ({ buffer: avif, contentType: "image/avif", finalUrl: url }), decodeProductPhoto);
+    assert.equal(avifResult.images.length, 1, "AV1 inside a HEIF container is accepted as AVIF");
   } finally {
     if (key !== undefined) process.env.OPENAI_API_KEY = key;
   }
