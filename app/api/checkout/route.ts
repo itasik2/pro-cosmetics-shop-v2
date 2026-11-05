@@ -2,7 +2,7 @@
 export const runtime = "nodejs";
 export const revalidate = 0;
 
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { buildOrderFromCart, makeOrderNumber } from "@/lib/order";
