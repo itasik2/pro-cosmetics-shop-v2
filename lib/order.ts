@@ -1,7 +1,7 @@
 // lib/order.ts
 import { variantDisplayImage } from "./enrichment/variantImages";
 import { prisma } from "@/lib/prisma";
-import { parseCartKey, type CartItem } from "@/lib/cartStorage";
+import { makeCartKey, normalizeCartItems, parseCartKey, type CartItem } from "@/lib/cartStorage";
 
 type Variant = {
   id: string;
@@ -45,13 +45,18 @@ export function makeOrderNumber() {
 }
 
 export async function buildOrderFromCart(cart: CartItem[], database = prisma) {
-  const safeCart = (Array.isArray(cart) ? cart : [])
-    .map((item) => ({
-      id: String(item?.id ?? ""),
-      qty: Math.trunc(Number(item?.qty) || 0),
-    }))
-    .filter((item) => item.id && item.qty > 0)
-    .slice(0, 200);
+  const safeCart = normalizeCartItems(
+    (Array.isArray(cart) ? cart : [])
+      .map((item) => {
+        const { productId, variantId } = parseCartKey(String(item?.id ?? ""));
+        return {
+          id: productId ? makeCartKey(productId, variantId) : "",
+          qty: Math.trunc(Number(item?.qty) || 0),
+        };
+      })
+      .filter((item) => item.id && item.qty > 0)
+      .slice(0, 200),
+  );
 
   const productIds = Array.from(
     new Set(
@@ -99,6 +104,9 @@ export async function buildOrderFromCart(cart: CartItem[], database = prisma) {
     const variant = variantId
       ? variants.find((item) => item.id === variantId)
       : null;
+
+    // Do not silently substitute the base product when a requested variant was removed.
+    if (variantId && !variant) continue;
 
     const unitPrice = variant ? variant.price : product.price;
     const stock = variant ? variant.stock : product.stock;
