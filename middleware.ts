@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { isLocalizablePath, localeInPath, parseSiteLocale, SITE_LOCALE_COOKIE, stripLocale } from "@/lib/i18n";
 
 const CUID_RE = /^c[a-z0-9]{20,}$/i;
 
@@ -30,25 +31,49 @@ export function middleware(req: NextRequest) {
   requestHeaders.set("Content-Security-Policy", csp);
 
   const { pathname } = req.nextUrl;
-  let response: NextResponse;
+  const prefixLocale = localeInPath(pathname);
+  const cookieLocale = parseSiteLocale(req.cookies.get(SITE_LOCALE_COOKIE)?.value);
+  const requestLocale = prefixLocale || "ru";
 
-  if (pathname.startsWith("/shop/")) {
-    const value = pathname.slice("/shop/".length);
+  // A language preference follows normal internal links without altering the
+  // existing Russian URLs for visitors and search engines without a cookie.
+  if (!prefixLocale && cookieLocale !== "ru" && req.method === "GET" &&
+      isLocalizablePath(pathname)) {
+    const target = req.nextUrl.clone();
+    target.pathname = "/" + cookieLocale + (pathname === "/" ? "" : pathname);
+    const redirected = NextResponse.redirect(target);
+    redirected.headers.set("Content-Security-Policy", csp);
+    return redirected;
+  }
+
+  requestHeaders.set("x-site-locale", requestLocale);
+  const visiblePath = prefixLocale ? stripLocale(pathname) : pathname;
+  const target = req.nextUrl.clone();
+  target.pathname = visiblePath;
+
+  if (visiblePath.startsWith("/shop/")) {
+    const value = visiblePath.slice("/shop/".length);
     if (value && !value.includes("/") && CUID_RE.test(value)) {
-      const url = req.nextUrl.clone();
-      url.pathname = `/api/products/by-id-redirect/${value}`;
-      response = NextResponse.rewrite(url, {
-        request: { headers: requestHeaders },
-      });
-      response.headers.set("Content-Security-Policy", csp);
-      return response;
+      target.pathname = `/api/products/by-id-redirect/${value}`;
     }
   }
 
-  response = NextResponse.next({
-    request: { headers: requestHeaders },
-  });
+  const response = prefixLocale && isLocalizablePath(pathname)
+    ? NextResponse.rewrite(target, { request: { headers: requestHeaders } })
+    : target.pathname !== pathname
+      ? NextResponse.rewrite(target, { request: { headers: requestHeaders } })
+      : NextResponse.next({ request: { headers: requestHeaders } });
+
   response.headers.set("Content-Security-Policy", csp);
+  response.headers.set("Content-Language", requestLocale);
+  if (prefixLocale && isLocalizablePath(pathname)) {
+    response.cookies.set(SITE_LOCALE_COOKIE, prefixLocale, {
+      path: "/", maxAge: 31536000, sameSite: "lax", secure: req.nextUrl.protocol === "https:",
+    });
+    // Do not index mixed-language product descriptions until translations
+    // are reviewed. Existing Russian canonical pages stay indexable.
+    response.headers.set("X-Robots-Tag", "noindex, follow");
+  }
   return response;
 }
 
