@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { getQty, setQty, makeCartKey } from "@/lib/cartStorage";
 import { cardCartQty, subscribeCardCart } from "@/lib/catalogCardStorage";
 import { track } from "@/lib/analytics";
+import { useSiteLocale, useUiText } from "@/components/LocaleProvider";
+import { localizedHref } from "@/lib/i18n";
 
 type Props = {
   productId: string;
@@ -20,6 +22,8 @@ export default function AddToCartButton({
   maxStock,
 }: Props) {
   const router = useRouter();
+  const locale = useSiteLocale();
+  const t = useUiText();
   const cartKey = makeCartKey(productId, variantId);
   const qty = useSyncExternalStore(subscribeCardCart, () => cardCartQty(cartKey), () => 0);
 
@@ -47,7 +51,7 @@ export default function AddToCartButton({
     setQty(cartKey, getQty(cartKey) - 1, maxStock);
   };
 
-  const openCart = () => router.push("/checkout");
+  const openCart = () => router.push(localizedHref("/checkout", locale));
 
   if (qty <= 0) {
     return (
@@ -60,7 +64,7 @@ export default function AddToCartButton({
         onClick={addOne}
         disabled={!canBuy}
       >
-        {canBuy ? "Купить" : "Нет в наличии"}
+        {canBuy ? t("Купить") : t("Нет в наличии")}
       </button>
     );
   }
@@ -74,7 +78,7 @@ export default function AddToCartButton({
         type="button"
         className="flex w-8 shrink-0 items-center justify-center text-sm hover:bg-gray-50"
         onClick={decOne}
-        aria-label="Уменьшить количество"
+        aria-label={t("Уменьшить количество")}
       >
         −
       </button>
@@ -83,8 +87,8 @@ export default function AddToCartButton({
         type="button"
         className="flex min-w-0 flex-1 items-center justify-center text-center text-sm font-semibold hover:bg-gray-50"
         onClick={openCart}
-        aria-label="Открыть корзину"
-        title="Открыть корзину"
+        aria-label={t("Открыть корзину")}
+        title={t("Открыть корзину")}
       >
         {qty}
       </button>
@@ -94,7 +98,7 @@ export default function AddToCartButton({
         className="flex w-8 shrink-0 items-center justify-center text-sm hover:bg-gray-50 disabled:opacity-50"
         onClick={addOne}
         disabled={plusDisabled}
-        aria-label="Увеличить количество"
+        aria-label={t("Увеличить количество")}
       >
         +
       </button>

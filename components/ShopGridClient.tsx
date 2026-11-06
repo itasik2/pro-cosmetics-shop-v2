@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import ProductCard from "@/components/ProductCard";
+import { useUiText } from "@/components/LocaleProvider";
 import ListLoadStatus from "@/components/ListLoadStatus";
 import useCatalogProducts from "@/components/useCatalogProducts";
 import type { CatalogBatch, CatalogSource } from "@/lib/catalogTypes";
@@ -19,6 +20,7 @@ function readFavorites(): string[] {
 type Props = { batch: CatalogBatch; source: CatalogSource; layout?: "catalog" | "brand" };
 
 export default function ShopGridClient({ batch, source, layout = "catalog" }: Props) {
+  const t = useUiText();
   const favMode = source.kind === "catalog" && source.query.fav === "1";
   const [favorites, setFavorites] = useState<string[] | null>(null);
   useEffect(() => {
@@ -37,8 +39,8 @@ export default function ShopGridClient({ batch, source, layout = "catalog" }: Pr
       window.removeEventListener("storage", sync);
     };
   }, [favMode]);
-  if (favMode && favorites === null) return <p role="status" className="mt-4 text-sm text-gray-500">Загрузка избранного…</p>;
-  if (favMode && !favorites?.length) return <p className="mt-4 text-sm text-gray-500">Нет товаров в избранном.</p>;
+  if (favMode && favorites === null) return <p role="status" className="mt-4 text-sm text-gray-500">{t("Загрузка избранного…")}</p>;
+  if (favMode && !favorites?.length) return <p className="mt-4 text-sm text-gray-500">{t("Нет товаров в избранном.")}</p>;
   const ids = favMode ? favorites! : NO_FAVORITES;
   const viewKey = JSON.stringify([source, batch, ids]);
   return <CatalogProductsList key={viewKey} viewKey={viewKey} batch={batch} source={source}
@@ -46,16 +48,17 @@ export default function ShopGridClient({ batch, source, layout = "catalog" }: Pr
 }
 
 function CatalogProductsList({ batch, source, layout, favorites, needsInitial, viewKey }: Props & { favorites: string[]; needsInitial: boolean; viewKey: string }) {
+  const t = useUiText();
   const list = useCatalogProducts(batch, source, favorites, needsInitial, viewKey);
   return <div aria-busy={list.loading}>
     <div className={layout === "brand" ? "grid grid-cols-2 md:grid-cols-4 gap-4" : "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 mt-4"}>
       {list.products.map((product, index) => <ProductCard key={product.id} product={product} priority={index === 0}
         headingLevel={2} imageSizes={layout === "brand" ? BRAND_IMAGE_SIZES : undefined} onOpen={list.rememberProduct} />)}
     </div>
-    {!list.products.length && !list.loading && !list.error && <p className="mt-4 text-sm text-gray-500">{needsInitial ? "Нет товаров в избранном." : "Товары не найдены."}</p>}
-    {list.loading && <p role="status" className="py-3 text-center text-sm text-gray-500">Загрузка товаров…</p>}
+    {!list.products.length && !list.loading && !list.error && <p className="mt-4 text-sm text-gray-500">{needsInitial ? t("Нет товаров в избранном.") : t("Товары не найдены.")}</p>}
+    {list.loading && <p role="status" className="py-3 text-center text-sm text-gray-500">{t("Загрузка товаров…")}</p>}
     {list.error && <div role="alert" className="py-3 text-center text-sm text-gray-600">
-      <p>{list.error}</p><button type="button" className="btn-secondary mt-2" onClick={() => void list.retry()}>Повторить загрузку</button>
+      <p>{list.error}</p><button type="button" className="btn-secondary mt-2" onClick={() => void list.retry()}>{t("Повторить загрузку")}</button>
     </div>}
     <ListLoadStatus count={list.products.length} total={list.total} hasMore={list.hasMore} endRef={list.endRef} onRevealAll={list.revealAll} />
   </div>;

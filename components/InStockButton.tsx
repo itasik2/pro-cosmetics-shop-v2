@@ -1,8 +1,10 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useUiText } from "@/components/LocaleProvider";
 
 export default function InStockButton() {
+  const t = useUiText();
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
@@ -31,7 +33,7 @@ export default function InStockButton() {
         onChange={toggle}
         className="h-4 w-4 accent-gray-900"
       />
-      <span>В наличии</span>
+      <span>{t("В наличии")}</span>
     </label>
   );
 }

@@ -4,6 +4,8 @@ import { unstable_cache } from "next/cache";
 import DeferredHomeProducts from "@/components/DeferredHomeProducts";
 import HomeProductCard from "@/components/HomeProductCard";
 import { getPublicExternalLinks } from "@/lib/externalLinks";
+import { requestLocale } from "@/lib/i18nServer";
+import { uiText, localizedHref, type SiteLocale } from "@/lib/i18n";
 import { prisma } from "@/lib/prisma";
 import { productDisplayName } from "@/lib/productNames";
 import { normalizePublicProductVariants } from "@/lib/publicProductVariants";
@@ -217,6 +219,8 @@ export async function generateMetadata() {
 }
 
 export default async function Home() {
+  const locale = await requestLocale();
+  const t = (russian: string) => uiText(locale, russian);
   const [
     {
       popularRows: legacyPopularRows,
@@ -327,31 +331,31 @@ export default async function Home() {
       <section className="site-panel-muted overflow-hidden rounded-3xl p-6 md:p-10">
         <div className="grid gap-8 lg:grid-cols-[1.25fr_0.75fr] lg:items-center">
           <div>
-            <p className="site-eyebrow">Продуманный уход начинается с выбора</p>
+            <p className="site-eyebrow">{t("Продуманный уход начинается с выбора")}</p>
             <h1 className="mt-3 max-w-4xl text-3xl font-bold tracking-tight sm:text-4xl md:text-5xl">
-              {SITE_HERO_TITLE}
+              {t(SITE_HERO_TITLE)}
             </h1>
             <p className="mt-5 max-w-2xl text-base leading-7 text-gray-700 sm:text-lg">
-              {SITE_HERO_SUBTITLE}
+              {t(SITE_HERO_SUBTITLE)}
             </p>
             <div className="mt-7 flex flex-wrap gap-3">
-              <Link href="/care" className="btn">
-                Подобрать средства
+              <Link href={localizedHref("/care", locale)} className="btn">
+                {t("Подобрать средства")}
               </Link>
-              <Link href="/about" className="btn-secondary">
-                Как мы формируем каталог
+              <Link href={localizedHref("/about", locale)} className="btn-secondary">
+                {t("Как мы формируем каталог")}
               </Link>
             </div>
             <ul className="mt-7 flex flex-wrap gap-x-5 gap-y-2 text-sm text-gray-600">
               {HERO_TRUST_ITEMS.map((item) => (
                 <li key={item} className="flex items-center gap-2">
                   <span className="h-2 w-2 rounded-full bg-[var(--color-accent)]" aria-hidden="true" />
-                  {item}
+                  {t(item)}
                 </li>
               ))}
             </ul>
           </div>
-          <HeroCatalogPreview products={popular.length ? popular : newArrivals} />
+          <HeroCatalogPreview products={popular.length ? popular : newArrivals} locale={locale} />
         </div>
       </section>
 
@@ -359,13 +363,16 @@ export default async function Home() {
         <section className="site-panel overflow-hidden rounded-3xl p-6 md:p-8">
           <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
             <div className="max-w-2xl">
-              <p className="site-eyebrow">Покупайте там, где удобно</p>
+              <p className="site-eyebrow">{t("Покупайте там, где удобно")}</p>
               <h2 className="mt-2 text-2xl font-semibold md:text-3xl">
-                Мы также представлены на маркетплейсах
+                {t("Мы также представлены на маркетплейсах")}
               </h2>
               <p className="mt-3 leading-7 text-gray-700">
-                Оформляйте заказ привычным способом — переходите прямо в каталог
-                нашего магазина на выбранной площадке.
+                {locale === "kk"
+                  ? "Тапсырысты өзіңізге ыңғайлы тәсілмен рәсімдеңіз. Маркетплейстегі дүкен каталогына тікелей өтіңіз."
+                  : locale === "en"
+                    ? "Order however you prefer. Visit our store catalog on your chosen marketplace."
+                    : "Оформляйте заказ привычным способом — переходите прямо в каталог нашего магазина на выбранной площадке."}
               </p>
             </div>
             <div className="flex flex-wrap gap-3 md:max-w-md md:justify-end">
@@ -387,19 +394,23 @@ export default async function Home() {
       ) : null}
 
       <ProductSection
-        title="Популярные товары"
-        subtitle="Подборка из опубликованных товаров каталога: учитываем интерес к позициям, продажи и актуальность ассортимента."
-        emptyText="В каталоге пока нет опубликованных товаров."
+        title={t("Популярные товары")}
+        subtitle={locale === "kk" ? "Каталогтағы жарияланған тауарлар топтамасы: сұраныс, сатылым және ассортимент өзектілігі ескеріледі." : locale === "en" ? "A selection of published products based on customer interest, sales and availability." : "Подборка из опубликованных товаров каталога: учитываем интерес к позициям, продажи и актуальность ассортимента."}
+        emptyText={t("В каталоге пока нет опубликованных товаров.")}
+        locale={locale}
         products={popular}
       />
 
       <section className="site-panel-muted overflow-hidden rounded-3xl p-6 md:p-10">
         <div className="max-w-3xl">
-          <p className="site-eyebrow">Осознанный выбор</p>
-          <h2 className="mt-2 text-2xl font-semibold md:text-3xl">Почему выбирают нас</h2>
+          <p className="site-eyebrow">{t("Осознанный выбор")}</p>
+          <h2 className="mt-2 text-2xl font-semibold md:text-3xl">{t("Почему выбирают нас")}</h2>
           <p className="mt-3 text-gray-700 md:text-lg">
-            Профессиональный уход становится проще, когда назначение каждого
-            средства понятно до покупки.
+            {locale === "kk"
+              ? "Әр құралдың мақсаты сатып алардан бұрын түсінікті болса, кәсіби күтім де оңай болады."
+              : locale === "en"
+                ? "Professional skincare is easier when you understand each product before buying it."
+                : "Профессиональный уход становится проще, когда назначение каждого средства понятно до покупки."}
           </p>
         </div>
         <div className="mt-7 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -408,30 +419,31 @@ export default async function Home() {
               <div className="accent-badge flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold">
                 {index + 1}
               </div>
-              <h3 className="mt-4 font-semibold text-gray-950">{advantage.title}</h3>
-              <p className="mt-2 text-sm leading-6 text-gray-600">{advantage.text}</p>
+              <h3 className="mt-4 font-semibold text-gray-950">{t(advantage.title)}</h3>
+              <p className="mt-2 text-sm leading-6 text-gray-600">{translateAdvantage(locale, index, advantage.text)}</p>
             </article>
           ))}
         </div>
         <div className="mt-7">
-          <Link href="/about" className="btn-secondary">
-            Подробнее о магазине
+          <Link href={localizedHref("/about", locale)} className="btn-secondary">
+            {t("Подробнее о магазине")}
           </Link>
         </div>
       </section>
 
       <ProductSection
-        title="Новинки"
-        subtitle="Недавно добавленные позиции для новых задач и обновления привычной схемы ухода."
-        emptyText="Пока нет товаров."
+        title={t("Новинки")}
+        subtitle={locale === "kk" ? "Күтіміңізді толықтыруға арналған жаңадан қосылған тауарлар." : locale === "en" ? "Recently added products to refresh or extend your routine." : "Недавно добавленные позиции для новых задач и обновления привычной схемы ухода."}
+        emptyText={t("Пока нет товаров.")}
+        locale={locale}
         products={newArrivals}
       />
 
       {REVIEWS_ENABLED ? (
         <section className="space-y-4">
-          <h2 className="text-2xl font-semibold">Отзывы клиентов</h2>
+          <h2 className="text-2xl font-semibold">{t("Отзывы клиентов")}</h2>
           {reviews.length === 0 ? (
-            <div className="text-sm text-gray-500">Пока нет отзывов.</div>
+            <div className="text-sm text-gray-500">{t("Пока нет отзывов.")}</div>
           ) : (
             <div className="grid gap-4 md:grid-cols-3">
               {reviews.map((review) => (
@@ -449,24 +461,47 @@ export default async function Home() {
   );
 }
 
-function HeroCatalogPreview({ products }: { products: ProductCardRow[] }) {
+
+function translateAdvantage(locale: SiteLocale, index: number, russian: string) {
+  if (locale === "ru") return russian;
+  const kk = [
+    "Тазалау, ылғалдандыру, қалпына келтіру және басқа да тері күтіміне арналған түсінікті мақсаттағы кәсіби құралдар.",
+    "Әр өнімнің не үшін арналғанын, қандай теріге лайық екенін және қалай қолданылатынын түсіндіреміз.",
+    "Тексерілген қасиеттерге сүйенеміз, шындыққа жанаспайтын уәделерден аулақ боламыз.",
+    "Кәсіби косметиканың өзекті ассортименті мен жаңа өнімдерін қадағалаймыз.",
+    "Таңдаулы топтамаларда тек дүкеніміздегі жарияланған тауарлар көрсетіледі.",
+    "Санаттар, сүзгілер және сипаттамалар құралдарды салыстыруды жеңілдетеді.",
+  ];
+  const en = [
+    "Professional products for clear needs: cleansing, hydration, skin repair, age-defying and blemish-prone skin.",
+    "We explain what each product is for, who it suits and how to use it.",
+    "We focus on verified benefits instead of unrealistic promises.",
+    "We keep our professional skincare selection relevant and up to date.",
+    "Featured collections contain only products available in our own catalog.",
+    "Categories, filters and useful descriptions make comparing products easier.",
+  ];
+  return (locale === "kk" ? kk : en)[index] || russian;
+}
+
+function HeroCatalogPreview({ products, locale }: { products: ProductCardRow[]; locale: SiteLocale }) {
+  const t = (russian: string) => uiText(locale, russian);
   return (
-    <aside className="site-panel rounded-3xl p-5" aria-label="Быстрый переход в каталог">
-      <p className="text-sm font-semibold text-gray-950">С чего начать выбор</p>
+    <aside className="site-panel rounded-3xl p-5" aria-label={t("С чего начать выбор")}>
+      <p className="text-sm font-semibold text-gray-950">{t("С чего начать выбор")}</p>
       <div className="mt-3 grid grid-cols-3 gap-2">
         {CATALOG_SHORTCUTS.map((item) => (
           <Link
             key={item.href}
-            href={item.href}
+            href={localizedHref(item.href, locale)}
             className="accent-badge inline-flex min-h-8 items-center justify-center rounded-full px-3 py-1 text-center text-xs font-semibold hover:brightness-95"
           >
-            {item.label}
+            {t(item.label)}
           </Link>
         ))}
       </div>
       {products.length ? (
         <div className="mt-5 border-t border-[var(--color-border)] pt-4">
-          <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Сейчас в подборке</p>
+          <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">{t("Сейчас в подборке")}</p>
           <ul className="mt-2 space-y-2">
             {products.slice(0, 3).map((product) => (
               <li key={product.id}>
@@ -490,9 +525,10 @@ type ProductSectionProps = {
   subtitle: string;
   emptyText: string;
   products: ProductCardRow[];
+  locale: SiteLocale;
 };
 
-function ProductSection({ title, subtitle, emptyText, products }: ProductSectionProps) {
+function ProductSection({ title, subtitle, emptyText, products, locale }: ProductSectionProps) {
   const cardProducts = products.map(({
     id, slug, name, supplierSku, image, shortDescription, price, stock,
     isPopular, isNew, createdAt, category, brand, variants,
@@ -509,8 +545,8 @@ function ProductSection({ title, subtitle, emptyText, products }: ProductSection
           <h2 className="text-2xl font-semibold">{title}</h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-gray-600">{subtitle}</p>
         </div>
-        <Link href="/shop" className="text-link shrink-0 text-sm">
-          Смотреть весь каталог
+        <Link href={localizedHref("/shop", locale)} className="text-link shrink-0 text-sm">
+          {uiText(locale, "Смотреть весь каталог")}
         </Link>
       </div>
 

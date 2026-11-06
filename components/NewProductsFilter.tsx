@@ -1,8 +1,10 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useUiText } from "@/components/LocaleProvider";
 
 export default function NewProductsFilter() {
+  const t = useUiText();
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -26,7 +28,7 @@ export default function NewProductsFilter() {
         onChange={toggle}
         className="h-4 w-4 accent-gray-900"
       />
-      <span>Новинки</span>
+      <span>{t("Новинки")}</span>
     </label>
   );
 }

@@ -10,6 +10,8 @@ import {
 } from "@/lib/siteConfig";
 import { getPublicExternalLinks } from "@/lib/externalLinks";
 import { getStorePolicy } from "@/lib/storePolicy";
+import { requestLocale } from "@/lib/i18nServer";
+import { localizedHref, uiText } from "@/lib/i18n";
 
 const FOOTER_LINKS = [
   { href: "/shop", label: "Каталог" },
@@ -23,6 +25,8 @@ const FOOTER_LINKS = [
 ] as const;
 
 export default async function Footer() {
+  const locale = await requestLocale();
+  const t = (value: string) => uiText(locale, value);
   const externalLinks = await getPublicExternalLinks();
   const policy = getStorePolicy();
   const socialLinks = externalLinks.filter((link) => link.kind === "SOCIAL");
@@ -34,7 +38,7 @@ export default async function Footer() {
     <footer className="mt-12 border-t border-[var(--color-border)] bg-white/95 text-sm text-gray-600">
       <div className="container grid gap-8 py-10 md:grid-cols-[1.35fr_0.8fr_1fr]">
         <div className="max-w-lg">
-          <Link href="/" className="inline-flex" aria-label={`${SITE_BRAND} — на главную`}>
+          <Link href={localizedHref("/", locale)} className="inline-flex" aria-label={`${SITE_BRAND} — на главную`}>
             <Image
               src="/brand/footer-logo.svg"
               alt={SITE_BRAND}
@@ -44,38 +48,42 @@ export default async function Footer() {
             />
           </Link>
           <p className="mt-4 leading-6">
-            Профессиональная косметика для продуманного домашнего ухода.
-            Помогаем понять назначение средства, подобрать его под потребности кожи
-            и правильно включить в ежедневную схему.
+            {t("Профессиональная косметика для продуманного домашнего ухода.")}
+            {" "}
+            {locale === "kk"
+              ? "Өнімнің мақсатын түсінуге, оны теріңіздің қажеттілігіне сай таңдауға және күнделікті күтімге дұрыс енгізуге көмектесеміз."
+              : locale === "en"
+                ? "We help you understand each product, select what your skin needs and use it correctly in your daily routine."
+                : "Помогаем понять назначение средства, подобрать его под потребности кожи и правильно включить в ежедневную схему."}
           </p>
           {policy.sellerName ? (
             <p className="mt-4 text-xs leading-5 text-gray-500">
-              Владелец сайта и продавец: <strong className="font-semibold text-gray-700">{policy.sellerName}</strong>, Республика Казахстан.
+              {t("Владелец сайта и продавец:")} <strong className="font-semibold text-gray-700">{policy.sellerName}</strong>, Республика Казахстан.
             </p>
           ) : null}
           <div className="mt-4 flex flex-wrap gap-2">
             <span className="accent-badge rounded-full px-3 py-1 text-xs font-semibold">
-              Доставка по Казахстану
+              {t("Доставка по Казахстану")}
             </span>
             <span className="accent-badge rounded-full px-3 py-1 text-xs font-semibold">
-              Понятные карточки товаров
+              {t("Понятные карточки товаров")}
             </span>
           </div>
         </div>
 
         <div>
-          <h2 className="font-semibold text-gray-950">Покупателям</h2>
-          <nav className="mt-3 flex flex-col items-start gap-2" aria-label="Навигация в подвале">
+          <h2 className="font-semibold text-gray-950">{t("Покупателям")}</h2>
+          <nav className="mt-3 flex flex-col items-start gap-2" aria-label={t("Навигация в подвале")}>
             {FOOTER_LINKS.map((link) => (
-              <Link key={link.href} href={link.href} className="hover:text-gray-950 hover:underline">
-                {link.label}
+              <Link key={link.href} href={localizedHref(link.href, locale)} className="hover:text-gray-950 hover:underline">
+                {t(link.label)}
               </Link>
             ))}
           </nav>
         </div>
 
         <div>
-          <h2 className="font-semibold text-gray-950">Связаться с нами</h2>
+          <h2 className="font-semibold text-gray-950">{t("Связаться с нами")}</h2>
           <div className="mt-3 space-y-2">
             <a href={SITE_CONTACT_PHONE_HREF} className="block font-semibold text-gray-900 hover:underline">
               {SITE_CONTACT_PHONE}
@@ -117,7 +125,7 @@ export default async function Footer() {
             {marketplaceLinks.length > 0 ? (
               <div>
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">
-                  Мы на маркетплейсах
+                  {t("Мы на маркетплейсах")}
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {marketplaceLinks.map((link) => (

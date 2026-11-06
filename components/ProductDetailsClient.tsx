@@ -12,6 +12,8 @@ import { verifiedProductCopy } from "@/lib/verifiedProductInstructions";
 import { publicProductCategory } from "@/lib/catalogFilters";
 import { publicShortDescription } from "@/lib/productCopy";
 import { productDisplayName } from "@/lib/productNames";
+import { useSiteLocale, useUiText } from "@/components/LocaleProvider";
+import { localizedHref, categoryLabel } from "@/lib/i18n";
 
 type Variant = {
   id: string;
@@ -54,6 +56,8 @@ function normalizeVariants(v: any): Variant[] {
 }
 
 export default function ProductDetailsClient({ product }: Props) {
+  const locale = useSiteLocale();
+  const t = useUiText();
   const verifiedCopy = verifiedProductCopy(product);
   const description = verifiedCopy?.description || product.description;
   const displayName = productDisplayName(product);
@@ -100,9 +104,9 @@ export default function ProductDetailsClient({ product }: Props) {
                       : "border-gray-200 bg-gray-50 text-gray-700") +
                     (unavailable ? " opacity-60" : " hover:border-gray-400 hover:bg-gray-100")
                   }
-                  title={unavailable ? "Нет в наличии — можно подписаться на поступление" : ""}
+                  title={unavailable ? t("Уведомить о поступлении") : ""}
                 >
-                  {v.label}{unavailable ? " · нет" : ""}
+                  {v.label}{unavailable ? (locale === "ru" ? " · нет" : ` · ${t("Нет в наличии")}`) : ""}
                 </button>
               );
             })}
@@ -123,7 +127,7 @@ export default function ProductDetailsClient({ product }: Props) {
         </div>
 
         <div className={"mt-1 text-xs " + (inStock ? "text-emerald-700" : "text-gray-500")}>
-          {inStock ? `В наличии: ${stockToUse}` : "Нет в наличии"}
+          {inStock ? `${t("В наличии:")} ${stockToUse}` : t("Нет в наличии")}
         </div>
 
         {!inStock ? (
@@ -136,11 +140,11 @@ export default function ProductDetailsClient({ product }: Props) {
 
         <div className="mt-2 flex items-center justify-between">
           <div className="text-xs text-gray-500">
-            {brandName} • {publicProductCategory(product)}
+            {brandName} • {categoryLabel(locale, publicProductCategory(product))}
           </div>
 
-          <Link href="/shop" className="text-xs text-gray-600 hover:underline">
-            ← Вернуться в каталог
+          <Link href={localizedHref("/shop", locale)} className="text-xs text-gray-600 hover:underline">
+            {t("← Вернуться в каталог")}
           </Link>
         </div>
       </div>
@@ -154,13 +158,13 @@ export default function ProductDetailsClient({ product }: Props) {
         )}
 
         <ProductDescription description={description} />
-        {verifiedCopy && <a href={verifiedCopy.sourceUrl} target="_blank" rel="noopener noreferrer" className="block text-sm text-gray-600 underline">Инструкция производителя Angiopharm</a>}
+        {verifiedCopy && <a href={verifiedCopy.sourceUrl} target="_blank" rel="noopener noreferrer" className="block text-sm text-gray-600 underline">{t("Инструкция производителя Angiopharm")}</a>}
 
         <Link
-          href={`/ask?productId=${encodeURIComponent(product.id)}`}
+          href={localizedHref(`/ask?productId=${encodeURIComponent(product.id)}`, locale)}
           className="inline-block px-4 py-2 rounded-xl border bg-white hover:bg-gray-50 text-sm"
         >
-          Помочь выбрать — спросить ИИ
+          {t("Помочь выбрать — спросить ИИ")}
         </Link>
       </div>
     </div>
