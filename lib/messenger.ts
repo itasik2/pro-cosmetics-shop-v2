@@ -167,6 +167,17 @@ function whatsappConfig() {
   };
 }
 
+/** Public configuration status only. Never send provider secrets to the browser. */
+export function getCustomerMessengerAvailability() {
+  const whatsapp = whatsappConfig();
+  const telegram = telegramConfig();
+
+  return {
+    whatsapp: Boolean(whatsapp.accessToken && whatsapp.phoneNumberId && whatsapp.graphVersion && whatsapp.templateName),
+    telegram: Boolean(telegram.token && telegram.username && telegram.webhookSecret),
+  };
+}
+
 export function getTelegramWebhookSecret() {
   return telegramConfig().webhookSecret;
 }

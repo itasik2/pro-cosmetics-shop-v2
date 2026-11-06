@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { isHalykEpayConfigured } from "@/lib/halykEpay";
-import { telegramOrderConnectUrl } from "@/lib/messenger";
+import { getCustomerMessengerAvailability, telegramOrderConnectUrl } from "@/lib/messenger";
 
 export default async function CheckoutSuccessPage(
   props: {
@@ -22,9 +22,12 @@ export default async function CheckoutSuccessPage(
   const telegramUrl =
     channel === "TELEGRAM" && order ? telegramOrderConnectUrl(order) : "";
 
+  const availability = getCustomerMessengerAvailability();
   const channelMessage =
     channel === "WHATSAPP"
-      ? "Информация по заказу будет отправляться в WhatsApp на указанный номер."
+      ? availability.whatsapp
+        ? "Информация по заказу будет отправляться в WhatsApp на указанный номер."
+        : "Автоматические уведомления в WhatsApp пока недоступны. Магазин получил заказ и сможет связаться с вами по указанному номеру. Сохраните ссылку на страницу заказа."
       : channel === "TELEGRAM"
         ? telegramUrl
           ? "Чтобы получать автоматические уведомления, один раз подключите заказ к Telegram-боту. В боте нажмите Start, затем «Поделиться номером телефона». Номер должен совпадать с указанным в заказе."
