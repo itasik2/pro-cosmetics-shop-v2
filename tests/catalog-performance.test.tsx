@@ -32,6 +32,13 @@ function render(ui: React.ReactNode, params = "", pathname = "/shop") {
   </AppRouterContext.Provider>);
 }
 
+test("ready AI-normalized Cloudinary WebP photos do not request new image derivatives", () => {
+  const normalized = "https://res.cloudinary.com/cloud/image/upload/e_background_removal/e_trim:10/c_pad,h_1200,w_1200/q_auto:good/v12345/products/bottle.webp";
+  for (const width of [320, 480, 640, 768, 960]) {
+    assert.equal(productThumbnail(normalized, width), normalized);
+  }
+});
+
 test("the catalog starts with a small batch and automatically reveals the rest without page controls", () => {
   const html = render(<ShopGridClient batch={initial} source={source} />);
   assert.equal((html.match(/aria-label="Открыть товар:/g) || []).length, CATALOG_INITIAL_SIZE);
