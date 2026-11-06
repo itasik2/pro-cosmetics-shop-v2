@@ -9,7 +9,7 @@ import { brandNameToSlug } from "@/lib/brandSlug";
 import { publicShortDescription } from "@/lib/productCopy";
 import { publicProductCategory } from "@/lib/catalogFilters";
 import { productDisplayName } from "@/lib/productNames";
-import { productThumbnail } from "@/lib/productThumbnails";
+import ResilientProductImage from "@/components/ResilientProductImage";
 import { defaultPublicProductVariant, isRecentlyCreated, normalizePublicProductVariants } from "@/lib/publicProductVariants";
 
 export type ProductCardProps = {
@@ -81,11 +81,7 @@ function ProductCard({ product, priority = false, headingLevel = 3, imageSizes =
       </div>
 
       <Link href={productHref} prefetch={false} onClick={rememberOpen} className="block aspect-square w-full bg-white rounded-xl mb-3 overflow-hidden" aria-label={`Открыть товар: ${displayName}`}>
-        <img src={productThumbnail(imageToShow, 640)}
-          srcSet={productThumbnail(imageToShow, 320) !== imageToShow
-            ? [320, 480, 640, 768, 960].map((width) => `${productThumbnail(imageToShow, width)} ${width}w`).join(", ") : undefined}
-          sizes={imageSizes} fetchPriority={priority ? "high" : undefined}
-          alt={displayName} width={640} height={640} className="w-full h-full object-contain" loading={priority ? "eager" : "lazy"} decoding="async" />
+        <ResilientProductImage key={imageToShow} src={imageToShow} sizes={imageSizes} priority={priority} alt={displayName} />
       </Link>
 
       <div className="text-sm text-gray-500">
