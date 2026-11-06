@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useUiText } from "@/components/LocaleProvider";
 
 type FilterOption = {
   slug: string;
@@ -27,6 +28,7 @@ export default function CatalogFacetFilters({
   categories: FilterOption[];
 }) {
   const pathname = usePathname();
+  const t = useUiText();
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -75,19 +77,21 @@ export default function CatalogFacetFilters({
   return (
     <div className="flex min-w-0 flex-wrap items-start gap-2">
       <FilterDropdown
-        title="Бренды"
+        title={t("Бренды")}
         options={brands}
         selected={selectedBrands}
         onChange={(slug, checked) => updateFilter("brand", slug, checked)}
         onClear={() => clearFilter("brand")}
+        allLabel={t("Все")}
       />
       <FilterDropdown
-        title="Категории"
+        title={t("Категории")}
         options={categories}
         selected={selectedCategories}
         onChange={(slug, checked) => updateFilter("category", slug, checked)}
         onClear={() => clearFilter("category")}
         mobileAlign="end"
+        allLabel={t("Все")}
       />
       {selectedBrands.length > 0 || selectedCategories.length > 0 ? (
         <button
@@ -95,7 +99,7 @@ export default function CatalogFacetFilters({
           onClick={clearBoth}
           className="inline-flex min-h-10 items-center px-2 text-sm text-gray-600 underline underline-offset-4 hover:text-gray-900"
         >
-          Сбросить выбор
+          {t("Сбросить выбор")}
         </button>
       ) : null}
     </div>
@@ -109,6 +113,7 @@ function FilterDropdown({
   onChange,
   onClear,
   mobileAlign = "start",
+  allLabel = "Все",
 }: {
   title: string;
   options: FilterOption[];
@@ -116,6 +121,7 @@ function FilterDropdown({
   onChange: (slug: string, checked: boolean) => void;
   onClear: () => void;
   mobileAlign?: "start" | "end";
+  allLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const selectedSet = useMemo(() => new Set(selected), [selected]);
@@ -156,7 +162,7 @@ function FilterDropdown({
             onChange={onClear}
             className="h-4 w-4 accent-gray-900"
           />
-          <span>Все</span>
+          <span>{allLabel}</span>
         </label>
         {options.map((option) => (
           <label
