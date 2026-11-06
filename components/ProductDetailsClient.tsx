@@ -1,5 +1,6 @@
 "use client";
 import { variantDisplayImage } from "../lib/enrichment/variantImages";
+import ResilientProductImage from "@/components/ResilientProductImage";
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
@@ -79,11 +80,7 @@ export default function ProductDetailsClient({ product }: Props) {
 
       <div>
         <div className="flex aspect-square w-full items-center justify-center overflow-hidden rounded-3xl border bg-white">
-          <img
-            src={imageToShow}
-            alt={displayName}
-            className="h-full w-full object-contain"
-          />
+          <ResilientProductImage key={imageToShow} src={imageToShow} alt={displayName} priority fullSize />
         </div>
 
         {hasVariants && (
