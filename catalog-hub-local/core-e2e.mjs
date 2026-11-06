@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {runQueuedImportChecks} from "./import-queue-e2e.mjs";
 import {runReservationChecks} from "./reservations-e2e.mjs";
 import {queueRecoveryFixtures,runQueueRecoveryChecks} from "./queue-recovery-e2e.mjs";
+import {runDeliveryChecks} from "./delivery-e2e.mjs";
 import { randomUUID, randomBytes, createHash, createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -83,7 +84,7 @@ export function coreFixtures(keyB, readOnlyKey) {
     ${queueRecoveryFixtures(keyB)}
     DO $guard$ DECLARE relation text; BEGIN
       FOREACH relation IN ARRAY ARRAY['ChannelConnection','ChannelOffer','ChannelWarehouseMapping','ChannelCategoryMapping',
-        'CoreOrder','CoreOrderItem','Reservation','ReservationItem','StockMovement','CoreMutation','InboxEvent','OutboxEvent','ProductGrouping','CatalogImportRun','CatalogImportRow'] LOOP
+        'CoreOrder','CoreOrderItem','Reservation','ReservationItem','StockMovement','CoreMutation','InboxEvent','OutboxEvent','ProductGrouping','CatalogImportRun','CatalogImportRow','ChannelWebhook','OutboxDelivery'] LOOP
         IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid=format('public.%I',relation)::regclass)
           OR has_table_privilege('anon',format('public.%I',relation),'SELECT,INSERT,UPDATE,DELETE')
           OR has_table_privilege('authenticated',format('public.%I',relation),'SELECT,INSERT,UPDATE,DELETE') THEN
@@ -94,7 +95,7 @@ export function coreFixtures(keyB, readOnlyKey) {
   `;
 }
 
-export async function runCoreChecks({ baseUrl = "http://127.0.0.1:8000", key, keyB, readOnlyKey }) {
+export async function runCoreChecks({ baseUrl = "http://127.0.0.1:8000", key, keyB, readOnlyKey, testDatabaseUrl }) {
   const target = new URL(baseUrl);
   assert.equal(target.hostname, "127.0.0.1", "Core tests may only use loopback");
   assert.equal(target.protocol, "http:");
@@ -408,6 +409,7 @@ export async function runCoreChecks({ baseUrl = "http://127.0.0.1:8000", key, ke
   expect(await api(`/v1/sync/outbox/${first.id}/ack`, { body: { leaseToken: first.leaseToken } }), 200, "ack claimed event");
   const second = claimed.events[1];
   expect(await api(`/v1/sync/outbox/${second.id}/fail`, { body: { leaseToken: second.leaseToken, errorCode: "PROVIDER_TIMEOUT" } }), 200, "retry after failure");
+  checks+=(await runDeliveryChecks({baseUrl,key,keyB,readOnlyKey,testDatabaseUrl})).checks;
   console.log(`Catalog Core: ${checks} synthetic API checks passed.`);
   return { checks };
 }

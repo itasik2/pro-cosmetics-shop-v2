@@ -24,6 +24,8 @@ services:
       DENO_NO_UPDATE_CHECK: "1"
       CATALOG_HUB_DB_POOL_MAX: "4"
       CATALOG_CHANNEL_SECRET_TEST: "synthetic-test-only-32-byte-secret-value"
+      CATALOG_DELIVERY_SECRET_TEST: "synthetic-delivery-only-32-byte-secret-value"
+      CATALOG_DELIVERY_ALLOW_LOOPBACK_TEST: "true"
     volumes:
       - ../marketplace-hub/supabase/functions/catalog-hub:/app:ro
     ports:

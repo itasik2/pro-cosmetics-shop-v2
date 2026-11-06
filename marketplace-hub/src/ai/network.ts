@@ -131,7 +131,7 @@ function isBlockedIpv6(address: string) {
   return mapped ? isBlockedIpv4(mapped[1]) : false;
 }
 
-function isBlockedAddress(address: string) {
+export function isBlockedAddress(address: string) {
   const family = isIP(address);
   if (family === 4) return isBlockedIpv4(address);
   if (family === 6) return isBlockedIpv6(address);

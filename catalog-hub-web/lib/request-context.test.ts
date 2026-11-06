@@ -3,6 +3,14 @@ import assert from "node:assert/strict";
 import { assertScope, boundedJson, legacyOrganization, scopeRequest } from "../../marketplace-hub/supabase/functions/catalog-hub/request-context";
 
 const principal = { actor: "key:test", organizationId: "org_a", scopes: ["catalog:read"] };
+test("an export-bound credential reads only the named channel export",()=>{
+ const scoped={...principal,scopes:["channels:read:store_a"]};
+ assert.doesNotThrow(()=>assertScope(scoped,"/v1/channels/store_a/export","GET"));
+ assert.throws(()=>assertScope(scoped,"/v1/channels/store_b/export","GET"),/scope_forbidden/);
+ assert.throws(()=>assertScope(scoped,"/v1/channels","GET"),/scope_forbidden/);
+ assert.throws(()=>assertScope(scoped,"/v1/channels/store_a/webhook","POST"),/scope_forbidden/);
+ assert.doesNotThrow(()=>assertScope({...principal,scopes:["channels:read"]},"/v1/channels/store_a/export","GET"));
+});
 test("organization comes from the principal even when caller omits it", async () => {
   const url = new URL("https://example.test/v1/catalog/products");
   await scopeRequest(new Request(url), url, principal);

@@ -109,6 +109,8 @@ model Organization {
   reservations Reservation[]
   coreMutations CoreMutation[]
   outboxEvents OutboxEvent[]
+  webhooks ChannelWebhook[]
+  deliveries OutboxDelivery[]
   groupingOperations ProductGrouping[]
   catalogImportRuns CatalogImportRun[]
 }
@@ -819,6 +821,7 @@ model ChannelConnection {
   categories ChannelCategoryMapping[]
   orders CoreOrder[]
   inbox InboxEvent[]
+  webhook ChannelWebhook?
   @@unique([organizationId, id])
   @@index([organizationId, mode, createdAt])
 }
@@ -994,7 +997,57 @@ model OutboxEvent {
   lastError String?
   createdAt DateTime @default(now()) @db.Timestamptz(6)
   deliveredAt DateTime? @db.Timestamptz(6)
+  deliveries OutboxDelivery[]
+  @@unique([organizationId,id])
   @@index([organizationId, status, availableAt, id])
   @@index([organizationId, createdAt, id])
   @@index([organizationId, status, createdAt, id])
+}
+
+model ChannelWebhook {
+  id String @id
+  organizationId String
+  organization Organization @relation(fields:[organizationId],references:[id],onDelete:Restrict)
+  connectionId String
+  connection ChannelConnection @relation(fields:[organizationId,connectionId],references:[organizationId,id],onDelete:Restrict)
+  url String
+  secretRef String
+  topics Json
+  state String @default("PAUSED")
+  version Int @default(1)
+  generation Int @default(1)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+  deliveries OutboxDelivery[]
+  @@unique([organizationId,id])
+  @@unique([organizationId,connectionId])
+  @@index([organizationId,state])
+}
+
+model OutboxDelivery {
+  id String @id
+  organizationId String
+  organization Organization @relation(fields:[organizationId],references:[id],onDelete:Restrict)
+  eventId String
+  event OutboxEvent @relation(fields:[organizationId,eventId],references:[organizationId,id],onDelete:Restrict)
+  webhookId String
+  webhook ChannelWebhook @relation(fields:[organizationId,webhookId],references:[organizationId,id],onDelete:Restrict)
+  generation Int
+  url String
+  secretRef String
+  payload Json
+  status String @default("PENDING")
+  version Int @default(1)
+  attempts Int @default(0)
+  availableAt DateTime @default(now()) @db.Timestamptz(6)
+  leaseToken String?
+  leaseUntil DateTime? @db.Timestamptz(6)
+  lastError String?
+  receipt Json?
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  deliveredAt DateTime? @db.Timestamptz(6)
+  @@unique([organizationId,eventId,webhookId])
+  @@index([organizationId,status,availableAt,id])
+  @@index([organizationId,webhookId,createdAt,id])
+  @@index([organizationId,createdAt,id])
 }

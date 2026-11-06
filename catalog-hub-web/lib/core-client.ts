@@ -7,6 +7,26 @@ export type CoreOrder = { id: string; connectionId: string; externalOrderId: str
   items: Array<{ productId: string; warehouseId: string; sku: string; quantity: number; returned: number }> };
 
 const messages: Record<string,string> = {
+  invalid_webhook_url:"Нужен HTTPS-адрес получателя без логина, пароля, параметров и фрагмента.",
+  invalid_delivery_secret_ref:"Укажите имя серверной настройки CATALOG_DELIVERY_SECRET_… .",
+  invalid_delivery_topics:"Выберите хотя бы один поддерживаемый тип изменений.",
+  delivery_signing_not_configured:"Серверный секрет доставки ещё не настроен.",
+  webhook_version_conflict:"Настройки получателя изменились. Обновите доставки и проверьте их заново.",
+  webhook_limit:"Достигнут предел десяти получателей организации.",
+  delivery_version_conflict:"Статус доставки изменился. Обновите список.",
+  delivery_retry_confirmation_required:"Повтор доступен только после подтверждения для доставки, требующей проверки.",
+  delivery_target_changed:"Получатель изменён. Для нового адреса создано отдельное уведомление.",
+  ENDPOINT_CHANGED:"Получатель или состав событий изменён.",
+  LEASE_EXHAUSTED:"Восемь попыток завершились без подтверждения. Проверьте обработчик и получателя.",
+  DELIVERY_RECEIPT_MISMATCH:"Ответ получателя не подтвердил это уведомление.",
+  DELIVERY_SIGNATURE_INVALID:"Подпись подтверждения получателя не прошла проверку.",
+  DELIVERY_TARGET_BLOCKED:"Адрес получателя не разрешён в настройках обработчика.",
+  DELIVERY_DNS_BLOCKED:"Получатель недоступен по разрешённому публичному адресу.",
+  DELIVERY_UNAVAILABLE:"Не удалось получить подтверждение от получателя.",
+  DELIVERY_TIMEOUT:"Получатель не ответил вовремя.",
+  DELIVERY_SECRET_NOT_CONFIGURED:"Секрет доставки ещё не настроен у фонового обработчика.",
+  delivery_not_found:"Доставка не найдена.",
+  invalid_delivery_status:"Неизвестный статус доставки.",
   reservation_not_found: "Резерв не найден.",
   reservation_version_conflict: "Резерв изменился. Обновите список и проверьте операцию заново.",
   reservation_reference_conflict: "Номер документа уже занят резервом с другим составом или основанием.",
@@ -64,6 +84,7 @@ const messages: Record<string,string> = {
 };
 export function coreMessage(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
+  const http=message.match(/^DELIVERY_HTTP_(\d{3})$/);if(http)return "Получатель вернул HTTP "+http[1]+".";
   return messages[message] || message;
 }
 export async function coreRequest<T>(path: string, body?: unknown, key?: string, signal?: AbortSignal): Promise<T> {

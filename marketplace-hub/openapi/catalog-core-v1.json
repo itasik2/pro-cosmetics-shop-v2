@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Catalog Hub transactional core",
-    "version": "0.13.0",
+    "version": "0.14.0",
     "description": "Actual new core routes. organizationId is resolved from the credential, never selected by the caller. Legacy UI/AI/import routes are outside this document. Writes require confirmation and/or expected versions as described. JSON is bounded to 1 MiB and depth 30. All responses include X-Request-Id. Real channel delivery/cutover requires a separate verified pilot."
   },
   "servers": [
@@ -1573,7 +1573,7 @@
           }
         ],
         "x-required-scopes": [
-          "channels:read"
+          "channels:read:{id}"
         ],
         "parameters": [
           {
@@ -1627,7 +1627,8 @@
           "503": {
             "$ref": "#/components/responses/Error503"
           }
-        }
+        },
+        "description": "A channels:read:{id} credential reads only this channel export. channels:read also permits access. Export retains all warehouse and financial-policy checks and never exposes purchase prices/private supplier metadata."
       }
     },
     "/v1/channels/{id}/feed-preview": {
@@ -4193,6 +4194,636 @@
           }
         }
       }
+    },
+    "/v1/channels/{id}/webhook": {
+      "get": {
+        "summary": "Read recipient settings, status counts and 20 deliveries; no secret values",
+        "security": [
+          {
+            "CatalogApiKey": []
+          }
+        ],
+        "x-required-scopes": [
+          "channels:read"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "enum": [
+                "PENDING",
+                "PROCESSING",
+                "RETRY",
+                "DEAD",
+                "DELIVERED",
+                "CANCELED"
+              ]
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        }
+      },
+      "post": {
+        "summary": "Configure recipient with confirmation and expected version",
+        "security": [
+          {
+            "CatalogApiKey": []
+          }
+        ],
+        "x-required-scopes": [
+          "channels:write"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookConfig"
+              }
+            }
+          }
+        },
+        "description": "At most 10 configured recipients per organization. Default UI state is PAUSED. ACTIVE requires an active OWN_STORE TEST connection and a configured CATALOG_DELIVERY_SECRET_* (at least 32 characters). Production activation remains blocked. Changing URL, secretRef or topics increments generation, cancels unfinished old deliveries and queues one fresh channel.refresh_requested invalidation. State-only pause/resume preserves queued work. Only future events are routed; creation adds an explicit refresh. In-flight requests cannot be recalled."
+      }
+    },
+    "/v1/sync/deliveries": {
+      "get": {
+        "summary": "Read recipient delivery status without raw source payloads or signatures",
+        "security": [
+          {
+            "CatalogApiKey": []
+          }
+        ],
+        "x-required-scopes": [
+          "operations:read"
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "enum": [
+                "PENDING",
+                "PROCESSING",
+                "RETRY",
+                "DEAD",
+                "DELIVERED",
+                "CANCELED"
+              ]
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "webhookId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        }
+      }
+    },
+    "/v1/sync/deliveries/claim": {
+      "post": {
+        "summary": "Lease eligible per-recipient deliveries",
+        "security": [
+          {
+            "CatalogApiKey": []
+          }
+        ],
+        "x-required-scopes": [
+          "operations:write"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100,
+                    "default": 1
+                  }
+                },
+                "required": []
+              }
+            }
+          }
+        },
+        "description": "Up to 100 active external-delivery leases per organization. Lease is 60 seconds, at most 8 attempts. Only active TEST OWN_STORE connections and ACTIVE current-generation recipients are eligible. Returns items containing immutable DeliveryEnvelope, destination URL, secretRef name, leaseToken and leaseUntil. Official worker claims one job at a time. An expired eighth lease becomes DEAD. OutboxEvent and OutboxDelivery have independent consumption state."
+      }
+    },
+    "/v1/sync/deliveries/{id}/complete": {
+      "post": {
+        "summary": "Complete only with a verified signed durable-inbox receipt",
+        "security": [
+          {
+            "CatalogApiKey": []
+          }
+        ],
+        "x-required-scopes": [
+          "operations:write"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "leaseToken": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "ack": {
+                    "$ref": "#/components/schemas/DeliveryAck"
+                  },
+                  "timestamp": {
+                    "type": "string",
+                    "pattern": "^[0-9]{10}$"
+                  },
+                  "signature": {
+                    "type": "string",
+                    "pattern": "^v1=[a-f0-9]{64}$"
+                  }
+                },
+                "required": [
+                  "leaseToken",
+                  "ack",
+                  "timestamp",
+                  "signature"
+                ]
+              }
+            }
+          }
+        },
+        "description": "Checks current lease, target generation, deliveryId, eventId, connectionId, canonical envelope SHA-256 and HMAC receipt within 300 seconds. HTTP 200 alone cannot complete a delivery. Stored receipt means durable inbox receipt, not offer publication. Signature domain: catalog-delivery-ack-v1 + newline + timestamp + newline + canonical JSON of ack."
+      }
+    },
+    "/v1/sync/deliveries/{id}/fail": {
+      "post": {
+        "summary": "Record bounded failure and backoff for the current lease",
+        "security": [
+          {
+            "CatalogApiKey": []
+          }
+        ],
+        "x-required-scopes": [
+          "operations:write"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "leaseToken": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "errorCode": {
+                    "type": "string",
+                    "pattern": "^[A-Z0-9_]{1,80}$"
+                  },
+                  "retryAfterSeconds": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 3600
+                  }
+                },
+                "required": [
+                  "leaseToken"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sync/deliveries/{id}/retry": {
+      "post": {
+        "summary": "Explicit version-guarded retry of a DEAD delivery",
+        "security": [
+          {
+            "CatalogApiKey": []
+          }
+        ],
+        "x-required-scopes": [
+          "operations:write"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "confirmed": {
+                    "const": true
+                  },
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 5,
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "confirmed",
+                  "expectedVersion",
+                  "reason"
+                ]
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -4856,6 +5487,171 @@
         "required": [
           "limits",
           "usage"
+        ]
+      },
+      "DeliveryEnvelope": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "const": 1
+          },
+          "deliveryId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "eventId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "organizationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "connectionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "generation": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "type": {
+            "enum": [
+              "catalog.product_changed",
+              "inventory.changed",
+              "channel.offer_changed",
+              "channel.mappings_changed",
+              "catalog.variants_grouped",
+              "catalog.variants_ungrouped",
+              "channel.refresh_requested"
+            ]
+          },
+          "time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "refresh": {
+                "const": "channel-export"
+              }
+            },
+            "required": [
+              "refresh"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "version",
+          "deliveryId",
+          "eventId",
+          "organizationId",
+          "connectionId",
+          "generation",
+          "type",
+          "time",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "DeliveryAck": {
+        "type": "object",
+        "properties": {
+          "deliveryId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "eventId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "connectionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "payloadHash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "status": {
+            "enum": [
+              "ACCEPTED",
+              "DUPLICATE"
+            ]
+          }
+        },
+        "required": [
+          "deliveryId",
+          "eventId",
+          "connectionId",
+          "payloadHash",
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "WebhookConfig": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 2048
+          },
+          "secretRef": {
+            "type": "string",
+            "pattern": "^CATALOG_DELIVERY_SECRET_[A-Z0-9_]{1,80}$"
+          },
+          "topics": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 6,
+            "items": {
+              "enum": [
+                "catalog.product_changed",
+                "inventory.changed",
+                "channel.offer_changed",
+                "channel.mappings_changed",
+                "catalog.variants_grouped",
+                "catalog.variants_ungrouped"
+              ]
+            }
+          },
+          "state": {
+            "enum": [
+              "PAUSED",
+              "ACTIVE"
+            ]
+          },
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "confirmed": {
+            "const": true
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "url",
+          "secretRef",
+          "topics",
+          "state",
+          "expectedVersion",
+          "confirmed",
+          "reason"
         ]
       }
     },

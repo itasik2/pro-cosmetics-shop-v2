@@ -21,6 +21,8 @@ const areas: Array<[RegExp, string]> = [
 ];
 
 export function requiredScope(route: string, method: string): string | null {
+  const exported=route.match(/^\/v1\/channels\/([A-Za-z0-9_-]+)\/export$/);
+  if(exported&&(method==="GET"||method==="HEAD"))return "channels:read:"+exported[1];
   if(method==="POST"&&/^\/v1\/channels\/[A-Za-z0-9_-]+\/shadow-preview$/.test(route))return "channels:read";
   const channelEvent=route.match(/^\/v1\/channels\/([A-Za-z0-9_-]+)\/order-events(?:\/preview)?$/);
   if(channelEvent&&method==="POST")return "orders:write:"+channelEvent[1];
@@ -31,7 +33,7 @@ export function requiredScope(route: string, method: string): string | null {
 
 export function assertScope(principal: Principal, route: string, method: string) {
   const scope = requiredScope(route, method);
-  if (!scope || !principal.scopes.some(s => s === "*" || s === scope || (scope.startsWith("orders:write:")&&s==="orders:write"))) {
+  if (!scope || !principal.scopes.some(s => s === "*" || s === scope || (scope.startsWith("orders:write:")&&s==="orders:write") || (scope.startsWith("channels:read:")&&s==="channels:read"))) {
     throw new RequestError("scope_forbidden", 403);
   }
 }

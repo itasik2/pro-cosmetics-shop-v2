@@ -2,13 +2,14 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { CoreProductPicker } from "./CoreProductPicker";
+import { WebhookConsole } from "./WebhookConsole";
 import { coreMessage,coreRequest,type CoreConnection,type CoreProduct,type CoreWarehouse } from "@/lib/core-client";
 type Offer={productId:string;sellerSku:string;price:number|null;channelBuffer:number;preorderDays:number|null;version:number};
 type Shadow={matches:boolean;coreCount:number;channelCount:number;missingInChannel:string[];missingInCore:string[];changed:Array<{sellerSku:string;fields:Array<{field:string;core:unknown;channel:unknown}>}>};
 type Feed={xml:string;count:number;checksum:string;deliveryStatus:string};
 const modes:Record<string,string>={SHADOW:"Сравнение",ACTIVE:"Включён",PAUSED:"Приостановлен"};
 
-export function ChannelsConsole({connections,products,warehouses,defaultWarehouseId}:{connections:CoreConnection[];products:CoreProduct[];warehouses:CoreWarehouse[];defaultWarehouseId?:string}){
+export function ChannelsConsole({connections,products,warehouses,defaultWarehouseId,canWrite=true}:{connections:CoreConnection[];products:CoreProduct[];warehouses:CoreWarehouse[];defaultWarehouseId?:string;canWrite?:boolean}){
   const router=useRouter();
   const [selected,setSelected]=useState(connections[0]?.id||"");
   const [productId,setProduct]=useState("");
@@ -96,6 +97,7 @@ export function ChannelsConsole({connections,products,warehouses,defaultWarehous
     <section className="panel core-section"><h2>Подключения</h2>{!connections.length?<p className="subtle">Подключений пока нет.</p>:<>
       <label className="core-field">Выбранный канал<select className="input" value={selected} onChange={e=>{setSelected(e.target.value);setShadow(null);setShadowInput("");setConfirmed(false);setError("");setMessage("");}} disabled={busy}>{connections.map(c=><option key={c.id} value={c.id}>{c.name} · {c.environment==="TEST"?"тест":"рабочий"} · {modes[c.mode]||c.mode}</option>)}</select></label>
       {current&&<><p><span className="badge">{current.adapter}</span> <span className="badge">{modes[current.mode]||current.mode}</span> · Предложений: {current.offerCount}</p>
+      {current.adapter==="OWN_STORE"&&<WebhookConsole key={current.id} connectionId={current.id} environment={current.environment} canWrite={canWrite} />}
       {current.adapter==="OWN_STORE"&&<div className="core-preview"><label className="core-confirm"><input type="checkbox" checked={confirmed} disabled={busy} onChange={e=>setConfirmed(e.target.checked)} /> Подтверждаю изменение режима</label>
         <div className="actions">{["SHADOW","PAUSED",...(current.environment==="TEST"?["ACTIVE"]:[])].map(next=><button className="button" disabled={busy||!confirmed||current.mode===next} key={next} onClick={()=>void mode(next)}>{modes[next]}</button>)}</div>
       </div>}
