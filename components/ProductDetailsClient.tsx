@@ -106,7 +106,7 @@ export default function ProductDetailsClient({ product }: Props) {
                   }
                   title={unavailable ? t("Уведомить о поступлении") : ""}
                 >
-                  {v.label}{unavailable ? ` · ${t("Нет в наличии")}` : ""}
+                  {v.label}{unavailable ? (locale === "ru" ? " · нет" : ` · ${t("Нет в наличии")}`) : ""}
                 </button>
               );
             })}
