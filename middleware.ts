@@ -46,6 +46,12 @@ export function middleware(req: NextRequest) {
     return redirected;
   }
 
+  if (prefixLocale && !isLocalizablePath(pathname)) {
+    const unmatched = NextResponse.next({ request: { headers: requestHeaders } });
+    unmatched.headers.set("Content-Security-Policy", csp);
+    return unmatched;
+  }
+
   requestHeaders.set("x-site-locale", requestLocale);
   const visiblePath = prefixLocale ? stripLocale(pathname) : pathname;
   const target = req.nextUrl.clone();
