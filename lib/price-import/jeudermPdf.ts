@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { extractJeudermEmbeddedImages } from "./jeudermEmbeddedImages";
 import { uploadEmbeddedPriceImages } from "./priceImportImages";
+import { suggestJeudermCategory } from "./jeudermCategories";
 import type { EmbeddedPriceImage, ParsedPriceRow, PriceParseResult, PriceVolumeUnit } from "./types";
 
 type PdfTextItem = {
@@ -309,7 +310,7 @@ export async function parseJeudermPdf(
               recommendedPrice: prices.recommendedPrice,
               productLineCode: null,
               productLineName: null,
-              category: "Без категории",
+              category: suggestJeudermCategory(name) || "Без категории",
               sourceDate: null,
               confidence: volume.value !== null ? 95 : 85,
               warnings,
