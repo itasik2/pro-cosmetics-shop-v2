@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/adminGuard";
 import { sendOrderMessengerNotification } from "@/lib/orderMessengerNotifications";
 import { prisma } from "@/lib/prisma";
+import { isOrderFulfillmentAllowed } from "@/lib/orderFulfillmentPolicy";
 
 const SHIPPING_STATUSES = new Set([
   "NOT_CREATED",
@@ -64,11 +65,12 @@ export async function POST(req: Request, props: { params: Promise<{ id: string }
   if (!order) redirect("/admin/orders");
   if (order.archivedAt) redirect(`${returnTo}?shippingError=order_archived`);
 
-  const paymentSettled =
-    order.paymentStatus === "PAID" || order.paymentStatus === "REFUNDED";
-
   if (action === "mark_shipped") {
-    if (order.paymentMethod === "KASPI_TRANSFER" && !paymentSettled) {
+    if (!isOrderFulfillmentAllowed({
+      paymentMethod: order.paymentMethod,
+      paymentStatus: order.paymentStatus,
+      orderStatus: "SHIPPED",
+    })) {
       redirect(`${returnTo}?shippingError=payment_required`);
     }
     if (!order.trackingNumber) {
@@ -128,12 +130,12 @@ export async function POST(req: Request, props: { params: Promise<{ id: string }
 
   if (
     markOrderShipped &&
-    order.paymentMethod === "KASPI_TRANSFER" &&
-    !paymentSettled
+    !isOrderFulfillmentAllowed({
+      paymentMethod: order.paymentMethod,
+      paymentStatus: order.paymentStatus,
+      orderStatus: shippingStatus === "DELIVERED" ? "DONE" : "SHIPPED",
+    })
   ) {
-    redirect(`${returnTo}?shippingError=payment_required`);
-  }
-  if (shippingStatus === "DELIVERED" && !paymentSettled) {
     redirect(`${returnTo}?shippingError=payment_required`);
   }
 
