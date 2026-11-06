@@ -1,4 +1,5 @@
 "use client";
+import {coreMessage} from "@/lib/core-client";
 import {useEffect,useState} from "react";
 import Link from "next/link";
 import {ImportQueue} from "@/components/ImportQueue";
@@ -265,7 +266,7 @@ export function ImportConsole({localMode=false,canWrite=true}:{localMode?:boolea
       await refreshLocal();
       await refreshRemote();
     }
-  }catch(e){setError(e instanceof Error?e.message:"Не удалось обработать файл");}
+  }catch(e){setError(coreMessage(e));}
   finally{setBusy(false);}
  }
  async function deleteSelectedHistory(){

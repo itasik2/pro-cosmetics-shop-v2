@@ -96,7 +96,7 @@ function main(){
  run("npm",["--prefix",hub,"run","prisma:push"],null,{...process.env,DATABASE_URL:localDb});
  // Prisma does not express CHECK constraints or RLS; apply the same additive
  // migration after creating the isolated schema, including on repeated setup.
- const integrity=["20261103082032_catalog_core_orders_and_scoped_keys.sql","20261103115000_catalog_variants.sql","20261103122000_catalog_import_queue.sql","20261106060351_catalog_reservations.sql"]
+ const integrity=["20261103082032_catalog_core_orders_and_scoped_keys.sql","20261103115000_catalog_variants.sql","20261103122000_catalog_import_queue.sql","20261106060351_catalog_reservations.sql","20261106081824_catalog_queue_limits.sql"]
   .map(file=>readFileSync(join(hub,"supabase/migrations",file),"utf8")).join("\n");
  const roles="DO $$ BEGIN CREATE ROLE anon NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;\n"+
    "DO $$ BEGIN CREATE ROLE authenticated NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;\n";

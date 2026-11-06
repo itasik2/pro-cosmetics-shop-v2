@@ -213,6 +213,7 @@ model CatalogImportRun {
   uploadedRows    Int @default(0)
   processedRows   Int @default(0)
   failedRows      Int @default(0)
+  payloadBytes    Int @default(0)
   state           String @default("UPLOADING")
   version         Int @default(1)
   actor           String
@@ -994,4 +995,6 @@ model OutboxEvent {
   createdAt DateTime @default(now()) @db.Timestamptz(6)
   deliveredAt DateTime? @db.Timestamptz(6)
   @@index([organizationId, status, availableAt, id])
+  @@index([organizationId, createdAt, id])
+  @@index([organizationId, status, createdAt, id])
 }

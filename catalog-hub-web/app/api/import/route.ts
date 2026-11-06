@@ -1,6 +1,6 @@
 import { NextRequest,NextResponse } from "next/server";
 import {createHmac,createHash,timingSafeEqual} from "node:crypto";
-import {hubFetch,organizationId} from "@/lib/hub";
+import {hubFetch,HubApiError,organizationId} from "@/lib/hub";
 import {parseTable,mapImport,autoMapping,type Table} from "@/lib/import-parser";
 import {type Mapping,type Field} from "@/lib/import-types";
 import {evaluateImport,type Existing} from "@/lib/import-review";
@@ -358,7 +358,7 @@ export async function POST(request:NextRequest) {
      }
      const queued=await hubFetch("/v1/imports/"+created.id+"/seal",{method:"POST",headers:{"idempotency-key":created.id+":seal"},body:JSON.stringify({confirmed:true})});
      return NextResponse.json({queued,uploadPending:false},{status:202,headers:{"cache-control":"no-store"}});
-   } catch(e){return responseError(e instanceof Error?e.message:"import_queue_failed",400);}
+   } catch(e){return responseError(e instanceof Error?e.message:"import_queue_failed",e instanceof HubApiError?e.status:400);}
  }
  for(const item of candidates){
   try{

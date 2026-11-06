@@ -846,9 +846,9 @@ async function handleRequest(req: Request, requestId:string):Promise<Response> {
       return json({
         ok: true,
         service: "catalog-hub",
-        version: "0.12.0-edge",
+        version: "0.13.0-edge",
         apiVersion: 1,
-        capabilities: ["organization-scoped-auth", "api-scopes", "stock-movements-v1", "order-events-v1", "channels-v1", "outbox-v1", "variants-v1", "durable-imports-v1", "signed-order-events-v1", "shadow-diff-v1", "inventory-reconciliation-v1", "reservations-v1"],
+        capabilities: ["organization-scoped-auth", "api-scopes", "stock-movements-v1", "order-events-v1", "channels-v1", "outbox-v1", "variants-v1", "durable-imports-v1", "signed-order-events-v1", "shadow-diff-v1", "inventory-reconciliation-v1", "reservations-v1", "queue-limits-v1"],
         mode: "supabase-edge",
       });
     }
@@ -868,11 +868,13 @@ async function handleRequest(req: Request, requestId:string):Promise<Response> {
         EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public."Inventory"'::regclass
           AND conname='inventory_balance_nonnegative' AND convalidated) AS "stockConstraintValidated",
         (SELECT count(*)=2 FROM pg_constraint WHERE conrelid IN (to_regclass('public."Reservation"'),to_regclass('public."ReservationItem"'))
-          AND conname IN ('Reservation_state_valid','ReservationItem_counts_valid') AND convalidated) AS "reservationConstraintsReady"`;
-      const schemaReady=Boolean(schema.tablesReady&&schema.revisionReady&&schema.stockConstraintValidated&&schema.reservationConstraintsReady);
+          AND conname IN ('Reservation_state_valid','ReservationItem_counts_valid') AND convalidated) AS "reservationConstraintsReady",
+        EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid=to_regclass('public."CatalogImportRun"')
+          AND conname='CatalogImportRun_payload_bytes_valid' AND convalidated) AS "importCapacityReady"`;
+      const schemaReady=Boolean(schema.tablesReady&&schema.revisionReady&&schema.stockConstraintValidated&&schema.reservationConstraintsReady&&schema.importCapacityReady);
       const ready = ok === 1 && keys > 0 && schemaReady;
       return json({ ready, database: ok === 1, authConfigured: keys > 0,schemaReady,
-        apiVersion:1,...(!schemaReady?{requiredMigration:"20261106060351_catalog_reservations"}:{}) }, ready ? 200 : 503);
+        apiVersion:1,...(!schemaReady?{requiredMigration:"20261106081824_catalog_queue_limits"}:{}) }, ready ? 200 : 503);
     }
 
     if (!route.startsWith("/v1/")) {

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Catalog Hub transactional core",
-    "version": "0.12.0",
+    "version": "0.13.0",
     "description": "Actual new core routes. organizationId is resolved from the credential, never selected by the caller. Legacy UI/AI/import routes are outside this document. Writes require confirmation and/or expected versions as described. JSON is bounded to 1 MiB and depth 30. All responses include X-Request-Id. Real channel delivery/cutover requires a separate verified pilot."
   },
   "servers": [
@@ -1749,7 +1749,8 @@
           "503": {
             "$ref": "#/components/responses/Error503"
           }
-        }
+        },
+        "description": "active=true returns only confirmed QUEUED/RUNNING tasks, oldest first. Other lists show newest first. Up to 50 tasks; active capacity is limited to 10. payloadBytes counts the UTF-8 size of the PostgreSQL JSONB text representation of source payloads."
       },
       "post": {
         "summary": "Create private UPLOADING run; no product is changed",
@@ -1858,7 +1859,8 @@
               }
             }
           }
-        }
+        },
+        "description": "Tenant capacity: 10 active tasks, 20000 reserved source rows, 64 MiB of active JSONB payloads. A task reserves its full expectedRows until it finishes, fails or is canceled. Concurrent enqueue and explicit retry use the same organization quota lock. No stock change."
       }
     },
     "/v1/imports/{id}": {
@@ -2080,7 +2082,8 @@
               }
             }
           }
-        }
+        },
+        "description": "At most 100 rows per chunk; each compact input payload is at most 60000 UTF-8 bytes. Stored JSONB text is counted atomically in payloadBytes: at most 32 MiB per task and 64 MiB across active tasks. Overflow rolls back the entire chunk. Retrying a successful idempotency key never charges bytes twice."
       }
     },
     "/v1/sync/outbox": {
@@ -2094,16 +2097,65 @@
         "x-required-scopes": [
           "operations:read"
         ],
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PENDING",
+                "RETRY",
+                "PROCESSING",
+                "DEAD",
+                "DELIVERED"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 100
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Use nextCursor from the previous page."
+          }
+        ],
         "responses": {
           "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": [
-                    "object",
-                    "array"
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "nextCursor": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "nextCursor"
                   ]
                 }
               }
@@ -2939,7 +2991,8 @@
               }
             }
           }
-        }
+        },
+        "description": "At most 100 rows or 10 seconds per call. Each business change and its row checkpoint commit together. A busy task is skipped using SKIP LOCKED; another worker can process a different task. Lost responses or stopped workers resume from durable checkpoints without duplicate application."
       }
     },
     "/v1/imports/{id}/cancel": {
@@ -3097,7 +3150,8 @@
               }
             }
           }
-        }
+        },
+        "description": "Explicit retry of failed rows rechecks both row and payload capacity before reactivating the task. Existing version, confirmation, idempotency and three-attempt limits continue to apply."
       }
     },
     "/v1/sync/outbox/claim": {
@@ -3167,7 +3221,8 @@
               }
             }
           }
-        }
+        },
+        "description": "At most 100 current leases per organization across all workers. Concurrent claim keys share a quota lock. An exhausted capacity returns an empty events array. Response also includes inFlight and remainingCapacity. Expired leases with fewer than 8 attempts can be reclaimed with a new token; an expired eighth attempt becomes DEAD. Claiming is not proof of external delivery."
       }
     },
     "/v1/sync/outbox/{id}/ack": {
@@ -4032,6 +4087,112 @@
         },
         "description": "All actions require confirmation, a reason, expectedVersion and Idempotency-Key. Omitting items applies all eligible quantities; otherwise only selected product/warehouse pairs change. Release/ship use remaining=quantity-released-shipped. Return uses returnable=shipped-returned and restores onHand without creating a new reservation. Returns are allowed while other items remain reserved. One transaction changes counters, Inventory, StockMovement, version and outbox. Release also works for an inactive warehouse; shipment and return require an active warehouse."
       }
+    },
+    "/v1/imports/status": {
+      "get": {
+        "summary": "Read active import capacity and tasks with no progress for five minutes",
+        "security": [
+          {
+            "CatalogApiKey": []
+          }
+        ],
+        "x-required-scopes": [
+          "imports:read"
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportQueueStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        }
+      }
+    },
+    "/v1/sync/status": {
+      "get": {
+        "summary": "Read tenant-scoped outbox backlog, expired leases and in-flight capacity",
+        "security": [
+          {
+            "CatalogApiKey": []
+          }
+        ],
+        "x-required-scopes": [
+          "operations:read"
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncQueueStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -4503,6 +4664,199 @@
             }
           }
         }
+      },
+      "ImportQueueStatus": {
+        "type": "object",
+        "properties": {
+          "limits": {
+            "type": "object",
+            "properties": {
+              "activeRuns": {
+                "const": 10
+              },
+              "activeRows": {
+                "const": 20000
+              },
+              "activePayloadBytes": {
+                "const": 67108864
+              },
+              "runRows": {
+                "const": 10000
+              },
+              "runPayloadBytes": {
+                "const": 33554432
+              },
+              "rowPayloadBytes": {
+                "const": 60000
+              },
+              "chunkRows": {
+                "const": 100
+              },
+              "batchRows": {
+                "const": 100
+              },
+              "batchTimeMs": {
+                "const": 10000
+              },
+              "stalledAfterSeconds": {
+                "const": 300
+              }
+            },
+            "required": [
+              "activeRuns",
+              "activeRows",
+              "activePayloadBytes",
+              "runRows",
+              "runPayloadBytes",
+              "rowPayloadBytes",
+              "chunkRows",
+              "batchRows",
+              "batchTimeMs",
+              "stalledAfterSeconds"
+            ]
+          },
+          "usage": {
+            "type": "object",
+            "properties": {
+              "activeRuns": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "uploadingRuns": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "queuedRuns": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "runningRuns": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "reservedRows": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "pendingRows": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "payloadBytes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "stalledRuns": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "oldestRunnableAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "activeRuns",
+              "uploadingRuns",
+              "queuedRuns",
+              "runningRuns",
+              "reservedRows",
+              "pendingRows",
+              "payloadBytes",
+              "stalledRuns",
+              "oldestRunnableAt"
+            ]
+          },
+          "checkedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "limits",
+          "usage",
+          "checkedAt"
+        ]
+      },
+      "SyncQueueStatus": {
+        "type": "object",
+        "properties": {
+          "limits": {
+            "type": "object",
+            "properties": {
+              "inFlight": {
+                "const": 100
+              },
+              "claim": {
+                "const": 100
+              },
+              "leaseSeconds": {
+                "const": 60
+              },
+              "attempts": {
+                "const": 8
+              }
+            },
+            "required": [
+              "inFlight",
+              "claim",
+              "leaseSeconds",
+              "attempts"
+            ]
+          },
+          "usage": {
+            "type": "object",
+            "properties": {
+              "pending": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "retry": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "dead": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "inFlight": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "expiredLeases": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "oldestUndeliveredAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "checkedAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "pending",
+              "retry",
+              "dead",
+              "inFlight",
+              "expiredLeases",
+              "oldestUndeliveredAt",
+              "checkedAt"
+            ]
+          }
+        },
+        "required": [
+          "limits",
+          "usage"
+        ]
       }
     },
     "responses": {

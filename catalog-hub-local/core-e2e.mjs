@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import {runQueuedImportChecks} from "./import-queue-e2e.mjs";
 import {runReservationChecks} from "./reservations-e2e.mjs";
+import {queueRecoveryFixtures,runQueueRecoveryChecks} from "./queue-recovery-e2e.mjs";
 import { randomUUID, randomBytes, createHash, createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -79,6 +80,7 @@ export function coreFixtures(keyB, readOnlyKey) {
         RAISE EXCEPTION 'Missing reservation warehouse tenant constraint';
       EXCEPTION WHEN foreign_key_violation THEN NULL; END;
     END $checks$;
+    ${queueRecoveryFixtures(keyB)}
     DO $guard$ DECLARE relation text; BEGIN
       FOREACH relation IN ARRAY ARRAY['ChannelConnection','ChannelOffer','ChannelWarehouseMapping','ChannelCategoryMapping',
         'CoreOrder','CoreOrderItem','Reservation','ReservationItem','StockMovement','CoreMutation','InboxEvent','OutboxEvent','ProductGrouping','CatalogImportRun','CatalogImportRow'] LOOP
@@ -396,6 +398,8 @@ export async function runCoreChecks({ baseUrl = "http://127.0.0.1:8000", key, ke
 
   checks+=(await runReservationChecks({baseUrl,key,keyB,readOnlyKey})).checks;
   checks+=(await runQueuedImportChecks({baseUrl,key,keyB,readOnlyKey,workerCycle:(await import("../marketplace-hub/dist/worker/catalog-import-worker.js")).importWorkerCycle})).checks;
+
+  checks+=(await runQueueRecoveryChecks({baseUrl,key,keyB,readOnlyKey})).checks;
 
   const claimed = expect(await api("/v1/sync/outbox/claim", { body: { limit: 2 } }), 200, "claim durable outbox");
   assert.equal(claimed.events.length, 2);

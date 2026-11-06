@@ -3,12 +3,14 @@ import Link from "next/link";
 import {useEffect,useState} from "react";
 import {coreMessage,coreRequest} from "@/lib/core-client";
 
-type Run={id:string;fileName:string;state:string;expectedRows:number;uploadedRows:number;processedRows:number;failedRows:number;stagedRows?:number;appliedRows?:number;version:number};
+type Run={id:string;fileName:string;state:string;expectedRows:number;uploadedRows:number;processedRows:number;failedRows:number;stagedRows?:number;appliedRows?:number;version:number;createdAt:string};
+type Queue={limits:{activeRuns:number;activeRows:number;activePayloadBytes:number};usage:{activeRuns:number;reservedRows:number;payloadBytes:number;pendingRows:number;stalledRuns:number}};
 type Row={rowNumber:number;sku:string;action:string;state:string;attempts:number;errorCode:string|null;result?:{id?:string}|null};
 const states:Record<string,string>={UPLOADING:"Подготовка",QUEUED:"В очереди",RUNNING:"Обработка",SUCCEEDED:"Завершён",PARTIAL:"Завершён с ошибками",CANCELED:"Остановлен",PENDING:"Ожидает",APPLIED:"Применено",STAGED:"На согласовании",ERROR:"Ошибка"};
 const actions:Record<string,string>={CREATE:"Создание",STAGE:"Согласование",AUTO_INCREASE:"Повышение цены"};
 export function ImportQueue({focusId,canWrite}:{focusId:string;canWrite:boolean}){
   const [runs,setRuns]=useState<Run[]>([]),[error,setError]=useState("");
+  const [queue,setQueue]=useState<Queue|null>(null),[refresh,setRefresh]=useState(0);
   const [reportId,setReportId]=useState(""),[rows,setRows]=useState<Row[]>([]),[cursor,setCursor]=useState<number|null>(null);
   const [busy,setBusy]=useState(false);
   useEffect(()=>{
@@ -16,10 +18,11 @@ export function ImportQueue({focusId,canWrite}:{focusId:string;canWrite:boolean}
     async function tick(){
       let active=false;
       try{
-        const current=await coreRequest<Run[]>("imports",undefined,undefined,controller.signal);
+        const [current,status]=await Promise.all([coreRequest<Run[]>("imports",undefined,undefined,controller.signal),
+          coreRequest<Queue>("imports/status",undefined,undefined,controller.signal)]);
         if(controller.signal.aborted)return;
-        setRuns(current);setError("");
-        const next=current.find(r=>r.state==="QUEUED"||r.state==="RUNNING");
+        setRuns(current);setQueue(status);setError("");
+        const next=current.filter(r=>r.state==="QUEUED"||r.state==="RUNNING").sort((a,b)=>a.createdAt.localeCompare(b.createdAt)||a.id.localeCompare(b.id))[0];
         active=Boolean(next);
         if(next&&canWrite){
           const result=await coreRequest<Run>("imports/"+next.id+"/process",{limit:50},crypto.randomUUID(),controller.signal);
@@ -29,7 +32,7 @@ export function ImportQueue({focusId,canWrite}:{focusId:string;canWrite:boolean}
       if(!controller.signal.aborted)timer=setTimeout(()=>void tick(),active?1500:5000);
     }
     void tick();return()=>{controller.abort();clearTimeout(timer);};
-  },[focusId,canWrite]);
+  },[focusId,canWrite,refresh]);
   async function report(id:string,after=0){
     setBusy(true);setError("");
     try{
@@ -43,11 +46,16 @@ export function ImportQueue({focusId,canWrite}:{focusId:string;canWrite:boolean}
     try{
       const updated=await coreRequest<Run>("imports/"+run.id+"/"+action,{confirmed:true,expectedVersion:run.version});
       setRuns(previous=>previous.map(r=>r.id===updated.id?updated:r));
+      setRefresh(value=>value+1);
     }catch(e){setError(coreMessage(e));}finally{setBusy(false);}
   }
-  if(!runs.length&&!error)return null;
+  if(!runs.length&&!error&&!queue)return null;
   return <section className="panel" style={{marginTop:16}}><h2>Очередь импортов</h2>
     <p className="subtle">Подтверждённые строки обрабатываются порциями. Прогресс хранится на сервере; повторные запросы продолжают задачу. Незавершённые задачи продолжатся при открытии страницы или через настроенный фоновый обработчик.</p>
+    {queue&&<p role="status">Активных задач: {queue.usage.activeRuns} из {queue.limits.activeRuns}.
+      {" "}Строк в активных задачах: {queue.usage.reservedRows.toLocaleString("ru-RU")} из {queue.limits.activeRows.toLocaleString("ru-RU")}.
+      {" "}Объём данных: {(queue.usage.payloadBytes/1024/1024).toFixed(1)} из {queue.limits.activePayloadBytes/1024/1024} МБ.</p>}
+    {Boolean(queue?.usage.stalledRuns)&&<p className="error" role="alert">У {queue?.usage.stalledRuns} задач нет прогресса более пяти минут. {canWrite?"Проверьте фоновый обработчик или продолжите обработку на этой странице.":"Проверьте фоновый обработчик."}</p>}
     {runs.map(run=><div className="panel" key={run.id} style={{marginBottom:10,borderColor:run.id===focusId?"var(--accent)":undefined}}>
       <strong>{run.fileName}</strong> · {states[run.state]||run.state}
       <p>{run.state==="UPLOADING"?`Подготовлено ${run.uploadedRows} из ${run.expectedRows}`:`Обработано ${run.processedRows} из ${run.expectedRows}. Создано / применено: ${run.appliedRows??0}, на согласовании: ${run.stagedRows??0}, ошибок: ${run.failedRows}`}</p>
