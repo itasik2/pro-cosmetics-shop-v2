@@ -8,6 +8,7 @@ import postgres from "npm:postgres@3.4.7";
 import * as jose from "npm:jose@6.1.0";
 import { assertScope, boundedJson, legacyOrganization, RequestError, scopeRequest, type Principal } from "./request-context.ts";
 import { handleOrders } from "./orders-api.ts";
+import { handleReservations } from "./reservations-api.ts";
 import { handleStock } from "./stock-api.ts";
 import { handleChannels } from "./channels-api.ts";
 import { handleSync } from "./sync-api.ts";
@@ -845,9 +846,9 @@ async function handleRequest(req: Request, requestId:string):Promise<Response> {
       return json({
         ok: true,
         service: "catalog-hub",
-        version: "0.11.0-edge",
+        version: "0.12.0-edge",
         apiVersion: 1,
-        capabilities: ["organization-scoped-auth", "api-scopes", "stock-movements-v1", "order-events-v1", "channels-v1", "outbox-v1", "variants-v1", "durable-imports-v1", "signed-order-events-v1", "shadow-diff-v1", "inventory-reconciliation-v1"],
+        capabilities: ["organization-scoped-auth", "api-scopes", "stock-movements-v1", "order-events-v1", "channels-v1", "outbox-v1", "variants-v1", "durable-imports-v1", "signed-order-events-v1", "shadow-diff-v1", "inventory-reconciliation-v1", "reservations-v1"],
         mode: "supabase-edge",
       });
     }
@@ -861,15 +862,17 @@ async function handleRequest(req: Request, requestId:string):Promise<Response> {
       `;
       const [schema]=await sql`SELECT
         NOT EXISTS (SELECT 1 FROM unnest(ARRAY['ChannelConnection','ChannelOffer','ChannelWarehouseMapping','ChannelCategoryMapping',
-          'CoreOrder','CoreOrderItem','CoreMutation','StockMovement','InboxEvent','OutboxEvent','ProductGrouping','CatalogProductRead','CatalogImportRun','CatalogImportRow']) AS t(name)
+          'CoreOrder','CoreOrderItem','CoreMutation','StockMovement','InboxEvent','OutboxEvent','ProductGrouping','CatalogProductRead','CatalogImportRun','CatalogImportRow','Reservation','ReservationItem']) AS t(name)
           WHERE to_regclass('public."'||t.name||'"') IS NULL) AS "tablesReady",
         EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='public."Inventory"'::regclass AND attname='revision' AND NOT attisdropped) AS "revisionReady",
         EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public."Inventory"'::regclass
-          AND conname='inventory_balance_nonnegative' AND convalidated) AS "stockConstraintValidated"`;
-      const schemaReady=Boolean(schema.tablesReady&&schema.revisionReady&&schema.stockConstraintValidated);
+          AND conname='inventory_balance_nonnegative' AND convalidated) AS "stockConstraintValidated",
+        (SELECT count(*)=2 FROM pg_constraint WHERE conrelid IN (to_regclass('public."Reservation"'),to_regclass('public."ReservationItem"'))
+          AND conname IN ('Reservation_state_valid','ReservationItem_counts_valid') AND convalidated) AS "reservationConstraintsReady"`;
+      const schemaReady=Boolean(schema.tablesReady&&schema.revisionReady&&schema.stockConstraintValidated&&schema.reservationConstraintsReady);
       const ready = ok === 1 && keys > 0 && schemaReady;
       return json({ ready, database: ok === 1, authConfigured: keys > 0,schemaReady,
-        apiVersion:1,...(!schemaReady?{requiredMigration:"20261103122000_catalog_import_queue"}:{}) }, ready ? 200 : 503);
+        apiVersion:1,...(!schemaReady?{requiredMigration:"20261106060351_catalog_reservations"}:{}) }, ready ? 200 : 503);
     }
 
     if (!route.startsWith("/v1/")) {
@@ -919,7 +922,7 @@ async function handleRequest(req: Request, requestId:string):Promise<Response> {
     });
     if(importRun)return importRun;
 
-    for (const handler of [handleOrders, handleStock, handleChannels, handleSync, handleVariants]) {
+    for (const handler of [handleOrders, handleReservations, handleStock, handleChannels, handleSync, handleVariants]) {
       const reply = await handler(req, route, url, sql, principal);
       if (reply) return reply;
     }

@@ -29,9 +29,9 @@ export async function lockProducts(tx: Tx, organizationId: string, productIds: s
   if (rows.length !== ids.length) throw new RequestError("product_not_found", 404);
 }
 
-export async function balance(tx: Tx, organizationId: string, productId: string, warehouseId: string): Promise<Balance & { id: string | null }> {
+export async function balance(tx: Tx, organizationId: string, productId: string, warehouseId: string, allowInactiveWarehouse = false): Promise<Balance & { id: string | null }> {
   const [warehouse] = await tx`SELECT "id" FROM public."Warehouse" WHERE "id"=${warehouseId}
-    AND "organizationId"=${organizationId} AND "isActive"=true`;
+    AND "organizationId"=${organizationId} AND ("isActive"=true OR ${allowInactiveWarehouse})`;
   if (!warehouse) throw new RequestError("warehouse_not_found", 404);
   const [item] = await tx`SELECT "id","onHand","reserved","safetyStock","revision" FROM public."Inventory"
     WHERE "productId"=${productId} AND "warehouseId"=${warehouseId} FOR UPDATE`;
@@ -46,9 +46,9 @@ export async function outbox(tx: Tx, organizationId: string, topic: string, payl
 export async function changeBalance(tx: Tx, principal: Principal, input: {
   productId: string; warehouseId: string; deltaOnHand: number; deltaReserved: number;
   key: string; ordinal: number; kind: string; reason: string; reference?: string;
-  expectedRevision?: number; buffer?: number;
+  expectedRevision?: number; buffer?: number; allowInactiveWarehouse?: boolean;
 }) {
-  const before = await balance(tx, principal.organizationId, input.productId, input.warehouseId);
+  const before = await balance(tx, principal.organizationId, input.productId, input.warehouseId, input.allowInactiveWarehouse);
   if (input.expectedRevision !== undefined && input.expectedRevision !== before.revision) throw new RequestError("inventory_version_conflict", 409);
   const after = nextBalance(before, input.deltaOnHand, input.deltaReserved, input.buffer);
   if (before.id) {

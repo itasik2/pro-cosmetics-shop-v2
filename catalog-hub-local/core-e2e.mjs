@@ -2,6 +2,7 @@
 // Synthetic records only. This suite refuses remote API hosts.
 import assert from "node:assert/strict";
 import {runQueuedImportChecks} from "./import-queue-e2e.mjs";
+import {runReservationChecks} from "./reservations-e2e.mjs";
 import { randomUUID, randomBytes, createHash, createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -50,9 +51,34 @@ export function coreFixtures(keyB, readOnlyKey) {
       ('core-short-item','org_procosmetics','core-check-order','core-short-reserve','wh_pav_01',2),
       ('core-missing-item','org_procosmetics','core-check-order','core-missing-balance','wh_pav_01',1)
       ON CONFLICT ("id") DO NOTHING;
+    INSERT INTO public."Warehouse" ("id","organizationId","code","name","isActive","updatedAt")
+      VALUES ('wh_reservation_inactive','org_procosmetics','CORE-INACTIVE','Synthetic inactive warehouse',false,now()) ON CONFLICT ("id") DO NOTHING;
+    INSERT INTO public."Product" ("id","organizationId","sku","title","updatedAt")
+      VALUES ('core-inactive-reservation-product','org_procosmetics','CORE-INACTIVE-RES','Synthetic inactive reserve',now()) ON CONFLICT ("id") DO NOTHING;
+    INSERT INTO public."Inventory" ("id","productId","warehouseId","onHand","reserved","updatedAt")
+      VALUES ('core-inactive-reservation-balance','core-inactive-reservation-product','wh_reservation_inactive',3,2,now()) ON CONFLICT ("id") DO NOTHING;
+    INSERT INTO public."Reservation" ("id","organizationId","reference","payloadHash","reason","createdBy","updatedAt")
+      VALUES ('inactive-core-reservation','org_procosmetics','INACTIVE-SYNTHETIC','synthetic','Synthetic fixture reserve','synthetic',now()) ON CONFLICT ("id") DO NOTHING;
+    INSERT INTO public."ReservationItem" ("id","organizationId","reservationId","productId","warehouseId","quantity")
+      VALUES ('inactive-core-item','org_procosmetics','inactive-core-reservation','core-inactive-reservation-product','wh_reservation_inactive',2) ON CONFLICT ("id") DO NOTHING;
+    DO $checks$ BEGIN
+      BEGIN
+        UPDATE public."ReservationItem" SET "released"=3 WHERE "id"='inactive-core-item';
+        RAISE EXCEPTION 'Missing reservation count constraint';
+      EXCEPTION WHEN check_violation THEN NULL; END;
+      BEGIN
+        UPDATE public."ReservationItem" SET "returned"=1 WHERE "id"='inactive-core-item';
+        RAISE EXCEPTION 'Missing reservation return constraint';
+      EXCEPTION WHEN check_violation THEN NULL; END;
+      BEGIN
+        INSERT INTO public."ReservationItem" ("id","organizationId","reservationId","productId","warehouseId","quantity")
+          VALUES ('invalid-foreign-item','org_procosmetics','inactive-core-reservation','core-inactive-reservation-product','wh_core_b',1);
+        RAISE EXCEPTION 'Missing reservation warehouse tenant constraint';
+      EXCEPTION WHEN foreign_key_violation THEN NULL; END;
+    END $checks$;
     DO $guard$ DECLARE relation text; BEGIN
       FOREACH relation IN ARRAY ARRAY['ChannelConnection','ChannelOffer','ChannelWarehouseMapping','ChannelCategoryMapping',
-        'CoreOrder','CoreOrderItem','StockMovement','CoreMutation','InboxEvent','OutboxEvent','ProductGrouping','CatalogImportRun','CatalogImportRow'] LOOP
+        'CoreOrder','CoreOrderItem','Reservation','ReservationItem','StockMovement','CoreMutation','InboxEvent','OutboxEvent','ProductGrouping','CatalogImportRun','CatalogImportRow'] LOOP
         IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid=format('public.%I',relation)::regclass)
           OR has_table_privilege('anon',format('public.%I',relation),'SELECT,INSERT,UPDATE,DELETE')
           OR has_table_privilege('authenticated',format('public.%I',relation),'SELECT,INSERT,UPDATE,DELETE') THEN
@@ -365,6 +391,7 @@ export async function runCoreChecks({ baseUrl = "http://127.0.0.1:8000", key, ke
   expect(await api(`/v1/channels/${hook.id}/order-events`,{body:cancelSigned,extraHeaders:sign(cancelSigned)}),200,"signed cancellation releases reservation");
   assert.equal((await stock(hookProduct.id)).reserved,0);checks++;
 
+  checks+=(await runReservationChecks({baseUrl,key,keyB,readOnlyKey})).checks;
   checks+=(await runQueuedImportChecks({baseUrl,key,keyB,readOnlyKey,workerCycle:(await import("../marketplace-hub/dist/worker/catalog-import-worker.js")).importWorkerCycle})).checks;
 
   const claimed = expect(await api("/v1/sync/outbox/claim", { body: { limit: 2 } }), 200, "claim durable outbox");

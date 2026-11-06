@@ -4,7 +4,8 @@ import type { Sql } from "./core-store.ts";
 type ReconciliationRow = {
   productId:string; warehouseId:string; sku:string; warehouseName:string;
   balanceId:string|null; revision:number|null; onHand:number|null;
-  reserved:number; expectedReserved:string; activeOrders:number; checkedAt:Date|string;
+  reserved:number; expectedReserved:string; orderReserved:string; standaloneReserved:string;
+  activeOrders:number; activeReservations:number; checkedAt:Date|string;
 };
 
 export async function reconcileReservations(sql: Sql, principal: Principal, url: URL) {
@@ -28,8 +29,7 @@ export async function reconcileReservations(sql: Sql, principal: Principal, url:
     const [product] = await sql`SELECT "id" FROM public."Product" WHERE "id"=${productId} AND "organizationId"=${org}`;
     if (!product) throw new RequestError("product_not_found",404);
   }
-  // A single statement compares orders and balances from one MVCC snapshot.
-  // Include active order pairs so a missing Inventory row remains visible.
+  // Compare all reservation sources and balances from one MVCC snapshot.
   const rows = await sql<ReconciliationRow[]>`WITH active AS (
     SELECT i."productId",i."warehouseId",sum(i."quantity")::bigint AS expected,
       count(DISTINCT i."orderId")::int AS orders
@@ -38,22 +38,34 @@ export async function reconcileReservations(sql: Sql, principal: Principal, url:
     WHERE o."organizationId"=${org} AND o."status"='RESERVED'
       AND (${productId}='' OR i."productId"=${productId})
     GROUP BY i."productId",i."warehouseId"
+  ), standalone AS (
+    SELECT i."productId",i."warehouseId",sum(i."quantity"-i."released"-i."shipped")::bigint AS expected,
+      count(DISTINCT i."reservationId")::int AS reservations
+    FROM public."ReservationItem" i JOIN public."Reservation" r
+      ON r."id"=i."reservationId" AND r."organizationId"=i."organizationId"
+    WHERE r."organizationId"=${org} AND r."status"='ACTIVE' AND i."quantity">i."released"+i."shipped"
+      AND (${productId}='' OR i."productId"=${productId})
+    GROUP BY i."productId",i."warehouseId"
   ), pairs AS (
     SELECT b."productId",b."warehouseId" FROM public."Inventory" b
       JOIN public."Product" p ON p."id"=b."productId" AND p."organizationId"=${org}
       WHERE (${productId}='' OR b."productId"=${productId})
     UNION SELECT "productId","warehouseId" FROM active
+    UNION SELECT "productId","warehouseId" FROM standalone
   )
   SELECT pairs."productId",pairs."warehouseId",p."sku",w."name" AS "warehouseName",
     b."id" AS "balanceId",b."revision",b."onHand",
     COALESCE(b."reserved",0)::int AS "reserved",
-    COALESCE(a.expected,0)::text AS "expectedReserved",COALESCE(a.orders,0)::int AS "activeOrders",
+    (COALESCE(a.expected,0)+COALESCE(s.expected,0))::text AS "expectedReserved",
+    COALESCE(a.expected,0)::text AS "orderReserved",COALESCE(s.expected,0)::text AS "standaloneReserved",
+    COALESCE(a.orders,0)::int AS "activeOrders",COALESCE(s.reservations,0)::int AS "activeReservations",
     statement_timestamp() AS "checkedAt"
   FROM pairs
     JOIN public."Product" p ON p."id"=pairs."productId" AND p."organizationId"=${org}
     JOIN public."Warehouse" w ON w."id"=pairs."warehouseId" AND w."organizationId"=${org}
     LEFT JOIN public."Inventory" b ON b."productId"=pairs."productId" AND b."warehouseId"=pairs."warehouseId"
     LEFT JOIN active a ON a."productId"=pairs."productId" AND a."warehouseId"=pairs."warehouseId"
+    LEFT JOIN standalone s ON s."productId"=pairs."productId" AND s."warehouseId"=pairs."warehouseId"
   WHERE (pairs."productId",pairs."warehouseId")>(${after[0]},${after[1]})
   ORDER BY pairs."productId",pairs."warehouseId" LIMIT ${limit + 1}`;
   const items = rows.slice(0,limit).map(row => {
@@ -62,7 +74,7 @@ export async function reconcileReservations(sql: Sql, principal: Principal, url:
     const difference = row.reserved - expectedReserved;
     const status = !row.balanceId ? "MISSING_BALANCE" : difference < 0 ? "RESERVATION_SHORTFALL" :
       difference > 0 ? "UNASSIGNED_RESERVED" : "MATCH";
-    return { ...row, expectedReserved, difference, status };
+    return { ...row, expectedReserved, orderReserved:Number(row.orderReserved),standaloneReserved:Number(row.standaloneReserved),difference, status };
   });
   const last = items.at(-1);
   return {

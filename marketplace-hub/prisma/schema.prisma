@@ -106,6 +106,7 @@ model Organization {
   mediaProfiles  MediaProfile[]
   channelConnections ChannelConnection[]
   coreOrders CoreOrder[]
+  reservations Reservation[]
   coreMutations CoreMutation[]
   outboxEvents OutboxEvent[]
   groupingOperations ProductGrouping[]
@@ -165,6 +166,7 @@ model Product {
   changeSets          CatalogChangeSet[]
   revisions           ProductRevision[]
   coreOrderItems      CoreOrderItem[]
+  reservationItems    ReservationItem[]
   stockMovements      StockMovement[]
   channelOffers       ChannelOffer[]
   // Existing Product rows keep their SKU, inventory and commercial identity.
@@ -392,6 +394,7 @@ model Warehouse {
   inventory Inventory[]
   adjustments InventoryAdjustment[]
   coreOrderItems CoreOrderItem[]
+  reservationItems ReservationItem[]
   stockMovements StockMovement[]
   channelMappings ChannelWarehouseMapping[]
 
@@ -889,6 +892,42 @@ model CoreOrderItem {
   quantity Int
   returned Int @default(0)
   @@unique([organizationId, orderId, productId, warehouseId])
+}
+
+model Reservation {
+  id String @id
+  organizationId String
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  reference String
+  payloadHash String
+  reason String
+  status String @default("ACTIVE")
+  version Int @default(1)
+  createdBy String
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+  items ReservationItem[]
+  @@unique([organizationId, id])
+  @@unique([organizationId, reference])
+  @@index([organizationId, status, createdAt, id])
+  @@index([organizationId, createdAt, id])
+}
+
+model ReservationItem {
+  id String @id
+  organizationId String
+  reservationId String
+  reservation Reservation @relation(fields: [organizationId, reservationId], references: [organizationId, id], onDelete: Restrict)
+  productId String
+  product Product @relation(fields: [organizationId, productId], references: [organizationId, id], onDelete: Restrict)
+  warehouseId String
+  warehouse Warehouse @relation(fields: [organizationId, warehouseId], references: [organizationId, id], onDelete: Restrict)
+  quantity Int
+  released Int @default(0)
+  shipped Int @default(0)
+  returned Int @default(0)
+  @@unique([organizationId, reservationId, productId, warehouseId])
+  @@index([organizationId, productId, warehouseId])
 }
 
 model StockMovement {

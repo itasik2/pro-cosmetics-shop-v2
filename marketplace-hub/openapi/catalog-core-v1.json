@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Catalog Hub transactional core",
-    "version": "0.11.0",
+    "version": "0.12.0",
     "description": "Actual new core routes. organizationId is resolved from the credential, never selected by the caller. Legacy UI/AI/import routes are outside this document. Writes require confirmation and/or expected versions as described. JSON is bounded to 1 MiB and depth 30. All responses include X-Request-Id. Real channel delivery/cutover requires a separate verified pilot."
   },
   "servers": [
@@ -3409,7 +3409,7 @@
     },
     "/v1/inventory/reconciliation": {
       "get": {
-        "summary": "Compare warehouse reservations with active core orders",
+        "summary": "Compare warehouse reservations with active orders and standalone reservations",
         "security": [
           {
             "CatalogApiKey": []
@@ -3490,6 +3490,22 @@
                               "RESERVATION_SHORTFALL",
                               "UNASSIGNED_RESERVED"
                             ]
+                          },
+                          "orderReserved": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "standaloneReserved": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "activeOrders": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "activeReservations": {
+                            "type": "integer",
+                            "minimum": 0
                           }
                         }
                       }
@@ -3544,6 +3560,477 @@
           }
         },
         "description": "One statement checks each page against a single snapshot. No balances or movements are written. Extra reservations may belong to a prior system and need review. Up to 100 product/warehouse pairs per page."
+      }
+    },
+    "/v1/reservations": {
+      "get": {
+        "summary": "List standalone reservations",
+        "security": [
+          {
+            "CatalogApiKey": []
+          }
+        ],
+        "x-required-scopes": [
+          "inventory:read"
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "description": "Use nextCursor from the previous page."
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ACTIVE",
+                "RELEASED",
+                "FULFILLED",
+                "PARTIALLY_RETURNED",
+                "RETURNED"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "items",
+                    "nextCursor"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "items": {
+                        "$ref": "#/components/schemas/Reservation"
+                      }
+                    },
+                    "nextCursor": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        }
+      },
+      "post": {
+        "summary": "Reserve stock with a unique business reference",
+        "security": [
+          {
+            "CatalogApiKey": []
+          }
+        ],
+        "x-required-scopes": [
+          "inventory:write"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Reservation"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReservationCreate"
+              }
+            }
+          }
+        },
+        "description": "Atomic across all items. Duplicate product/warehouse pairs are combined and require identical expectedRevision. A reference is unique per organization; a retry with equivalent normalized reference, reason and quantities returns the current reservation, even after completion. Reusing it for different content is a 409. Stock revisions are preconditions, not business identity. No expiry or automatic release."
+      }
+    },
+    "/v1/reservations/{reservationId}": {
+      "get": {
+        "summary": "Read one standalone reservation",
+        "security": [
+          {
+            "CatalogApiKey": []
+          }
+        ],
+        "x-required-scopes": [
+          "inventory:read"
+        ],
+        "parameters": [
+          {
+            "name": "reservationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Reservation"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        }
+      }
+    },
+    "/v1/reservations/{reservationId}/release": {
+      "post": {
+        "summary": "Release standalone reservation items",
+        "security": [
+          {
+            "CatalogApiKey": []
+          }
+        ],
+        "x-required-scopes": [
+          "inventory:write"
+        ],
+        "parameters": [
+          {
+            "name": "reservationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Reservation"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReservationAction"
+              }
+            }
+          }
+        },
+        "description": "All actions require confirmation, a reason, expectedVersion and Idempotency-Key. Omitting items applies all eligible quantities; otherwise only selected product/warehouse pairs change. Release/ship use remaining=quantity-released-shipped. Return uses returnable=shipped-returned and restores onHand without creating a new reservation. Returns are allowed while other items remain reserved. One transaction changes counters, Inventory, StockMovement, version and outbox. Release also works for an inactive warehouse; shipment and return require an active warehouse."
+      }
+    },
+    "/v1/reservations/{reservationId}/ship": {
+      "post": {
+        "summary": "Ship standalone reservation items",
+        "security": [
+          {
+            "CatalogApiKey": []
+          }
+        ],
+        "x-required-scopes": [
+          "inventory:write"
+        ],
+        "parameters": [
+          {
+            "name": "reservationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Reservation"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReservationAction"
+              }
+            }
+          }
+        },
+        "description": "All actions require confirmation, a reason, expectedVersion and Idempotency-Key. Omitting items applies all eligible quantities; otherwise only selected product/warehouse pairs change. Release/ship use remaining=quantity-released-shipped. Return uses returnable=shipped-returned and restores onHand without creating a new reservation. Returns are allowed while other items remain reserved. One transaction changes counters, Inventory, StockMovement, version and outbox. Release also works for an inactive warehouse; shipment and return require an active warehouse."
+      }
+    },
+    "/v1/reservations/{reservationId}/return": {
+      "post": {
+        "summary": "Return standalone reservation items",
+        "security": [
+          {
+            "CatalogApiKey": []
+          }
+        ],
+        "x-required-scopes": [
+          "inventory:write"
+        ],
+        "parameters": [
+          {
+            "name": "reservationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Reservation"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReservationAction"
+              }
+            }
+          }
+        },
+        "description": "All actions require confirmation, a reason, expectedVersion and Idempotency-Key. Omitting items applies all eligible quantities; otherwise only selected product/warehouse pairs change. Release/ship use remaining=quantity-released-shipped. Return uses returnable=shipped-returned and restores onHand without creating a new reservation. Returns are allowed while other items remain reserved. One transaction changes counters, Inventory, StockMovement, version and outbox. Release also works for an inactive warehouse; shipment and return require an active warehouse."
       }
     }
   },
@@ -3801,6 +4288,221 @@
             }
           }
         ]
+      },
+      "ReservationItemInput": {
+        "type": "object",
+        "required": [
+          "productId",
+          "warehouseId",
+          "quantity"
+        ],
+        "properties": {
+          "productId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "warehouseId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100000
+          }
+        }
+      },
+      "ReservationCreateItem": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ReservationItemInput"
+          },
+          {
+            "type": "object",
+            "required": [
+              "expectedRevision"
+            ],
+            "properties": {
+              "expectedRevision": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000000
+              }
+            }
+          }
+        ]
+      },
+      "Reservation": {
+        "type": "object",
+        "required": [
+          "id",
+          "reference",
+          "reason",
+          "status",
+          "version",
+          "createdBy",
+          "createdAt",
+          "updatedAt",
+          "items"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "reference": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 500
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "RELEASED",
+              "FULFILLED",
+              "PARTIALLY_RETURNED",
+              "RETURNED"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/ReservationItemInput"
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "sku",
+                    "warehouseName",
+                    "released",
+                    "shipped",
+                    "returned",
+                    "remaining",
+                    "returnable"
+                  ],
+                  "properties": {
+                    "sku": {
+                      "type": "string"
+                    },
+                    "warehouseName": {
+                      "type": "string"
+                    },
+                    "released": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "shipped": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "returned": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "remaining": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "returnable": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "ReservationCreate": {
+        "type": "object",
+        "required": [
+          "reference",
+          "reason",
+          "confirmed",
+          "items"
+        ],
+        "properties": {
+          "reference": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 500
+          },
+          "confirmed": {
+            "const": true
+          },
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/ReservationCreateItem"
+            }
+          }
+        }
+      },
+      "ReservationAction": {
+        "type": "object",
+        "required": [
+          "reason",
+          "confirmed",
+          "expectedVersion"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 500
+          },
+          "confirmed": {
+            "const": true
+          },
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000
+          },
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/ReservationItemInput"
+            }
+          }
+        }
       }
     },
     "responses": {

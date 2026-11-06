@@ -7,6 +7,14 @@ export type CoreOrder = { id: string; connectionId: string; externalOrderId: str
   items: Array<{ productId: string; warehouseId: string; sku: string; quantity: number; returned: number }> };
 
 const messages: Record<string,string> = {
+  reservation_not_found: "Резерв не найден.",
+  reservation_version_conflict: "Резерв изменился. Обновите список и проверьте операцию заново.",
+  reservation_reference_conflict: "Номер документа уже занят резервом с другим составом или основанием.",
+  reservation_quantity_exceeded: "Количество превышает оставшийся резерв или число отгруженных единиц.",
+  reservation_nothing_to_apply: "Для этого действия нет доступного количества. Обновите список.",
+  reservation_item_not_found: "Позиция не входит в выбранный резерв.",
+  invalid_reservation_reference: "Укажите номер документа резерва длиной до 128 символов.",
+  confirmation_required: "Подтвердите операцию перед сохранением.",
   revision_conflict: "Карточка изменилась после этой правки. Откат заблокирован.",
   revision_supplier_conflict: "Связь с поставщиком изменилась или прежний артикул уже занят.",
   revision_snapshot_unavailable: "Для этой записи нет полной пары значений до и после. Восстановление недоступно.",
