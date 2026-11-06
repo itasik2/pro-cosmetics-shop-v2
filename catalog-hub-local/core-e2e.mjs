@@ -56,11 +56,14 @@ export function coreFixtures(keyB, readOnlyKey) {
     INSERT INTO public."Product" ("id","organizationId","sku","title","updatedAt")
       VALUES ('core-inactive-reservation-product','org_procosmetics','CORE-INACTIVE-RES','Synthetic inactive reserve',now()) ON CONFLICT ("id") DO NOTHING;
     INSERT INTO public."Inventory" ("id","productId","warehouseId","onHand","reserved","updatedAt")
-      VALUES ('core-inactive-reservation-balance','core-inactive-reservation-product','wh_reservation_inactive',3,2,now()) ON CONFLICT ("id") DO NOTHING;
+      VALUES ('core-inactive-reservation-balance','core-inactive-reservation-product','wh_reservation_inactive',3,2,now())
+      ON CONFLICT ("id") DO UPDATE SET "onHand"=3,"reserved"=2,"updatedAt"=now();
     INSERT INTO public."Reservation" ("id","organizationId","reference","payloadHash","reason","createdBy","updatedAt")
-      VALUES ('inactive-core-reservation','org_procosmetics','INACTIVE-SYNTHETIC','synthetic','Synthetic fixture reserve','synthetic',now()) ON CONFLICT ("id") DO NOTHING;
+      VALUES ('inactive-core-reservation','org_procosmetics','INACTIVE-SYNTHETIC','synthetic','Synthetic fixture reserve','synthetic',now())
+      ON CONFLICT ("id") DO UPDATE SET "status"='ACTIVE',"version"=1,"updatedAt"=now();
     INSERT INTO public."ReservationItem" ("id","organizationId","reservationId","productId","warehouseId","quantity")
-      VALUES ('inactive-core-item','org_procosmetics','inactive-core-reservation','core-inactive-reservation-product','wh_reservation_inactive',2) ON CONFLICT ("id") DO NOTHING;
+      VALUES ('inactive-core-item','org_procosmetics','inactive-core-reservation','core-inactive-reservation-product','wh_reservation_inactive',2)
+      ON CONFLICT ("id") DO UPDATE SET "released"=0,"shipped"=0,"returned"=0;
     DO $checks$ BEGIN
       BEGIN
         UPDATE public."ReservationItem" SET "released"=3 WHERE "id"='inactive-core-item';
