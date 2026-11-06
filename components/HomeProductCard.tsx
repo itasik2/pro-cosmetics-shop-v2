@@ -61,7 +61,7 @@ export default function HomeProductCard({ product }: { product: ProductCardProps
             <span key={variant.id} className={"px-3 py-1 rounded-full text-xs border shadow-sm " +
               (variant.id === selectedVariant?.id ? "border-gray-400 bg-gray-200 text-gray-900" : "border-gray-200 bg-gray-50 text-gray-700") +
               (variant.stock <= 0 ? " opacity-60" : "")}>
-              {variant.label}{variant.stock <= 0 ? ` · ${t("Нет в наличии")}` : ""}
+              {variant.label}{variant.stock <= 0 ? (locale === "ru" ? " · нет" : ` · ${t("Нет в наличии")}`) : ""}
             </span>
           ))}
         </div>}
