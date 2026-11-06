@@ -1,3 +1,4 @@
+import {resolveSharedProduct} from "./shared-product.js";
 import { PrismaClient, Prisma } from "@prisma/client";
 import {
   applyApprovedChanges,
@@ -79,7 +80,8 @@ export async function createChangeSet(input: {
   current: MasterCardInput;
   proposed: StagingPatch;
   createdBy?: string;
-}, db: Pick<PrismaClient, "catalogChangeSet"> = prisma) {
+}, db: Pick<PrismaClient, "catalogChangeSet" | "product"> = prisma) {
+  if(input.productId&&!await db.product.findFirst({where:{id:input.productId,organizationId:input.organizationId},select:{id:true}}))throw new Error("product_not_found");
   const current = masterCardSchema.parse(input.current);
   const diff = buildCardDiff(current, input.proposed);
 
@@ -111,6 +113,7 @@ export async function createChangeSet(input: {
 
 export async function approveChangeSet(input: {
   id: string;
+  organizationId: string;
   approvedFields: MutableCardField[];
   approvedBy?: string;
 }) {
@@ -118,7 +121,7 @@ export async function approveChangeSet(input: {
     where: { id: input.id },
     include: { fields: true },
   });
-  if (!changeSet) throw new Error("changeset_not_found");
+  if (!changeSet || changeSet.organizationId !== input.organizationId) throw new Error("changeset_not_found");
   if (["APPLIED", "REJECTED"].includes(changeSet.status)) {
     throw new Error("changeset_closed");
   }
@@ -158,6 +161,7 @@ export async function approveChangeSet(input: {
 
 export async function rejectChangeSet(input: {
   id: string;
+  organizationId: string;
   rejectedBy?: string;
 }) {
   const now = new Date();
@@ -166,7 +170,7 @@ export async function rejectChangeSet(input: {
       where: { id: input.id },
       include: { fields: true },
     });
-    if (!changeSet) throw new Error("changeset_not_found");
+    if (!changeSet || changeSet.organizationId !== input.organizationId) throw new Error("changeset_not_found");
     if (changeSet.status === "APPLIED") throw new Error("changeset_already_applied");
 
     await tx.catalogFieldChange.updateMany({
@@ -197,15 +201,18 @@ export async function rejectChangeSet(input: {
 
 export async function applyChangeSet(input: {
   id: string;
+  organizationId: string;
   appliedBy?: string;
   warehouseId?: string;
 }) {
   return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM public."CatalogChangeSet"
+      WHERE "id"=${input.id} AND "organizationId"=${input.organizationId} FOR UPDATE`;
     const changeSet = await tx.catalogChangeSet.findUnique({
       where: { id: input.id },
       include: { fields: true },
     });
-    if (!changeSet) throw new Error("changeset_not_found");
+    if (!changeSet || changeSet.organizationId !== input.organizationId) throw new Error("changeset_not_found");
     if (!changeSet.productId) throw new Error("changeset_product_required");
     if (changeSet.status !== "APPROVED") throw new Error("changeset_not_approved");
 
@@ -214,14 +221,15 @@ export async function applyChangeSet(input: {
       .map((field) => field.field as MutableCardField);
 
     if (!approvedFields.length) throw new Error("approved_fields_empty");
-    if (approvedFields.includes("stock") && !input.warehouseId) {
-      throw new Error("warehouse_required_for_stock");
-    }
+    if (approvedFields.includes("stock")) throw new Error("stock_movement_required");
 
+    await tx.$queryRaw`SELECT "id" FROM public."Product"
+      WHERE "id"=${changeSet.productId} AND "organizationId"=${input.organizationId} FOR UPDATE`;
     const product = await tx.product.findUnique({
-      where: { id: changeSet.productId },
+      where: { id: changeSet.productId },include:{masterProduct:true},
     });
-    if (!product) throw new Error("product_not_found");
+    if (!product || product.organizationId!==input.organizationId) throw new Error("product_not_found");
+    if (product.masterProductId && approvedFields.some(field=>["title","brand","shortDescription","description","application","ingredients","categoryKey"].includes(field))) throw new Error("variant_shared_fields_readonly");
 
     let stock: number | undefined;
     if (input.warehouseId) {
@@ -236,7 +244,7 @@ export async function applyChangeSet(input: {
       stock = inventory?.onHand ?? 0;
     }
 
-    const actual = productToCard(product, stock);
+    const actual = productToCard(resolveSharedProduct(product), stock);
     const original = masterCardSchema.parse(changeSet.current);
     const changedSincePreview = buildCardDiff(original, {
       barcode: actual.barcode,
@@ -305,39 +313,42 @@ export async function applyChangeSet(input: {
       updateData.basePrice = revised.price ?? null;
     }
 
+    const revisionId = crypto.randomUUID();
+    const actor = "node:internal";
     if (Object.keys(updateData).length) {
-      await tx.product.update({
-        where: { id: product.id },
-        data: updateData,
-      });
-    }
-
-    if (applied.appliedFields.includes("stock")) {
-      await tx.inventory.upsert({
-        where: {
-          productId_warehouseId: {
-            productId: product.id,
-            warehouseId: input.warehouseId!,
-          },
-        },
-        update: { onHand: revised.stock ?? 0 },
-        create: {
+      updateData.updatedAt = new Date(Math.max(Date.now(), product.updatedAt.getTime() + 1));
+      const updated = await tx.product.update({ where: { id: product.id }, data: updateData });
+      const [version] = await tx.$queryRaw<{ value: string }[]>`SELECT "updatedAt"::text AS value
+        FROM public."Product" WHERE "id"=${product.id}`;
+      const snapshotValues = (row: typeof updated) => Object.fromEntries(applied.appliedFields
+        .filter(field => field !== "stock")
+        .map(field => [field, row[field === "price" ? "basePrice" : field]]));
+      await tx.productRevision.create({
+        data: {
+          id: revisionId,
           productId: product.id,
-          warehouseId: input.warehouseId!,
-          onHand: revised.stock ?? 0,
+          changeSetId: changeSet.id,
+          reason: "CHANGESET_APPLY",
+          snapshot: json({
+            ...actual,
+            cardRevision: {
+              before: snapshotValues(product),
+              after: snapshotValues(updated),
+              afterVersion: version.value,
+              masterProductId: updated.masterProductId,
+              source: changeSet.sourceRef ?? changeSet.sourceType,
+            },
+          }),
+          createdBy: actor,
+        },
+      });
+      await tx.outboxEvent.create({
+        data: {
+          id: crypto.randomUUID(), organizationId: product.organizationId, topic: "catalog.product_changed",
+          payload: {productId: product.id, changedFields: applied.appliedFields, actor, revisionId},
         },
       });
     }
-
-    await tx.productRevision.create({
-      data: {
-        productId: product.id,
-        changeSetId: changeSet.id,
-        reason: "CHANGESET_APPLY",
-        snapshot: json(actual),
-        createdBy: input.appliedBy,
-      },
-    });
 
     const now = new Date();
     await tx.catalogFieldChange.updateMany({
@@ -378,9 +389,10 @@ export async function applyChangeSet(input: {
   });
 }
 
-export async function getChangeSet(id: string) {
-  return prisma.catalogChangeSet.findUnique({
-    where: { id },
+export async function getChangeSet(id: string,organizationId:string) {
+  if(!organizationId)return null;
+  return prisma.catalogChangeSet.findFirst({
+    where: { id,organizationId, OR:[{productId:null},{product:{organizationId}}] },
     include: {
       fields: { orderBy: [{ risk: "desc" }, { createdAt: "asc" }] },
       revisions: { orderBy: { createdAt: "desc" } },
@@ -397,6 +409,7 @@ export async function listChangeSets(input: {
   return prisma.catalogChangeSet.findMany({
     where: {
       organizationId: input.organizationId,
+      OR:[{productId:null},{product:{organizationId:input.organizationId}}],
       ...(input.status ? { status: input.status } : {}),
     },
     orderBy: { createdAt: "desc" },

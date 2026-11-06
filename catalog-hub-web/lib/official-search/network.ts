@@ -13,6 +13,8 @@ type SafeFetchOptions = {
   acceptedContentTypes: string[];
   timeoutMs?: number;
   maxRedirects?: number;
+  jsonBody?: Record<string,unknown>;
+  sourceUrl?: string;
 };
 
 type FetchDependencies = {
@@ -258,19 +260,23 @@ export async function safeFetchExternal(
       try {
         response = await untilAbort(
           (dependencies.fetcher ?? ((target, init) => undiciFetch(String(target), {
-            method: "GET",
+            method: options.jsonBody ? "POST" : "GET",
+            body: init?.body as string | undefined,
             redirect: "manual",
             headers: init?.headers as Record<string, string>,
             signal: init?.signal as AbortSignal,
             dispatcher: agent!,
           }) as unknown as Promise<Response>))(url, {
-            method: "GET",
+            method: options.jsonBody ? "POST" : "GET",
+            body: options.jsonBody ? JSON.stringify(options.jsonBody) : undefined,
             redirect: "manual",
             cache: "no-store",
             signal: controller.signal,
             headers: {
               "User-Agent": USER_AGENT,
               Accept: options.acceptedContentTypes.join(", "),
+              ...(options.jsonBody ? { "Content-Type": "application/json" } : {}),
+              ...(options.sourceUrl ? { Referer: options.sourceUrl, Origin: new URL(options.sourceUrl).origin } : {}),
             },
           }),
           controller.signal,
@@ -362,7 +368,7 @@ export function safeFetchHtml(
   });
 }
 
-export function safeFetchImage(url: string, policies: AllowedSourcePolicy[]) {
+export function safeFetchImage(url: string, policies: AllowedSourcePolicy[], options: { timeoutMs?: number } = {}) {
   return safeFetchExternal(url, {
     policies,
     maxBytes: 10 * 1024 * 1024,
@@ -372,7 +378,19 @@ export function safeFetchImage(url: string, policies: AllowedSourcePolicy[]) {
       "image/webp",
       "image/avif",
     ],
-    timeoutMs: 15_000,
+    timeoutMs: options.timeoutMs ?? 15_000,
     maxRedirects: 3,
   });
+}
+
+
+export async function safeFetchCatalogJson(url: string, policies: AllowedSourcePolicy[], options: {
+  sourceUrl: string; jsonBody: Record<string,unknown>;
+}) {
+  const response = await safeFetchExternal(url, {
+    policies, acceptedContentTypes: ["application/json"], maxBytes: 2 * 1024 * 1024,
+    timeoutMs: 12000, maxRedirects: 2, jsonBody: options.jsonBody, sourceUrl: options.sourceUrl,
+  });
+  try { return JSON.parse(response.buffer.toString("utf8")) as unknown; }
+  catch { throw new Error("source_catalog_invalid_json"); }
 }

@@ -1,4 +1,5 @@
 import { hubFetch, organizationId, safeHub, type HubProduct } from "@/lib/hub";
+import {ProductVariants,type VariantFamily} from "@/components/ProductVariants";
 import { ProductEditor } from "@/components/ProductEditor";
 import { StockAdjustment } from "@/components/StockAdjustment";
 import { isLocalReadOnly } from "@/lib/local-mode";
@@ -7,10 +8,11 @@ import Link from "next/link";
 export default async function ProductPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const query = "?organizationId=" + encodeURIComponent(organizationId);
-  const [result, warehouses, categories] = await Promise.all([
+  const [result, warehouses, categories, variants] = await Promise.all([
     safeHub(hubFetch<HubProduct>("/v1/catalog/products/" + encodeURIComponent(id) + query)),
     safeHub(hubFetch<Array<{id:string;code:string;name:string;isActive:boolean}>>("/v1/inventory/warehouses" + query)),
     safeHub(hubFetch<{categories:Array<{key:string;name:string;isActive:boolean;productCount:number}>;uncategorized:number}>("/v1/categories" + query)),
+    safeHub(hubFetch<VariantFamily>("/v1/catalog/variants/" + encodeURIComponent(id) + query)),
   ]);
 
   if (!result.ok) return <div className="page"><div className="error">{result.error}</div></div>;
@@ -20,9 +22,14 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
     <div className="page-head">
       <div><span className="eyebrow">{product.sku}</span><h1>{product.title}</h1>
         <p>{product.brand || "Без бренда"} · {product.categoryKey || "Без категории"}</p></div>
-      <Link className="button" href="/catalog">← Каталог</Link>
+      <div className="actions">
+        <Link className="button" href={"/catalog/" + encodeURIComponent(id) + "/history"}>История правок</Link>
+        <Link className="button" href="/catalog">← Каталог</Link>
+      </div>
     </div>
-    <ProductEditor product={product} categories={categories.ok ? categories.data.categories : []}
+    {variants.ok ? <ProductVariants key={product.updatedAt} product={product} initial={variants.data} canWrite={!isLocalReadOnly()}/>
+      : <p className="error" role="alert">Варианты недоступны: {variants.error}</p>}
+    <ProductEditor key={product.updatedAt+product.masterUpdatedAt} product={product} categories={categories.ok ? categories.data.categories : []}
       canWrite={!isLocalReadOnly()}
       searchEnabled={Boolean(process.env.OPENAI_API_KEY)} />
     {!categories.ok && <p className="error" role="alert">Справочник категорий недоступен: {categories.error}</p>}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { enrichmentErrorMessage } from "@/lib/enrichment-messages";
+import { enrichmentErrorMessage, enrichmentWarningMessage } from "@/lib/enrichment-messages";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { HubProduct } from "@/lib/hub";
@@ -107,7 +107,7 @@ export function CardEnrichment({ product, jobs, proposals, canWrite }: {
       setChangeId(response.id);
       router.refresh();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Не удалось сохранить предложение");
+      setError(enrichmentErrorMessage(cause));
     } finally { setBusy(false); }
   }
 
@@ -172,8 +172,7 @@ function Proposal({ proposal, product, selectedImage, setImage, variants, select
     {proposal.facts?.source?.search?.stage === "official_unverified" &&
       <p className="import-warning">Сайт найден по бренду автоматически. Проверьте, что он принадлежит производителю и что страница относится именно к этой фасовке товара.</p>}
     {proposal.warnings?.map((warning,index) =>
-      <p className="import-warning" key={index}>{warning === "unverified_official_site_manual_review_required"
-        ? "Источник пока не подтверждён в настройках; применение требует вашей проверки." : warning}</p>)}
+      <p className="import-warning" key={index}>{enrichmentWarningMessage(warning)}</p>)}
     {suggestedBrand && <div className="review-diff"><div><strong>Бренд сейчас</strong><pre>Не заполнено</pre></div>
       <div><strong>Предлагается</strong><pre>{suggestedBrand}</pre></div></div>}
     {fields.map(key => <div key={key} className="review-diff">

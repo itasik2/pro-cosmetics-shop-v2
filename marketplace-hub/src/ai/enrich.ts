@@ -1,9 +1,12 @@
 import { z } from "zod";
 import { discoverProductSource } from "./discovery.js";
-import { extractProductFromHtml } from "./extract.js";
+import { extractProductFromHtml, extractImagesForProduct, extractTildaReference } from "./extract.js";
 import { scoreProductMatch } from "./match.js";
-import { safeFetchHtml, sourcePolicyForUrl } from "./network.js";
-import { knownOfficialDomains } from "./official-sources.js";
+import { safeFetchHtml, safeFetchImage, safeFetchCatalogJson, sourcePolicyForUrl } from "./network.js";
+import { verifyProductImages } from "./verified-photos.js";
+import { decodeProductPhoto } from "../media/image.js";
+import { knownOfficialDomains, isKnownBrandSource } from "./official-sources.js";
+import { readTildaEdition } from "./tilda-product.js";
 import {
   fallbackProductCopy,
   findExternalProductUrl,
@@ -53,7 +56,11 @@ function exactPolicy(url: string): AllowedSourcePolicy {
   };
 }
 
-export async function buildEnrichmentProposal(raw: EnrichmentRequest) {
+export async function buildEnrichmentProposal(raw: EnrichmentRequest, dependencies: {
+  fetchHtml?: typeof safeFetchHtml;
+  fetchImage?: typeof safeFetchImage;
+  fetchCatalogJson?: typeof safeFetchCatalogJson;
+} = {}) {
   const input = enrichmentRequestSchema.parse(raw);
   const product = input.product as CatalogProductInput;
   const policies: AllowedSourcePolicy[] = [...input.sources];
@@ -121,15 +128,36 @@ export async function buildEnrichmentProposal(raw: EnrichmentRequest) {
   const initialPolicy = sourcePolicyForUrl(policies, sourceUrl);
   if (!initialPolicy) throw new Error("source_domain_not_allowed");
 
-  const fetched = await safeFetchHtml(sourceUrl, policies);
+  const fetched = await (dependencies.fetchHtml ?? safeFetchHtml)(sourceUrl, policies);
   const finalPolicy = sourcePolicyForUrl(policies, fetched.finalUrl);
   if (!finalPolicy) throw new Error("source_domain_not_allowed_after_redirect");
 
   const extracted = extractProductFromHtml({
     buffer: fetched.buffer,
     finalUrl: fetched.finalUrl,
+    expectedSku: product.skuIsInternal ? undefined : product.sku,
+    expectedProduct: product,
   });
+  const reference = extractTildaReference(fetched.buffer);
+  const edition = reference ? await readTildaEdition({
+    reference, sourceUrl: fetched.finalUrl, product,
+    brandConfirmed: finalPolicy.sourceType === "OFFICIAL_SITE" || isKnownBrandSource(product.brand, fetched.finalUrl),
+  }, (url, jsonBody) => (dependencies.fetchCatalogJson ?? safeFetchCatalogJson)(
+    url, [{ domain: reference.host, allowSubdomains: false }], { sourceUrl: fetched.finalUrl, jsonBody },
+  )) : null;
+  if (edition) Object.assign(extracted, edition);
   const match = scoreProductMatch(product, extracted);
+  if (match.evidence.sku === "mismatch" || match.evidence.brand === "mismatch" || match.evidence.volume === "mismatch") {
+    throw new Error("product_match_not_confirmed");
+  }
+  const photoIssues = new Set<string>();
+  if (reference && !edition) photoIssues.add("photo_variant_unconfirmed");
+  const photoUrls = edition?.images ?? (reference ? [] : extractImagesForProduct({ ...fetched, product, issues: photoIssues }));
+  const photos = await verifyProductImages(photoUrls, url => {
+    // A CDN URL must originate in a product-scoped image candidate.
+    const policy = exactPolicy(url);
+    return (dependencies.fetchImage ?? safeFetchImage)(url, [policy], { timeoutMs: 6000, maxBytes: 10 * 1024 * 1024 });
+  }, decodeProductPhoto);
 
   let copy = fallbackProductCopy(extracted);
   const generationWarnings: string[] = [];
@@ -152,6 +180,8 @@ export async function buildEnrichmentProposal(raw: EnrichmentRequest) {
     ...match.warnings,
     ...copy.warnings,
     ...generationWarnings,
+    ...photos.warnings,
+    ...(!photos.images.length ? ["photo_identity_or_file_unconfirmed", ...photoIssues] : []),
     ...(search?.stage === "official_unverified"
       ? ["unverified_official_site_manual_review_required"] : []),
     ...(finalPolicy.sourceType !== "OFFICIAL_SITE"
@@ -179,10 +209,7 @@ export async function buildEnrichmentProposal(raw: EnrichmentRequest) {
     match,
     extracted,
     draft: copy,
-    imageCandidates: extracted.images.map((url) => ({
-      url,
-      status: "REVIEW_REQUIRED" as const,
-    })),
+    imageCandidates: photos.images,
     warnings: [...new Set(warnings)],
     evaluation,
   };

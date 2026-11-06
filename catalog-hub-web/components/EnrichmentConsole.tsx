@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { enrichmentErrorMessage } from "@/lib/enrichment-messages";
+import { enrichmentErrorMessage, enrichmentWarningMessage } from "@/lib/enrichment-messages";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ENRICHMENT_LABELS, missingEnrichmentFields } from "@/lib/universal-catalog";
@@ -113,7 +113,7 @@ function ProposalReview({ proposal: p, disabled, onStage }: { proposal: Enrichme
     <summary><strong>{p.product.title}</strong> · {p.confidence}% совпадения · {statusLabels[p.status] || p.status}</summary>
     <p className="subtle">{p.product.sku} · Не хватает: {missing.map(f => ENRICHMENT_LABELS[f]).join(", ") || "Все основные поля заполнены"}</p>
     <p>Источник: <a href={p.sourceUrl} target="_blank" rel="noreferrer">{p.sourceUrl}</a></p>
-    {Array.isArray(p.warnings) && p.warnings.map((w, i) => <p className="import-warning" key={i}>{w}</p>)}
+    {Array.isArray(p.warnings) && p.warnings.map((w, i) => <p className="import-warning" key={i}>{enrichmentWarningMessage(w)}</p>)}
     {fields.filter(field => p[field]).map(field => <div key={field}>
       <h3>{labels[field]}</h3><div className="review-diff"><div><strong>Сейчас</strong><pre>{p.product[field] || "Не заполнено"}</pre></div><div><strong>Предложение</strong><pre>{p[field]}</pre></div></div>
     </div>)}

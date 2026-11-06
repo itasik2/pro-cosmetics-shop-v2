@@ -1,3 +1,6 @@
+import { isKnownBrandSource } from "../../../marketplace-hub/src/ai/official-sources";
+import type { TildaReference } from "../../../marketplace-hub/src/ai/tilda-product";
+import { productPhotoIssue, photoHasVariants, type PhotoProduct } from "../../../marketplace-hub/src/ai/photo-identity";
 import * as cheerio from "cheerio";
 import { photoSku } from "./variantImages";
 import { isProductPhoto } from "./photoQuality";
@@ -332,94 +335,78 @@ function isLikelyProductImage(value: string) {
 }
 
 export function extractImagesForSku(input: {
+  buffer: Buffer; finalUrl: string; sku: string; brand?: string | null; selectors?: SourceSelectors | null;
+}) {
+  return extractImagesForProduct({ ...input, product: { sku: input.sku, title: "", brand: input.brand } });
+}
+
+export function extractImagesForProduct(input: {
   buffer: Buffer;
   finalUrl: string;
-  sku: string;
-  brand?: string | null;
-  selectors?: SourceSelectors | null;
+  product: PhotoProduct;
+  issues?: Set<string>;
 }) {
-  const wanted = photoSku(input.sku);
-  if (!wanted) return [];
-  const $ = cheerio.loadBuffer(input.buffer, {
-    encoding: { defaultEncoding: "utf-8" },
-  });
+  const $ = cheerio.loadBuffer(input.buffer, { encoding: { defaultEncoding: "utf-8" } });
   const nodes = parseJsonLdScripts($);
-  const products = nodes.filter((node) => typeIncludesProduct(node["@type"]));
+  const products = nodes.filter(node => typeIncludesProduct(node["@type"]));
   const images: string[] = [];
-  for (const product of products) {
-    const expectedBrand = normalizeSearchText(input.brand || "");
-    const brand = normalizeSearchText(readBrand(product.brand) || "");
-    if (
-      expectedBrand &&
-      brand &&
-      !brand.includes(expectedBrand) &&
-      !expectedBrand.includes(brand) &&
-      !normalizeSearchText(String(product.name || "")).includes(expectedBrand)
-    )
-      continue;
-    if (photoSku(product.sku || product.mpn || product.productID) === wanted) {
-      collectImageValues(product.image, input.finalUrl, images);
+  const accept = (source: Parameters<typeof productPhotoIssue>[1], value: unknown) => {
+    const issue = productPhotoIssue(input.product, source);
+    if (issue) input.issues?.add(issue);
+    else collectImageValues(value, input.finalUrl, images);
+    return !issue;
+  };
+  for (const node of products) {
+    const source = {
+      sku: cleanText(node.sku || node.mpn || node.productID),
+      title: cleanText(node.name),
+      brand: readBrand(node.brand),
+      description: cleanText(node.description),
+      hasVariants: photoHasVariants(node),
+    };
+    if (accept(source, node.image) && !images.length && products.length === 1 && !source.hasVariants) {
+      const extracted = extractProductFromHtml({ ...input, expectedSku: source.sku });
+      images.push(...extracted.images);
     }
-    const offers = Array.isArray(product.offers)
-      ? product.offers
-      : [product.offers];
-    for (const raw of offers) {
-      const offer = toObject(raw);
-      if (offer && photoSku(offer.sku) === wanted) {
-        // An offer SKU never makes the parent product's picture variant-specific.
-        collectImageValues(offer.image, input.finalUrl, images);
-      }
+    const offers = Array.isArray(node.offers) ? node.offers : [node.offers];
+    for (const value of offers) {
+      const offer = toObject(value);
+      if (!offer?.sku || !offer.image) continue;
+      accept({
+        ...source, sku: cleanText(offer.sku), title: cleanText(offer.name) || source.title,
+        hasVariants: Number(offer.offerCount) > 1,
+      }, offer.image);
     }
   }
-  $("[itemscope][itemtype$='/Product'], [data-product-sku], [data-sku]").each(
-    (_, element) => {
-      const scope = $(element);
-      const sku =
-        scope.attr("data-product-sku") ||
-        scope.attr("data-sku") ||
-        scope.find("[itemprop='sku']").first().attr("content") ||
-        scope.find("[itemprop='sku']").first().text();
-      if (photoSku(sku) !== wanted) return;
-      scope.find("[itemprop='image'], img").each((_, img) => {
-        if (
-          $(img)
-            .closest(
-              "[itemscope][itemtype$='/Product'], [data-product-sku], [data-sku]",
-            )
-            .get(0) !== element
-        )
-          return;
-        const raw =
-          $(img).attr("content") ||
-          $(img).attr("src") ||
-          $(img).attr("data-src");
-        const url = asUrl(raw, input.finalUrl);
-        if (url) images.push(url);
-      });
-    },
-  );
-  const oneSkuPage =
-    products.length === 0 ||
-    (products.length === 1 &&
-      photoSku(products[0].sku || products[0].mpn || products[0].productID) ===
-        wanted &&
-      !products[0].hasVariant &&
-      !(
-        Array.isArray(products[0].offers)
-          ? products[0].offers
-          : [products[0].offers]
-      ).some((raw) => {
-        const offer = toObject(raw);
-        return offer?.sku && photoSku(offer.sku) !== wanted;
-      }));
-  if (!images.length && oneSkuPage) {
-    const extracted = extractProductFromHtml({
-      ...input,
-      expectedSku: input.sku,
+  const scopes = $("[itemscope][itemtype$='/Product'], [data-product-sku], [data-sku]");
+  scopes.each((_, element) => {
+    const scope = $(element);
+    const own = (selector: string) => scope.find(selector).filter((_, child) =>
+      $(child).closest("[itemscope][itemtype$='/Product'], [data-product-sku], [data-sku]").get(0) === element);
+    const field = (name: string) => {
+      const found = own("[itemprop='" + name + "']").first();
+      return found.attr("content") || found.text() || null;
+    };
+    const brandNode = own("[itemprop='brand']").first();
+    const source = {
+      sku: scope.attr("data-product-sku") || scope.attr("data-sku") || field("sku"),
+      title: field("name"), description: field("description"),
+      brand: brandNode.find("[itemprop='name']").attr("content") || field("brand"),
+      hasVariants: scope.find("[itemprop='hasVariant']").length > 0,
+    };
+    if (productPhotoIssue(input.product, source)) return;
+    own("[itemprop='image'], img").each((_, image) => {
+      const item = $(image);
+      collectImageValues(item.attr("content") || item.attr("data-src") || item.attr("src"), input.finalUrl, images);
     });
-    if (photoSku(extracted.sku) === wanted) images.push(...extracted.images);
+  });
+  const headings = $("h1").filter((_, element) =>
+    !$(element).closest(".modal, [role='dialog'], [hidden], [aria-hidden='true'], .ajax-container, .ajax-body-login, .account-login, .account-register").length);
+  if (!products.length && !scopes.length && headings.length === 1) {
+    const extracted = extractProductFromHtml({ ...input, expectedProduct: input.product });
+    accept(extracted, extracted.images);
   }
-  return [...new Set(images.filter(isLikelyProductImage))].slice(0, 12);
+  return [...new Set(images.filter(isLikelyProductImage))].slice(0, 8);
 }
 
 export function extractProductFromHtml(input: {
@@ -427,6 +414,7 @@ export function extractProductFromHtml(input: {
   finalUrl: string;
   selectors?: SourceSelectors | null;
   expectedSku?: string | null;
+  expectedProduct?: PhotoProduct;
 }): ExtractedProductData {
   const $ = cheerio.loadBuffer(input.buffer, {
     encoding: { defaultEncoding: "utf-8" },
@@ -441,8 +429,13 @@ export function extractProductFromHtml(input: {
             photoSku(input.expectedSku),
         )
       : null) ||
-    products[0] ||
-    null;
+    (input.expectedProduct ? products.find(node => !productPhotoIssue(input.expectedProduct!, {
+      sku: cleanText(node.sku || node.mpn || node.productID), title: cleanText(node.name),
+      brand: readBrand(node.brand), description: cleanText(node.description), hasVariants: photoHasVariants(node),
+    })) : null) || products[0] || null;
+  const skuLabel = $("#content .list-unstyled li").map((_, element) => $(element).text()).get()
+    .find(value => /^\s*(?:артикул|sku)\s*[:#]/iu.test(value));
+  const labeledSku = skuLabel?.match(/(?:артикул|sku)\s*[:#]\s*([\p{L}\p{N}_.\/-]+)/iu)?.[1] || null;
   const bodyText = cleanText($("body").text(), 200_000) || "";
 
   const selectorTitle = selectorText($, input.selectors?.title, 500);
@@ -608,7 +601,8 @@ export function extractProductFromHtml(input: {
     metaContent($, "meta[name='brand']") ||
     (/\bANGIOPHARM\b/i.test(`${title || ""} ${bodyText}`)
       ? "ANGIOPHARM"
-      : null);
+      : null) ||
+    (isKnownBrandSource(input.expectedProduct?.brand, input.finalUrl) ? input.expectedProduct?.brand || null : null);
 
   return {
     title,
@@ -619,7 +613,7 @@ export function extractProductFromHtml(input: {
       cleanText(productNode?.sku, 100) ||
       cleanText(productNode?.mpn, 100) ||
       cleanText(productNode?.productID, 100) ||
-      skuFromText(bodyText),
+      labeledSku || skuFromText(bodyText),
     brand,
     canonicalUrl,
     images: [...new Set(images.filter(isLikelyProductImage))].slice(0, 12),
@@ -635,4 +629,15 @@ export function extractProductFromHtml(input: {
     currency: offers.currency || fallbackCurrency,
     rawJsonLd: productNode,
   };
+}
+
+
+export function extractTildaReference(buffer: Buffer): TildaReference | null {
+  const $ = cheerio.loadBuffer(buffer, { encoding: { defaultEncoding: "utf-8" } });
+  const single = $(".js-store-product_single, .js-product-single");
+  if (single.length !== 1) return null;
+  const uid = single.first().attr("data-product-gen-uid")?.replace(/^product id:\s*/i, "");
+  const zone = $("#allrecords").attr("data-tilda-root-zone") || "com";
+  return uid && /^\d{6,20}$/.test(uid) && ["com", "pro", "info"].includes(zone)
+    ? { uid, host: "store.tildaapi." + zone } : null;
 }

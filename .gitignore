@@ -11,3 +11,5 @@ prisma/dev.db
 
 # Ubuntu isolated test backend credentials — never commit
 catalog-hub-local/.test-credentials.json
+marketplace-hub/supabase/.temp/
+marketplace-hub/dist/

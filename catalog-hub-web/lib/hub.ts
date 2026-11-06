@@ -16,14 +16,17 @@ async function getRequestOidcToken() {
   }
 }
 export const organizationId =
-  String(process.env.CATALOG_HUB_ORGANIZATION_ID || "") || "org_procosmetics";
+  String(process.env.CATALOG_HUB_ORGANIZATION_ID || "");
 export const warehouseId =
-  String(process.env.CATALOG_HUB_WAREHOUSE_ID || "") || "wh_pav_01";
+  String(process.env.CATALOG_HUB_WAREHOUSE_ID || "");
 
 export type HubProduct = {
   id: string;
   organizationId: string;
   sku: string;
+  masterProductId?: string | null;
+  masterUpdatedAt?: string | null;
+  variantSummary?: {count:number;minPrice:number|null;maxPrice:number|null;available:number} | null;
   barcode: string | null;
   title: string;
   brand: string | null;
@@ -65,6 +68,10 @@ export type HubList<T> = {
   };
 };
 
+export class HubApiError extends Error {
+  constructor(message: string, readonly status: number) { super(message); }
+}
+
 export async function hubFetch<T>(
   path: string,
   init?: RequestInit,
@@ -73,6 +80,7 @@ export async function hubFetch<T>(
     throw new Error("local_read_only_mode: изменение данных отключено. Используйте тестовый проект Supabase и осознанно включите CATALOG_HUB_LOCAL_WRITE_ENABLED=true.");
   }
   if (!baseUrl) throw new Error("CATALOG_HUB_API_URL not configured");
+  if (path.startsWith("/v1/") && !organizationId) throw new Error("CATALOG_HUB_ORGANIZATION_ID not configured");
   // Local requests cannot obtain a Vercel-signed runtime identity.
   // Prefer the explicitly configured Catalog Hub key, even if an old
   // VERCEL_OIDC_TOKEN leaked into the local shell environment.
@@ -85,6 +93,7 @@ export async function hubFetch<T>(
 
   const response = await fetch(hubBaseForPath(path, process.env) + path, {
     ...init,
+    signal: init?.signal || AbortSignal.timeout(25000),
     cache: "no-store",
     headers: {
       accept: "application/json",
@@ -104,7 +113,7 @@ export async function hubFetch<T>(
       body && typeof body === "object" && "error" in body
         ? String((body as { error: unknown }).error)
         : "http_" + response.status;
-    throw new Error(reason);
+    throw new HubApiError(reason, response.status);
   }
   return body as T;
 }
@@ -124,6 +133,7 @@ export async function safeHub<T>(request: Promise<T>) {
 export function catalogPath(params?: {
   q?: string;
   incomplete?: boolean;
+  cards?: boolean;
   category?: string;
   limit?: number;
   offset?: number;
@@ -133,6 +143,7 @@ export function catalogPath(params?: {
     limit: String(params?.limit ?? 50),
     offset: String(params?.offset ?? 0),
   });
+  if (params?.cards) search.set("cards","true");
   if (params?.q) search.set("q", params.q);
   if (params?.incomplete) search.set("incomplete", "true");
   if (params?.category) search.set("category", params.category);

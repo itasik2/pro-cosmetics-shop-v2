@@ -13,7 +13,7 @@ export type ImportItem = {
  stock?:number;errors:string[];
  volume?:string;
 };
-const MAX_BYTES=2*1024*1024, MAX_ROWS=200, MAX_COLS=50;
+const MAX_BYTES=2*1024*1024, MAX_ROWS=10000, MAX_COLS=50;
 
 function stringify(value:unknown):string {
  if(value==null) return "";
@@ -30,7 +30,7 @@ function tabular(header:string[], rows:unknown[][],format:string):Table {
    seen.add(key);return key;
  });
  const filtered=rows.filter(row=>Array.isArray(row)&&row.some(v=>stringify(v).trim()!==""));
- if(filtered.length>MAX_ROWS)throw new Error("too_many_rows_max_200");
+ if(filtered.length>MAX_ROWS)throw new Error("too_many_rows_max_10000");
  return {headers,format,rows:filtered.map(row=>Object.fromEntries(headers.map((key,i)=>[key,stringify(row[i]).trim().slice(0,6000)])))};
 }
 function parseDelimited(input:string,delimiter:string):string[][] {
@@ -44,7 +44,7 @@ function parseDelimited(input:string,delimiter:string):string[][] {
    else if(!quoted&&(ch==='\n'||ch==='\r')){
      row.push(field);rows.push(row);row=[];field="";
      if(ch==='\r'&&text[i+1]==='\n')i++;
-     if(rows.length>MAX_ROWS+2)throw new Error("too_many_rows_max_200");
+     if(rows.length>MAX_ROWS+2)throw new Error("too_many_rows_max_10000");
    }else field+=ch;
    if(field.length>9000)throw new Error("field_too_long");
  }
@@ -72,7 +72,7 @@ function findEntries(root:unknown,depth=0):Array<Record<string,unknown>>|null {
  return null;
 }
 function parseObjects(items:Array<Record<string,unknown>>,format:string):Table {
- if(items.length>MAX_ROWS)throw new Error("too_many_rows_max_200");
+ if(items.length>MAX_ROWS)throw new Error("too_many_rows_max_10000");
  const normalized=items.map(obj=>Object.fromEntries(Object.entries(obj).map(([k,v])=>
    [k.startsWith("@_")?k.slice(2):k,stringify(v)])));
  const headers=[...new Set(normalized.flatMap(o=>Object.keys(o)))];
@@ -89,7 +89,7 @@ export async function parseTable(file:File):Promise<Table>{
  if(name.endsWith(".xlsx")){
    const rows=await readSheet(Buffer.from(await file.arrayBuffer()) as Parameters<typeof readSheet>[0]);
    if(rows.length<2)throw new Error("xlsx_empty");
-   if(rows.length>MAX_ROWS+1)throw new Error("too_many_rows_max_200");
+   if(rows.length>MAX_ROWS+1)throw new Error("too_many_rows_max_10000");
    return tabular(rows[0].map(stringify),rows.slice(1),"XLSX");
  }
  const text=await file.text();

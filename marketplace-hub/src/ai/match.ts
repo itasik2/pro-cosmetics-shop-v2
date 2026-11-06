@@ -1,3 +1,4 @@
+import { photoSku, productVolumes, volumeKey } from "./photo-identity.js";
 import type { CatalogProductInput, ExtractedProductData } from "./types.js";
 
 function normalize(value: unknown) {
@@ -9,10 +10,6 @@ function normalize(value: unknown) {
     .replace(/[^a-zа-я0-9%]+/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
-}
-
-function compact(value: unknown) {
-  return normalize(value).replace(/\s+/g, "");
 }
 
 function tokens(value: string) {
@@ -32,17 +29,6 @@ function jaccard(left: string, right: string) {
   return intersection / new Set([...a, ...b]).size;
 }
 
-function parseVolumes(value: string) {
-  const result = new Set<string>();
-  for (const match of normalize(value).matchAll(/(\d+(?:[.,]\d+)?)\s*(мл|ml|г|гр|g)\b/gi)) {
-    const amount = Math.round(Number(match[1].replace(",", ".")));
-    if (!Number.isFinite(amount) || amount <= 0) continue;
-    const unit = /мл|ml/i.test(match[2]) ? "ml" : "g";
-    result.add(`${amount}:${unit}`);
-  }
-  return result;
-}
-
 export function scoreProductMatch(
   product: CatalogProductInput,
   extracted: ExtractedProductData,
@@ -59,8 +45,8 @@ export function scoreProductMatch(
 
   // Price imports assign an internal SKU. An official product code can differ
   // without indicating that this is another product.
-  const expectedSku = product.skuIsInternal ? "" : compact(product.sku);
-  const foundSku = compact(extracted.sku);
+  const expectedSku = product.skuIsInternal ? "" : photoSku(product.sku);
+  const foundSku = photoSku(extracted.sku);
   let sku: "match" | "mismatch" | "missing" = "missing";
   if (expectedSku && foundSku) {
     if (expectedSku === foundSku) {
@@ -98,24 +84,20 @@ export function scoreProductMatch(
   }
 
   let volume: "match" | "mismatch" | "missing" = "missing";
-  if (product.volumeValue && product.volumeUnit) {
-    const unit = /мл|ml/i.test(product.volumeUnit) ? "ml" : /г|гр|g/i.test(product.volumeUnit) ? "g" : "";
-    if (unit) {
-      const expected = `${Math.round(product.volumeValue)}:${unit}`;
-      const sourceVolumes = new Set([
-        ...parseVolumes(extracted.title || ""),
-        ...parseVolumes(extracted.description || ""),
-      ]);
-      if (sourceVolumes.has(expected)) {
-        score += 10;
-        volume = "match";
-      } else if (sourceVolumes.size) {
-        score -= 30;
-        volume = "mismatch";
-        warnings.push("volume_mismatch");
-      } else {
-        warnings.push("source_volume_missing");
-      }
+  const expected = product.volumeValue && product.volumeUnit
+    ? volumeKey(product.volumeValue, product.volumeUnit) : null;
+  if (expected) {
+    const titleVolumes = productVolumes(extracted.title || "");
+    const sourceVolumes = titleVolumes.length ? titleVolumes : productVolumes(extracted.description || "");
+    if (sourceVolumes.length === 1 && sourceVolumes[0] === expected) {
+      score += 10;
+      volume = "match";
+    } else if (sourceVolumes.length && !sourceVolumes.includes(expected)) {
+      score -= 30;
+      volume = "mismatch";
+      warnings.push("volume_mismatch");
+    } else {
+      warnings.push(sourceVolumes.length ? "source_volume_ambiguous" : "source_volume_missing");
     }
   }
 

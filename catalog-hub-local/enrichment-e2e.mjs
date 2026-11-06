@@ -39,8 +39,7 @@ const job = await action({ action: "create", sku, supplierCode: "TEST-ENRICH", s
 assert.equal(job.status, "PENDING");
 const list = (await request(ai + "/v1/ai/enrichment/jobs?organizationId=" + org, { headers: apiHeaders })).data;
 assert.ok(list.some(item => item.id === job.id));
-const foreign = (await request(ai + "/v1/ai/enrichment/jobs?organizationId=unrelated-org", { headers: apiHeaders })).data;
-assert.equal(foreign.some(item => item.id === job.id), false);
+await request(ai + "/v1/ai/enrichment/jobs?organizationId=unrelated-org", { headers: apiHeaders }, 403);
 const failure = await action({ action: "run", id: job.id }, 400);
 assert.equal(failure.error, "source_ip_blocked");
 const failedJob = (await request(ai + "/v1/ai/enrichment/jobs/" + job.id + "?organizationId=" + org, { headers: apiHeaders })).data;
@@ -50,12 +49,20 @@ assert.equal(failedJob.attempt, 1);
 // Seed an extracted proposal to verify review/apply without network or model calls.
 const proposalId = "synthetic-" + randomBytes(5).toString("hex");
 const quote = value => "'" + String(value).replaceAll("'", "''") + "'";
+const photoFacts = JSON.stringify({ extracted: { brand: "Demo" },
+  imageIdentity: JSON.stringify([sku, product.title, "Demo", 50, "ml"]) });
 const sql = `INSERT INTO public."CatalogEnrichmentProposal"
  ("id","productId","sourceUrl","confidence","description","application","ingredients","images","facts","warnings","status","createdAt","updatedAt") VALUES
  (${quote(proposalId)},${quote(product.id)},'https://fixture.example/cream',97,'AI must not overwrite reviewed copy','Apply daily','Aqua, Glycerin',
- '["https://fixture.example/cream.jpg"]'::jsonb,'{"extracted":{"brand":"Demo"}}'::jsonb,'[]'::jsonb,'PENDING',now(),now());`;
+ '["https://fixture.example/cream.jpg"]'::jsonb,${quote(photoFacts)}::jsonb,'[]'::jsonb,'PENDING',now(),now());
+ INSERT INTO public."CatalogEnrichmentProposal"
+ ("id","productId","sourceUrl","confidence","images","facts","warnings","status","createdAt","updatedAt")
+ VALUES (${quote(proposalId + "-stale")},${quote(product.id)},'https://fixture.example/cream',97,
+ '["https://fixture.example/cream.jpg"]'::jsonb,'{"imageIdentity":"outdated-photo-identity"}'::jsonb,'[]'::jsonb,'PENDING',now(),now());`;
 const seed = spawnSync("docker", ["compose", "-f", resolve(root, "catalog-hub-local/compose.yaml"), "exec", "-T", "db", "psql", "-v", "ON_ERROR_STOP=1", "-U", "catalog_test", "-d", "catalog_test"], { input: sql, encoding: "utf8" });
 assert.equal(seed.status, 0, seed.stderr);
+const stalePhoto = await action({ action: "stage", id: proposalId + "-stale", selectedImageUrl: "https://fixture.example/cream.jpg" }, 400);
+assert.equal(stalePhoto.error, "photo_product_changed", "A photo proposal cannot move to another product identity");
 const changes = await action({ action: "stage", id: proposalId, selectedImageUrl: "https://fixture.example/cream.jpg" });
 assert.match(changes.id, /^c[a-z0-9]{24}$/);
 assert.deepEqual(changes.fields.map(field => field.field).sort(), ["application", "images", "ingredients"]);
@@ -89,3 +96,51 @@ assert.deepEqual(after.images, ["https://fixture.example/cream.jpg"]);
 const proposals = (await request(ai + "/v1/ai/enrichment/proposals?organizationId=" + org, { headers: apiHeaders })).data;
 assert.equal(proposals.find(p => p.id === proposalId)?.status, "APPLIED");
 console.log("PASS: source configuration, tenant-scoped queue, failed job audit, fill-only staging, image selection, review page, partial restaging, approve/apply, unchanged prices and stock.");
+
+const historyPath = api + "/v1/catalog/products/" + product.id + "/revisions";
+const history = (await request(historyPath, { headers: apiHeaders })).data;
+const nodeRevision = history.items.find(item => item.changeSetId === remaining.id);
+assert.ok(nodeRevision, "Node changeset writes an Edge-readable revision");
+const detail = (await request(historyPath + "/" + nodeRevision.id, { headers: apiHeaders })).data;
+assert.deepEqual(detail.changes, [{ field: "ingredients", before: null, after: "Aqua, Glycerin" }]);
+await request(historyPath + "/" + nodeRevision.id + "/rollback", {
+  method: "POST",
+  headers: { ...apiHeaders, "content-type": "application/json", "idempotency-key": "node-revision-" + randomBytes(12).toString("hex") },
+  body: JSON.stringify({ confirmed: true, reason: "Synthetic cross-runtime restoration", expectedVersion: detail.expectedVersion }),
+});
+const restored = await snapshot();
+assert.equal(restored.ingredients, null);
+assert.equal(restored.application, after.application);
+assert.deepEqual(restored.images, after.images);
+assert.equal(restored.price, after.price);
+assert.equal(restored.stock, after.stock);
+console.log("PASS: Edge restores a Node revision while preserving earlier approved fields, price and stock.");
+
+// Check direct IDs, not just a forged organizationId query parameter.
+const foreignOrg="org-node-foreign-"+randomBytes(4).toString("hex"),foreignProduct="node-foreign-product-"+randomBytes(5).toString("hex"),foreignSet="node-foreign-change-"+randomBytes(5).toString("hex");
+const foreignSql=`UPDATE public."CatalogApiKey" SET "organizationId"=${quote(org)},"scopes"='["*"]'::jsonb WHERE "id"='catalog-ubuntu-test';
+ INSERT INTO public."Organization" ("id","name","updatedAt") VALUES (${quote(foreignOrg)},'Synthetic Node foreign tenant',now());
+ INSERT INTO public."Product" ("id","organizationId","sku","title","updatedAt") VALUES (${quote(foreignProduct)},${quote(foreignOrg)},'NODE-FOREIGN','Synthetic hidden product',now());
+ INSERT INTO public."CatalogChangeSet" ("id","organizationId","productId","sku","sourceType","status","current","proposed","summary","updatedAt")
+ VALUES (${quote(foreignSet)},${quote(foreignOrg)},${quote(foreignProduct)},'NODE-FOREIGN','MANUAL','PREVIEW','{}'::jsonb,'{"price":100}'::jsonb,'{}'::jsonb,now());`;
+const foreignSeed=spawnSync("docker",["compose","-f",resolve(root,"catalog-hub-local/compose.yaml"),"exec","-T","db","psql","-v","ON_ERROR_STOP=1","-U","catalog_test","-d","catalog_test"],{input:foreignSql,encoding:"utf8"});
+assert.equal(foreignSeed.status,0,foreignSeed.stderr);
+await request(ai+"/v1/staging/changesets/"+foreignSet+"?organizationId="+org,{headers:apiHeaders},404);
+for(const [operation,body,status] of [["approve",{approvedFields:["price"]},400],["apply",{},409],["reject",{},400]])
+ await request(ai+"/v1/staging/changesets/"+foreignSet+"/"+operation,{method:"POST",headers:{...apiHeaders,"content-type":"application/json"},body:JSON.stringify(body)},status);
+await request(ai+"/v1/staging/changesets",{method:"POST",headers:{...apiHeaders,"content-type":"application/json"},body:JSON.stringify({organizationId:org,productId:foreignProduct,
+ sourceType:"MANUAL",current:{sku:"NODE-FOREIGN",title:"Hidden",price:100,images:[],attributes:{}},proposed:{price:120}})},400);
+await request(ai+"/v1/catalog/products",{method:"POST",headers:{...apiHeaders,"content-type":"application/json"},body:JSON.stringify({organizationId:org,warehouseId:"wh_pav_01",card:{sku:"NODE-STOCK-BLOCKED",title:"Unsafe seed",stock:5}})},400);
+console.log("PASS: Node API direct-ID isolation, foreign product references and legacy stock writes are blocked.");
+
+const sharedSkus=["NODE-VAR-A-","NODE-VAR-B-"].map(prefix=>prefix+randomBytes(4).toString("hex"));
+const shared=[];
+for(const [index,sku] of sharedSkus.entries())shared.push((await request(api+"/v1/catalog/products",{method:"POST",headers:{...apiHeaders,"content-type":"application/json"},body:JSON.stringify({card:{sku,title:"Synthetic node shared "+(index?210:30)+" g",brand:"Demo",price:200+index*50,purchasePrice:100,images:["https://fixture.example/"+sku+".jpg"],attributes:{volumeValue:index?210:30,volumeUnit:"g"}}})},201)).data);
+const grouping={productIds:shared.map(p=>p.id),masterProductId:shared[0].id,title:"Synthetic Node shared card",reason:"Synthetic shared source verified"};
+const groupedPreview=(await request(api+"/v1/catalog/variants/preview",{method:"POST",headers:{...apiHeaders,"content-type":"application/json"},body:JSON.stringify(grouping)})).data;
+await request(api+"/v1/catalog/variants/apply",{method:"POST",headers:{...apiHeaders,"content-type":"application/json","idempotency-key":"node-group-"+randomBytes(12).toString("hex")},body:JSON.stringify({...grouping,fingerprint:groupedPreview.fingerprint,confirmed:true,conflictsAcknowledged:true})});
+const nodeMember=(await request(ai+"/v1/catalog/by-sku/"+shared[1].sku+"?organizationId="+org,{headers:apiHeaders})).data;
+assert.equal(nodeMember.title,grouping.title);assert.equal(nodeMember.masterProductId,shared[0].id);assert.equal(nodeMember.price,250);assert.deepEqual(nodeMember.images,shared[1].images);
+const nodeList=(await request(ai+"/v1/catalog/products?organizationId="+org+"&q="+encodeURIComponent(grouping.title),{headers:apiHeaders})).data;
+assert.equal(nodeList.items.length,2,"Node search resolves common titles for member SKUs");
+console.log("PASS: Node card reads and search share the master while retaining SKU prices and photos.");
