@@ -48,7 +48,15 @@ function normalizeVariants(v: any): ProductVariant[] {
     .filter((x) => x.id && x.label);
 }
 
-export default function CheckoutClient({ deliveryPrice, deliveryTerms }: { deliveryPrice: number | null; deliveryTerms: string }) {
+export default function CheckoutClient({
+  deliveryPrice,
+  deliveryTerms,
+  messengerAvailability,
+}: {
+  deliveryPrice: number | null;
+  deliveryTerms: string;
+  messengerAvailability: { whatsapp: boolean; telegram: boolean };
+}) {
   const router = useRouter();
 
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -594,6 +602,17 @@ export default function CheckoutClient({ deliveryPrice, deliveryTerms }: { deliv
                         Telegram
                       </label>
                     </div>
+
+                    {messenger === "WHATSAPP" && !messengerAvailability.whatsapp ? (
+                      <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900" role="status">
+                        Автоматическая отправка сообщений в WhatsApp пока недоступна. Магазин получит заказ и сможет связаться с вами по указанному номеру. Статус заказа можно проверить по ссылке после оформления.
+                      </p>
+                    ) : null}
+                    {messenger === "TELEGRAM" && !messengerAvailability.telegram ? (
+                      <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900" role="status">
+                        Telegram-бот магазина пока не подключён. Магазин получит заказ и сможет связаться с вами по номеру телефона. Статус заказа доступен по ссылке после оформления.
+                      </p>
+                    ) : null}
 
                     {messenger === "WHATSAPP" ? (
                       <label className="block space-y-1">
