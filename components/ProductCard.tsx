@@ -117,7 +117,7 @@ function ProductCard({ product, priority = false, headingLevel = 3, imageSizes =
                   }
                   title={unavailable ? t("Уведомить о поступлении") : ""}
                 >
-                  {v.label}{unavailable ? ` · ${t("Нет в наличии")}` : ""}
+                  {v.label}{unavailable ? (locale === "ru" ? " · нет" : ` · ${t("Нет в наличии")}`) : ""}
                 </button>
               );
             })}
