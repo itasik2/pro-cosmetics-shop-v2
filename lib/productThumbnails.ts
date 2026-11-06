@@ -5,6 +5,9 @@ export function productThumbnail(value: string, width: number) {
     const url = new URL(value);
     if (url.protocol !== "https:" || url.hostname !== "res.cloudinary.com" || url.username || url.password || url.port ||
       !/^\/[^/]+\/image\/upload\//.test(url.pathname) || /\/s--[^/]+--\//.test(url.pathname) || url.searchParams.has("__cld_token")) return value;
+    // Background-removed product photos are already prepared as 1200px WebP.
+    // On-demand responsive derivatives can return Cloudinary HTTP 423.
+    if (url.pathname.includes("/e_background_removal")) return value;
     const version = /\/v\d+\//.exec(url.pathname);
     if (!version || version.index === undefined) return value;
     url.pathname = url.pathname.slice(0, version.index) + `/c_limit,h_${width},w_${width}/f_auto,q_auto` + url.pathname.slice(version.index);

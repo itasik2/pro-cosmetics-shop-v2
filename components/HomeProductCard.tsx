@@ -5,7 +5,7 @@ import { brandNameToSlug } from "@/lib/brandSlug";
 import { publicProductCategory } from "@/lib/catalogFilters";
 import { publicShortDescription } from "@/lib/productCopy";
 import { productDisplayName } from "@/lib/productNames";
-import { productThumbnail } from "@/lib/productThumbnails";
+import ResilientProductImage from "@/components/ResilientProductImage";
 import { defaultPublicProductVariant, isRecentlyCreated, normalizePublicProductVariants } from "@/lib/publicProductVariants";
 
 const IMAGE_SIZES = "(min-width: 1152px) 318px, (min-width: 768px) calc((100vw - 198px) / 3), (min-width: 640px) calc((100vw - 140px) / 2), calc(100vw - 66px)";
@@ -37,11 +37,7 @@ export default function HomeProductCard({ product }: { product: ProductCardProps
       </div>
 
       <Link href={href} prefetch={false} className="block aspect-square w-full bg-white rounded-xl mb-3 overflow-hidden" aria-label={`Открыть товар: ${displayName}`}>
-        <img src={productThumbnail(image, 640)}
-          srcSet={productThumbnail(image, 320) !== image
-            ? [320, 480, 640, 768, 960].map((width) => `${productThumbnail(image, width)} ${width}w`).join(", ") : undefined}
-          sizes={IMAGE_SIZES} alt={displayName} width={640} height={640}
-          className="w-full h-full object-contain" loading="lazy" decoding="async" />
+        <ResilientProductImage src={image} sizes={IMAGE_SIZES} alt={displayName} />
       </Link>
 
       <div className="text-sm text-gray-500">
