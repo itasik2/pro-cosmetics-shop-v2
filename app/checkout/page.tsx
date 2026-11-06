@@ -4,9 +4,10 @@ export const revalidate = 0;
 export const fetchCache = "default-no-store";
 
 import { getStorePolicy } from "@/lib/storePolicy";
+import { getCustomerMessengerAvailability } from "@/lib/messenger";
 import CheckoutClient from "./CheckoutClient";
 
 export default function Page() {
   const { deliveryPrice, deliveryTerms } = getStorePolicy();
-  return <CheckoutClient deliveryPrice={deliveryPrice} deliveryTerms={deliveryTerms} />;
+  return <CheckoutClient deliveryPrice={deliveryPrice} deliveryTerms={deliveryTerms} messengerAvailability={getCustomerMessengerAvailability()} />;
 }
