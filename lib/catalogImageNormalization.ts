@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { normalizeProductImage } from "@/lib/productImageNormalization";
 import { prisma } from "@/lib/prisma";
+import { paginateImageNormalizationProducts } from "@/lib/imageNormalizationPagination";
 
 type Variant = {
   id?: unknown;
@@ -218,14 +219,6 @@ export async function getCatalogImageNormalizationCounts() {
 
 export async function normalizeCatalogImageBatch(maxImages = 3) {
   const limit = Math.max(1, Math.min(5, Math.trunc(maxImages) || 3));
-  const products = await prisma.product.findMany({
-    where: { enrichmentStatus: { not: "MERGED" } },
-    orderBy: { updatedAt: "asc" },
-    take: 200,
-    select: { id: true, name: true, image: true, variants: true },
-  });
-  const attempts = await loadAttempts(products.map((product) => product.id));
-
   const results: Array<{
     productId: string;
     productName: string;
@@ -267,101 +260,145 @@ export async function normalizeCatalogImageBatch(maxImages = 3) {
     });
   }
 
-  for (const product of products) {
-    if (handled >= limit) break;
+  // Scan every page, not only the oldest 200 records. An immutable id
+  // cursor keeps pagination stable when image updates change updatedAt.
+  const pageSize = 200;
+  for await (const products of paginateImageNormalizationProducts(
+    (cursor) =>
+      prisma.product.findMany({
+        where: { enrichmentStatus: { not: "MERGED" } },
+        orderBy: { id: "asc" },
+        take: pageSize,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        select: { id: true, name: true, image: true, variants: true },
+      }),
+    pageSize,
+  )) {
+    const attempts = await loadAttempts(products.map((product) => product.id));
+    for (const product of products) {
+      if (handled >= limit) break;
 
-    if (needsNormalization(product.image)) {
-      const sourceUrl = product.image.trim();
-      const targetKey = "primary";
-      const state = attemptState(attempts.get(attemptMapKey(product.id, targetKey, sourceUrl)));
+      if (needsNormalization(product.image)) {
+        const sourceUrl = product.image.trim();
+        const targetKey = "primary";
+        const state = attemptState(attempts.get(attemptMapKey(product.id, targetKey, sourceUrl)));
 
-      if (state === "ready") {
-        handled += 1;
-        try {
-          const normalized = await normalizeProductImage(sourceUrl, {
-            folder: "pro-cosmetics/products/catalog-originals",
-          });
+        if (state === "ready") {
+          handled += 1;
+          try {
+            const normalized = await normalizeProductImage(sourceUrl, {
+              folder: "pro-cosmetics/products/catalog-originals",
+            });
 
-          if (!normalized.processedUrl) {
+            if (!normalized.processedUrl) {
+              await failTarget({
+                productId: product.id,
+                productName: product.name,
+                target: "primary",
+                targetKey,
+                sourceUrl,
+                error: normalized.error || "normalization_failed",
+              });
+            } else {
+              await prisma.$transaction(async (tx) => {
+                await tx.productImage.updateMany({
+                  where: { productId: product.id },
+                  data: { isPrimary: false },
+                });
+                const existing = await tx.productImage.findFirst({
+                  where: { productId: product.id, url: normalized.url },
+                  select: { id: true },
+                });
+                if (existing) {
+                  await tx.productImage.update({
+                    where: { id: existing.id },
+                    data: { isPrimary: true },
+                  });
+                } else {
+                  await tx.productImage.create({
+                    data: {
+                      productId: product.id,
+                      url: normalized.url,
+                      sourceUrl: normalized.originalUrl,
+                      sourceDomain: hostname(sourceUrl),
+                      width: normalized.width,
+                      height: normalized.height,
+                      isPrimary: true,
+                    },
+                  });
+                }
+                await tx.product.update({
+                  where: { id: product.id },
+                  data: { image: normalized.url },
+                });
+              });
+              await clearAttempt(product.id, targetKey, sourceUrl);
+              results.push({
+                productId: product.id,
+                productName: product.name,
+                target: "primary",
+                status: "processed",
+              });
+            }
+          } catch (error) {
             await failTarget({
               productId: product.id,
               productName: product.name,
               target: "primary",
               targetKey,
               sourceUrl,
-              error: normalized.error || "normalization_failed",
-            });
-          } else {
-            await prisma.$transaction(async (tx) => {
-              await tx.productImage.updateMany({
-                where: { productId: product.id },
-                data: { isPrimary: false },
-              });
-              const existing = await tx.productImage.findFirst({
-                where: { productId: product.id, url: normalized.url },
-                select: { id: true },
-              });
-              if (existing) {
-                await tx.productImage.update({
-                  where: { id: existing.id },
-                  data: { isPrimary: true },
-                });
-              } else {
-                await tx.productImage.create({
-                  data: {
-                    productId: product.id,
-                    url: normalized.url,
-                    sourceUrl: normalized.originalUrl,
-                    sourceDomain: hostname(sourceUrl),
-                    width: normalized.width,
-                    height: normalized.height,
-                    isPrimary: true,
-                  },
-                });
-              }
-              await tx.product.update({
-                where: { id: product.id },
-                data: { image: normalized.url },
-              });
-            });
-            await clearAttempt(product.id, targetKey, sourceUrl);
-            results.push({
-              productId: product.id,
-              productName: product.name,
-              target: "primary",
-              status: "processed",
+              error,
             });
           }
-        } catch (error) {
-          await failTarget({
-            productId: product.id,
-            productName: product.name,
-            target: "primary",
-            targetKey,
-            sourceUrl,
-            error,
-          });
         }
       }
-    }
 
-    const variants = normalizeVariants(product.variants);
-    for (let index = 0; index < variants.length && handled < limit; index += 1) {
-      const variant = variants[index];
-      if (!needsNormalization(variant.image)) continue;
+      const variants = normalizeVariants(product.variants);
+      for (let index = 0; index < variants.length && handled < limit; index += 1) {
+        const variant = variants[index];
+        if (!needsNormalization(variant.image)) continue;
 
-      const sourceUrl = String(variant.image).trim();
-      const targetKey = variantTargetKey(variant, index);
-      const state = attemptState(attempts.get(attemptMapKey(product.id, targetKey, sourceUrl)));
-      if (state !== "ready") continue;
+        const sourceUrl = String(variant.image).trim();
+        const targetKey = variantTargetKey(variant, index);
+        const state = attemptState(attempts.get(attemptMapKey(product.id, targetKey, sourceUrl)));
+        if (state !== "ready") continue;
 
-      handled += 1;
-      const variantId = typeof variant.id === "string" ? variant.id : undefined;
-      try {
-        const normalized = await normalizeProductImage(sourceUrl, {
-          folder: "pro-cosmetics/products/catalog-originals",
-        });
-        if (!normalized.processedUrl) {
+        handled += 1;
+        const variantId = typeof variant.id === "string" ? variant.id : undefined;
+        try {
+          const normalized = await normalizeProductImage(sourceUrl, {
+            folder: "pro-cosmetics/products/catalog-originals",
+          });
+          if (!normalized.processedUrl) {
+            await failTarget({
+              productId: product.id,
+              productName: product.name,
+              target: "variant",
+              targetKey,
+              sourceUrl,
+              variantId,
+              error: normalized.error || "normalization_failed",
+            });
+            continue;
+          }
+
+          const nextVariants = variants.map((item, variantIndex) =>
+            variantIndex === index ? { ...item, image: normalized.url } : item,
+          );
+          await prisma.product.update({
+            where: { id: product.id },
+            data: { variants: nextVariants as any },
+          });
+          variants[index] = { ...variant, image: normalized.url };
+          await clearAttempt(product.id, targetKey, sourceUrl);
+          results.push({
+            productId: product.id,
+            productName: product.name,
+            target: "variant",
+            variantId,
+            status: "processed",
+          });
+        } catch (error) {
           await failTarget({
             productId: product.id,
             productName: product.name,
@@ -369,39 +406,12 @@ export async function normalizeCatalogImageBatch(maxImages = 3) {
             targetKey,
             sourceUrl,
             variantId,
-            error: normalized.error || "normalization_failed",
+            error,
           });
-          continue;
         }
-
-        const nextVariants = variants.map((item, variantIndex) =>
-          variantIndex === index ? { ...item, image: normalized.url } : item,
-        );
-        await prisma.product.update({
-          where: { id: product.id },
-          data: { variants: nextVariants as any },
-        });
-        variants[index] = { ...variant, image: normalized.url };
-        await clearAttempt(product.id, targetKey, sourceUrl);
-        results.push({
-          productId: product.id,
-          productName: product.name,
-          target: "variant",
-          variantId,
-          status: "processed",
-        });
-      } catch (error) {
-        await failTarget({
-          productId: product.id,
-          productName: product.name,
-          target: "variant",
-          targetKey,
-          sourceUrl,
-          variantId,
-          error,
-        });
       }
     }
+    if (handled >= limit) break;
   }
 
   const counts = await getCatalogImageNormalizationCounts();
