@@ -341,9 +341,14 @@ export default async function AdminOrderDetailPage(props: { params: Promise<{ id
             <span className="font-semibold">
               {messengerStatusLabel(order.messengerNotificationStatus)}
             </span>
-            {order.messengerNotificationLastError
-              ? ` • ${order.messengerNotificationLastError}`
-              : ""}
+            {order.messengerNotificationLastError === "whatsapp_not_configured"
+              ? " • WhatsApp не подключён: свяжитесь с покупателем вручную."
+              : order.messengerNotificationLastError === "telegram_not_configured" ||
+                  order.messengerNotificationLastError === "telegram_not_linked"
+                ? " • Telegram недоступен: свяжитесь с покупателем вручную."
+                : order.messengerNotificationLastError
+                  ? ` • ${order.messengerNotificationLastError}`
+                  : ""}
           </div>
         )}
         {order.email && order.paymentMethod === "KASPI_TRANSFER" && order.status === "CONFIRMED" && (
