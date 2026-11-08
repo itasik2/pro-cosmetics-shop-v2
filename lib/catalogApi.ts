@@ -2,6 +2,7 @@ import { z } from "zod";
 import { catalogBatch } from "./catalogBatch";
 import { CATALOG_BATCH_SIZE } from "./progressiveList";
 import type { CatalogProductRow, CatalogSource } from "./catalogTypes";
+import type { SiteLocale } from "./i18n";
 
 const flag = z.union([z.literal(""), z.literal("1")]);
 const slugs = z.array(z.string().max(200)).max(100);
@@ -13,18 +14,19 @@ const sourceSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("brand"), slug: z.string().min(1).max(200) }),
 ]);
 const requestSchema = z.object({ source: sourceSchema,
+  locale: z.enum(["ru","kk","en"]).default("ru"),
   cursor: z.object({ id: z.string().min(1).max(128), createdAt: z.string().datetime() }).optional(),
   favorites: z.array(z.string().min(1).max(128)).max(2000).default([]),
 }).strict();
 
-export function createCatalogPost(load: (source: CatalogSource) => Promise<CatalogProductRow[]>) {
+export function createCatalogPost(load: (source: CatalogSource, locale?: SiteLocale) => Promise<CatalogProductRow[]>) {
   return async (request: Request) => {
     const parsed = requestSchema.safeParse(await request.json().catch(() => null));
     const headers = { "Cache-Control": "private, no-store, max-age=0" };
     if (!parsed.success) return Response.json({ error: "Некорректные параметры каталога" }, { status: 400, headers });
     try {
-      const { source, cursor, favorites } = parsed.data;
-      const products = await load(source);
+      const { source, cursor, favorites, locale } = parsed.data;
+      const products = await load(source, locale);
       return Response.json(catalogBatch(products, CATALOG_BATCH_SIZE, cursor,
         source.kind === "catalog" && source.query.fav === "1" ? favorites : undefined), { headers });
     } catch {
