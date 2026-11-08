@@ -6,6 +6,9 @@ import { notFound } from "next/navigation";
 import { getCspNonce } from "@/lib/csp";
 import { prisma } from "@/lib/prisma";
 import { SITE_BRAND } from "@/lib/siteConfig";
+import { requestLocale } from "@/lib/i18nServer";
+import { localizedPosts } from "@/lib/localizedContent";
+import { localizedHref } from "@/lib/i18n";
 import {
   absolutePublicUrl,
   buildBlogPostingJsonLd,
@@ -34,17 +37,19 @@ function buildPostDescription(content: string) {
 export async function generateMetadata(props: Props): Promise<Metadata> {
   const params = await props.params;
   const slug = normalizeSlug(params.slug);
+  const locale = await requestLocale();
 
-  const post = await prisma.post.findUnique({
+  const original = await prisma.post.findUnique({
     where: { slug },
     select: {
-      title: true,
+      id: true, title: true, category: true,
       content: true,
       image: true,
       createdAt: true,
       updatedAt: true,
     },
   });
+  const post = original ? (await localizedPosts([original], locale))[0] : null;
 
   if (!post) {
     return {
@@ -86,12 +91,13 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
 export default async function PostPage(props: Props) {
   const params = await props.params;
   const nonce = await getCspNonce();
+  const locale = await requestLocale();
   const slug = normalizeSlug(params.slug);
 
-  const post = await prisma.post.findUnique({
+  const original = await prisma.post.findUnique({
     where: { slug },
     select: {
-      title: true,
+      id: true, title: true,
       content: true,
       image: true,
       imageCredit: true,
@@ -104,10 +110,11 @@ export default async function PostPage(props: Props) {
     },
   });
 
-  if (!post) notFound();
+  if (!original) notFound();
+  const post = (await localizedPosts([original], locale))[0];
 
   const description = buildPostDescription(post.content);
-  const articleJsonLd = buildBlogPostingJsonLd({
+  const articleJsonLd = { ...buildBlogPostingJsonLd({
     title: post.title,
     description,
     slug,
@@ -115,11 +122,11 @@ export default async function PostPage(props: Props) {
     category: post.category,
     createdAt: post.createdAt,
     updatedAt: post.updatedAt,
-  });
+  }), inLanguage: locale === "kk" ? "kk-KZ" : locale === "en" ? "en" : "ru-KZ" };
   const breadcrumbJsonLd = buildBreadcrumbJsonLd([
     { name: "Главная", url: "/" },
     { name: "Блог", url: "/blog" },
-    { name: post.title, url: `/blog/${slug}` },
+    { name: post.title, url: localizedHref(`/blog/${slug}`,locale) },
   ]);
 
   return (
@@ -141,11 +148,11 @@ export default async function PostPage(props: Props) {
             aria-label="Хлебные крошки"
             className="mb-4 flex flex-wrap items-center gap-2 text-sm text-gray-500"
           >
-            <Link href="/" className="hover:text-gray-800">
-              Главная
+            <Link href={localizedHref("/",locale)} className="hover:text-gray-800">
+              {locale === "kk" ? "Басты бет" : locale === "en" ? "Home" : "Главная"}
             </Link>
             <span aria-hidden="true">/</span>
-            <Link href="/blog" className="hover:text-gray-800">
+            <Link href={localizedHref("/blog",locale)} className="hover:text-gray-800">
               Блог
             </Link>
             <span aria-hidden="true">/</span>
@@ -197,7 +204,7 @@ export default async function PostPage(props: Props) {
           )}
 
           <div className="text-xs text-gray-500 uppercase mb-2">
-            {post.category} • {new Date(post.createdAt).toLocaleDateString("ru-RU")}
+            {post.category} • {new Date(post.createdAt).toLocaleDateString(locale === "kk" ? "kk-KZ" : locale === "en" ? "en-GB" : "ru-RU")}
           </div>
 
           <h1 className="text-3xl font-bold tracking-tight">{post.title}</h1>
@@ -205,7 +212,7 @@ export default async function PostPage(props: Props) {
           <div className="mt-6"><ArticleContent content={post.content} /></div>
 
           <div className="mt-8 text-xs text-gray-500">
-            Материал носит информационный характер и не заменяет консультацию врача.
+            {locale === "kk" ? "Материал ақпараттық сипатта берілген және дәрігердің кеңесін алмастырмайды." : locale === "en" ? "This article is informational and does not replace medical advice." : "Материал носит информационный характер и не заменяет консультацию врача."}
           </div>
         </div>
       </article>

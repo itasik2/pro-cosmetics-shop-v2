@@ -133,7 +133,7 @@ export default function CheckoutClient({
         const res = await fetch("/api/products/by-ids", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ids: uniqueIds }),
+          body: JSON.stringify({ ids: uniqueIds, locale }),
         });
         const data = (await res.json()) as { products: Product[]; error?: string };
         if (!res.ok) throw new Error(data?.error || t("Не удалось загрузить товары"));

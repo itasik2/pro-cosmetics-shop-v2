@@ -124,7 +124,7 @@ export default async function ShopPage(props: Props) {
   const query = parseCatalogQuery(await props.searchParams);
   const { care, maxPrice, sort, fav, instock, searchQuery } = query;
   const selectedCare = CARE_OPTIONS.find((option) => option.slug === care);
-  const { selectedBrands, selectedCategories, brands, products: productsForClient } = await getCatalogData(query);
+  const { selectedBrands, selectedCategories, brands, products: productsForClient } = await getCatalogData(query, locale);
   const brandSlug = selectedBrands.map((brand) => brand.slug).join(",");
   const categorySlug = selectedCategories.map((category) => category.slug).join(",");
 

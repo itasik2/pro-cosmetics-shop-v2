@@ -6,8 +6,11 @@ export const fetchCache = "default-no-store";
 import { getStorePolicy } from "@/lib/storePolicy";
 import { getCustomerMessengerAvailability } from "@/lib/messenger";
 import CheckoutClient from "./CheckoutClient";
+import { requestLocale } from "@/lib/i18nServer";
+import { uiText } from "@/lib/i18n";
 
-export default function Page() {
+export default async function Page() {
+  const locale = await requestLocale();
   const { deliveryPrice, deliveryTerms } = getStorePolicy();
-  return <CheckoutClient deliveryPrice={deliveryPrice} deliveryTerms={deliveryTerms} messengerAvailability={getCustomerMessengerAvailability()} />;
+  return <CheckoutClient deliveryPrice={deliveryPrice} deliveryTerms={uiText(locale, deliveryTerms)} messengerAvailability={getCustomerMessengerAvailability()} />;
 }

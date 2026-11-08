@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import ProductCard from "@/components/ProductCard";
-import { useUiText } from "@/components/LocaleProvider";
+import { useSiteLocale, useUiText } from "@/components/LocaleProvider";
 import ListLoadStatus from "@/components/ListLoadStatus";
 import useCatalogProducts from "@/components/useCatalogProducts";
 import type { CatalogBatch, CatalogSource } from "@/lib/catalogTypes";
@@ -21,6 +21,7 @@ type Props = { batch: CatalogBatch; source: CatalogSource; layout?: "catalog" | 
 
 export default function ShopGridClient({ batch, source, layout = "catalog" }: Props) {
   const t = useUiText();
+  const locale = useSiteLocale();
   const favMode = source.kind === "catalog" && source.query.fav === "1";
   const [favorites, setFavorites] = useState<string[] | null>(null);
   useEffect(() => {
@@ -42,7 +43,7 @@ export default function ShopGridClient({ batch, source, layout = "catalog" }: Pr
   if (favMode && favorites === null) return <p role="status" className="mt-4 text-sm text-gray-500">{t("Загрузка избранного…")}</p>;
   if (favMode && !favorites?.length) return <p className="mt-4 text-sm text-gray-500">{t("Нет товаров в избранном.")}</p>;
   const ids = favMode ? favorites! : NO_FAVORITES;
-  const viewKey = JSON.stringify([source, batch, ids]);
+  const viewKey = JSON.stringify([source, batch, ids, locale]);
   return <CatalogProductsList key={viewKey} viewKey={viewKey} batch={batch} source={source}
     layout={layout} favorites={ids} needsInitial={favMode} />;
 }

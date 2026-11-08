@@ -7,6 +7,7 @@ import { getPublicExternalLinks } from "@/lib/externalLinks";
 import { requestLocale } from "@/lib/i18nServer";
 import { uiText, localizedHref, type SiteLocale } from "@/lib/i18n";
 import { prisma } from "@/lib/prisma";
+import { localizedProducts } from "@/lib/localizedContent";
 import { productDisplayName } from "@/lib/productNames";
 import { normalizePublicProductVariants } from "@/lib/publicProductVariants";
 import { collapseRepresentedProductCards } from "@/lib/publicProductCards";
@@ -288,7 +289,7 @@ export default async function Home() {
     ...collapseRepresentedProductCards([...fallbackById.values()]),
   ];
   const popularIdentityKeys = new Set<string>();
-  const popular = popularCandidates
+  let popular = popularCandidates
     .filter((product) => {
       const key =
         productIdentityKey({
@@ -314,7 +315,7 @@ export default async function Home() {
       )
       .filter((value): value is string => Boolean(value)),
   );
-  const newArrivals = collapseRepresentedProductCards(newArrivalRows)
+  let newArrivals = collapseRepresentedProductCards(newArrivalRows)
     .filter((product) => {
       const key = productIdentityKey({
         brandName: product.brand?.name,
@@ -325,6 +326,13 @@ export default async function Home() {
       return !key || !popularKeys.has(key);
     })
     .slice(0, 8);
+
+  if (locale !== "ru") {
+    [popular, newArrivals] = await Promise.all([
+      localizedProducts(popular, locale),
+      localizedProducts(newArrivals, locale),
+    ]);
+  }
 
   return (
     <div className="space-y-12">

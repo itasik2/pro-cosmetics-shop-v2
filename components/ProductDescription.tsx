@@ -1,5 +1,6 @@
 import { customerProductCopy, hasMissingProductData } from "@/lib/productCopy";
 import type { ReactNode } from "react";
+import { uiText, type SiteLocale } from "@/lib/i18n";
 
 const SECTION_TITLES = [
   "Для какой кожи",
@@ -56,8 +57,10 @@ function descriptionContent(lines: string[]): ReactNode {
 
 export default function ProductDescription({
   description,
+  locale = "ru",
 }: {
   description: string;
+  locale?: SiteLocale;
 }) {
   const blocks = normalizeDescriptionLayout(description)
     .split(/\n{2,}/)
@@ -96,7 +99,7 @@ export default function ProductDescription({
           >
             {heading && (
               <h2 className="mb-2 text-base font-semibold text-gray-950">
-                {heading}
+                {uiText(locale, heading)}
               </h2>
             )}
 
