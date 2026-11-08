@@ -5,8 +5,8 @@ No Google Translate, no translation at page-load time. Requires DATABASE_URL and
 OPENAI_API_KEY supplied by the operator. Does not alter Product/Post source rows.
 
 Usage:
-  python3 scripts/translate-content.py --locale kk --kind product --limit 50 --publish
-  python3 scripts/translate-content.py --locale en --kind post --publish
+  python3 scripts/translate-content.py --locale kk --kind product --limit 50
+  python3 scripts/translate-content.py --locale en --kind post
 """
 import argparse
 import concurrent.futures
@@ -26,7 +26,6 @@ parser.add_argument("--locale", required=True, choices=("kk", "en"))
 parser.add_argument("--kind", required=True, choices=("product", "post"))
 parser.add_argument("--limit", type=int, default=50)
 parser.add_argument("--workers", type=int, default=3)
-parser.add_argument("--publish", action="store_true")
 parser.add_argument("--model", default="gpt-4.1-mini")
 args = parser.parse_args()
 
@@ -69,7 +68,7 @@ for item in records:
     if saved and saved["sourceHash"]==item["hash"] and saved["status"]=="PUBLISHED":continue
     queue.append(item)
 queue=queue[:args.limit]
-print(json.dumps({"kind":args.kind,"locale":args.locale,"available":len(records),"queued":len(queue),"publish":args.publish}),flush=True)
+print(json.dumps({"kind":args.kind,"locale":args.locale,"available":len(records),"queued":len(queue),"status":"REVIEW"}),flush=True)
 
 language = "natural, native, standard Kazakh in Cyrillic used by residents of Kazakhstan" if args.locale=="kk" else "clear professional English"
 PROMPT = """
@@ -148,7 +147,7 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as executor
         if problem or not translation:
             failed.append([item["key"],problem or "missing"])
             continue
-        status="PUBLISHED" if args.publish else "REVIEW"
+        status="REVIEW"
         try:
             with db.cursor() as cur:
                 cur.execute("""
