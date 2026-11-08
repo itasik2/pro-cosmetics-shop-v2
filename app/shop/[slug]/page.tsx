@@ -11,6 +11,8 @@ import { SITE_BRAND, getPublicBaseUrl } from "@/lib/siteConfig";
 import { productDisplayName } from "@/lib/productNames";
 import { stringifyJsonLd } from "@/lib/structuredData";
 import { overlayCatalogHubProduct } from "@/lib/catalogHubOverlay";
+import { localizedProducts } from "@/lib/localizedContent";
+import { requestLocale } from "@/lib/i18nServer";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +37,9 @@ const getPublicProduct = cache(async (slug: string) => {
 
 export async function generateMetadata(props: Props): Promise<Metadata> {
   const params = await props.params;
-  const product = await getPublicProduct(params.slug);
+  const locale = await requestLocale();
+  const original = await getPublicProduct(params.slug);
+  const product = original ? (await localizedProducts([original], locale))[0] : null;
 
   if (!product) {
     return {
@@ -74,9 +78,12 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
 
 export default async function ProductPage(props: Props) {
   const params = await props.params;
+  const locale = await requestLocale();
   const nonce = await getCspNonce();
-  const product = await getPublicProduct(params.slug);
-  if (!product) notFound();
+  const original = await getPublicProduct(params.slug);
+  if (!original) notFound();
+  const product = (await localizedProducts([original], locale))[0];
+  const translated = locale !== "ru" && product.description !== original.description;
 
   const baseUrl = getPublicBaseUrl();
   const displayName = productDisplayName(product);
@@ -85,7 +92,7 @@ export default async function ProductPage(props: Props) {
     "@type": "Product",
     name: displayName,
     image: product.image ? [product.image] : [],
-    description: publicShortDescription(product.shortDescription) || verifiedProductCopy(product)?.description || product.description,
+    description: publicShortDescription(product.shortDescription) || (translated ? product.description : verifiedProductCopy(product)?.description || product.description),
     sku: product.supplierSku || undefined,
     brand: product.brand?.name
       ? {
@@ -116,7 +123,7 @@ export default async function ProductPage(props: Props) {
       />
 
       <div className="py-10">
-        <ProductDetailsClient product={product} />
+        <ProductDetailsClient product={product} translated={translated} />
       </div>
     </>
   );
