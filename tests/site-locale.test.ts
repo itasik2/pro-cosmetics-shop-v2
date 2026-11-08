@@ -37,10 +37,12 @@ test("mobile header keeps language and navigation controls compact", async () =>
   const languageSource = readFileSync(join(process.cwd(), "components/LanguageSwitcher.tsx"), "utf8");
   const navbarSource = readFileSync(join(process.cwd(), "components/Navbar.tsx"), "utf8");
 
-  assert.match(languageSource, /<select[\\s\\S]*?aria-label=\\{t\\("Выбор языка"\\)\\}/);
-  assert.match(languageSource, /w-\\[68px\\]/);
-  assert.doesNotMatch(languageSource, /LANGUAGES\\.map\\([\\s\\S]*?<a\\s/);
-  assert.match(navbarSource, /h-8 w-auto sm:h-12/);
-  assert.match(navbarSource, /h-9 w-9 shrink-0/);
-  assert.match(navbarSource, /aria-label=\\{open \\? t\\("Закрыть"\\) : t\\("Меню"\\)\\}/);
+  assert.ok(languageSource.includes("<select"));
+  assert.ok(languageSource.includes('aria-label={t("Выбор языка")}'));
+  assert.ok(languageSource.includes("w-[68px]"));
+  assert.ok(languageSource.includes("<option"));
+  assert.ok(!languageSource.includes("<a "));
+  assert.ok(navbarSource.includes("h-8 w-auto sm:h-12"));
+  assert.ok(navbarSource.includes("h-9 w-9 shrink-0"));
+  assert.ok(navbarSource.includes('aria-label={open ? t("Закрыть") : t("Меню")}'));
 });
