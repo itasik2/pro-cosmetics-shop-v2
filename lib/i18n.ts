@@ -438,6 +438,9 @@ Object.assign(dictionaries.en, {
   "Проверьте email: туда придёт защищённая ссылка на страницу заказа и дальнейшие уведомления.": "Check your email for a secure order link and future updates."
 });
 
+Object.assign(dictionaries.kk, {"Для какой кожи":"Қандай теріге арналған","Для каких задач":"Қандай мәселелерге арналған","Преимущества":"Артықшылықтары","Почему удобно":"Қолдануға ыңғайлы тұстары","Способ применения":"Қолдану тәсілі","Состав и активные компоненты":"Құрамы және белсенді компоненттері","Важно":"Маңызды"});
+Object.assign(dictionaries.en, {"Для какой кожи":"Suitable skin types","Для каких задач":"What it targets","Преимущества":"Benefits","Почему удобно":"Why it's convenient","Способ применения":"How to use","Состав и активные компоненты":"Ingredients and active components","Важно":"Important"});
+
 export function uiText(locale: SiteLocale, russian: string): string {
   return locale === "ru" ? russian : dictionaries[locale][russian] || russian;
 }
