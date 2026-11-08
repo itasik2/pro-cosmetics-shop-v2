@@ -543,3 +543,26 @@ model SiteHealthCheck {
   @@index([siteKey, createdAt], map: "SiteHealthCheck_site_created_idx")
   @@index([siteKey, isHealthy, createdAt], map: "SiteHealthCheck_site_health_created_idx")
 }
+
+/**
+ * Store reviewed localized copies separately from the source catalog.
+ * All original SKU, prices, inventory and source text remain unchanged.
+ */
+model LocalizedContent {
+  id            String   @id @default(cuid())
+  key           String
+  locale        String
+  name          String
+  summary       String?  @db.Text
+  body          String   @db.Text
+  sourceName    String
+  sourceSummary String?  @db.Text
+  sourceHash    String
+  status        String   @default("REVIEW")
+  reviewedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([key, locale])
+  @@index([locale, status])
+}
