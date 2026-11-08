@@ -4,9 +4,11 @@ import { startTransition, useCallback, useEffect, useLayoutEffect, useRef, useSt
 import { mergeCatalogProducts, requestCatalogBatch } from "@/lib/catalogClient";
 import { observeListEnd } from "@/lib/progressiveList";
 import type { CatalogBatch, CatalogSource } from "@/lib/catalogTypes";
+import { useSiteLocale } from "@/components/LocaleProvider";
 import { catalogViewCache } from "@/lib/catalogViewState";
 
 export default function useCatalogProducts(initial: CatalogBatch, source: CatalogSource, favorites: string[], needsInitial: boolean, viewKey: string) {
+  const locale = useSiteLocale();
   const [restored] = useState(() => typeof window === "undefined" ? undefined : catalogViewCache.read(viewKey));
   const [state, setState] = useState(() => ({
     ...(restored?.batch ?? initial), ...(!restored && needsInitial ? { products: [], total: 0, cursor: undefined, hasMore: true } : {}),
@@ -44,7 +46,7 @@ export default function useCatalogProducts(initial: CatalogBatch, source: Catalo
     const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, 15000);
     setState((value) => ({ ...value, loading: true, error: "" }));
     try {
-      const batch = await requestCatalogBatch({ source, favorites, cursor: current.cursor }, controller.signal);
+      const batch = await requestCatalogBatch({ source, favorites, cursor: current.cursor, locale }, controller.signal);
       if (controller.signal.aborted) return;
       startTransition(() => setState((value) => ({ ...batch,
         products: mergeCatalogProducts(value.products, batch.products),
@@ -59,7 +61,7 @@ export default function useCatalogProducts(initial: CatalogBatch, source: Catalo
         if (controller.signal.aborted) setState((value) => ({ ...value, loading: false }));
       }
     }
-  }, [source, favorites]);
+  }, [source, favorites, locale]);
 
   useEffect(() => () => activeRequest.current?.abort(), []);
   useEffect(() => {
