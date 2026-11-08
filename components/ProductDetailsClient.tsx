@@ -25,6 +25,7 @@ type Variant = {
 };
 
 type Props = {
+  translated?: boolean;
   product: {
     id: string;
     slug?: string;
@@ -55,10 +56,10 @@ function normalizeVariants(v: any): Variant[] {
     .filter((v) => v.id && v.label);
 }
 
-export default function ProductDetailsClient({ product }: Props) {
+export default function ProductDetailsClient({ product, translated = false }: Props) {
   const locale = useSiteLocale();
   const t = useUiText();
-  const verifiedCopy = verifiedProductCopy(product);
+  const verifiedCopy = translated ? null : verifiedProductCopy(product);
   const description = verifiedCopy?.description || product.description;
   const displayName = productDisplayName(product);
   const variants = useMemo(() => normalizeVariants(product.variants), [product]);
@@ -157,7 +158,7 @@ export default function ProductDetailsClient({ product }: Props) {
           <p className="text-base leading-7 text-gray-700">{shortDescription}</p>
         )}
 
-        <ProductDescription description={description} />
+        <ProductDescription description={description} locale={locale} />
         {verifiedCopy && <a href={verifiedCopy.sourceUrl} target="_blank" rel="noopener noreferrer" className="block text-sm text-gray-600 underline">{t("Инструкция производителя Angiopharm")}</a>}
 
         <Link
