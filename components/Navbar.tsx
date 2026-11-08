@@ -68,10 +68,13 @@ export default function Navbar() {
 
       <header className="sticky top-0 z-50 border-b border-[var(--color-border)] bg-white/95 backdrop-blur">
         <div className="border-b border-[var(--color-border)] bg-[var(--color-surface-muted)]">
-          <div className="container flex min-h-9 items-center justify-between gap-3 py-1 text-xs text-gray-600">
-            <span className="truncate">
-              {t("Профессиональный уход с доставкой по Казахстану")}
-            </span>
+          <div className="container flex min-h-9 items-center justify-between gap-2 py-1 text-xs text-gray-600">
+            <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+              <LanguageSwitcher />
+              <span className="min-w-0 truncate">
+                {t("Профессиональный уход с доставкой по Казахстану")}
+              </span>
+            </div>
             <div className="flex shrink-0 items-center gap-3">
               {SITE_WHATSAPP_URL ? (
                 <a
@@ -140,7 +143,6 @@ export default function Navbar() {
                 ) : null}
               </Link>
             ) : null}
-            <LanguageSwitcher />
             <button
               type="button"
               className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary)] p-0 text-sm font-semibold text-white sm:h-auto sm:min-h-9 sm:w-auto sm:px-3 sm:py-1 lg:hidden"
