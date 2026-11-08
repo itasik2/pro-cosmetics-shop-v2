@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 type Locale = "kk" | "en";
 type Kind = "product" | "post";
@@ -32,6 +32,10 @@ export default function AdminTranslationsClient() {
   const [summary, setSummary] = useState("");
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkLimit, setBulkLimit] = useState(20);
+  const [bulkProgress, setBulkProgress] = useState({ completed: 0, failed: 0 });
+  const stopBulk = useRef(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -94,6 +98,62 @@ export default function AdminTranslationsClient() {
     } finally { setBusy(false); }
   };
 
+
+  // Generated text is stored as REVIEW, never published without editorial confirmation.
+  const prepareMissing = async () => {
+    if (bulkBusy || busy) return;
+    if (!confirm(`Подготовить до ${bulkLimit} ИИ-черновиков для ${locale.toUpperCase()}? Расходуется платный API OpenAI. Публикация будет только после ручной проверки.`)) return;
+    stopBulk.current = false;
+    setBulkBusy(true);
+    setBulkProgress({ completed: 0, failed: 0 });
+    const attempted = new Set<string>();
+    let completed = 0;
+    let failed = 0;
+    try {
+      while (!stopBulk.current && completed + failed < bulkLimit) {
+        let next: Item | undefined;
+        let currentPage = 1;
+        while (!stopBulk.current) {
+          const params = new URLSearchParams({ kind, locale, status: "MISSING", page: String(currentPage) });
+          const response = await fetch("/api/admin/translations?" + params, { cache: "no-store" });
+          if (!response.ok) throw new Error("Не удалось получить список переводов.");
+          const results = await response.json() as Result;
+          next = results.items.find((candidate) => !attempted.has(candidate.key));
+          if (next || currentPage >= results.pages) break;
+          currentPage += 1;
+        }
+        if (!next || stopBulk.current) break;
+        attempted.add(next.key);
+        try {
+          const response = await fetch("/api/admin/translations", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ key: next.key, locale, sourceHash: next.hash }),
+          });
+          const result = await response.json();
+          if (!response.ok || !result.draft) throw new Error(result.error || "translation_failed");
+          const saved = await fetch("/api/admin/translations", {
+            method: "PATCH", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              key: next.key, locale, sourceHash: next.hash, name: result.draft.name,
+              summary: result.draft.summary || null, body: result.draft.body, status: "REVIEW",
+            }),
+          });
+          if (!saved.ok) throw new Error("draft_save_failed");
+          completed += 1;
+        } catch {
+          failed += 1;
+        }
+        setBulkProgress({ completed, failed });
+      }
+      setMessage(`Подготовлено ИИ-черновиков: ${completed}. Ошибок: ${failed}. Проверьте тексты и опубликуйте проверенные версии.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Пакетная подготовка прервана.");
+    } finally {
+      setBulkBusy(false);
+      void load();
+    }
+  };
+
   const save = async (publish: boolean) => {
     if (!item || busy) return;
     if (publish && !confirm("Текст проверен? Опубликовать этот перевод на сайте?")) return;
@@ -117,24 +177,50 @@ export default function AdminTranslationsClient() {
 
   return (
     <div className="space-y-5">
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl border bg-white p-4">
+        <div className="min-w-0 flex-1">
+          <h2 className="font-semibold">Массовая подготовка переводов</h2>
+          <p className="mt-1 text-xs text-gray-600">
+            Только отсутствующие переводы. ИИ создаёт черновики для проверки; публикация вручную.
+            Оставьте вкладку открытой, пока идёт обработка.
+          </p>
+        </div>
+        <label className="flex flex-col gap-1 text-xs">Количество
+          <select className="rounded-lg border p-2" value={bulkLimit} disabled={bulkBusy}
+            onChange={(event) => setBulkLimit(Number(event.target.value))}>
+            <option value={20}>20</option>
+            <option value={100}>100</option>
+            <option value={500}>Все (до 500)</option>
+          </select>
+        </label>
+        {bulkBusy
+          ? <button type="button" className="btn-secondary" onClick={() => { stopBulk.current = true; }}>Остановить</button>
+          : <button type="button" className="btn" disabled={busy} onClick={() => void prepareMissing()}>Подготовить ИИ-черновики</button>}
+        {(bulkBusy || bulkProgress.completed > 0 || bulkProgress.failed > 0) && (
+          <p role="status" className="w-full text-xs text-gray-600">
+            Подготовлено: {bulkProgress.completed}; ошибок: {bulkProgress.failed}
+          </p>
+        )}
+      </div>
+
       <div className="flex flex-wrap items-end gap-3 rounded-2xl border bg-white p-4">
         <label className="flex flex-col gap-1 text-sm">Раздел
-          <select className="rounded-lg border p-2" value={kind} onChange={(e) => { setKind(e.target.value as Kind); setPage(1); }}>
+          <select className="rounded-lg border p-2" value={kind} disabled={bulkBusy} onChange={(e) => { setKind(e.target.value as Kind); setPage(1); }}>
             <option value="product">Товары</option><option value="post">Блог</option>
           </select>
         </label>
         <label className="flex flex-col gap-1 text-sm">Язык
-          <select className="rounded-lg border p-2" value={locale} onChange={(e) => { setLocale(e.target.value as Locale); setPage(1); }}>
+          <select className="rounded-lg border p-2" value={locale} disabled={bulkBusy} onChange={(e) => { setLocale(e.target.value as Locale); setPage(1); }}>
             <option value="kk">Қазақша</option><option value="en">English</option>
           </select>
         </label>
         <label className="flex flex-col gap-1 text-sm">Статус
-          <select className="rounded-lg border p-2" value={status} onChange={(e) => { setStatus(e.target.value as Status); setPage(1); }}>
+          <select className="rounded-lg border p-2" value={status} disabled={bulkBusy} onChange={(e) => { setStatus(e.target.value as Status); setPage(1); }}>
             <option value="all">Все</option>
             {Object.entries(STATES).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
         </label>
-        <form className="flex flex-1 flex-wrap items-end gap-2" onSubmit={(event) => { event.preventDefault(); setPage(1); setSearch(q); }}>
+        <form className="flex flex-1 flex-wrap items-end gap-2" onSubmit={(event) => { event.preventDefault(); if (!bulkBusy) { setPage(1); setSearch(q); } }}>
           <label className="min-w-[160px] flex-1 text-sm">Поиск
             <input className="mt-1 w-full rounded-lg border p-2" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Название, бренд или SKU" />
           </label>
@@ -177,7 +263,7 @@ export default function AdminTranslationsClient() {
               </div>
               {item.state === "STALE" && <p role="alert" className="text-sm text-amber-800">Русский текст изменился. Проверьте перевод перед публикацией.</p>}
               <div className="flex flex-wrap gap-2">
-                <button disabled={busy} className="btn-secondary" onClick={() => void generate()}>
+                <button disabled={busy || bulkBusy} className="btn-secondary" onClick={() => void generate()}>
                   {busy ? "Обработка…" : "Подготовить черновик ИИ"}
                 </button>
               </div>
@@ -191,8 +277,8 @@ export default function AdminTranslationsClient() {
                 <textarea className="mt-1 w-full rounded-lg border p-2 font-mono text-sm leading-6" rows={12} maxLength={30000} value={body} onChange={(e) => setBody(e.target.value)} />
               </label>
               <div className="flex flex-wrap gap-2">
-                <button className="btn-secondary" disabled={busy || !name.trim() || !body.trim()} onClick={() => void save(false)}>Сохранить черновик</button>
-                <button className="btn" disabled={busy || !name.trim() || !body.trim()} onClick={() => void save(true)}>Опубликовать перевод</button>
+                <button className="btn-secondary" disabled={busy || bulkBusy || !name.trim() || !body.trim()} onClick={() => void save(false)}>Сохранить черновик</button>
+                <button className="btn" disabled={busy || bulkBusy || !name.trim() || !body.trim()} onClick={() => void save(true)}>Опубликовать перевод</button>
               </div>
             </div>
           ) : (
