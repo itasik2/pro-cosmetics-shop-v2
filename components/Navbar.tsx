@@ -93,7 +93,7 @@ export default function Navbar() {
           </div>
         </div>
 
-        <div className="container flex min-h-16 items-center justify-between gap-2 py-2 sm:min-h-[76px] sm:gap-4 sm:py-3">
+        <div className="container flex min-h-16 min-w-0 items-center justify-between gap-2 py-2 sm:min-h-[76px] sm:gap-4 sm:py-3">
           <Link href={localizedHref("/", locale)} className="inline-flex shrink-0" aria-label="PRO COSMETICS — на главную">
             <Image
               src="/brand/header-logo.svg"
@@ -101,7 +101,7 @@ export default function Navbar() {
               width={300}
               height={70}
               priority
-              className="h-9 w-auto sm:h-12"
+              className="h-8 w-auto sm:h-12"
             />
           </Link>
 
@@ -113,7 +113,7 @@ export default function Navbar() {
             ))}
           </nav>
 
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
             {!isCheckoutPage ? (
               <Link
                 href={localizedHref("/checkout", locale)}
@@ -143,12 +143,16 @@ export default function Navbar() {
             <LanguageSwitcher />
             <button
               type="button"
-              className="inline-flex min-h-8 items-center justify-center rounded-full bg-[var(--color-primary)] px-3 py-1 text-sm font-semibold text-white lg:hidden"
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary)] p-0 text-sm font-semibold text-white sm:h-auto sm:min-h-9 sm:w-auto sm:px-3 sm:py-1 lg:hidden"
               onClick={() => setOpen((value) => !value)}
+              aria-label={open ? t("Закрыть") : t("Меню")}
               aria-expanded={open}
               aria-controls="mobile-navigation"
             >
-              {open ? t("Закрыть") : t("Меню")}
+              <svg className="h-5 w-5 sm:hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                {open ? <path d="M6 6 18 18M18 6 6 18" /> : <path d="M4 7h16M4 12h16M4 17h16" />}
+              </svg>
+              <span className="hidden sm:inline">{open ? t("Закрыть") : t("Меню")}</span>
             </button>
           </div>
         </div>
