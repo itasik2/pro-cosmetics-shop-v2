@@ -55,12 +55,12 @@ export async function localizedPosts<T extends LocalizablePost>(posts: T[], loca
   if (locale === "ru" || !posts.length) return posts;
   const translations = await prisma.localizedContent.findMany({
     where: { key: { in: posts.map((post) => `post:${post.id}`) }, locale, status: "PUBLISHED" },
-    select: { key: true, name: true, body: true, sourceHash: true },
+    select: { key: true, name: true, summary: true, body: true, sourceHash: true },
   });
   const indexed = new Map(translations.map((row) => [row.key, row]));
   return posts.map((post) => {
     const entry = indexed.get(`post:${post.id}`);
     if (!entry || entry.sourceHash !== contentSourceHash(post.title, post.category || "", post.content)) return post;
-    return { ...post, title: entry.name, content: entry.body };
+    return { ...post, title: entry.name, category: entry.summary || post.category, content: entry.body };
   });
 }
