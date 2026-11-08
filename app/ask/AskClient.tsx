@@ -7,12 +7,16 @@ import AddToCartButton from "@/components/AddToCartButton";
 import { CATEGORY_OPTIONS, CARE_OPTIONS, parseBudget } from "@/lib/catalogFilters";
 import { SITE_WHATSAPP_URL } from "@/lib/siteConfig";
 import type { ConsultantRecommendation } from "@/lib/consultantCatalog";
+import { useSiteLocale, useUiText } from "@/components/LocaleProvider";
+import { localizedHref, categoryLabel } from "@/lib/i18n";
 
 type ProductContext = { id: string; slug: string; name: string; price: number | null; volume: string; category: string; brand?: { name: string } | null };
 type Message = { id: number; role: "user" | "assistant"; text: string; recommendations?: ConsultantRecommendation[]; mode?: string };
 const examples = ["Крем для чувствительной кожи до 10 000 ₸", "Нужно увлажнение после умывания", "Помоги выбрать средство для очищения"];
 
 export default function AskClient() {
+  const locale = useSiteLocale();
+  const t = useUiText();
   const params = useSearchParams();
   const productId = params.get("productId") || "";
   const care = CARE_OPTIONS.find((option) => option.slug === params.get("care"));
@@ -63,7 +67,7 @@ export default function AskClient() {
     try {
       const response = await fetch("/api/ask", { method: "POST", signal: controller.signal,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, context: productId && !productError ? { productId } : null, history }) });
+        body: JSON.stringify({ query, locale, context: productId && !productError ? { productId } : null, history }) });
       const data = await response.json() as { answer?: string; recommendations?: ConsultantRecommendation[]; mode?: string; diagnostic?: { status: number; code: string; parameter: string } };
       if (data.diagnostic) console.warn("CONSULTANT_UNAVAILABLE", JSON.stringify(data.diagnostic));
       if (!controller.signal.aborted) setMessages((current) => [...current, { id: ++nextId.current, role: "assistant",
@@ -85,10 +89,10 @@ export default function AskClient() {
     </div>
     <p className="rounded-2xl border bg-white p-4 text-xs leading-6 text-gray-600">Ответы создаёт ИИ на основе сведений магазина; он может ошибаться. Сообщения передаются сервису ИИ. Не указывайте личные данные и медицинские документы. Консультация помогает выбрать косметику и не заменяет специалиста.</p>
     {productLoading && <p role="status" className="text-sm text-gray-600">Загружаем сведения о товаре…</p>}
-    {productError && <p role="alert" className="text-sm text-gray-600">Товар недоступен. Вы можете задать общий вопрос или <Link href="/shop" className="underline">выбрать другой товар</Link>.</p>}
+    {productError && <p role="alert" className="text-sm text-gray-600">Товар недоступен. Вы можете задать общий вопрос или <Link href={localizedHref("/shop",locale)} className="underline">{t("выбрать другой товар")}</Link>.</p>}
     {product && <div className="site-panel rounded-2xl p-4">
       <p className="text-xs text-gray-500">Вопрос о товаре</p>
-      <Link href={`/shop/${encodeURIComponent(product.slug)}`} className="font-semibold underline">{product.name}</Link>
+      <Link href={localizedHref(`/shop/${encodeURIComponent(product.slug)}`,locale)} className="font-semibold underline">{product.name}</Link>
       <p className="mt-1 text-sm text-gray-600">{product.brand?.name} • {product.category} • {product.price === null ? "Нет в наличии" : `${product.volume ? `${product.volume} • ` : ""}${product.price.toLocaleString("ru-RU")} ₸`}</p>
     </div>}
     {!messages.length && !product && <div className="flex flex-wrap gap-2" aria-label="Примеры вопросов">
@@ -116,22 +120,24 @@ export default function AskClient() {
       </div>
     </form>
     <div className="flex flex-wrap items-center gap-4 text-sm">
-      <Link href="/care" className="underline">Подбор по фильтрам</Link>
+      <Link href={localizedHref("/care",locale)} className="underline">{t("Подбор по фильтрам")}</Link>
       {SITE_WHATSAPP_URL && <a href={SITE_WHATSAPP_URL} target="_blank" rel="noopener noreferrer" className="underline">Помощь магазина в WhatsApp</a>}
     </div>
   </div>;
 }
 
 function Recommendation({ product }: { product: ConsultantRecommendation }) {
-  const href = `/shop/${encodeURIComponent(product.slug)}`;
+  const locale = useSiteLocale();
+  const t = useUiText();
+  const href = localizedHref(`/shop/${encodeURIComponent(product.slug)}`,locale);
   return <article className="flex flex-col rounded-xl border p-3">
     <Link href={href} aria-label={`Открыть товар: ${product.name}`}><img src={product.image} alt={product.name} width={200} height={200} loading="lazy" className="mb-3 h-36 w-full rounded-lg object-contain" /></Link>
-    <p className="text-xs text-gray-500">{product.brand} • {product.category}</p>
+    <p className="text-xs text-gray-500">{product.brand} • {categoryLabel(locale,product.category)}</p>
     <Link href={href} className="mt-1 text-sm font-semibold hover:underline">{product.name}</Link>
     <p className="mt-2 text-xs leading-5 text-gray-600">{product.reason || product.summary}</p>
     {product.sourceUrl && <a href={product.sourceUrl} className="mt-2 text-xs underline" target="_blank" rel="noopener noreferrer">Источник сведений</a>}
     <div className="mt-auto pt-3">
-      <p className="text-xs text-gray-600">{product.volume ? `${product.volume} • ` : ""}В наличии: {product.stock}</p>
+      <p className="text-xs text-gray-600">{product.volume ? `${product.volume} • ` : ""}{t("В наличии:")} {product.stock}</p>
       <p className="my-2 font-semibold">{product.price.toLocaleString("ru-RU")} ₸</p>
       <AddToCartButton productId={product.id} variantId={product.variantId} maxStock={product.stock} />
       <Link href={href} className="mt-2 block text-xs underline">Инструкция и другие объёмы</Link>
