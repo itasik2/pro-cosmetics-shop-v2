@@ -19,6 +19,44 @@ const STATES: Record<Exclude<Status, "all">, string> = {
 };
 const EMPTY: Result = { items: [], count: 0, pages: 1, page: 1 };
 
+type ApiError = {
+  error?: string;
+  code?: string;
+  providerStatus?: number;
+  parameter?: string;
+};
+const ERROR_LABELS: Record<string, string> = {
+  invalid_api_key: "Ключ OpenAI недействителен. Проверьте OPENAI_API_KEY в настройках Vercel.",
+  insufficient_quota: "У OpenAI закончились средства или превышен лимит расходов. Проверьте биллинг API.",
+  billing_hard_limit_reached: "Превышен лимит расходов OpenAI API.",
+  rate_limit_exceeded: "Достигнут лимит запросов OpenAI. Уменьшите нагрузку и повторите позже.",
+  model_not_found: "Выбранная модель OpenAI недоступна для API-ключа. Проверьте OPENAI_TRANSLATION_MODEL.",
+  unsupported_parameter: "Модель OpenAI не принимает один из параметров запроса.",
+  unsupported_value: "Модель OpenAI не поддерживает один из параметров запроса.",
+  invalid_request_error: "OpenAI отклонил формат запроса.",
+  timeout: "Сервис перевода не ответил за установленное время.",
+  network_or_response_error: "Ошибка соединения с OpenAI или некорректный ответ сервиса.",
+  translation_service_not_configured: "Ключ OpenAI не настроен в Vercel Production.",
+  translation_provider_error: "OpenAI отклонил запрос перевода.",
+  invalid_ai_draft: "OpenAI вернул неполный или неверный перевод.",
+  ai_draft_missing_url: "В переводе отсутствует ссылка из оригинала.",
+  brand_or_sku_missing: "В переводе названия утрачен бренд или SKU.",
+  origin_forbidden: "Запрос отклонён проверкой адреса сайта. Используйте основной домен магазина.",
+  forbidden: "Нет доступа администратора. Войдите в админку снова.",
+  source_changed_refresh: "Исходный товар изменился. Обновите список перед переводом.",
+  invalid_translation: "Черновик не прошёл проверку полей.",
+};
+
+function readableError(details: ApiError, status: number): string {
+  const label = ERROR_LABELS[details.code || ""] ||
+    ERROR_LABELS[details.error || ""] ||
+    "Не удалось подготовить перевод.";
+  const suffix = details.providerStatus ? ` (OpenAI HTTP ${details.providerStatus})` :
+    status >= 400 ? ` (HTTP ${status})` : "";
+  const parameter = details.parameter ? ` [${details.parameter}]` : "";
+  return label + suffix + parameter;
+}
+
 export default function AdminTranslationsClient() {
   const [kind, setKind] = useState<Kind>("product");
   const [locale, setLocale] = useState<Locale>("kk");
@@ -88,7 +126,7 @@ export default function AdminTranslationsClient() {
         body: JSON.stringify({ key: item.key, locale, sourceHash: item.hash }),
       });
       const result = await response.json();
-      if (!response.ok || !result.draft) throw new Error(result.error || "Ошибка подготовки перевода.");
+      if (!response.ok || !result.draft) throw new Error(readableError(result, response.status));
       setName(result.draft.name);
       setSummary(result.draft.summary || "");
       setBody(result.draft.body);
@@ -112,10 +150,11 @@ export default function AdminTranslationsClient() {
     setMessage("");
     let completed = 0;
     let failed = 0;
+    let firstError: string | null = null;
+
     try {
-      // Capture the worklist before saving drafts. Pagination changes as
-      // translations move from MISSING to REVIEW, so paging while mutating
-      // silently skips products.
+      // Snapshot the missing items before saving drafts. Otherwise pagination
+      // shifts on each successful save and skips other missing products.
       const pending: Item[] = [];
       let currentPage = 1;
       let totalPages = 1;
@@ -124,56 +163,80 @@ export default function AdminTranslationsClient() {
           kind, locale, status: "MISSING", page: String(currentPage),
         });
         const response = await fetch("/api/admin/translations?" + params, { cache: "no-store" });
-        if (!response.ok) throw new Error("Не удалось получить список переводов.");
+        if (!response.ok) {
+          const details = await response.json().catch(() => ({})) as ApiError;
+          throw new Error(readableError(details, response.status));
+        }
         const result = await response.json() as Result;
         pending.push(...result.items.slice(0, bulkLimit - pending.length));
         totalPages = result.pages;
         currentPage += 1;
       }
-      let nextIndex = 0;
+
+      const processOne = async (item: Item): Promise<boolean> => {
+        try {
+          const draftResponse = await fetch("/api/admin/translations", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ key: item.key, locale, sourceHash: item.hash }),
+          });
+          const draftData = await draftResponse.json().catch(() => ({})) as ApiError & {
+            draft?: { name: string; summary: string | null; body: string };
+          };
+          if (!draftResponse.ok || !draftData.draft)
+            throw new Error(readableError(draftData, draftResponse.status));
+          const saved = await fetch("/api/admin/translations", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              key: item.key, locale, sourceHash: item.hash, name: draftData.draft.name,
+              summary: draftData.draft.summary || null, body: draftData.draft.body,
+              status: "REVIEW",
+            }),
+          });
+          if (!saved.ok) {
+            const details = await saved.json().catch(() => ({})) as ApiError;
+            throw new Error(readableError(details, saved.status));
+          }
+          completed += 1;
+          setBulkProgress({ completed, failed });
+          return true;
+        } catch (error) {
+          failed += 1;
+          firstError ||= error instanceof Error ? error.message : "Ошибка запроса.";
+          setBulkProgress({ completed, failed });
+          return false;
+        }
+      };
+
+      // Preflight one material, then stop on failure rather than wasting
+      // 20+ calls when the API key, billing, model or CSRF check is broken.
+      if (pending.length && !stopBulk.current) {
+        const ok = await processOne(pending[0]);
+        if (!ok) stopBulk.current = true;
+      }
+      let nextIndex = 1;
       const worker = async () => {
         while (!stopBulk.current) {
           const current = nextIndex++;
           if (current >= pending.length) return;
-          const item = pending[current];
-          try {
-            const draftResponse = await fetch("/api/admin/translations", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ key: item.key, locale, sourceHash: item.hash }),
-            });
-            const draftData = await draftResponse.json();
-            if (!draftResponse.ok || !draftData.draft)
-              throw new Error(draftData.error || "translation_failed");
-            const saveResponse = await fetch("/api/admin/translations", {
-              method: "PATCH",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                key: item.key, locale, sourceHash: item.hash,
-                name: draftData.draft.name, summary: draftData.draft.summary || null,
-                body: draftData.draft.body, status: "REVIEW",
-              }),
-            });
-            if (!saveResponse.ok) throw new Error("draft_save_failed");
-            completed += 1;
-          } catch {
-            // This item remains MISSING and can be retried in a later run.
-            failed += 1;
-          }
-          setBulkProgress({ completed, failed });
+          const ok = await processOne(pending[current]);
+          if (!ok) stopBulk.current = true;
         }
       };
-      // Bounded concurrency avoids serial processing of 346 products while
-      // keeping OpenAI request rate moderate and the browser responsive.
-      await Promise.all(Array.from({ length: Math.min(3, pending.length) }, () => worker()));
+      if (!stopBulk.current) {
+        await Promise.all(Array.from({ length: Math.min(3, pending.length - 1) }, () => worker()));
+      }
       setMessage(
-        `Подготовлено ИИ-черновиков: ${completed}. Ошибок: ${failed}. ` +
-        "Проверьте тексты и опубликуйте проверенные версии.",
+        `Подготовлено: ${completed}; ошибок: ${failed}. ` +
+        (firstError ? `Причина: ${firstError}. Дальнейшие запросы остановлены.` :
+          "Черновики ожидают проверки и публикации."),
       );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Пакетная подготовка прервана.");
     } finally {
       setBulkBusy(false);
+      stopBulk.current = false;
       void load();
     }
   };
@@ -191,7 +254,7 @@ export default function AdminTranslationsClient() {
         }),
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Не удалось сохранить перевод.");
+      if (!response.ok) throw new Error(readableError(result, response.status));
       setMessage(publish ? "Перевод опубликован." : "Черновик сохранён.");
       await load();
     } catch (error) {
