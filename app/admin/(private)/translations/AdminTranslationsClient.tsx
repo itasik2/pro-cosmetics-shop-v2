@@ -102,50 +102,74 @@ export default function AdminTranslationsClient() {
   // Generated text is stored as REVIEW, never published without editorial confirmation.
   const prepareMissing = async () => {
     if (bulkBusy || busy) return;
-    if (!confirm(`Подготовить до ${bulkLimit} ИИ-черновиков для ${locale.toUpperCase()}? Расходуется платный API OpenAI. Публикация будет только после ручной проверки.`)) return;
+    if (!confirm(
+      `Подготовить до ${bulkLimit} ИИ-черновиков для ${locale.toUpperCase()}? ` +
+      "Расходуется платный API OpenAI. Публикация будет только после ручной проверки.",
+    )) return;
     stopBulk.current = false;
     setBulkBusy(true);
     setBulkProgress({ completed: 0, failed: 0 });
-    const attempted = new Set<string>();
+    setMessage("");
     let completed = 0;
     let failed = 0;
     try {
-      while (!stopBulk.current && completed + failed < bulkLimit) {
-        let next: Item | undefined;
-        let currentPage = 1;
-        while (!stopBulk.current) {
-          const params = new URLSearchParams({ kind, locale, status: "MISSING", page: String(currentPage) });
-          const response = await fetch("/api/admin/translations?" + params, { cache: "no-store" });
-          if (!response.ok) throw new Error("Не удалось получить список переводов.");
-          const results = await response.json() as Result;
-          next = results.items.find((candidate) => !attempted.has(candidate.key));
-          if (next || currentPage >= results.pages) break;
-          currentPage += 1;
-        }
-        if (!next || stopBulk.current) break;
-        attempted.add(next.key);
-        try {
-          const response = await fetch("/api/admin/translations", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ key: next.key, locale, sourceHash: next.hash }),
-          });
-          const result = await response.json();
-          if (!response.ok || !result.draft) throw new Error(result.error || "translation_failed");
-          const saved = await fetch("/api/admin/translations", {
-            method: "PATCH", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              key: next.key, locale, sourceHash: next.hash, name: result.draft.name,
-              summary: result.draft.summary || null, body: result.draft.body, status: "REVIEW",
-            }),
-          });
-          if (!saved.ok) throw new Error("draft_save_failed");
-          completed += 1;
-        } catch {
-          failed += 1;
-        }
-        setBulkProgress({ completed, failed });
+      // Capture the worklist before saving drafts. Pagination changes as
+      // translations move from MISSING to REVIEW, so paging while mutating
+      // silently skips products.
+      const pending: Item[] = [];
+      let currentPage = 1;
+      let totalPages = 1;
+      while (!stopBulk.current && currentPage <= totalPages && pending.length < bulkLimit) {
+        const params = new URLSearchParams({
+          kind, locale, status: "MISSING", page: String(currentPage),
+        });
+        const response = await fetch("/api/admin/translations?" + params, { cache: "no-store" });
+        if (!response.ok) throw new Error("Не удалось получить список переводов.");
+        const result = await response.json() as Result;
+        pending.push(...result.items.slice(0, bulkLimit - pending.length));
+        totalPages = result.pages;
+        currentPage += 1;
       }
-      setMessage(`Подготовлено ИИ-черновиков: ${completed}. Ошибок: ${failed}. Проверьте тексты и опубликуйте проверенные версии.`);
+      let nextIndex = 0;
+      const worker = async () => {
+        while (!stopBulk.current) {
+          const current = nextIndex++;
+          if (current >= pending.length) return;
+          const item = pending[current];
+          try {
+            const draftResponse = await fetch("/api/admin/translations", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ key: item.key, locale, sourceHash: item.hash }),
+            });
+            const draftData = await draftResponse.json();
+            if (!draftResponse.ok || !draftData.draft)
+              throw new Error(draftData.error || "translation_failed");
+            const saveResponse = await fetch("/api/admin/translations", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                key: item.key, locale, sourceHash: item.hash,
+                name: draftData.draft.name, summary: draftData.draft.summary || null,
+                body: draftData.draft.body, status: "REVIEW",
+              }),
+            });
+            if (!saveResponse.ok) throw new Error("draft_save_failed");
+            completed += 1;
+          } catch {
+            // This item remains MISSING and can be retried in a later run.
+            failed += 1;
+          }
+          setBulkProgress({ completed, failed });
+        }
+      };
+      // Bounded concurrency avoids serial processing of 346 products while
+      // keeping OpenAI request rate moderate and the browser responsive.
+      await Promise.all(Array.from({ length: Math.min(3, pending.length) }, () => worker()));
+      setMessage(
+        `Подготовлено ИИ-черновиков: ${completed}. Ошибок: ${failed}. ` +
+        "Проверьте тексты и опубликуйте проверенные версии.",
+      );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Пакетная подготовка прервана.");
     } finally {
