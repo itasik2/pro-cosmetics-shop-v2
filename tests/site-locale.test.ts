@@ -52,3 +52,21 @@ test("mobile header keeps language and navigation controls compact", async () =>
   assert.ok(navbarSource.includes("h-9 w-9 shrink-0"));
   assert.ok(navbarSource.includes('aria-label={open ? t("Закрыть") : t("Меню")}'));
 });
+
+test("critical storefront and blog copy has translations in both languages", () => {
+  const title = "Профессиональная косметика для ухода, которая подходит именно вашей коже.";
+  const subtitle = "Подбирайте средства по типу и потребностям кожи. В каждой карточке — назначение, способ применения и понятные рекомендации.";
+  for (const locale of ["kk", "en"] as const) {
+    for (const value of [title, subtitle, "новости"]) {
+      assert.notEqual(uiText(locale, value), value);
+    }
+  }
+});
+
+test("about section renders localized headings and list text", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const about = readFileSync(join(process.cwd(), "app/about/page.tsx"), "utf8");
+  assert.ok(about.includes("{t(principle.title)}"));
+  assert.ok(about.includes("{t(benefit)}"));
+});
