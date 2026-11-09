@@ -612,6 +612,17 @@ Object.assign(dictionaries.en, {
   "Уточните способ применения перед покупкой через кнопку «Спросить о товаре». При использовании следуйте инструкции на упаковке.": "Please confirm the directions with the store before purchasing. Always follow the instructions on the packaging."
 });
 
+Object.assign(dictionaries.kk, {
+  "Профессиональная косметика для ухода, которая подходит именно вашей коже.": "Теріңіздің қажеттілігіне сай кәсіби косметика",
+  "Подбирайте средства по типу и потребностям кожи. В каждой карточке — назначение, способ применения и понятные рекомендации.": "Құралдарды теріңіздің түрі мен қажеттілігіне қарай таңдаңыз. Әр тауар бетінде оның мақсаты, қолдану тәсілі және түсінікті ұсыныстар берілген.",
+  "новости": "Жаңалықтар"
+});
+Object.assign(dictionaries.en, {
+  "Профессиональная косметика для ухода, которая подходит именно вашей коже.": "Professional skincare that suits your skin.",
+  "Подбирайте средства по типу и потребностям кожи. В каждой карточке — назначение, способ применения и понятные рекомендации.": "Choose products for your skin type and needs. Every product page explains their purpose, directions and practical recommendations.",
+  "новости": "News"
+});
+
 export function uiText(locale: SiteLocale, russian: string): string {
   return locale === "ru" ? russian : dictionaries[locale][russian] || russian;
 }
