@@ -33,7 +33,7 @@ export default function LanguageSwitcher() {
             localizedHref(pathname + window.location.search + window.location.hash, language),
           );
         }}
-        className="h-9 w-[68px] cursor-pointer appearance-none rounded-full border border-[var(--color-border)] bg-white pl-2.5 pr-6 text-xs font-semibold text-gray-800 shadow-sm transition hover:border-gray-400 sm:w-[76px] sm:text-sm"
+        className="h-8 w-[52px] cursor-pointer appearance-none border-0 bg-transparent pl-1 pr-4 text-[11px] font-normal leading-4 text-gray-600 shadow-none outline-offset-1 hover:text-gray-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-primary)]"
       >
         {LANGUAGES.map((language) => (
           <option key={language.locale} value={language.locale} lang={language.locale} title={t(language.name)}>
@@ -49,7 +49,7 @@ export default function LanguageSwitcher() {
         strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"
-        className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-600"
+        className="pointer-events-none absolute right-0.5 top-1/2 h-3 w-3 -translate-y-1/2 text-gray-500"
       >
         <path d="m6 9 6 6 6-6" />
       </svg>
