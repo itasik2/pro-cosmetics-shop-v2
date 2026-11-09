@@ -56,6 +56,34 @@ async function findSource(key: string): Promise<SourceText | null> {
 
 const NoStore = { "Cache-Control": "private, no-store" };
 
+const SAFE_PROVIDER_ERRORS = new Set([
+  "invalid_api_key", "insufficient_quota", "rate_limit_exceeded",
+  "model_not_found", "unsupported_parameter", "unsupported_value",
+  "invalid_request_error", "billing_hard_limit_reached",
+]);
+
+/** Send only safe diagnostic codes to the admin, never upstream messages or secrets. */
+async function upstreamTranslationFailure(response: Response) {
+  const body = await response.json().catch(() => null) as {
+    error?: { code?: unknown; type?: unknown; param?: unknown };
+  } | null;
+  const rawCode = body?.error?.code || body?.error?.type || "";
+  const code = typeof rawCode === "string" && SAFE_PROVIDER_ERRORS.has(rawCode)
+    ? rawCode
+    : "provider_rejected";
+  const parameter = body?.error?.param;
+  const safeParameter = typeof parameter === "string" &&
+    ["model", "store", "messages", "response_format", "temperature"].includes(parameter)
+    ? parameter : undefined;
+  console.warn("translation_provider_rejected", {
+    status: response.status, code, ...(safeParameter ? { parameter: safeParameter } : {}),
+  });
+  return NextResponse.json({
+    error: "translation_provider_error", code, providerStatus: response.status,
+    ...(safeParameter ? { parameter: safeParameter } : {}),
+  }, { status: 502, headers: NoStore });
+}
+
 export async function GET(request: Request) {
   const forbidden = await requireAdmin();
   if (forbidden) return forbidden;
@@ -201,7 +229,7 @@ export async function POST(request: Request) {
         ],
       }),
     });
-    if (!response.ok) return NextResponse.json({ error: "translation_service_unavailable" }, { status: 502, headers: NoStore });
+    if (!response.ok) return upstreamTranslationFailure(response);
     const result = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
     const answer = JSON.parse(result.choices?.[0]?.message?.content || "null");
     if (!answer || typeof answer.name !== "string" || typeof answer.body !== "string" ||
@@ -215,7 +243,12 @@ export async function POST(request: Request) {
       draft: { name: answer.name, summary: answer.summary ?? null, body: answer.body },
       warning: "ИИ-черновик. Проверьте содержание, термины и инструкции перед публикацией.",
     }, { headers: NoStore });
-  } catch {
-    return NextResponse.json({ error: "translation_service_unavailable" }, { status: 502, headers: NoStore });
+  } catch (error) {
+    const reason = error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name)
+      ? "timeout" : "network_or_response_error";
+    console.warn("translation_provider_exception", { reason });
+    return NextResponse.json({
+      error: "translation_connection_failed", code: reason,
+    }, { status: 502, headers: NoStore });
   }
 }
