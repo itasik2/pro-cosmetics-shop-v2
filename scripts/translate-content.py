@@ -26,7 +26,7 @@ parser.add_argument("--locale", required=True, choices=("kk", "en"))
 parser.add_argument("--kind", required=True, choices=("product", "post"))
 parser.add_argument("--limit", type=int, default=50)
 parser.add_argument("--workers", type=int, default=3)
-parser.add_argument("--model", default="gpt-4.1-mini")
+parser.add_argument("--model", default=os.getenv("OPENAI_TRANSLATION_MODEL") or os.getenv("OPENAI_ENRICHMENT_MODEL") or "gpt-5.6-luna")
 args = parser.parse_args()
 
 if not os.getenv("DATABASE_URL") or not os.getenv("OPENAI_API_KEY"):
@@ -82,10 +82,12 @@ Rules:
 - Use natural, concise, persuasive product language without generic filler.
 - The 'name' must be a product title in the target language, not a mechanical transliteration.
 - Preserve the format and paragraph/bullet structure of 'body'. Do not introduce markup or JSON strings inside.
-- In body, KEEP these exact Russian section labels (so our app can format their localized heading):
-  'Для какой кожи', 'Для каких задач', 'Преимущества', 'Почему удобно',
-  'Способ применения', 'Состав и активные компоненты', 'Важно'.
-  Translate ALL explanatory text under them into target language.
+- Translate section headers as well as explanatory paragraphs into the target language.
+  For Kazakh: 'Способ применения' -> 'Қолдану тәсілі',
+  'Состав и активные компоненты' -> 'Құрамы және белсенді компоненттері'.
+  For English: 'Способ применения' -> 'How to use',
+  'Состав и активные компоненты' -> 'Ingredients and active components'.
+  Keep each section heading on its own line.
 - If the source contains no such section, do not create a new one.
 - summary should be an accurate short description (or category for blog).
 - For Kazakh, use idiomatic native Kazakh and correct morphology, not Russian words in Kazakh script.
