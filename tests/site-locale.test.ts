@@ -39,7 +39,13 @@ test("mobile header keeps language and navigation controls compact", async () =>
 
   assert.ok(languageSource.includes("<select"));
   assert.ok(languageSource.includes('aria-label={t("Выбор языка")}'));
-  assert.ok(languageSource.includes("w-[68px]"));
+  assert.ok(languageSource.includes("w-[52px]"));
+  assert.ok(languageSource.includes("border-0 bg-transparent"));
+  assert.ok(languageSource.includes("text-[11px] font-normal"));
+  assert.ok(navbarSource.includes("absolute right-1 top-1/2"));
+  assert.ok(navbarSource.includes("pr-[68px]"));
+  assert.ok(navbarSource.includes("min-w-0 flex-1 truncate"));
+  assert.equal((navbarSource.match(/<LanguageSwitcher \/>/g) || []).length, 1);
   assert.ok(languageSource.includes("<option"));
   assert.ok(!languageSource.includes("<a "));
   assert.ok(navbarSource.includes("h-8 w-auto sm:h-12"));
