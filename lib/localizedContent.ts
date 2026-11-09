@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import type { SiteLocale } from "@/lib/i18n";
+import { localizeProductSectionHeadings } from "./productSectionHeadings";
 
 export type LocalizableProduct = {
   id: string;
@@ -46,7 +47,9 @@ export async function localizedProducts<T extends LocalizableProduct>(
       ...product,
       name: entry.name,
       shortDescription: entry.summary,
-      ...("description" in product ? { description: entry.body } : {}),
+      ...("description" in product ? {
+        description: localizeProductSectionHeadings(entry.body, locale),
+      } : {}),
     };
   });
 }

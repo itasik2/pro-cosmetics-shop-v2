@@ -125,3 +125,37 @@ test("a verified catalog edition can ground product text even when its own photo
   assert.equal(edition?.image, null);
   assert.equal(await tildaVariantPhoto(input, async () => api), null);
 });
+
+test("published product descriptions support native headings without exposing private INCI blocks", () => {
+  const kazakh = [
+    "Теріңізге арналған тазартқыш гель.",
+    "",
+    "Қолдану тәсілі",
+    "Аз мөлшерде ылғалды теріге жағып, сумен шайыңыз.",
+    "",
+    "Құрамы және белсенді компоненттері",
+    "Тек ішкі тексеруге арналған INCI мазмұны",
+    "",
+    "Артықшылықтары",
+    "Теріні жұмсақ тазартуға көмектеседі.",
+  ].join("\n");
+  const html = renderToStaticMarkup(<ProductDescription description={kazakh} locale="kk" />);
+  assert.match(html, /Қолдану тәсілі/);
+  assert.match(html, /Артықшылықтары/);
+  assert.ok(html.includes("Аз мөлшерде ылғалды теріге жағып"));
+  assert.doesNotMatch(html, /Тек ішкі тексеруге арналған INCI мазмұны/);
+  assert.doesNotMatch(html, /Способ применения/);
+
+  const legacy = [
+    "How to cleanse.",
+    "",
+    "Способ применения",
+    "Apply to damp skin and rinse.",
+    "",
+    "Состав и активные компоненты",
+    "Private INCI ingredients",
+  ].join("\n");
+  const english = renderToStaticMarkup(<ProductDescription description={legacy} locale="en" />);
+  assert.match(english, /How to use/);
+  assert.doesNotMatch(english, /Private INCI ingredients|Способ применения/);
+});

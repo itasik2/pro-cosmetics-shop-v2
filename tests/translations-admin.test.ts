@@ -3,6 +3,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { contentSourceHash } from "../lib/localizedContent";
+import {
+  ALL_PRODUCT_SECTION_HEADINGS,
+  canonicalProductSectionHeading,
+  localizeProductSectionHeadings,
+  localizedProductSectionHeading,
+} from "../lib/productSectionHeadings";
 import { translationModelCandidates, translationModelUnavailable } from "../lib/translationModels";
 
 test("source fingerprint detects meaningful changes to the Russian copy", () => {
@@ -51,4 +57,57 @@ test("translation generation retries only on explicitly unavailable model", () =
   assert.match(route, /translationModelUnavailable\(response.status, errorCode\)/);
   assert.match(route, /if \(!retry\) return upstreamTranslationFailure\(response\)/);
   assert.doesNotMatch(route, /getScopedEnv\("OPENAI_TRANSLATION_MODEL"\) \|\| "gpt-4\.1-mini"/);
+});
+
+test("Kazakh and English product section headings replace legacy Russian headers", () => {
+  const original = [
+    "JeuDerm AcnoCell — легкий гель.",
+    "",
+    "Способ применения",
+    "Гельді аз мөлшердегі сумен көбіктендіріңіз.",
+    "",
+    "Состав и активные компоненты",
+    "Салициловая кислота, Sodium Hyaluronate, Glycerin.",
+  ].join("\n");
+  const kazakh = localizeProductSectionHeadings(original, "kk");
+  assert.match(kazakh, /\nҚолдану тәсілі\n/);
+  assert.match(kazakh, /\nҚұрамы және белсенді компоненттері\n/);
+  assert.doesNotMatch(kazakh, /\nСпособ применения\n|\nСостав и активные компоненты\n/);
+  assert.ok(kazakh.includes("Гельді аз мөлшердегі сумен көбіктендіріңіз."));
+  assert.ok(kazakh.includes("Салициловая кислота, Sodium Hyaluronate, Glycerin."));
+  const english = localizeProductSectionHeadings(original, "en");
+  assert.match(english, /\nHow to use\n/);
+  assert.match(english, /\nIngredients and active components\n/);
+  assert.equal(localizeProductSectionHeadings(kazakh, "kk"), kazakh);
+  assert.equal(localizeProductSectionHeadings(english, "en"), english);
+  assert.equal(localizeProductSectionHeadings(original, "ru"), original);
+});
+
+test("only standalone section headings change, not prose or ingredient lists", () => {
+  const original = [
+    "Способ применения: нанесите гель.",
+    "Состав и активные компоненты включают масла и экстракты.",
+    "Способ применения",
+    "Важно: Sodium Hyaluronate, 20 мл и SPF 50+ не изменяются.",
+    "Важно",
+    "Не наносить на повреждённую кожу.",
+  ].join("\n");
+  const out = localizeProductSectionHeadings(original, "en");
+  assert.ok(out.includes("Способ применения: нанесите гель."));
+  assert.ok(out.includes("Состав и активные компоненты включают масла"));
+  assert.ok(out.includes("\nHow to use\n"));
+  assert.ok(out.includes("\nImportant\n"));
+  assert.ok(out.includes("Важно: Sodium Hyaluronate, 20 мл и SPF 50+ не изменяются."));
+  assert.equal(canonicalProductSectionHeading("Қолдану тәсілі"), "Способ применения");
+  assert.equal(canonicalProductSectionHeading("Ingredients and active components"), "Состав и активные компоненты");
+  assert.equal(localizedProductSectionHeading("Способ применения", "kk"), "Қолдану тәсілі");
+  assert.ok(ALL_PRODUCT_SECTION_HEADINGS.includes("How to use"));
+});
+
+test("translation admin normalizes legacy drafts without direct production SQL updates", () => {
+  const route = readFileSync(join(process.cwd(), "app/api/admin/translations/route.ts"), "utf8");
+  assert.match(route, /body: localizeProductSectionHeadings\(value\.body, locale\)/);
+  assert.match(route, /localizeProductSectionHeadings\(rawBody, locale\)/);
+  assert.match(route, /localizeProductSectionHeadings\(answer\.body, locale\)/);
+  assert.doesNotMatch(route, /retain Russian section header markers/);
 });
