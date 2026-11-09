@@ -82,7 +82,7 @@ export default function AskClient() {
   return <div className="mx-auto max-w-4xl space-y-6 py-8">
     <div className="flex flex-wrap items-start justify-between gap-4">
       <div>
-        <p className="site-eyebrow">Помощь с выбором</p>
+        <p className="site-eyebrow">{t("Помощь с выбором")}</p>
         <h1 className="mt-3 text-3xl font-bold">{t("ИИ-консультант")}</h1>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-gray-600">{t("Расскажите о задаче ухода и бюджете. Подберём варианты из каталога, объясним назначение и применение.")}</p>
       </div>
