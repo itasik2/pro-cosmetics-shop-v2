@@ -223,7 +223,7 @@ export async function POST(request: Request) {
         "Never invent efficacy, applications, dosage, ingredients or medical claims.",
         "For skincare descriptions retain Russian section header markers: Для какой кожи; Для каких задач; Преимущества; Почему удобно; Способ применения; Состав и активные компоненты; Важно. Translate the text beneath each header.",
         "Return only a JSON object with string fields name, body and summary (summary may be null).",
-      ].join("\\n") },
+      ].join("\n") },
       { role: "user", content: JSON.stringify({ name: source.name, summary: source.summary, body: source.body, brand: source.brand, sku: source.sku }) },
     ];
     let response: Response | undefined;
