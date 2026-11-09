@@ -1,22 +1,20 @@
 import { customerProductCopy, hasMissingProductData } from "@/lib/productCopy";
 import type { ReactNode } from "react";
-import { uiText, type SiteLocale } from "@/lib/i18n";
+import type { SiteLocale } from "@/lib/i18n";
+import {
+  ALL_PRODUCT_SECTION_HEADINGS,
+  canonicalProductSectionHeading,
+  localizedProductSectionHeading,
+} from "@/lib/productSectionHeadings";
 
-const SECTION_TITLES = [
-  "Для какой кожи",
-  "Для каких задач",
-  "Преимущества",
-  "Почему удобно",
-  "Способ применения",
-  "Состав и активные компоненты",
-  "Важно",
-] as const;
+const PRIVATE_SECTION_TITLES = new Set(["Состав и активные компоненты"]);
 
-const PRIVATE_SECTION_TITLES = new Set<string>([
-  "Состав и активные компоненты",
-]);
-const SECTION_TITLE_SET = new Set<string>(SECTION_TITLES);
-const SECTION_PATTERN = SECTION_TITLES.join("|");
+// Product content may contain headings saved in Russian or in the user's
+// selected language. The renderer recognizes all of them, including legacy
+// Russian translations saved before localization was fixed.
+const SECTION_PATTERN = ALL_PRODUCT_SECTION_HEADINGS
+  .map((title) => title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+  .join("|");
 
 export function normalizeDescriptionLayout(value: string) {
   let text = customerProductCopy(value)
@@ -74,13 +72,17 @@ export default function ProductDescription({
       .split("\n")
       .map((line) => line.trim())
       .filter(Boolean);
-    const heading = SECTION_TITLE_SET.has(lines[0]) ? lines[0] : null;
+    const heading = canonicalProductSectionHeading(lines[0]);
     if (heading && PRIVATE_SECTION_TITLES.has(heading)) return [];
 
     const rawContentLines = heading ? lines.slice(1) : lines;
     const contentLines = rawContentLines.filter((line) => !hasMissingProductData(line));
     if (heading === "Способ применения" && !contentLines.length) {
-      contentLines.push("Уточните способ применения перед покупкой через кнопку «Спросить о товаре». При использовании следуйте инструкции на упаковке.");
+      contentLines.push(locale === "kk"
+        ? "Қолдану тәсілін сатып алар алдында дүкеннен нақтылаңыз. Пайдаланғанда қаптамадағы нұсқаулықты ұстаныңыз."
+        : locale === "en"
+          ? "Please confirm how to use this product before purchasing. Follow the instructions on the packaging."
+          : "Уточните способ применения перед покупкой через кнопку «Спросить о товаре». При использовании следуйте инструкции на упаковке.");
     }
     if (!contentLines.length) return [];
 
@@ -99,7 +101,7 @@ export default function ProductDescription({
           >
             {heading && (
               <h2 className="mb-2 text-base font-semibold text-gray-950">
-                {uiText(locale, heading)}
+                {localizedProductSectionHeading(heading, locale) || heading}
               </h2>
             )}
 
