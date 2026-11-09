@@ -67,14 +67,11 @@ export default function Navbar() {
       </a>
 
       <header className="sticky top-0 z-50 border-b border-[var(--color-border)] bg-white/95 backdrop-blur">
-        <div className="border-b border-[var(--color-border)] bg-[var(--color-surface-muted)]">
-          <div className="container flex min-h-9 items-center justify-between gap-2 py-1 text-xs text-gray-600">
-            <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-              <LanguageSwitcher />
-              <span className="min-w-0 truncate">
-                {t("Профессиональный уход с доставкой по Казахстану")}
-              </span>
-            </div>
+        <div className="relative border-b border-[var(--color-border)] bg-[var(--color-surface-muted)]">
+          <div className="container flex min-h-9 min-w-0 items-center justify-between gap-2 py-1 pr-[68px] text-xs text-gray-600 sm:pr-[76px]">
+            <span className="min-w-0 flex-1 truncate">
+              {t("Профессиональный уход с доставкой по Казахстану")}
+            </span>
             <div className="flex shrink-0 items-center gap-3">
               {SITE_WHATSAPP_URL ? (
                 <a
@@ -93,6 +90,11 @@ export default function Navbar() {
                 {SITE_CONTACT_PHONE}
               </a>
             </div>
+          </div>
+          {/* Positioned against the viewport, outside the content flow.
+              Right padding above keeps the phone from overlapping it on mobile. */}
+          <div className="absolute right-1 top-1/2 z-10 -translate-y-1/2 sm:right-3">
+            <LanguageSwitcher />
           </div>
         </div>
 
