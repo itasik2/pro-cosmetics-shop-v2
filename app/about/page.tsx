@@ -76,7 +76,7 @@ export default async function AboutPage() {
               <div className="accent-badge flex h-10 w-10 items-center justify-center rounded-2xl font-bold">
                 {index + 1}
               </div>
-              <h3 className="mt-4 text-lg font-semibold">{principle.title}</h3>
+              <h3 className="mt-4 text-lg font-semibold">{t(principle.title)}</h3>
               <p className="mt-2 text-sm leading-6 text-gray-600">
                 {t(principle.text)}
               </p>
@@ -103,7 +103,7 @@ export default async function AboutPage() {
                 <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--color-accent-strong)] text-xs font-bold text-white">
                   ✓
                 </span>
-                <span>{benefit}</span>
+                <span>{t(benefit)}</span>
               </li>
             ))}
           </ul>

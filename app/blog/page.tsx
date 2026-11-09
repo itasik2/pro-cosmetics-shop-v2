@@ -4,7 +4,7 @@ import { SITE_BRAND, getPublicBaseUrl } from "@/lib/siteConfig";
 import { buildBrandIntentKeywords } from "@/lib/seo";
 import { localizedPosts } from "@/lib/localizedContent";
 import { requestLocale } from "@/lib/i18nServer";
-import { localizedHref } from "@/lib/i18n";
+import { localizedHref, uiText } from "@/lib/i18n";
 
 export const dynamic = "force-dynamic";
 
@@ -57,7 +57,7 @@ export default async function BlogIndex() {
                 <img src={p.image} alt={p.title} className="w-full h-full object-cover"/>
               </div>
             ) : null}
-            <div className="text-xs text-gray-500 uppercase">{p.category}</div>
+            <div className="text-xs text-gray-500 uppercase">{uiText(locale, p.category)}</div>
             <h3 className="font-semibold">{p.title}</h3>
           </Link>
         ))}
