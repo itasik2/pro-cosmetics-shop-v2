@@ -20,3 +20,15 @@ test("translation administration never bypasses admin guard or silently publishe
   assert.match(ui, /Подготовить черновик ИИ/);
   assert.match(ui, /Опубликовать перевод/);
 });
+
+test("bulk translation stops on the first upstream error and shows provider code", () => {
+  const route = readFileSync(join(process.cwd(), "app/api/admin/translations/route.ts"), "utf8");
+  const ui = readFileSync(join(process.cwd(), "app/admin/(private)/translations/AdminTranslationsClient.tsx"), "utf8");
+  assert.match(route, /translation_provider_rejected/);
+  assert.match(route, /providerStatus: response.status/);
+  assert.match(route, /translation_connection_failed/);
+  assert.match(ui, /readableError/);
+  assert.match(ui, /const ok = await processOne\(pending\[0\]\)/);
+  assert.match(ui, /if \(!ok\) stopBulk.current = true/);
+  assert.match(ui, /Дальнейшие запросы остановлены/);
+});
