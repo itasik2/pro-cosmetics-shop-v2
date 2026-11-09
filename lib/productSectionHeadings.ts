@@ -13,7 +13,7 @@ export const PRODUCT_SECTION_HEADINGS = [
 
 export type ProductSectionHeading = (typeof PRODUCT_SECTION_HEADINGS)[number]["ru"];
 
-const sectionByTitle = new Map(
+const sectionByTitle = new Map<string, (typeof PRODUCT_SECTION_HEADINGS)[number]>(
   PRODUCT_SECTION_HEADINGS.flatMap((heading) => [
     [heading.ru, heading], [heading.kk, heading], [heading.en, heading],
   ] as const),
