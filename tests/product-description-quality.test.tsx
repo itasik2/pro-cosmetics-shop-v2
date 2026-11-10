@@ -159,3 +159,27 @@ test("published product descriptions support native headings without exposing pr
   assert.match(english, /How to use/);
   assert.doesNotMatch(english, /Private INCI ingredients|Способ применения/);
 });
+
+test("Markdown ### in localized product section titles renders as headings, not hash paragraphs", () => {
+  const description = [
+    "JeuDerm AcnoCell Mild Cleanser.",
+    "",
+    "### Для какой кожи",
+    "Майлы, тері тесіктері кеңейген теріге.",
+    "",
+    "### Преимущества",
+    "• Теріні жұмсақ тазартады.",
+    "",
+    "### Способ применения",
+    "Күнделікті қолданыңыз.",
+    "",
+    "### Состав и активные компоненты",
+    "Internal INCI content must remain hidden.",
+  ].join("\n");
+  const html = renderToStaticMarkup(<ProductDescription description={description} locale="kk" />);
+  assert.match(html, /<h2[^>]*>Қандай теріге арналған<\/h2>/);
+  assert.match(html, /<h2[^>]*>Артықшылықтары<\/h2>/);
+  assert.match(html, /<h2[^>]*>Қолдану тәсілі<\/h2>/);
+  assert.doesNotMatch(html, /###|Для какой кожи|Преимущества|Способ применения|Internal INCI content/);
+  assert.ok(html.includes("Теріні жұмсақ тазартады."));
+});
