@@ -23,14 +23,36 @@ export const ALL_PRODUCT_SECTION_HEADINGS = [
   ...new Set(PRODUCT_SECTION_HEADINGS.flatMap((row) => [row.ru, row.kk, row.en])),
 ];
 
+/**
+ * A product description may arrive with Markdown headings, e.g.
+ * "### Для какой кожи". Markdown markers are not part of the title.
+ */
+function cleanProductSectionTitle(value: string): string {
+  return value.trim()
+    .replace(/^#{1,6}[ \t]+/, "")
+    .replace(/[ \t]+#{1,6}$/, "")
+    .replace(/[:：]$/, "")
+    .trim();
+}
+
 export function canonicalProductSectionHeading(text: string): ProductSectionHeading | null {
-  const heading = sectionByTitle.get(text.trim().replace(/[:：]$/, "").trim());
+  const heading = sectionByTitle.get(cleanProductSectionTitle(text));
   return heading?.ru || null;
 }
 
 export function localizedProductSectionHeading(text: string, locale: SiteLocale): string | null {
-  const heading = sectionByTitle.get(text.trim().replace(/[:：]$/, "").trim());
+  const heading = sectionByTitle.get(cleanProductSectionTitle(text));
   return heading?.[locale] || null;
+}
+
+/** Remove Markdown markers from known headings only, leaving product prose unchanged. */
+export function stripProductSectionMarkdown(text: string): string {
+  if (!text.includes("#")) return text;
+  return text.replace(/(^|\n)([ \t]*)#{1,6}[ \t]+([^\r\n]+)(?=\r?\n|$)/g,
+    (line, prefix: string, indent: string, title: string) => {
+      const canonical = canonicalProductSectionHeading(title);
+      return canonical ? prefix + indent + title.replace(/[ \t]+#{1,6}$/, "").trim() : line;
+    });
 }
 
 /**
