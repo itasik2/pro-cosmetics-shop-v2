@@ -107,7 +107,7 @@ test("only standalone section headings change, not prose or ingredient lists", (
 
 test("translation admin normalizes legacy drafts without direct production SQL updates", () => {
   const route = readFileSync(join(process.cwd(), "app/api/admin/translations/route.ts"), "utf8");
-  assert.match(route, /body: localizeProductSectionHeadings\(value\.body, locale\)/);
+  assert.match(route, /localizeProductSectionHeadings\(translation\.body, locale\)/);
   assert.match(route, /localizeProductSectionHeadings\(rawBody, locale\)/);
   assert.match(route, /localizeProductSectionHeadings\(answer\.body, locale\)/);
   assert.doesNotMatch(route, /retain Russian section header markers/);
