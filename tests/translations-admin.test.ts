@@ -8,6 +8,7 @@ import {
   canonicalProductSectionHeading,
   localizeProductSectionHeadings,
   localizedProductSectionHeading,
+  stripProductSectionMarkdown,
 } from "../lib/productSectionHeadings";
 import { translationModelCandidates, translationModelUnavailable } from "../lib/translationModels";
 
@@ -110,4 +111,47 @@ test("translation admin normalizes legacy drafts without direct production SQL u
   assert.match(route, /localizeProductSectionHeadings\(rawBody, locale\)/);
   assert.match(route, /localizeProductSectionHeadings\(answer\.body, locale\)/);
   assert.doesNotMatch(route, /retain Russian section header markers/);
+});
+
+test("markdown heading hashes are removed from legacy Kazakh and English translations", () => {
+  const source = [
+    "Тауар сипаттамасы.",
+    "",
+    "### Для какой кожи",
+    "Майлы теріге жарамды.",
+    "",
+    "### Преимущества",
+    "• Күнделікті тазарту.",
+    "",
+    "### Способ применения",
+    "Теріні сумен шайыңыз.",
+    "",
+    "### Состав и активные компоненты",
+    "Aqua, Glycerin.",
+  ].join("\n");
+  const kazakh = localizeProductSectionHeadings(source, "kk");
+  assert.match(kazakh, /\nҚандай теріге арналған\n/);
+  assert.match(kazakh, /\nАртықшылықтары\n/);
+  assert.match(kazakh, /\nҚолдану тәсілі\n/);
+  assert.match(kazakh, /\nҚұрамы және белсенді компоненттері\n/);
+  assert.doesNotMatch(kazakh, /###|Для какой кожи|Способ применения/);
+  assert.ok(kazakh.includes("Aqua, Glycerin."));
+  const english = localizeProductSectionHeadings(source, "en");
+  assert.match(english, /\nSuitable skin types\n/);
+  assert.match(english, /\nBenefits\n/);
+  assert.match(english, /\nHow to use\n/);
+  assert.doesNotMatch(english, /###/);
+  assert.equal(canonicalProductSectionHeading("### Преимущества"), "Преимущества");
+  assert.equal(localizedProductSectionHeading("### Для какой кожи", "kk"), "Қандай теріге арналған");
+  assert.equal(localizeProductSectionHeadings(kazakh, "kk"), kazakh);
+});
+
+test("markdown cleanup only strips known title lines, not hashtags or embedded hashes", () => {
+  const source = "Используйте SPF 50+\n\n### Преимущества\nПольза для кожи\n\n#SKINOSOPHY акция\n### Непроверенный раздел\nОписание с #хэштегом";
+  const clean = stripProductSectionMarkdown(source);
+  assert.match(clean, /\nПреимущества\n/);
+  assert.ok(clean.includes("#SKINOSOPHY акция"));
+  assert.ok(clean.includes("### Непроверенный раздел"));
+  assert.ok(clean.includes("#хэштегом"));
+  assert.equal(stripProductSectionMarkdown(clean), clean);
 });
