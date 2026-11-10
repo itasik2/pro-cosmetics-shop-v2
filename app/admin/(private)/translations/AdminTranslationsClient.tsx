@@ -5,12 +5,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 type Locale = "kk" | "en";
 type Kind = "product" | "post";
 type Status = "all" | "MISSING" | "REVIEW" | "PUBLISHED" | "STALE";
+type LanguageStatus = "MISSING" | "REVIEW" | "PUBLISHED" | "STALE";
 type Translation = {
   name: string; summary: string | null; body: string; status: string; sourceHash: string;
 };
 type Item = {
   key: string; name: string; summary: string | null; body: string; hash: string;
   brand: string | null; sku: string | null; state: Status; translation: Translation | null;
+  languages: Record<Locale, LanguageStatus>;
 };
 type Result = { items: Item[]; count: number; pages: number; page: number };
 
@@ -18,6 +20,41 @@ const STATES: Record<Exclude<Status, "all">, string> = {
   MISSING: "Нет перевода", REVIEW: "На проверке", PUBLISHED: "Опубликовано", STALE: "Оригинал изменён",
 };
 const EMPTY: Result = { items: [], count: 0, pages: 1, page: 1 };
+
+const LOCALE_BADGES: ReadonlyArray<{ locale: Locale; label: string }> = [
+  { locale: "kk", label: "ҚАЗ" },
+  { locale: "en", label: "EN" },
+];
+const LANGUAGE_BADGE_STYLE: Record<LanguageStatus, string> = {
+  PUBLISHED: "border-emerald-200 bg-emerald-50 text-emerald-800",
+  REVIEW: "border-amber-200 bg-amber-50 text-amber-800",
+  STALE: "border-orange-200 bg-orange-50 text-orange-800",
+  MISSING: "border-gray-200 bg-gray-50 text-gray-400",
+};
+const LANGUAGE_BADGE_MARK: Record<LanguageStatus, string> = {
+  PUBLISHED: "✓", REVIEW: "•", STALE: "!", MISSING: "−",
+};
+const LANGUAGE_BADGE_LABEL: Record<LanguageStatus, string> = {
+  PUBLISHED: "опубликован", REVIEW: "черновик, на проверке",
+  STALE: "устарел, нужен перевод", MISSING: "перевода нет",
+};
+
+function LanguageBadges({ languages }: { languages: Record<Locale, LanguageStatus> }) {
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1">
+      {LOCALE_BADGES.map(({ locale, label }) => {
+        const state = languages[locale];
+        const description = `${label}: ${LANGUAGE_BADGE_LABEL[state]}`;
+        return (
+          <span key={locale} title={description} aria-label={description}
+            className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium ${LANGUAGE_BADGE_STYLE[state]}`}>
+            {label} {LANGUAGE_BADGE_MARK[state]}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
 
 type ApiError = {
   error?: string;
@@ -321,13 +358,19 @@ export default function AdminTranslationsClient() {
             <h2 className="font-semibold">Материалы ({data.count})</h2>
             {loading && <span role="status" className="text-xs text-gray-500">Обновление…</span>}
           </div>
+          <p className="mb-2 text-[11px] leading-4 text-gray-500">
+            Языки: ✓ опубликован · • черновик · ! устарел · − нет перевода
+          </p>
           <div className="max-h-[580px] space-y-1 overflow-y-auto">
             {data.items.map((value) => (
               <button key={value.key} type="button" onClick={() => choose(value)}
                 className={"flex w-full flex-col rounded-lg border p-3 text-left text-sm hover:bg-gray-50 " +
                   (selected === value.key ? "border-gray-800 bg-gray-50" : "border-transparent")}>
                 <span className="line-clamp-2 font-semibold">{value.name}</span>
-                <span className="mt-1 text-xs text-gray-500">{STATES[value.state as Exclude<Status, "all">] || value.state}</span>
+                <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="text-xs text-gray-500">{STATES[value.state as Exclude<Status, "all">] || value.state}</span>
+                  <LanguageBadges languages={value.languages} />
+                </span>
               </button>
             ))}
             {!loading && !data.items.length && <p className="p-2 text-sm text-gray-500">Материалов нет.</p>}
@@ -342,7 +385,10 @@ export default function AdminTranslationsClient() {
         <section className="min-w-0 rounded-2xl border bg-white p-4">
           {item ? (
             <div className="space-y-4">
-              <h2 className="font-semibold">Перевод: {locale === "kk" ? "Қазақша" : "English"}</h2>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="font-semibold">Перевод: {locale === "kk" ? "Қазақша" : "English"}</h2>
+                <LanguageBadges languages={item.languages} />
+              </div>
               <div className="max-h-[220px] space-y-2 overflow-y-auto rounded-lg bg-gray-50 p-3 text-sm">
                 <p className="font-semibold">Оригинал: {item.name}</p>
                 {item.summary && <p>{item.summary}</p>}

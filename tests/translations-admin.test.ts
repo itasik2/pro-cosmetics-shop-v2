@@ -107,7 +107,7 @@ test("only standalone section headings change, not prose or ingredient lists", (
 
 test("translation admin normalizes legacy drafts without direct production SQL updates", () => {
   const route = readFileSync(join(process.cwd(), "app/api/admin/translations/route.ts"), "utf8");
-  assert.match(route, /body: localizeProductSectionHeadings\(value\.body, locale\)/);
+  assert.match(route, /localizeProductSectionHeadings\(translation\.body, locale\)/);
   assert.match(route, /localizeProductSectionHeadings\(rawBody, locale\)/);
   assert.match(route, /localizeProductSectionHeadings\(answer\.body, locale\)/);
   assert.doesNotMatch(route, /retain Russian section header markers/);
@@ -154,4 +154,25 @@ test("markdown cleanup only strips known title lines, not hashtags or embedded h
   assert.ok(clean.includes("### Непроверенный раздел"));
   assert.ok(clean.includes("#хэштегом"));
   assert.equal(stripProductSectionMarkdown(clean), clean);
+});
+
+test("translation availability badges distinguish published, draft, stale and missing", async () => {
+  const { translationAvailability } = await import("../lib/translationAvailability");
+  const sourceHash = "abc";
+  assert.equal(translationAvailability(sourceHash, undefined), "MISSING");
+  assert.equal(translationAvailability(sourceHash, { sourceHash, status: "REVIEW" }), "REVIEW");
+  assert.equal(translationAvailability(sourceHash, { sourceHash, status: "PUBLISHED" }), "PUBLISHED");
+  assert.equal(translationAvailability(sourceHash, { sourceHash: "old", status: "PUBLISHED" }), "STALE");
+  assert.equal(translationAvailability(sourceHash, { sourceHash: "old", status: "REVIEW" }), "STALE");
+});
+
+test("translation list fetches both locales and shows badges without falsely marking drafts published", () => {
+  const route = readFileSync(join(process.cwd(), "app/api/admin/translations/route.ts"), "utf8");
+  const ui = readFileSync(join(process.cwd(), "app/admin/(private)/translations/AdminTranslationsClient.tsx"), "utf8");
+  assert.match(route, /locale: \{ in: \["kk", "en"\] \}/);
+  assert.match(route, /languages = \{/);
+  assert.match(route, /translationAvailability\(hash,/);
+  assert.match(ui, /<LanguageBadges languages=\{value\.languages\}/);
+  assert.match(ui, /<LanguageBadges languages=\{item\.languages\}/);
+  assert.match(ui, /PUBLISHED: "✓", REVIEW: "•", STALE: "!", MISSING: "−"/);
 });
