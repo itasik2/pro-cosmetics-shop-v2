@@ -5,6 +5,7 @@ import {
   ALL_PRODUCT_SECTION_HEADINGS,
   canonicalProductSectionHeading,
   localizedProductSectionHeading,
+  stripProductSectionMarkdown,
 } from "@/lib/productSectionHeadings";
 
 const PRIVATE_SECTION_TITLES = new Set(["Состав и активные компоненты"]);
@@ -17,9 +18,9 @@ const SECTION_PATTERN = ALL_PRODUCT_SECTION_HEADINGS
   .join("|");
 
 export function normalizeDescriptionLayout(value: string) {
-  let text = customerProductCopy(value)
+  let text = stripProductSectionMarkdown(customerProductCopy(value)
     .replace(/\r\n?/g, "\n")
-    .trim();
+    .trim());
 
   if (!text) return "";
 
