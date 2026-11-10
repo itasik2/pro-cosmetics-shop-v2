@@ -6,6 +6,7 @@ import { contentSourceHash } from "@/lib/localizedContent";
 import { getScopedEnv } from "@/lib/siteConfig";
 import { translationModelCandidates, translationModelUnavailable } from "@/lib/translationModels";
 import { localizeProductSectionHeadings } from "@/lib/productSectionHeadings";
+import { translationAvailability } from "@/lib/translationAvailability";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -118,24 +119,35 @@ export async function GET(request: Request) {
         body: row.content, brand: null, sku: null,
       }));
 
+  // Fetch both languages together so each card shows its real availability.
+  // A draft or stale translation must never be marked as published.
   const translations = await prisma.localizedContent.findMany({
-    where: { locale, key: { in: source.map((row) => row.key) } },
-    select: { key: true, name: true, summary: true, body: true, status: true, sourceHash: true, updatedAt: true },
+    where: { locale: { in: ["kk", "en"] }, key: { in: source.map((row) => row.key) } },
+    select: { key: true, locale: true, name: true, summary: true, body: true,
+      status: true, sourceHash: true, updatedAt: true },
   });
-  const byKey = new Map(translations.map((value) => [
-    value.key,
-    value.key.startsWith("product:") ? {
-      ...value, body: localizeProductSectionHeadings(value.body, locale),
-    } : value,
-  ]));
+  const byKeyAndLocale = new Map(
+    translations.map((value) => [`${value.key}:${value.locale}`, value]),
+  );
   const normalizedQuery = q.trim().toLocaleLowerCase("ru-RU");
   const all = source.map((row) => {
     const hash = contentSourceHash(row.name, row.summary, row.body);
-    const translation = byKey.get(row.key);
-    const state = !translation ? "MISSING"
-      : translation.sourceHash !== hash ? "STALE"
-      : translation.status === "PUBLISHED" ? "PUBLISHED" : "REVIEW";
-    return { ...row, hash, translation: translation || null, state };
+    const languages = {
+      kk: translationAvailability(hash, byKeyAndLocale.get(`${row.key}:kk`)),
+      en: translationAvailability(hash, byKeyAndLocale.get(`${row.key}:en`)),
+    };
+    const translation = byKeyAndLocale.get(`${row.key}:${locale}`);
+    const state = languages[locale];
+    return {
+      ...row, hash, languages,
+      translation: translation ? {
+        ...translation,
+        body: row.key.startsWith("product:")
+          ? localizeProductSectionHeadings(translation.body, locale)
+          : translation.body,
+      } : null,
+      state,
+    };
   }).filter((row) =>
     (status === "all" || row.state === status) &&
     (!normalizedQuery || [row.name, row.brand || "", row.sku || "", row.translation?.name || ""]
