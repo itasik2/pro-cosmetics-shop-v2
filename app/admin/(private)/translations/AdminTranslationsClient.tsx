@@ -103,6 +103,8 @@ export default function AdminTranslationsClient() {
   const [page, setPage] = useState(1);
   const [data, setData] = useState<Result>(EMPTY);
   const [selected, setSelected] = useState<string | null>(null);
+  const [checkedKeys, setCheckedKeys] = useState<string[]>([]);
+  const [reviewConfirmed, setReviewConfirmed] = useState(false);
   const [name, setName] = useState("");
   const [summary, setSummary] = useState("");
   const [body, setBody] = useState("");
@@ -139,12 +141,27 @@ export default function AdminTranslationsClient() {
   // accidentally be saved under a different locale.
   useEffect(() => {
     setSelected(null);
+    setCheckedKeys([]);
+    setReviewConfirmed(false);
     setName("");
     setSummary("");
     setBody("");
   }, [kind, locale, status, search, page]);
 
   const item = data.items.find((value) => value.key === selected) || null;
+  const checkedItems = data.items.filter((value) => checkedKeys.includes(value.key));
+  const checkedMissing = checkedItems.filter((value) => value.state === "MISSING");
+  const checkedReview = checkedItems.filter((value) => value.state === "REVIEW" && !!value.translation);
+  const allPageChecked = data.items.length > 0 &&
+    data.items.every((value) => checkedKeys.includes(value.key));
+
+  const toggleChecked = (key: string) => {
+    setCheckedKeys((current) => current.includes(key)
+      ? current.filter((value) => value !== key)
+      : [...current, key]);
+    setReviewConfirmed(false);
+  };
+
   const choose = (value: Item) => {
     setSelected(value.key);
     setName(value.translation?.name || "");
@@ -175,10 +192,15 @@ export default function AdminTranslationsClient() {
 
 
   // Generated text is stored as REVIEW, never published without editorial confirmation.
-  const prepareMissing = async () => {
+  const prepareMissing = async (selectedOnly = false) => {
     if (bulkBusy || busy) return;
+    const requested = selectedOnly ? checkedMissing.length : bulkLimit;
+    if (!requested) {
+      setMessage("Среди отмеченных карточек нет материалов без перевода.");
+      return;
+    }
     if (!confirm(
-      `Подготовить до ${bulkLimit} ИИ-черновиков для ${locale.toUpperCase()}? ` +
+      `Подготовить до ${requested} ИИ-черновиков для ${locale.toUpperCase()}? ` +
       "Расходуется платный API OpenAI. Публикация будет только после ручной проверки.",
     )) return;
     stopBulk.current = false;
@@ -192,22 +214,24 @@ export default function AdminTranslationsClient() {
     try {
       // Snapshot the missing items before saving drafts. Otherwise pagination
       // shifts on each successful save and skips other missing products.
-      const pending: Item[] = [];
-      let currentPage = 1;
-      let totalPages = 1;
-      while (!stopBulk.current && currentPage <= totalPages && pending.length < bulkLimit) {
-        const params = new URLSearchParams({
-          kind, locale, status: "MISSING", page: String(currentPage),
-        });
-        const response = await fetch("/api/admin/translations?" + params, { cache: "no-store" });
-        if (!response.ok) {
-          const details = await response.json().catch(() => ({})) as ApiError;
-          throw new Error(readableError(details, response.status));
+      const pending: Item[] = selectedOnly ? [...checkedMissing] : [];
+      if (!selectedOnly) {
+        let currentPage = 1;
+        let totalPages = 1;
+        while (!stopBulk.current && currentPage <= totalPages && pending.length < bulkLimit) {
+          const params = new URLSearchParams({
+            kind, locale, status: "MISSING", page: String(currentPage),
+          });
+          const response = await fetch("/api/admin/translations?" + params, { cache: "no-store" });
+          if (!response.ok) {
+            const details = await response.json().catch(() => ({})) as ApiError;
+            throw new Error(readableError(details, response.status));
+          }
+          const result = await response.json() as Result;
+          pending.push(...result.items.slice(0, bulkLimit - pending.length));
+          totalPages = result.pages;
+          currentPage += 1;
         }
-        const result = await response.json() as Result;
-        pending.push(...result.items.slice(0, bulkLimit - pending.length));
-        totalPages = result.pages;
-        currentPage += 1;
       }
 
       const processOne = async (item: Item): Promise<boolean> => {
@@ -274,6 +298,56 @@ export default function AdminTranslationsClient() {
     } finally {
       setBulkBusy(false);
       stopBulk.current = false;
+      if (selectedOnly) setCheckedKeys([]);
+      void load();
+    }
+  };
+
+  // Only translations explicitly selected and personally reviewed by the
+  // administrator can be published. Missing or stale copies are excluded.
+  const publishChecked = async () => {
+    if (busy || bulkBusy || !reviewConfirmed || !checkedReview.length) return;
+    if (!confirm(
+      `Опубликовать ${checkedReview.length} проверенных переводов (${locale.toUpperCase()})? ` +
+      "Содержимое будет сразу видно покупателям. Подтвердите, что каждый текст проверен."
+    )) return;
+    setBulkBusy(true);
+    setMessage("");
+    let published = 0;
+    let failed = 0;
+    let firstFailure = "";
+    try {
+      for (const row of checkedReview) {
+        if (!row.translation) continue;
+        const response = await fetch("/api/admin/translations", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            key: row.key, locale, sourceHash: row.hash,
+            name: row.translation.name, summary: row.translation.summary,
+            body: row.translation.body, status: "PUBLISHED",
+          }),
+        });
+        if (response.ok) {
+          published++;
+        } else {
+          failed++;
+          const details = await response.json().catch(() => ({})) as ApiError;
+          firstFailure ||= readableError(details, response.status);
+          // Stop rather than silently publishing further content if source changed.
+          break;
+        }
+      }
+      setMessage(
+        `Опубликовано переводов: ${published}. Ошибок: ${failed}.` +
+        (firstFailure ? ` Причина: ${firstFailure}` : "")
+      );
+    } catch {
+      setMessage(`Опубликовано: ${published}. Ошибка соединения. Проверьте результаты.`);
+    } finally {
+      setBulkBusy(false);
+      setCheckedKeys([]);
+      setReviewConfirmed(false);
       void load();
     }
   };
@@ -319,7 +393,7 @@ export default function AdminTranslationsClient() {
         </label>
         {bulkBusy
           ? <button type="button" className="btn-secondary" onClick={() => { stopBulk.current = true; }}>Остановить</button>
-          : <button type="button" className="btn" disabled={busy} onClick={() => void prepareMissing()}>Подготовить ИИ-черновики</button>}
+          : <button type="button" className="btn" disabled={busy} onClick={() => void prepareMissing(false)}>Подготовить ИИ-черновики</button>}
         {(bulkBusy || bulkProgress.completed > 0 || bulkProgress.failed > 0) && (
           <p role="status" className="w-full text-xs text-gray-600">
             Подготовлено: {bulkProgress.completed}; ошибок: {bulkProgress.failed}
@@ -353,7 +427,7 @@ export default function AdminTranslationsClient() {
       </div>
 
       <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
-        <section className="min-w-0 rounded-2xl border bg-white p-3">
+        <section className="min-w-0 rounded-2xl border bg-white p-3 scroll-mt-32">
           <div className="mb-3 flex items-center justify-between gap-2">
             <h2 className="font-semibold">Материалы ({data.count})</h2>
             {loading && <span role="status" className="text-xs text-gray-500">Обновление…</span>}
@@ -361,24 +435,78 @@ export default function AdminTranslationsClient() {
           <p className="mb-2 text-[11px] leading-4 text-gray-500">
             Языки: ✓ опубликован · • черновик · ! устарел · − нет перевода
           </p>
-          <div className="max-h-[580px] space-y-1 overflow-y-auto">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-gray-50 px-2 py-2">
+            <label className="flex cursor-pointer items-center gap-2 text-xs font-medium">
+              <input type="checkbox" className="h-4 w-4 accent-gray-800"
+                checked={allPageChecked} disabled={bulkBusy || !data.items.length}
+                onChange={(event) => {
+                  setCheckedKeys(event.target.checked ? data.items.map((row) => row.key) : []);
+                  setReviewConfirmed(false);
+                }} />
+              Выбрать все на странице
+            </label>
+            <button type="button" className="text-xs text-gray-600 underline disabled:opacity-50"
+              disabled={bulkBusy || checkedKeys.length === 0}
+              onClick={() => { setCheckedKeys([]); setReviewConfirmed(false); }}>
+              Снять выбор
+            </button>
+          </div>
+          {/* Natural page scrolling avoids a nested scrollbar covering the list. */}
+          <div className="space-y-1">
             {data.items.map((value) => (
-              <button key={value.key} type="button" onClick={() => choose(value)}
-                className={"flex w-full flex-col rounded-lg border p-3 text-left text-sm hover:bg-gray-50 " +
-                  (selected === value.key ? "border-gray-800 bg-gray-50" : "border-transparent")}>
-                <span className="line-clamp-2 font-semibold">{value.name}</span>
-                <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className="text-xs text-gray-500">{STATES[value.state as Exclude<Status, "all">] || value.state}</span>
-                  <LanguageBadges languages={value.languages} />
-                </span>
-              </button>
+              <div key={value.key} className={"flex min-w-0 items-start gap-2 rounded-lg border hover:bg-gray-50 " +
+                (selected === value.key ? "border-gray-800 bg-gray-50" : "border-transparent")}>
+                <label className="flex h-11 min-w-8 shrink-0 cursor-pointer items-center justify-center pl-2">
+                  <input type="checkbox" className="h-4 w-4 accent-gray-800"
+                    aria-label={`Выбрать ${value.name}`}
+                    checked={checkedKeys.includes(value.key)}
+                    disabled={bulkBusy} onChange={() => toggleChecked(value.key)} />
+                </label>
+                <button type="button" onClick={() => choose(value)}
+                  className="flex min-w-0 flex-1 flex-col py-3 pl-1 pr-3 text-left text-sm">
+                  <span className="line-clamp-2 font-semibold">{value.name}</span>
+                  <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="text-xs text-gray-500">{STATES[value.state as Exclude<Status, "all">] || value.state}</span>
+                    <LanguageBadges languages={value.languages} />
+                  </span>
+                </button>
+              </div>
             ))}
             {!loading && !data.items.length && <p className="p-2 text-sm text-gray-500">Материалов нет.</p>}
           </div>
+          {checkedKeys.length > 0 && (
+            <div className="mt-3 space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-3">
+              <p className="text-sm font-medium">Выбрано: {checkedKeys.length}</p>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" className="btn-secondary"
+                  disabled={bulkBusy || busy || !checkedMissing.length}
+                  onClick={() => void prepareMissing(true)}>
+                  Создать черновики ({checkedMissing.length})
+                </button>
+                <button type="button" className="btn"
+                  disabled={bulkBusy || busy || !reviewConfirmed || !checkedReview.length}
+                  onClick={() => void publishChecked()}>
+                  Опубликовать проверенные ({checkedReview.length})
+                </button>
+              </div>
+              {checkedReview.length > 0 && (
+                <label className="flex cursor-pointer items-start gap-2 text-xs leading-5">
+                  <input type="checkbox" className="mt-0.5 h-4 w-4 shrink-0 accent-gray-800"
+                    checked={reviewConfirmed} disabled={bulkBusy}
+                    onChange={(event) => setReviewConfirmed(event.target.checked)} />
+                  Я проверил(а) содержание всех выбранных переводов перед публикацией.
+                </label>
+              )}
+              <p className="text-[11px] text-gray-600">
+                Публикуются только переводы со статусом «На проверке».
+                Устаревшие и отсутствующие переводы не публикуются.
+              </p>
+            </div>
+          )}
           <div className="mt-3 flex items-center justify-between gap-2 border-t pt-3">
-            <button disabled={page <= 1} className="btn-secondary" onClick={() => setPage(page - 1)}>Назад</button>
+            <button disabled={bulkBusy || page <= 1} className="btn-secondary" onClick={() => setPage(page - 1)}>Назад</button>
             <span className="text-sm">{page} / {data.pages}</span>
-            <button disabled={page >= data.pages} className="btn-secondary" onClick={() => setPage(page + 1)}>Далее</button>
+            <button disabled={bulkBusy || page >= data.pages} className="btn-secondary" onClick={() => setPage(page + 1)}>Далее</button>
           </div>
         </section>
 
