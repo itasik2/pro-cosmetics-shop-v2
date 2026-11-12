@@ -186,6 +186,6 @@ test("translation list uses page scrolling and supports explicit multi-select ac
   assert.match(ui, /Создать черновики/);
   assert.match(ui, /Опубликовать проверенные/);
   assert.match(ui, /reviewConfirmed/);
-  assert.match(ui, /row\.state === "REVIEW"/);
+  assert.match(ui, /value\.state === "REVIEW"/);
   assert.match(ui, /Публикуются только переводы со статусом/);
 });
