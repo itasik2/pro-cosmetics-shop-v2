@@ -1,3 +1,4 @@
+import { photoSku, productVolumes, volumeKey, isInternalPhotoSku } from "../../../marketplace-hub/src/ai/photo-identity";
 import type { ExtractedProductData } from "./extractProduct";
 
 export type MatchableProduct = {
@@ -34,14 +35,6 @@ function normalize(value: unknown) {
     .trim();
 }
 
-function compact(value: unknown) {
-  return normalize(value).replace(/\s+/g, "");
-}
-
-function isInternalSyntheticSku(value: unknown) {
-  return /^JD-[A-Z0-9]{6,}$/i.test(String(value || "").trim());
-}
-
 function tokenSet(value: string) {
   const ignored = new Set([
     "для",
@@ -72,37 +65,6 @@ function jaccardSimilarity(left: string, right: string) {
   return union ? intersection / union : 0;
 }
 
-type ParsedVolume = { amount: number; unit: "ml" | "g" };
-
-function volumeKey(volume: ParsedVolume) {
-  return `${volume.amount}:${volume.unit}`;
-}
-
-function parseVolumesFromText(value: string) {
-  const text = normalize(value);
-  const volumes = new Map<string, ParsedVolume>();
-  const pattern = /(\d+(?:[.,]\d+)?)\s*(мл|ml|гр|г|g)(?=$|[^\p{L}\p{N}])/giu;
-
-  for (const match of text.matchAll(pattern)) {
-    const amount = Math.round(Number(match[1].replace(",", ".")));
-    if (!Number.isFinite(amount) || amount <= 0) continue;
-    const rawUnit = match[2].toLowerCase();
-    const unit: ParsedVolume["unit"] =
-      rawUnit === "мл" || rawUnit === "ml" ? "ml" : "g";
-    const volume = { amount, unit };
-    volumes.set(volumeKey(volume), volume);
-  }
-
-  return [...volumes.values()];
-}
-
-function normalizedVolumeUnit(value: unknown): ParsedVolume["unit"] | null {
-  const unit = normalize(value);
-  if (unit === "мл" || unit === "ml") return "ml";
-  if (unit === "г" || unit === "гр" || unit === "g") return "g";
-  return null;
-}
-
 function expectedBrand(product: MatchableProduct) {
   return product.brand?.name || product.supplier?.name || "";
 }
@@ -121,13 +83,11 @@ export function scoreProductMatch(
   score += Math.round(nameSimilarity * 15);
   if (nameSimilarity < 0.35) warnings.push("low_name_similarity");
 
-  const syntheticSupplierSku = isInternalSyntheticSku(product.supplierSku);
-  const expectedSku = compact(
-    syntheticSupplierSku
-      ? product.barcode
-      : product.supplierSku || product.barcode,
+  const syntheticSupplierSku = isInternalPhotoSku(product.supplierSku);
+  const expectedSku = photoSku(
+    syntheticSupplierSku ? "" : product.supplierSku,
   );
-  const foundSku = compact(extracted.sku);
+  const foundSku = photoSku(extracted.sku);
   let sku: ProductMatchResult["evidence"]["sku"] = "missing";
 
   if (syntheticSupplierSku) {
@@ -147,36 +107,21 @@ export function scoreProductMatch(
     warnings.push("source_sku_missing");
   }
 
-  const expectedVolumeUnit = normalizedVolumeUnit(product.volumeUnit);
-  const expectedVolume =
-    product.volumeValue && expectedVolumeUnit
-      ? { amount: product.volumeValue, unit: expectedVolumeUnit }
-      : null;
-  const titleVolumes = parseVolumesFromText(extracted.title || "");
-  const descriptionVolumes = parseVolumesFromText(extracted.description || "");
-  const allVolumes = new Map<string, ParsedVolume>();
-  [...titleVolumes, ...descriptionVolumes].forEach((volume) =>
-    allVolumes.set(volumeKey(volume), volume),
-  );
+  const expectedVolume = product.volumeValue && product.volumeUnit
+    ? volumeKey(product.volumeValue, product.volumeUnit) : null;
+  const titleVolumes = productVolumes(extracted.title || "");
+  const sourceVolumes = titleVolumes.length ? titleVolumes : productVolumes(extracted.description || "");
   let volume: ProductMatchResult["evidence"]["volume"] = "missing";
-
   if (expectedVolume) {
-    const expectedKey = volumeKey(expectedVolume);
-    if (allVolumes.has(expectedKey)) {
+    if (sourceVolumes.length === 1 && sourceVolumes[0] === expectedVolume) {
       score += 15;
       volume = "match";
-    } else if (titleVolumes.length > 0) {
+    } else if (sourceVolumes.length && !sourceVolumes.includes(expectedVolume)) {
       score -= 40;
       volume = "mismatch";
       warnings.push("volume_mismatch");
-    } else if (descriptionVolumes.length === 1) {
-      score -= 25;
-      volume = "mismatch";
-      warnings.push("volume_mismatch");
-    } else if (descriptionVolumes.length > 1) {
-      warnings.push("source_volume_ambiguous");
     } else {
-      warnings.push("source_volume_missing");
+      warnings.push(sourceVolumes.length ? "source_volume_ambiguous" : "source_volume_missing");
     }
   }
 

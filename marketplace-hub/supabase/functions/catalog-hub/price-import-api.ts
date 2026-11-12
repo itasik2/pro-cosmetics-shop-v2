@@ -1,3 +1,7 @@
+import { readCard, readSupplierLink, recordCardRevision, type CardField } from "./card-revision-data.ts";
+import {outbox} from "./core-store.ts";
+import type {Principal} from "./request-context.ts";
+import { jsonParam,jsonObject } from "./database-json.ts";
 import type postgres from "npm:postgres@3.4.7";
 
 type Sql = ReturnType<typeof postgres>;
@@ -28,7 +32,7 @@ async function bodyOf(req: Request) {
   return value as Record<string, unknown>;
 }
 
-export async function handlePriceImport(req: Request, route: string, url: URL, sql: Sql): Promise<Response | null> {
+export async function handlePriceImport(req: Request, route: string, url: URL, sql: Sql, principal?: Principal): Promise<Response | null> {
   try {
     if (route === "/v1/price-import/suppliers" && req.method === "POST") {
       const body = await bodyOf(req);
@@ -67,11 +71,11 @@ export async function handlePriceImport(req: Request, route: string, url: URL, s
         AND "organizationId"=${organizationId} AND "isActive"=true`;
       if (!supplier.length) fail("supplier_not_found", 404);
       const id = string(body.id);
-      const rows = id ? await sql`UPDATE public."ImportProfile" SET "name"=${name},"mapping"=${sql.json(body.mapping)},
+      const rows = id ? await sql`UPDATE public."ImportProfile" SET "name"=${name},"mapping"=${jsonParam(sql,body.mapping)},
           "fileType"=${fileType},"updatedAt"=now() WHERE "id"=${id} AND "supplierId"=${supplierId}
           RETURNING "id","supplierId","name","mapping","fileType","updatedAt"`
         : await sql`INSERT INTO public."ImportProfile" ("id","supplierId","name","fileType","mapping","isDefault","createdAt","updatedAt")
-          VALUES (${crypto.randomUUID()},${supplierId},${name},${fileType},${sql.json(body.mapping)},false,now(),now())
+          VALUES (${crypto.randomUUID()},${supplierId},${name},${fileType},${jsonParam(sql,body.mapping)},false,now(),now())
           RETURNING "id","supplierId","name","mapping","fileType","updatedAt"`;
       if (!rows.length) fail("profile_not_found", 404);
       return json(rows[0], id ? 200 : 201);
@@ -110,8 +114,8 @@ export async function handlePriceImport(req: Request, route: string, url: URL, s
         for (const row of rows) {
           await tx`INSERT INTO public."PriceImportRow" ("id","importId","rowNumber","supplierSku","raw","errors","createdAt")
             VALUES (${crypto.randomUUID()},${id},${row.rowNumber},${row.sku},
-            ${tx.json({status:row.status,sourceDate,productId:row.productId||null,changeSetId:row.changeSetId||null})}::jsonb,
-            ${tx.json(row.error ? [String(row.error).slice(0,300)] : [])}::jsonb,now())`;
+            ${jsonParam(tx,{status:row.status,sourceDate,productId:row.productId||null,changeSetId:row.changeSetId||null})}::jsonb,
+            ${jsonParam(tx,row.error ? [String(row.error).slice(0,300)] : [])}::jsonb,now())`;
         }
       });
       return json({id}, 201);
@@ -132,20 +136,20 @@ export async function handlePriceImport(req: Request, route: string, url: URL, s
       fail("invalid_price_import");
     const result = await sql.begin(async tx => {
       const rows = await tx`SELECT p."id",p."sku",p."title",p."brand",p."basePrice",p."purchasePrice",
-        p."attributes",p."updatedAt" FROM public."Product" p WHERE p."id"=${productId}
-        AND p."organizationId"=${organizationId} FOR UPDATE`;
+        p."attributes",p."updatedAt",c."title" AS "identityTitle",c."brand" AS "identityBrand" FROM public."Product" p
+        JOIN public."CatalogProductRead" c ON c."id"=p."id" AND c."organizationId"=p."organizationId" WHERE p."id"=${productId}
+        AND p."organizationId"=${organizationId} FOR UPDATE OF p`;
       if (!rows.length) fail("product_not_found", 404);
       const current = rows[0];
       const link = await tx`SELECT sp."id",sp."supplierSku" FROM public."SupplierProduct" sp
         JOIN public."Supplier" s ON s."id"=sp."supplierId" WHERE sp."productId"=${productId}
         AND sp."supplierId"=${supplierId} AND s."organizationId"=${organizationId} AND s."isActive"=true LIMIT 1`;
-      const source = current.attributes && typeof current.attributes === "object" && !Array.isArray(current.attributes)
-        ? current.attributes as Record<string, unknown> : {};
+      const source = jsonObject(current.attributes);
       const prior = source.supplierImport && typeof source.supplierImport === "object" && !Array.isArray(source.supplierImport)
         ? source.supplierImport as Record<string, unknown> : {};
       if (!link.length || !link[0].supplierSku || String(link[0].supplierSku).toUpperCase() !== sku.toUpperCase() ||
           prior.supplierId !== supplierId || !day(prior.sourceDate) || sourceDate <= String(prior.sourceDate) ||
-          current.sku.toUpperCase() !== sku.toUpperCase() || current.title !== title || current.brand !== brand)
+          current.sku.toUpperCase() !== sku.toUpperCase() || current.identityTitle !== title || current.identityBrand !== brand)
         fail("price_import_requires_review", 409);
       if ((price !== undefined && (typeof current.basePrice !== "number" || Number(price) < current.basePrice)) ||
           (purchasePrice !== undefined && (typeof current.purchasePrice !== "number" || Number(purchasePrice) < current.purchasePrice)))
@@ -155,17 +159,28 @@ export async function handlePriceImport(req: Request, route: string, url: URL, s
         fail("price_unchanged", 409);
       const updatedAttributes = { ...source, supplierImport: { ...prior, supplierId, sourceDate,
         fileName, sha256: fileSha256 } };
-      await tx`INSERT INTO public."ProductRevision" ("id","productId","reason","snapshot","createdBy","createdAt")
-        VALUES (${crypto.randomUUID()},${productId},'PRICE_IMPORT_AUTO',${tx.json({price:current.basePrice,
-          purchasePrice:current.purchasePrice,attributes:source})}::jsonb,'catalog-hub-price-import',now())`;
+      const previousLink = await readSupplierLink(tx, organizationId, productId, supplierId, true);
+      const actor = principal?.actor || "catalog-hub-price-import";
       await tx`UPDATE public."Product" SET "basePrice"=${price === undefined ? current.basePrice : price as number},
         "purchasePrice"=${purchasePrice === undefined ? current.purchasePrice : purchasePrice as number},
-        "attributes"=${tx.json(updatedAttributes)}::jsonb,"updatedAt"=now() WHERE "id"=${productId}`;
+        "attributes"=${jsonParam(tx,updatedAttributes)}::jsonb,
+        "updatedAt"=GREATEST(clock_timestamp()::timestamp(3),"updatedAt"+interval '1 millisecond') WHERE "id"=${productId}`;
       await tx`UPDATE public."SupplierProduct" SET "lastSeenAt"=now(),
         "purchasePrice"=${purchasePrice === undefined ? current.purchasePrice : purchasePrice as number},
         "updatedAt"=now() WHERE "id"=${link[0].id}`;
+      const changedFields: CardField[] = ["attributes"];
+      if (price !== undefined && price !== current.basePrice) changedFields.push("price");
+      if (purchasePrice !== undefined && purchasePrice !== current.purchasePrice) changedFields.push("purchasePrice");
+      const revisionId = await recordCardRevision(tx, {
+        productId, actor, reason: "PRICE_IMPORT_AUTO", before: current,
+        after: await readCard(tx, organizationId, productId), fields: changedFields,
+        legacySnapshot: {price: current.basePrice, purchasePrice: current.purchasePrice, attributes: source},
+        source: fileName + " · " + sourceDate,
+        supplierLink: {supplierId, before: previousLink, after: await readSupplierLink(tx, organizationId, productId, supplierId)},
+      });
+      await outbox(tx, organizationId, "catalog.product_changed", {productId, changedFields, actor, revisionId});
       return { id: productId, status: "AUTO_APPLIED", price: price ?? current.basePrice,
-        purchasePrice: purchasePrice ?? current.purchasePrice };
+        purchasePrice: purchasePrice ?? current.purchasePrice, revisionId };
     });
     return json(result);
   } catch (error) {

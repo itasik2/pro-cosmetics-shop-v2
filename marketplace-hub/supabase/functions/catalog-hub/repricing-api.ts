@@ -39,10 +39,10 @@ export async function handleRepricing(req:Request, route:string, url:URL, sql:Sq
     if(ch!=="STORE"&&offer==null)bad("offer_price_required");
     await verifyProduct(sql,org,id);
     const rows=await sql`INSERT INTO public."ChannelRepricingPolicy"
-      ("organizationId","productId","channel","strategy","mode","enabled","emergencyStop",
+      ("id","organizationId","productId","channel","strategy","mode","enabled","emergencyStop",
        "currentOfferPrice","minPrice","maxPrice","minMarginPercent","feePercent",
        "shippingCost","targetProfit","step","adjustment","maxChangePercent","maxAgeMinutes","cooldownMinutes")
-       VALUES (${org},${id},${ch},${strategy},${mode},${enabled},${stop},${offer},${min},${max},
+       VALUES (${crypto.randomUUID()},${org},${id},${ch},${strategy},${mode},${enabled},${stop},${offer},${min},${max},
        ${margin},${fee},${shipping},${profit},${step},${adjust},${delta},${age},${cooldown})
        ON CONFLICT ("organizationId","productId","channel") DO UPDATE SET
        "strategy"=EXCLUDED."strategy","mode"=EXCLUDED."mode","enabled"=EXCLUDED."enabled",
@@ -61,8 +61,8 @@ export async function handleRepricing(req:Request, route:string, url:URL, sql:Sq
     if(o.sourceType && o.sourceType!=="MANUAL")bad("trusted_source_requires_connector",403);
     await verifyProduct(sql,org,id);
     const rows=await sql`INSERT INTO public."CompetitorPriceObservation"
-      ("organizationId","productId","channel","seller","price","sourceType","observedAt")
-      VALUES (${org},${id},${ch},${seller},${price},'MANUAL',now()) RETURNING *`;
+      ("id","organizationId","productId","channel","seller","price","sourceType","observedAt")
+      VALUES (${crypto.randomUUID()},${org},${id},${ch},${seller},${price},'MANUAL',now()) RETURNING *`;
     return json(rows[0],201);
   }
   if(route==="/v1/repricing/evaluate"&&req.method==="POST") {
@@ -97,10 +97,10 @@ export async function handleRepricing(req:Request, route:string, url:URL, sql:Sq
       mode,autoEnabled:Boolean(p.enabled),emergencyStop:Boolean(p.emergencyStop),
       lastProposedAt:last[0]?.createdAt?new Date(last[0].createdAt).toISOString():null,now,
     });
-    const written=await sql`INSERT INTO public."RepricingDecision" ("organizationId","policyId","productId",
+    const written=await sql`INSERT INTO public."RepricingDecision" ("id","organizationId","policyId","productId",
       "channel","mode","status","reason","currentPrice","competitorPrice","candidate","floorPrice",
       "targetPrice","observationIds","ruleSnapshot") VALUES
-      (${org},${p.id},${id},${ch},${mode},${result.status},${result.reason},${safeCurrent},
+      (${crypto.randomUUID()},${org},${p.id},${id},${ch},${mode},${result.status},${result.reason},${safeCurrent},
       ${result.competitorPrice},${result.candidate},${result.floorPrice},${result.targetPrice},
       ${sql.json(result.observationIds)}::jsonb,${sql.json(rule)}::jsonb) RETURNING "id","createdAt"`;
     return json({...result,id:written[0].id,createdAt:written[0].createdAt});

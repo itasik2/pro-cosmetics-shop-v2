@@ -104,6 +104,15 @@ model Organization {
   repricingDecisions RepricingDecision[]
   changeSets     CatalogChangeSet[]
   mediaProfiles  MediaProfile[]
+  channelConnections ChannelConnection[]
+  coreOrders CoreOrder[]
+  reservations Reservation[]
+  coreMutations CoreMutation[]
+  outboxEvents OutboxEvent[]
+  webhooks ChannelWebhook[]
+  deliveries OutboxDelivery[]
+  groupingOperations ProductGrouping[]
+  catalogImportRuns CatalogImportRun[]
 }
 
 model MarketplaceAccount {
@@ -158,9 +167,83 @@ model Product {
   enrichmentProposals CatalogEnrichmentProposal[]
   changeSets          CatalogChangeSet[]
   revisions           ProductRevision[]
+  coreOrderItems      CoreOrderItem[]
+  reservationItems    ReservationItem[]
+  stockMovements      StockMovement[]
+  channelOffers       ChannelOffer[]
+  // Existing Product rows keep their SKU, inventory and commercial identity.
+  // Shared descriptive fields belong to the selected master row only.
+  masterProductId     String?
+  masterProduct       Product? @relation("ProductVariants", fields: [organizationId, masterProductId], references: [organizationId, id], onDelete: Restrict, map: "Product_variant_master_fkey")
+  variants            Product[] @relation("ProductVariants")
+  groupingHistory     ProductGrouping[]
 
   @@unique([organizationId, sku])
+  @@unique([organizationId, id])
   @@index([barcode])
+  @@index([organizationId, masterProductId])
+}
+
+// Audit of a reversible grouping operation, never a second master card.
+model ProductGrouping {
+  id              String @id @default(uuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  masterProductId String
+  masterProduct   Product @relation(fields: [organizationId, masterProductId], references: [organizationId, id], onDelete: Restrict, map: "ProductGrouping_master_fkey")
+  beforeState     Json
+  afterState      Json
+  status          String @default("ACTIVE")
+  reason          String
+  actor           String
+  createdAt       DateTime @default(now())
+  undoneAt        DateTime?
+  @@index([organizationId, masterProductId, createdAt])
+}
+
+model CatalogImportRun {
+  id              String @id @default(uuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  fileName        String
+  fileSha256      String
+  manifestHash    String
+  supplierId      String?
+  sourceDate      String?
+  profile         Json
+  expectedRows    Int
+  uploadedRows    Int @default(0)
+  processedRows   Int @default(0)
+  failedRows      Int @default(0)
+  payloadBytes    Int @default(0)
+  state           String @default("UPLOADING")
+  version         Int @default(1)
+  actor           String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  rows            CatalogImportRow[]
+  @@unique([organizationId, id])
+  @@index([organizationId, state, createdAt])
+}
+
+model CatalogImportRow {
+  id             String @id @default(uuid())
+  organizationId String
+  runId          String
+  run            CatalogImportRun @relation(fields: [organizationId, runId], references: [organizationId, id], onDelete: Cascade)
+  rowNumber      Int
+  sku            String
+  action         String
+  payload        Json
+  payloadHash    String
+  expectedUpdatedAt String?
+  state          String @default("PENDING")
+  attempts       Int @default(0)
+  errorCode      String?
+  result         Json?
+  updatedAt      DateTime @updatedAt
+  @@unique([organizationId, runId, rowNumber])
+  @@index([organizationId, runId, state, rowNumber])
 }
 
 model Supplier {
@@ -313,8 +396,13 @@ model Warehouse {
 
   inventory Inventory[]
   adjustments InventoryAdjustment[]
+  coreOrderItems CoreOrderItem[]
+  reservationItems ReservationItem[]
+  stockMovements StockMovement[]
+  channelMappings ChannelWarehouseMapping[]
 
   @@unique([organizationId, code])
+  @@unique([organizationId, id])
 }
 
 model Inventory {
@@ -326,6 +414,7 @@ model Inventory {
   onHand      Int       @default(0)
   reserved    Int       @default(0)
   safetyStock Int       @default(0)
+  revision    Int       @default(0)
   updatedAt   DateTime  @updatedAt
 
   @@unique([productId, warehouseId])
@@ -704,4 +793,261 @@ model CatalogApiKey {
   isActive   Boolean  @default(true)
   createdAt  DateTime @default(now())
   lastUsedAt DateTime?
+  organizationId String?
+  scopes     Json?
+  expiresAt  DateTime?
+
+  @@index([organizationId, isActive])
+}
+
+// These records use the existing Product/Inventory/Warehouse as their only
+// source of physical stock. Marketplace adapters never own a second balance.
+model ChannelConnection {
+  id String @id
+  organizationId String
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  name String
+  kind String
+  adapter String
+  environment String @default("TEST")
+  mode String @default("SHADOW")
+  secretRef String?
+  settings Json?
+  version Int @default(1)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+  offers ChannelOffer[]
+  warehouses ChannelWarehouseMapping[]
+  categories ChannelCategoryMapping[]
+  orders CoreOrder[]
+  inbox InboxEvent[]
+  webhook ChannelWebhook?
+  @@unique([organizationId, id])
+  @@index([organizationId, mode, createdAt])
+}
+
+model ChannelOffer {
+  id String @id
+  organizationId String
+  connectionId String
+  connection ChannelConnection @relation(fields: [organizationId, connectionId], references: [organizationId, id], onDelete: Restrict)
+  productId String
+  product Product @relation(fields: [organizationId, productId], references: [organizationId, id], onDelete: Restrict)
+  sellerSku String
+  price Int?
+  channelBuffer Int @default(0)
+  preorderDays Int?
+  isActive Boolean @default(true)
+  version Int @default(1)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+  @@unique([organizationId, connectionId, sellerSku])
+  @@unique([organizationId, connectionId, productId])
+}
+
+model ChannelWarehouseMapping {
+  id String @id
+  organizationId String
+  connectionId String
+  connection ChannelConnection @relation(fields: [organizationId, connectionId], references: [organizationId, id], onDelete: Restrict)
+  warehouseId String
+  warehouse Warehouse @relation(fields: [organizationId, warehouseId], references: [organizationId, id], onDelete: Restrict)
+  externalId String
+  @@unique([organizationId, connectionId, warehouseId])
+  @@unique([organizationId, connectionId, externalId])
+}
+
+model ChannelCategoryMapping {
+  id String @id
+  organizationId String
+  connectionId String
+  connection ChannelConnection @relation(fields: [organizationId, connectionId], references: [organizationId, id], onDelete: Restrict)
+  categoryKey String
+  externalId String
+  @@unique([organizationId, connectionId, categoryKey])
+}
+
+model CoreOrder {
+  id String @id
+  organizationId String
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  connectionId String
+  connection ChannelConnection @relation(fields: [organizationId, connectionId], references: [organizationId, id], onDelete: Restrict)
+  externalOrderId String
+  status String @default("RESERVED")
+  itemHash String
+  version Int @default(1)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+  items CoreOrderItem[]
+  @@unique([organizationId, id])
+  @@unique([organizationId, connectionId, externalOrderId])
+  @@index([organizationId, createdAt, id])
+}
+
+model CoreOrderItem {
+  id String @id
+  organizationId String
+  orderId String
+  order CoreOrder @relation(fields: [organizationId, orderId], references: [organizationId, id], onDelete: Restrict)
+  productId String
+  product Product @relation(fields: [organizationId, productId], references: [organizationId, id], onDelete: Restrict)
+  warehouseId String
+  warehouse Warehouse @relation(fields: [organizationId, warehouseId], references: [organizationId, id], onDelete: Restrict)
+  quantity Int
+  returned Int @default(0)
+  @@unique([organizationId, orderId, productId, warehouseId])
+}
+
+model Reservation {
+  id String @id
+  organizationId String
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  reference String
+  payloadHash String
+  reason String
+  status String @default("ACTIVE")
+  version Int @default(1)
+  createdBy String
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+  items ReservationItem[]
+  @@unique([organizationId, id])
+  @@unique([organizationId, reference])
+  @@index([organizationId, status, createdAt, id])
+  @@index([organizationId, createdAt, id])
+}
+
+model ReservationItem {
+  id String @id
+  organizationId String
+  reservationId String
+  reservation Reservation @relation(fields: [organizationId, reservationId], references: [organizationId, id], onDelete: Restrict)
+  productId String
+  product Product @relation(fields: [organizationId, productId], references: [organizationId, id], onDelete: Restrict)
+  warehouseId String
+  warehouse Warehouse @relation(fields: [organizationId, warehouseId], references: [organizationId, id], onDelete: Restrict)
+  quantity Int
+  released Int @default(0)
+  shipped Int @default(0)
+  returned Int @default(0)
+  @@unique([organizationId, reservationId, productId, warehouseId])
+  @@index([organizationId, productId, warehouseId])
+}
+
+model StockMovement {
+  id String @id
+  organizationId String
+  productId String
+  product Product @relation(fields: [organizationId, productId], references: [organizationId, id], onDelete: Restrict)
+  warehouseId String
+  warehouse Warehouse @relation(fields: [organizationId, warehouseId], references: [organizationId, id], onDelete: Restrict)
+  operationKey String
+  ordinal Int
+  kind String
+  deltaOnHand Int
+  deltaReserved Int
+  beforeOnHand Int
+  afterOnHand Int
+  beforeReserved Int
+  afterReserved Int
+  reason String
+  reference String?
+  actor String
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  @@unique([organizationId, operationKey, ordinal])
+  @@index([organizationId, productId, createdAt, id])
+}
+
+model CoreMutation {
+  id String @id
+  organizationId String
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  key String
+  route String
+  payloadHash String
+  result Json
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  @@unique([organizationId, key])
+}
+
+model InboxEvent {
+  id String @id
+  organizationId String
+  connectionId String
+  connection ChannelConnection @relation(fields: [organizationId, connectionId], references: [organizationId, id], onDelete: Restrict)
+  externalEventId String
+  eventType String
+  payloadHash String
+  result Json
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  @@unique([organizationId, connectionId, externalEventId])
+}
+
+model OutboxEvent {
+  id String @id
+  organizationId String
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  topic String
+  payload Json
+  status String @default("PENDING")
+  attempts Int @default(0)
+  availableAt DateTime @default(now()) @db.Timestamptz(6)
+  leaseToken String?
+  leaseUntil DateTime? @db.Timestamptz(6)
+  lastError String?
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  deliveredAt DateTime? @db.Timestamptz(6)
+  deliveries OutboxDelivery[]
+  @@unique([organizationId,id])
+  @@index([organizationId, status, availableAt, id])
+  @@index([organizationId, createdAt, id])
+  @@index([organizationId, status, createdAt, id])
+}
+
+model ChannelWebhook {
+  id String @id
+  organizationId String
+  organization Organization @relation(fields:[organizationId],references:[id],onDelete:Restrict)
+  connectionId String
+  connection ChannelConnection @relation(fields:[organizationId,connectionId],references:[organizationId,id],onDelete:Restrict)
+  url String
+  secretRef String
+  topics Json
+  state String @default("PAUSED")
+  version Int @default(1)
+  generation Int @default(1)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+  deliveries OutboxDelivery[]
+  @@unique([organizationId,id])
+  @@unique([organizationId,connectionId])
+  @@index([organizationId,state])
+}
+
+model OutboxDelivery {
+  id String @id
+  organizationId String
+  organization Organization @relation(fields:[organizationId],references:[id],onDelete:Restrict)
+  eventId String
+  event OutboxEvent @relation(fields:[organizationId,eventId],references:[organizationId,id],onDelete:Restrict)
+  webhookId String
+  webhook ChannelWebhook @relation(fields:[organizationId,webhookId],references:[organizationId,id],onDelete:Restrict)
+  generation Int
+  url String
+  secretRef String
+  payload Json
+  status String @default("PENDING")
+  version Int @default(1)
+  attempts Int @default(0)
+  availableAt DateTime @default(now()) @db.Timestamptz(6)
+  leaseToken String?
+  leaseUntil DateTime? @db.Timestamptz(6)
+  lastError String?
+  receipt Json?
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  deliveredAt DateTime? @db.Timestamptz(6)
+  @@unique([organizationId,eventId,webhookId])
+  @@index([organizationId,status,availableAt,id])
+  @@index([organizationId,webhookId,createdAt,id])
+  @@index([organizationId,createdAt,id])
 }

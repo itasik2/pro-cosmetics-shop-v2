@@ -21,3 +21,30 @@ localhost test database**. It never links to or migrates the real Supabase proje
 
 Do not execute `docker compose down -v` unless you intentionally want to
 delete all test records. Run `docker compose down` to stop without data loss.
+
+
+## Проверка складского ядра
+
+После `testdb:setup` можно выполнить из `catalog-hub-web`:
+
+```bash
+npm run testdb:core-e2e
+```
+
+Используются вымышленные товары и вторая тестовая организация. Проверяются конкурентный резерв последней единицы, повторные события, отгрузка, частичный возврат, перемещение, ревизии, финансовый пол, полнота XML, RLS и outbox lease. Проверка запрещает удалённый API и не обращается к рабочим маркетплейсам. Docker/PostgreSQL CI остаётся обязательным для многосессионной конкуренции; PGlite не заменяет его.
+
+
+Масштабная проверка очереди (только localhost, искусственные данные):
+
+```sh
+npm --prefix marketplace-hub run build
+node catalog-hub-local/import-queue-e2e.mjs --scale=10000
+```
+
+Она создаёт 10 000 тестовых SKU с нулевым физическим запасом, проверяет exact manifest, параллельные checkpoints, повторы, согласование цен и ошибки. Для удаления тестовых данных используется только отдельная тестовая база.
+
+
+Проверка восстановления очередей включена в `npm run testdb:core-e2e`: конкурирующие квоты, контроль JSONB-байтов, SIGKILL worker после commit до ответа, запуск нового процесса, SIGTERM, истёкшие аренды и общий предел 100 аренд outbox. Используется отдельная синтетическая организация для пограничных счётчиков. Никаких реальных доставок или ключей каналов этот тест не использует. Схема и шесть integrity-миграций применяются setup.mjs автоматически; эксплуатационные пределы и порядок выпуска описаны в docs/CATALOG_HUB_CORE_RELEASE.md.
+
+
+Core E2E также поднимает два локальных HTTP-получателя и проверяет реальную подпись, независимые статусы, durable PostgreSQL inbox, scoped export и SIGKILL внешнего worker между remote commit и complete ядра. Соединение тестовой БД ограничено 127.0.0.1:55432 и именами catalog_test/postgres. Внешние магазины не вызываются. Протокол и ограничения — docs/CATALOG_HUB_EVENT_DELIVERY.md.

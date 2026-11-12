@@ -7,11 +7,19 @@ on:
     paths:
       - "catalog-hub-web/**"
       - "catalog-hub-local/**"
+      - "marketplace-hub/src/ai/photo-identity.ts"
+      - "marketplace-hub/src/ai/verified-photos.ts"
+      - "marketplace-hub/src/ai/official-sources.ts"
+      - "marketplace-hub/src/ai/tilda-product.ts"
       - ".github/workflows/catalog-hub-web.yml"
   pull_request:
     paths:
       - "catalog-hub-web/**"
       - "catalog-hub-local/**"
+      - "marketplace-hub/src/ai/photo-identity.ts"
+      - "marketplace-hub/src/ai/verified-photos.ts"
+      - "marketplace-hub/src/ai/official-sources.ts"
+      - "marketplace-hub/src/ai/tilda-product.ts"
       - ".github/workflows/catalog-hub-web.yml"
 
 jobs:
@@ -26,9 +34,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: catalog-hub-web/package.json
+          cache-dependency-path: catalog-hub-web/package-lock.json
       - name: Install
-        run: npm install
+        run: npm ci
       - name: Check isolated database scripts syntax
         run: |
           node --check ../catalog-hub-local/setup.mjs
