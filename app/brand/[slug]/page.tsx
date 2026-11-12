@@ -11,6 +11,8 @@ import { stringifyJsonLd } from "@/lib/structuredData";
 import { getBrandCatalogProducts } from "@/lib/publicCatalog";
 import { catalogBatch } from "@/lib/catalogBatch";
 import { CATALOG_INITIAL_SIZE } from "@/lib/progressiveList";
+import { requestLocale } from "@/lib/i18nServer";
+import { localizedHref, uiText } from "@/lib/i18n";
 
 export const dynamic = "force-dynamic";
 
@@ -80,16 +82,18 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
 }
 
 export default async function BrandPage(props: Props) {
+  const locale = await requestLocale();
+  const t = (text: string) => uiText(locale, text);
   const params = await props.params;
   const nonce = await getCspNonce();
   const { brand, shouldRedirect } = await resolveBrandRoute(params.slug);
 
   if (!brand || !brand.isActive) notFound();
   if (shouldRedirect) {
-    permanentRedirect(`/brand/${encodeURIComponent(brand.slug)}`);
+    permanentRedirect(localizedHref(`/brand/${encodeURIComponent(brand.slug)}`,locale));
   }
 
-  const products = await getBrandCatalogProducts(brand.name);
+  const products = await getBrandCatalogProducts(brand.name,locale);
 
   const baseUrl = getPublicBaseUrl();
   const schema = {
@@ -111,7 +115,7 @@ export default async function BrandPage(props: Props) {
         <h1 className="text-3xl font-bold">{brand.name}</h1>
 
         {products.length === 0 ? (
-          <div className="text-gray-500">Товары отсутствуют</div>
+          <div className="text-gray-500">{locale === "kk" ? "Тауарлар жоқ" : locale === "en" ? "No products available" : "Товары отсутствуют"}</div>
         ) : (
           <ShopGridClient batch={catalogBatch(products, CATALOG_INITIAL_SIZE)} source={{ kind: "brand", slug: brand.slug }} layout="brand" />
         )}

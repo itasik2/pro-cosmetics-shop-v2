@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import QazPostShippingPanel from "./QazPostShippingPanel";
+import { isOrderFulfillmentAllowed } from "@/lib/orderFulfillmentPolicy";
 
 export const runtime = "nodejs";
 
@@ -162,13 +163,19 @@ export default async function AdminOrderDetailPage(props: { params: Promise<{ id
       )}
 
       <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm">
-        {order.paymentMethod === "KASPI_TRANSFER"
-          ? order.paymentStatus === "PAID" || order.paymentStatus === "REFUNDED"
-            ? "Предоплата подтверждена: заказ можно отправлять."
-            : "Для перевода на Kaspi сначала отметьте оплату как «Оплачен»; до этого отправка заблокирована."
-          : order.paymentStatus === "PAID" || order.paymentStatus === "REFUNDED"
-            ? "Оплата получена."
-            : "Оплата при получении: отправка разрешена, но завершить заказ можно только после получения денег."}
+        {order.paymentStatus === "REFUNDED"
+          ? "Оплата возвращена. Сборка, отправка и завершение заказа заблокированы."
+          : order.paymentMethod === "KASPI_TRANSFER"
+            ? isOrderFulfillmentAllowed({
+                paymentMethod: order.paymentMethod,
+                paymentStatus: order.paymentStatus,
+                orderStatus: "SHIPPED",
+              })
+              ? "Предоплата подтверждена: заказ можно отправлять."
+              : "Для перевода на Kaspi сначала отметьте оплату как «Оплачен»; до этого отправка заблокирована."
+            : order.paymentStatus === "PAID"
+              ? "Оплата получена."
+              : "Оплата при получении: отправка разрешена, но завершить заказ можно только после получения денег."}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
@@ -334,9 +341,14 @@ export default async function AdminOrderDetailPage(props: { params: Promise<{ id
             <span className="font-semibold">
               {messengerStatusLabel(order.messengerNotificationStatus)}
             </span>
-            {order.messengerNotificationLastError
-              ? ` • ${order.messengerNotificationLastError}`
-              : ""}
+            {order.messengerNotificationLastError === "whatsapp_not_configured"
+              ? " • WhatsApp не подключён: свяжитесь с покупателем вручную."
+              : order.messengerNotificationLastError === "telegram_not_configured" ||
+                  order.messengerNotificationLastError === "telegram_not_linked"
+                ? " • Telegram недоступен: свяжитесь с покупателем вручную."
+                : order.messengerNotificationLastError
+                  ? ` • ${order.messengerNotificationLastError}`
+                  : ""}
           </div>
         )}
         {order.email && order.paymentMethod === "KASPI_TRANSFER" && order.status === "CONFIRMED" && (

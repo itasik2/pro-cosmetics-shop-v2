@@ -2,6 +2,9 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { SITE_BRAND, getPublicBaseUrl } from "@/lib/siteConfig";
 import { buildBrandIntentKeywords } from "@/lib/seo";
+import { localizedPosts } from "@/lib/localizedContent";
+import { requestLocale } from "@/lib/i18nServer";
+import { localizedHref, uiText } from "@/lib/i18n";
 
 export const dynamic = "force-dynamic";
 
@@ -40,20 +43,21 @@ export async function generateMetadata() {
 }
 
 export default async function BlogIndex() {
-  const posts = await prisma.post.findMany({ orderBy: { createdAt: "desc" } });
+  const locale = await requestLocale();
+  const posts = await localizedPosts(await prisma.post.findMany({ orderBy: { createdAt: "desc" } }), locale);
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-bold">Блог и новости</h1>
+      <h1 className="text-3xl font-bold">{locale === "kk" ? "Блог және жаңалықтар" : locale === "en" ? "Blog and news" : "Блог и новости"}</h1>
       <div className="grid grid-cols-1 items-start md:grid-cols-2 gap-6">
         {posts.map((p)=> (
-          <Link key={p.id} href={`/blog/${p.slug}`} className="card block hover:shadow-md transition">
+          <Link key={p.id} href={localizedHref(`/blog/${p.slug}`,locale)} className="card block hover:shadow-md transition">
             {p.image ? (
               <div className="aspect-[16/9] w-full rounded-xl mb-3 overflow-hidden">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={p.image} alt={p.title} className="w-full h-full object-cover"/>
               </div>
             ) : null}
-            <div className="text-xs text-gray-500 uppercase">{p.category}</div>
+            <div className="text-xs text-gray-500 uppercase">{uiText(locale, p.category)}</div>
             <h3 className="font-semibold">{p.title}</h3>
           </Link>
         ))}

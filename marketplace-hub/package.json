@@ -17,7 +17,8 @@
     "db:bootstrap": "prisma db push",
     "service:check": "npm run prisma:generate && npm run typecheck && npm test",
     "worker:imports": "tsx src/worker/catalog-import-worker.ts",
-    "worker:deliveries": "tsx src/worker/catalog-delivery-worker.ts"
+    "worker:deliveries": "tsx src/worker/catalog-delivery-worker.ts",
+    "worker:store-snapshot": "node --import tsx src/worker/catalog-store-snapshot.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.1",

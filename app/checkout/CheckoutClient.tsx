@@ -4,6 +4,8 @@ import { variantDisplayImage } from "../../lib/enrichment/variantImages";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useSiteLocale, useUiText } from "@/components/LocaleProvider";
+import { localizedHref, categoryLabel } from "@/lib/i18n";
 import {
   clampCartToStock,
   getCart,
@@ -48,8 +50,18 @@ function normalizeVariants(v: any): ProductVariant[] {
     .filter((x) => x.id && x.label);
 }
 
-export default function CheckoutClient({ deliveryPrice, deliveryTerms }: { deliveryPrice: number | null; deliveryTerms: string }) {
+export default function CheckoutClient({
+  deliveryPrice,
+  deliveryTerms,
+  messengerAvailability,
+}: {
+  deliveryPrice: number | null;
+  deliveryTerms: string;
+  messengerAvailability: { whatsapp: boolean; telegram: boolean };
+}) {
   const router = useRouter();
+  const locale = useSiteLocale();
+  const t = useUiText();
 
   const [cart, setCart] = useState<CartItem[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -121,10 +133,10 @@ export default function CheckoutClient({ deliveryPrice, deliveryTerms }: { deliv
         const res = await fetch("/api/products/by-ids", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ids: uniqueIds }),
+          body: JSON.stringify({ ids: uniqueIds, locale }),
         });
         const data = (await res.json()) as { products: Product[]; error?: string };
-        if (!res.ok) throw new Error(data?.error || "Не удалось загрузить товары");
+        if (!res.ok) throw new Error(data?.error || t("Не удалось загрузить товары"));
 
         const loadedProducts = data.products || [];
         const loadedProductIds = new Set(loadedProducts.map((product) => product.id));
@@ -141,7 +153,7 @@ export default function CheckoutClient({ deliveryPrice, deliveryTerms }: { deliv
 
         setProducts(loadedProducts);
       } catch (e: any) {
-        setErr(e?.message || "Не удалось загрузить товары");
+        setErr(e?.message || t("Не удалось загрузить товары"));
         setProducts([]);
       } finally {
         setLoading(false);
@@ -194,8 +206,8 @@ export default function CheckoutClient({ deliveryPrice, deliveryTerms }: { deliv
           unitPrice,
           stock,
           image: variantDisplayImage(v, p.image),
-          brandOrCategory: p.brand?.name ?? p.category,
-          link: `/shop/${p.slug}`,
+          brandOrCategory: p.brand?.name ?? categoryLabel(locale, p.category),
+          link: localizedHref(`/shop/${p.slug}`, locale),
         };
       })
       .filter(Boolean) as Array<{
@@ -208,7 +220,7 @@ export default function CheckoutClient({ deliveryPrice, deliveryTerms }: { deliv
       brandOrCategory: string;
       link: string;
     }>;
-  }, [cart, productMap]);
+  }, [cart, productMap, locale]);
 
   useEffect(() => {
     const rowKeys = new Set(rows.map((row) => row.cartKey));
@@ -292,14 +304,14 @@ export default function CheckoutClient({ deliveryPrice, deliveryTerms }: { deliv
     const addr = address.trim();
     let contact = messengerContact.trim();
 
-    if (name.length < 2) return setSubmitErr("Укажите имя");
-    if (ph.length < 6) return setSubmitErr("Укажите телефон");
+    if (name.length < 2) return setSubmitErr(t("Укажите имя"));
+    if (ph.length < 6) return setSubmitErr(t("Укажите телефон"));
     if (mail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) {
-      return setSubmitErr("Проверьте правильность email");
+      return setSubmitErr(t("Проверьте правильность email"));
     }
     if (!mail && messenger === "WHATSAPP" && !contact) contact = ph;
     if (addr.length < 5) {
-      return setSubmitErr("Укажите адрес доставки");
+      return setSubmitErr(t("Укажите адрес доставки"));
     }
 
     const cartSelected = selectedRows.map((r) => ({ id: r.cartKey, qty: r.qty }));
@@ -326,7 +338,7 @@ export default function CheckoutClient({ deliveryPrice, deliveryTerms }: { deliv
 
       const data = (await res.json()) as any;
       if (!res.ok) {
-        throw new Error(data?.message || data?.error || "Не удалось создать заказ");
+        throw new Error(data?.message || data?.error || t("Не удалось создать заказ"));
       }
 
       const orderNumber = String(data.orderNumber || "");
@@ -341,10 +353,10 @@ export default function CheckoutClient({ deliveryPrice, deliveryTerms }: { deliv
 
       const accessToken = String(data.accessToken || "");
       router.push(
-        `/checkout/success?order=${encodeURIComponent(orderNumber)}&token=${encodeURIComponent(accessToken)}&channel=${encodeURIComponent(notificationChannel)}`,
+        localizedHref(`/checkout/success?order=${encodeURIComponent(orderNumber)}&token=${encodeURIComponent(accessToken)}&channel=${encodeURIComponent(notificationChannel)}`, locale),
       );
     } catch (e: any) {
-      setSubmitErr(e?.message || "Ошибка оформления заказа");
+      setSubmitErr(e?.message || t("Ошибка оформления заказа"));
     } finally {
       setSubmitting(false);
     }
@@ -353,16 +365,16 @@ export default function CheckoutClient({ deliveryPrice, deliveryTerms }: { deliv
   return (
     <div className="mx-auto max-w-3xl space-y-5 py-4 sm:space-y-6 sm:py-8">
       <div>
-        <h1 className="text-3xl font-bold">Корзина</h1>
+        <h1 className="text-3xl font-bold">{t("Корзина")}</h1>
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-500">
           <span>
-            Позиций: <strong className="font-semibold text-gray-700">{rows.length}</strong>
+            {t("Позиций:")} <strong className="font-semibold text-gray-700">{rows.length}</strong>
           </span>
           <span>
-            Выбрано: <strong className="font-semibold text-gray-700">{selectedCount}</strong>
+            {t("Выбрано:")} <strong className="font-semibold text-gray-700">{selectedCount}</strong>
           </span>
           <span>
-            Товары:{" "}
+            {t("Товары:")}{" "}
             <strong className="font-semibold text-gray-700">
               {totalSelected.toLocaleString("ru-RU")} ₸
             </strong>
@@ -371,11 +383,11 @@ export default function CheckoutClient({ deliveryPrice, deliveryTerms }: { deliv
       </div>
 
       {loading ? (
-        <div className="text-sm text-gray-500">Загрузка…</div>
+        <div className="text-sm text-gray-500">{t("Загрузка…")}</div>
       ) : err ? (
         <div className="text-red-600">Ошибка: {err}</div>
       ) : rows.length === 0 ? (
-        <div className="text-sm text-gray-500">Корзина пуста. Нажмите «Купить» в каталоге.</div>
+        <div className="text-sm text-gray-500">{t("Корзина пуста. Нажмите «Купить» в каталоге.")}</div>
       ) : (
         <>
           <div className="flex min-h-8 items-center justify-between gap-3">
@@ -387,7 +399,7 @@ export default function CheckoutClient({ deliveryPrice, deliveryTerms }: { deliv
                 checked={allSelected}
                 onChange={toggleAll}
               />
-              Выбрать все
+              {t("Выбрать все")}
             </label>
 
             {selectedCount > 0 ? (
@@ -396,7 +408,7 @@ export default function CheckoutClient({ deliveryPrice, deliveryTerms }: { deliv
                 className="text-sm font-semibold text-red-700 hover:underline"
                 onClick={deleteSelected}
               >
-                Удалить выбранное
+                {t("Удалить выбранное")}
               </button>
             ) : null}
           </div>
@@ -415,7 +427,7 @@ export default function CheckoutClient({ deliveryPrice, deliveryTerms }: { deliv
                       className="h-5 w-5"
                       checked={checked}
                       onChange={() => toggleOne(r.cartKey)}
-                      aria-label="Выбрать позицию"
+                      aria-label={t("Выбрать позицию")}
                     />
 
                     <img
@@ -433,7 +445,7 @@ export default function CheckoutClient({ deliveryPrice, deliveryTerms }: { deliv
                       <div className="mt-1 text-sm leading-5 text-gray-500">
                         {r.brandOrCategory} •{" "}
                         <span className={inStock ? "text-emerald-700" : "text-gray-500"}>
-                          {inStock ? `В наличии: ${r.stock}` : "Нет в наличии"}
+                          {inStock ? `${t("В наличии:")} ${r.stock}` : t("Нет в наличии")}
                         </span>
                       </div>
                     </div>
@@ -449,7 +461,7 @@ export default function CheckoutClient({ deliveryPrice, deliveryTerms }: { deliv
                         type="button"
                         className="inline-flex h-9 w-9 items-center justify-center rounded-full border hover:bg-gray-50"
                         onClick={() => setQtyStorage(r.cartKey, r.qty - 1, r.stock)}
-                        aria-label={`Уменьшить количество «${r.title}»`}
+                        aria-label={`${t("Уменьшить количество")} «${r.title}»`}
                       >
                         −
                       </button>
@@ -461,7 +473,7 @@ export default function CheckoutClient({ deliveryPrice, deliveryTerms }: { deliv
                         className="inline-flex h-9 w-9 items-center justify-center rounded-full border hover:bg-gray-50 disabled:opacity-50"
                         onClick={() => setQtyStorage(r.cartKey, r.qty + 1, r.stock)}
                         disabled={plusDisabled}
-                        aria-label={`Увеличить количество «${r.title}»`}
+                        aria-label={`${t("Увеличить количество")} «${r.title}»`}
                       >
                         +
                       </button>
@@ -476,16 +488,16 @@ export default function CheckoutClient({ deliveryPrice, deliveryTerms }: { deliv
             })}
           </div>
 
-          {!showForm && <p className="text-sm leading-6 text-gray-600">{deliveryPrice === null ? "Доставка рассчитывается отдельно. Уточните стоимость и сроки до оплаты." : `Доставка: ${deliveryPrice.toLocaleString("ru-RU")} ₸.`} <Link href="/delivery" className="underline">Условия доставки и оплаты</Link></p>}
+          {!showForm && <p className="text-sm leading-6 text-gray-600">{deliveryPrice === null ? t("Доставка рассчитывается отдельно. Уточните стоимость и сроки до оплаты.") : `${t("Доставка")}: ${deliveryPrice.toLocaleString("ru-RU")} ₸.`} <Link href={localizedHref("/delivery", locale)} className="underline">{t("Условия доставки и оплаты")}</Link></p>}
           {!showForm ? (
             <div className="rounded-2xl border p-4 shadow-sm">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <div className="text-xs text-gray-500">
-                    Всего в корзине: {totalAll.toLocaleString("ru-RU")} ₸
+                    {t("Всего в корзине:")} {totalAll.toLocaleString("ru-RU")} ₸
                   </div>
                   <div className="mt-1 text-lg font-bold">
-                    {deliveryPrice === null ? "Товары без доставки" : "К оплате"}: {payableTotal.toLocaleString("ru-RU")} ₸
+                    {deliveryPrice === null ? t("Товары без доставки") : t("К оплате")}: {payableTotal.toLocaleString("ru-RU")} ₸
                   </div>
                 </div>
                 <button
@@ -494,12 +506,12 @@ export default function CheckoutClient({ deliveryPrice, deliveryTerms }: { deliv
                   onClick={openForm}
                   disabled={!canOpenForm}
                 >
-                  Перейти к оформлению
+                  {t("Перейти к оформлению")}
                 </button>
               </div>
               {!canOpenForm ? (
                 <div className="mt-2 text-xs text-gray-500">
-                  Отметьте хотя бы одну позицию для оформления.
+                  {t("Отметьте хотя бы одну позицию для оформления.")}
                 </div>
               ) : null}
             </div>
@@ -507,9 +519,9 @@ export default function CheckoutClient({ deliveryPrice, deliveryTerms }: { deliv
             <div className="rounded-2xl border p-4 shadow-sm space-y-3">
               <div className="flex items-end justify-between gap-3">
                 <div>
-                  <div className="text-lg font-bold">Оформление</div>
+                  <div className="text-lg font-bold">{t("Оформление")}</div>
                   <div className="text-sm text-gray-500">
-                    Выбрано: {selectedCount} • {deliveryPrice === null ? "Товары без доставки" : "Итого"}: {payableTotal.toLocaleString("ru-RU")} ₸
+                    {t("Выбрано:")} {selectedCount} • {deliveryPrice === null ? t("Товары без доставки") : t("Итого")}: {payableTotal.toLocaleString("ru-RU")} ₸
                   </div>
                 </div>
 
@@ -521,24 +533,24 @@ export default function CheckoutClient({ deliveryPrice, deliveryTerms }: { deliv
                     setSubmitErr(null);
                   }}
                 >
-                  Закрыть
+                  {t("Закрыть")}
                 </button>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <label className="space-y-1">
-                  <div className="text-sm text-gray-600">Имя *</div>
+                  <div className="text-sm text-gray-600">{t("Имя *")}</div>
                   <input
                     className="w-full border rounded-xl px-3 py-2"
                     value={customerName}
                     onChange={(e) => setCustomerName(e.target.value)}
                     autoComplete="name"
-                    placeholder="Ваше имя"
+                    placeholder={t("Ваше имя")}
                   />
                 </label>
 
                 <label className="space-y-1">
-                  <div className="text-sm text-gray-600">Телефон *</div>
+                  <div className="text-sm text-gray-600">{t("Телефон *")}</div>
                   <input
                     className="w-full border rounded-xl px-3 py-2"
                     value={phone}
@@ -550,7 +562,7 @@ export default function CheckoutClient({ deliveryPrice, deliveryTerms }: { deliv
                 </label>
 
                 <label className="space-y-1 sm:col-span-2">
-                  <div className="text-sm text-gray-600">Email (если есть)</div>
+                  <div className="text-sm text-gray-600">{t("Email (если есть)")}</div>
                   <input
                     autoComplete="email"
                     type="email"
@@ -560,16 +572,16 @@ export default function CheckoutClient({ deliveryPrice, deliveryTerms }: { deliv
                     placeholder="you@email.com"
                   />
                   <div className="text-xs text-gray-500">
-                    Если у вас нет email, выберите WhatsApp или Telegram ниже.
+                    {t("Если у вас нет email, выберите WhatsApp или Telegram ниже.")}
                   </div>
                 </label>
 
                 {!email.trim() && (
                   <div className="sm:col-span-2 rounded-xl border bg-gray-50 p-3 space-y-3">
                     <div>
-                      <div className="text-sm font-semibold">Куда отправлять информацию по заказу? *</div>
+                      <div className="text-sm font-semibold">{t("Куда отправлять информацию по заказу? *")}</div>
                       <div className="text-xs text-gray-500 mt-1">
-                        Укажите хотя бы один канал связи: email, WhatsApp или Telegram.
+                        {t("Укажите хотя бы один канал связи: email, WhatsApp или Telegram.")}
                       </div>
                     </div>
 
@@ -595,9 +607,20 @@ export default function CheckoutClient({ deliveryPrice, deliveryTerms }: { deliv
                       </label>
                     </div>
 
+                    {messenger === "WHATSAPP" && !messengerAvailability.whatsapp ? (
+                      <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900" role="status">
+                        {t("Автоматическая отправка сообщений в WhatsApp пока недоступна. Магазин получит заказ и сможет связаться с вами по указанному номеру. Статус заказа можно проверить по ссылке после оформления.")}
+                      </p>
+                    ) : null}
+                    {messenger === "TELEGRAM" && !messengerAvailability.telegram ? (
+                      <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900" role="status">
+                        {t("Telegram-бот магазина пока не подключён. Магазин получит заказ и сможет связаться с вами по номеру телефона. Статус заказа доступен по ссылке после оформления.")}
+                      </p>
+                    ) : null}
+
                     {messenger === "WHATSAPP" ? (
                       <label className="block space-y-1">
-                        <div className="text-sm text-gray-600">Номер WhatsApp</div>
+                        <div className="text-sm text-gray-600">{t("Номер WhatsApp")}</div>
                         <input
                           className="w-full border rounded-xl px-3 py-2 bg-white"
                           value={messengerContact}
@@ -605,14 +628,14 @@ export default function CheckoutClient({ deliveryPrice, deliveryTerms }: { deliv
                           placeholder={phone.trim() || "+7 ..."}
                         />
                         <div className="text-xs text-gray-500">
-                          Если поле пустое, используем номер телефона, указанный выше.
+                          {t("Если поле пустое, используем номер телефона, указанный выше.")}
                         </div>
                       </label>
                     ) : (
                       <div className="rounded-xl border bg-white p-3 text-sm text-gray-700">
-                        <div className="font-medium">Telegram будет подключён по номеру телефона из заказа.</div>
+                        <div className="font-medium">{t("Telegram будет подключён по номеру телефона из заказа.")}</div>
                         <div className="mt-1 text-xs text-gray-500">
-                          После оформления откройте бота и нажмите «Поделиться номером телефона». Telegram передаст номер боту только после вашего подтверждения.
+                          {t("После оформления откройте бота и нажмите «Поделиться номером телефона». Telegram передаст номер боту только после вашего подтверждения.")}
                         </div>
                       </div>
                     )}
@@ -620,35 +643,35 @@ export default function CheckoutClient({ deliveryPrice, deliveryTerms }: { deliv
                 )}
               </div>
 
-              <div className="text-sm font-semibold pt-1">Доставка</div>
+              <div className="text-sm font-semibold pt-1">{t("Доставка")}</div>
               <div className="rounded-xl border bg-gray-50 p-3 text-sm leading-6">
                 <p>{deliveryTerms}</p>
-                <p className="mt-1 font-semibold">{deliveryPrice === null ? "Стоимость доставки не включена в сумму товаров. Уточните её до оплаты." : `Доставка: ${deliveryPrice === 0 ? "бесплатно" : `${deliveryPrice.toLocaleString("ru-RU")} ₸`}`}</p>
-                <Link href="/delivery" target="_blank" className="mt-2 inline-block underline">Доставка и оплата</Link>
+                <p className="mt-1 font-semibold">{deliveryPrice === null ? t("Стоимость доставки не включена в сумму товаров. Уточните её до оплаты.") : `Доставка: ${deliveryPrice === 0 ? t("бесплатно") : `${deliveryPrice.toLocaleString("ru-RU")} ₸`}`}</p>
+                <Link href={localizedHref("/delivery", locale)} target="_blank" className="mt-2 inline-block underline">{t("Доставка и оплата")}</Link>
               </div>
               <label className="space-y-1">
-                <div className="text-sm text-gray-600">Адрес доставки *</div>
+                <div className="text-sm text-gray-600">{t("Адрес доставки *")}</div>
                 <input
                   className="w-full border rounded-xl px-3 py-2"
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
                   autoComplete="street-address"
-                  placeholder="Город, улица, дом, квартира"
+                  placeholder={t("Город, улица, дом, квартира")}
                 />
               </label>
 
-              <div className="text-sm font-semibold pt-1">Оплата</div>
+              <div className="text-sm font-semibold pt-1">{t("Оплата")}</div>
               <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                После оформления заказа откроется страница оплаты. При доступном Halyk ePay можно оплатить картой; перевод на Kaspi останется альтернативным способом.
+                {t("После оформления заказа откроется страница оплаты. При доступном Halyk ePay можно оплатить картой; перевод на Kaspi останется альтернативным способом.")}
               </div>
 
               <label className="space-y-1">
-                <div className="text-sm text-gray-600">Комментарий (необязательно)</div>
+                <div className="text-sm text-gray-600">{t("Комментарий (необязательно)")}</div>
                 <textarea
                   className="w-full border rounded-xl px-3 py-2 min-h-[90px]"
                   value={comment}
                   onChange={(e) => setComment(e.target.value)}
-                  placeholder="Например: удобное время, уточнения…"
+                  placeholder={t("Например: удобное время, уточнения…")}
                 />
               </label>
 
@@ -656,7 +679,7 @@ export default function CheckoutClient({ deliveryPrice, deliveryTerms }: { deliv
 
               <div className="flex items-center justify-between pt-1">
                 <div className="text-base font-bold">
-                  {deliveryPrice === null ? "Товары без доставки" : "К оплате"}: {payableTotal.toLocaleString("ru-RU")} ₸
+                  {deliveryPrice === null ? t("Товары без доставки") : t("К оплате")}: {payableTotal.toLocaleString("ru-RU")} ₸
                 </div>
 
                 <button
@@ -665,16 +688,16 @@ export default function CheckoutClient({ deliveryPrice, deliveryTerms }: { deliv
                   onClick={submitOrder}
                   disabled={!canOpenForm || submitting}
                 >
-                  {submitting ? "Оформляем…" : "Оформить заказ"}
+                  {submitting ? t("Оформляем…") : t("Оформить заказ")}
                 </button>
               </div>
 
               <div className="text-xs text-gray-500">
                 {email.trim()
-                  ? "После оформления откроется оплата, а на email придёт защищённая ссылка на страницу заказа."
+                  ? t("После оформления откроется оплата, а на email придёт защищённая ссылка на страницу заказа.")
                   : messenger === "WHATSAPP"
-                    ? "После оформления откроется оплата. Информация по заказу будет отправляться в WhatsApp."
-                    : "После оформления откроется оплата. Подключите Telegram-бота и подтвердите номер телефона для уведомлений."}
+                    ? t("После оформления откроется оплата. Информация по заказу будет отправляться в WhatsApp.")
+                    : t("После оформления откроется оплата. Подключите Telegram-бота и подтвердите номер телефона для уведомлений.")}
               </div>
             </div>
           )}

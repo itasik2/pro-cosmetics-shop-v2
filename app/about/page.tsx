@@ -1,3 +1,5 @@
+import { requestLocale } from "@/lib/i18nServer";
+import { uiText, localizedHref } from "@/lib/i18n";
 import Link from "next/link";
 import {
   SITE_ABOUT_GOAL,
@@ -36,63 +38,47 @@ const PRODUCT_BENEFITS = [
   "Возможность спокойно сравнить варианты и выбрать продукт под свою схему ухода.",
 ] as const;
 
-export default function AboutPage() {
+export default async function AboutPage() {
+  const locale = await requestLocale();
+  const t = (value: string) => uiText(locale, value);
   return (
     <div className="space-y-10 py-4">
       <section className="site-panel-muted overflow-hidden rounded-3xl p-7 md:p-12">
         <div className="max-w-4xl">
           <div className="site-eyebrow">
-            О магазине {SITE_BRAND}
+            {locale === "kk" ? "Дүкен туралы" : locale === "en" ? "About" : "О магазине"} {SITE_BRAND}
           </div>
-          <h1 className="mt-3 text-3xl font-bold tracking-tight md:text-5xl">
-            Профессиональная косметика, которую легко понять и правильно
-            выбрать
-          </h1>
+          <h1 className="mt-3 text-3xl font-bold tracking-tight md:text-5xl">{t("Профессиональная косметика, которую легко понять и правильно выбрать")}</h1>
           <p className="mt-5 max-w-3xl text-lg leading-8 text-gray-700">
-            {SITE_BRAND} — это {SITE_ABOUT_SUMMARY} Мы соединяем профессиональный
-            ассортимент, проверенную информацию и удобную подачу, чтобы выбор
-            ухода был осознанным, а не случайным.
+            {locale === "kk" ? `${SITE_BRAND} кәсіби косметиканың түсінікті таңдауын ұсынады. Біз сенімді ақпаратты, кәсіби ассортиментті және ыңғайлы таңдауды біріктіреміз.` : locale === "en" ? `${SITE_BRAND} makes professional cosmetics easier to choose. We combine a carefully selected range, verified information and clear guidance.` : `${SITE_BRAND} — это ${SITE_ABOUT_SUMMARY} Мы соединяем профессиональный ассортимент, проверенную информацию и удобную подачу, чтобы выбор ухода был осознанным, а не случайным.`}
           </p>
           <div className="mt-7 flex flex-wrap gap-3">
-            <Link href="/care" className="btn">
-              Подобрать средства
-            </Link>
+            <Link href={localizedHref("/care", locale)} className="btn">{t("Подобрать средства")}</Link>
             <Link
-              href="/contacts"
+              href={localizedHref("/contacts", locale)}
               className="btn-secondary"
-            >
-              Связаться с нами
-            </Link>
+            >{t("Связаться с нами")}</Link>
           </div>
         </div>
       </section>
 
       <section className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
         <div className="rounded-3xl bg-[var(--color-primary)] p-7 text-white md:p-9">
-          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-white/70">
-            Наша цель
-          </div>
-          <h2 className="mt-3 text-2xl font-semibold md:text-3xl">
-            Не просто продать средство, а помочь собрать понятный уход
-          </h2>
-          <p className="mt-4 leading-7 text-white/80">{SITE_ABOUT_GOAL}</p>
-          <p className="mt-4 leading-7 text-white/80">
-            Хороший выбор начинается с ответов на простые вопросы: что это за
-            продукт, для каких задач он создан, как включить его в уход и чем он
-            отличается от похожих средств. Именно такие ответы мы стараемся
-            давать в каждой карточке.
-          </p>
+          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-white/70">{t("Наша цель")}</div>
+          <h2 className="mt-3 text-2xl font-semibold md:text-3xl">{t("Не просто продать средство, а помочь собрать понятный уход")}</h2>
+          <p className="mt-4 leading-7 text-white/80">{locale === "kk" ? "Тері күтіміне арналған өнімді саналы түрде таңдауға көмектесіп, әр құралдың мақсаты мен қолданылу тәсілін түсіндіреміз." : locale === "en" ? "We help customers make informed skincare choices by explaining each product's purpose and how to use it." : SITE_ABOUT_GOAL}</p>
+          <p className="mt-4 leading-7 text-white/80">{t("Хороший выбор начинается с ответов на простые вопросы: что это за продукт, для каких задач он создан, как включить его в уход и чем он отличается от похожих средств. Именно такие ответы мы стараемся давать в каждой карточке.")}</p>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
           {PRINCIPLES.map((principle, index) => (
-            <article key={principle.title} className="site-panel rounded-3xl p-6">
+            <article key={t(principle.title)} className="site-panel rounded-3xl p-6">
               <div className="accent-badge flex h-10 w-10 items-center justify-center rounded-2xl font-bold">
                 {index + 1}
               </div>
-              <h3 className="mt-4 text-lg font-semibold">{principle.title}</h3>
+              <h3 className="mt-4 text-lg font-semibold">{t(principle.title)}</h3>
               <p className="mt-2 text-sm leading-6 text-gray-600">
-                {principle.text}
+                {t(principle.text)}
               </p>
             </article>
           ))}
@@ -102,34 +88,22 @@ export default function AboutPage() {
       <section className="site-panel rounded-3xl p-7 md:p-10">
         <div className="grid gap-8 md:grid-cols-2 md:items-center">
           <div>
-            <div className="site-eyebrow">
-              Что вы получаете
-            </div>
-            <h2 className="mt-2 text-2xl font-semibold md:text-3xl">
-              Уверенность в выборе на каждом шаге
-            </h2>
-            <p className="mt-4 leading-7 text-gray-700">
-              Мы развиваем магазин как удобный и содержательный каталог. Здесь
-              важны не только красивые фотографии, но и сведения, которые
-              действительно помогают принять решение.
-            </p>
-            <p className="mt-4 leading-7 text-gray-700">
-              Вы выбираете не просто красивую упаковку, а понятный продукт с
-              определённым местом в уходе. Это экономит время, снижает риск
-              случайной покупки и помогает сосредоточиться на потребностях кожи.
-            </p>
+            <div className="site-eyebrow">{t("Что вы получаете")}</div>
+            <h2 className="mt-2 text-2xl font-semibold md:text-3xl">{t("Уверенность в выборе на каждом шаге")}</h2>
+            <p className="mt-4 leading-7 text-gray-700">{t("Мы развиваем магазин как удобный и содержательный каталог. Здесь важны не только красивые фотографии, но и сведения, которые действительно помогают принять решение.")}</p>
+            <p className="mt-4 leading-7 text-gray-700">{t("Вы выбираете не просто красивую упаковку, а понятный продукт с определённым местом в уходе. Это экономит время, снижает риск случайной покупки и помогает сосредоточиться на потребностях кожи.")}</p>
           </div>
 
           <ul className="space-y-3">
             {PRODUCT_BENEFITS.map((benefit) => (
               <li
-                key={benefit}
+                key={t(benefit)}
                 className="site-panel-muted flex gap-3 rounded-2xl p-4 text-sm leading-6 text-gray-700"
               >
                 <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--color-accent-strong)] text-xs font-bold text-white">
                   ✓
                 </span>
-                <span>{benefit}</span>
+                <span>{t(benefit)}</span>
               </li>
             ))}
           </ul>
@@ -138,21 +112,13 @@ export default function AboutPage() {
 
       <section className="rounded-3xl bg-[var(--color-accent-strong)] p-7 text-white md:flex md:items-center md:justify-between md:gap-8 md:p-10">
         <div className="max-w-3xl">
-          <h2 className="text-2xl font-semibold md:text-3xl">
-            Найдите средство, которое решает именно вашу задачу
-          </h2>
-          <p className="mt-3 leading-7 text-white/85">
-            Начните с категории, сравните подробные карточки и соберите уход без
-            лишних шагов. Каталог будет становиться точнее и полезнее по мере
-            обновления данных и ассортимента.
-          </p>
+          <h2 className="text-2xl font-semibold md:text-3xl">{t("Найдите средство, которое решает именно вашу задачу")}</h2>
+          <p className="mt-3 leading-7 text-white/85">{t("Начните с категории, сравните подробные карточки и соберите уход без лишних шагов. Каталог будет становиться точнее и полезнее по мере обновления данных и ассортимента.")}</p>
         </div>
         <Link
-          href="/shop"
+          href={localizedHref("/shop", locale)}
           className="mt-6 inline-flex min-h-8 shrink-0 items-center justify-center rounded-full bg-white px-3 py-1 text-sm font-semibold text-[var(--color-accent-strong)] shadow-sm transition hover:bg-white/90 md:mt-0"
-        >
-          Перейти в каталог
-        </Link>
+        >{t("Перейти в каталог")}</Link>
       </section>
     </div>
   );

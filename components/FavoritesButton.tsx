@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useUiText } from "@/components/LocaleProvider";
 
 function readFavCount(): number {
   try {
@@ -15,6 +16,7 @@ function readFavCount(): number {
 }
 
 export default function FavoritesButton() {
+  const t = useUiText();
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
@@ -64,7 +66,7 @@ export default function FavoritesButton() {
         onChange={toggleFav}
         className="h-4 w-4 accent-gray-900"
       />
-      <span>Избранное</span>
+      <span>{t("Избранное")}</span>
 
       {badge > 0 && (
         <span className="min-w-[18px] h-[18px] px-1.5 rounded-full bg-gray-100 text-[11px] leading-[18px] text-center text-gray-700 border border-gray-200">

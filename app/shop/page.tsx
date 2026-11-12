@@ -5,6 +5,8 @@ import InStockButton from "@/components/InStockButton";
 import NewProductsFilter from "@/components/NewProductsFilter";
 import CatalogFacetFilters from "@/components/CatalogFacetFilters";
 import { SITE_BRAND, getPublicBaseUrl } from "@/lib/siteConfig";
+import { requestLocale } from "@/lib/i18nServer";
+import { uiText, categoryLabel, localizedHref } from "@/lib/i18n";
 import { buildBrandIntentKeywords } from "@/lib/seo";
 import { CATEGORY_OPTIONS, CARE_OPTIONS } from "@/lib/catalogFilters";
 import { firstParam, parseSlugList, parseCatalogQuery, getCatalogBrands, getCatalogData } from "@/lib/publicCatalog";
@@ -117,51 +119,53 @@ export async function generateMetadata(props: Props) {
 }
 
 export default async function ShopPage(props: Props) {
+  const locale = await requestLocale();
+  const t = (value: string) => uiText(locale, value);
   const query = parseCatalogQuery(await props.searchParams);
   const { care, maxPrice, sort, fav, instock, searchQuery } = query;
   const selectedCare = CARE_OPTIONS.find((option) => option.slug === care);
-  const { selectedBrands, selectedCategories, brands, products: productsForClient } = await getCatalogData(query);
+  const { selectedBrands, selectedCategories, brands, products: productsForClient } = await getCatalogData(query, locale);
   const brandSlug = selectedBrands.map((brand) => brand.slug).join(",");
   const categorySlug = selectedCategories.map((category) => category.slug).join(",");
 
   const brandSummary =
     selectedBrands.length === 0
-      ? "Все бренды"
+      ? t("Все бренды")
       : selectedBrands.length === 1
         ? selectedBrands[0].name
-        : `Брендов: ${selectedBrands.length}`;
+        : `${t("Брендов")}: ${selectedBrands.length}`;
   const categorySummary =
     selectedCategories.length === 0
-      ? "Все категории"
+      ? t("Все категории")
       : selectedCategories.length === 1
-        ? selectedCategories[0].label
-        : `Категорий: ${selectedCategories.length}`;
+        ? categoryLabel(locale, selectedCategories[0].label)
+        : `${t("Категорий")}: ${selectedCategories.length}`;
 
   return (
     <div className="space-y-6 py-6">
       <div>
-        <h1 className="text-2xl font-bold">Каталог</h1>
+        <h1 className="text-2xl font-bold">{t("Каталог")}</h1>
         <div className="mt-1 text-sm text-gray-500">
-          {brandSummary} • {categorySummary} • {productsForClient.length} поз.
+          {brandSummary} • {categorySummary} • {productsForClient.length} {t("поз.")}
         </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <Link href="/care" className="btn-secondary">Подобрать уход</Link>
+        <Link href={localizedHref("/care", locale)} className="btn-secondary">{t("Подобрать уход")}</Link>
         {(selectedCare || maxPrice !== null) && <div className="rounded-xl border bg-white p-3 text-sm">
-          {selectedCare?.label}{selectedCare && maxPrice !== null ? " • " : ""}
-          {maxPrice !== null && `До ${maxPrice.toLocaleString("ru-RU")} ₸ за средство`}
-          <Link href="/shop" className="ml-3 underline">Сбросить подбор</Link>
+          {selectedCare ? t(selectedCare.label) : null}{selectedCare && maxPrice !== null ? " • " : ""}
+          {maxPrice !== null && (locale === "en" ? `Up to ${maxPrice.toLocaleString("en-US")} ₸ per item` : locale === "kk" ? `Бір тауарға ${maxPrice.toLocaleString("kk-KZ")} ₸ дейін` : `До ${maxPrice.toLocaleString("ru-RU")} ₸ за средство`)}
+          <Link href={localizedHref("/shop", locale)} className="ml-3 underline">{t("Сбросить подбор")}</Link>
         </div>}
       </div>
 
-      <form action="/shop" method="get" className="flex flex-col gap-2 sm:flex-row sm:items-center">
+      <form action={localizedHref("/shop", locale)} method="get" className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <div className="relative flex-1">
           <input
             type="search"
             name="q"
             defaultValue={searchQuery}
-            placeholder="Поиск по названию, бренду, SKU или объёму"
+            placeholder={t("Поиск по названию, бренду, SKU или объёму")}
             className="w-full rounded-2xl border bg-white px-4 py-3 pr-10 text-sm outline-none transition focus:border-gray-500"
           />
           <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">⌕</span>
@@ -173,13 +177,13 @@ export default async function ShopPage(props: Props) {
         {sort && <input type="hidden" name="sort" value={sort} />}
         {fav === "1" && <input type="hidden" name="fav" value="1" />}
         {instock === "1" && <input type="hidden" name="instock" value="1" />}
-        <button type="submit" className="btn">Найти</button>
+        <button type="submit" className="btn">{t("Найти")}</button>
         {searchQuery && (
           <Link
-            href={buildHref(brandSlug, categorySlug, sort, fav, instock, "", care, maxPrice)}
+            href={localizedHref(buildHref(brandSlug, categorySlug, sort, fav, instock, "", care, maxPrice), locale)}
             className="inline-flex min-h-8 items-center justify-center rounded-full border px-3 py-1 text-center text-sm hover:bg-gray-50"
           >
-            Очистить
+            {t("Очистить")}
           </Link>
         )}
       </form>
@@ -189,7 +193,7 @@ export default async function ShopPage(props: Props) {
           brands={brands.map((brand) => ({ slug: brand.slug, label: brand.name }))}
           categories={CATEGORY_OPTIONS.map((category) => ({
             slug: category.slug,
-            label: category.label,
+            label: categoryLabel(locale, category.label),
           }))}
         />
 
@@ -202,7 +206,7 @@ export default async function ShopPage(props: Props) {
 
       {searchQuery && (
         <div className="text-sm text-gray-500">
-          По запросу «{searchQuery}» найдено: {productsForClient.length}
+          {locale === "en" ? `Results for “${searchQuery}”: ${productsForClient.length}` : locale === "kk" ? `«${searchQuery}» сұрауы бойынша табылғаны: ${productsForClient.length}` : `По запросу «${searchQuery}» найдено: ${productsForClient.length}`}
         </div>
       )}
 

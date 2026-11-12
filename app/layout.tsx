@@ -2,6 +2,9 @@ import "./globals.css";
 import type { Metadata } from "next";
 import { unstable_cache } from "next/cache";
 import Footer from "@/components/Footer";
+import { LocaleProvider } from "@/components/LocaleProvider";
+import { requestLocale } from "@/lib/i18nServer";
+import { uiText } from "@/lib/i18n";
 import Navbar from "@/components/Navbar";
 import ScrollToTopButton from "@/components/ScrollToTopButton";
 import { getCspNonce } from "@/lib/csp";
@@ -101,6 +104,7 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const locale = await requestLocale();
   const nonce = await getCspNonce();
   let settings: Awaited<ReturnType<typeof getThemeSettings>> = null;
   try {
@@ -131,7 +135,7 @@ export default async function RootLayout({
   const webSiteJsonLd = buildWebSiteJsonLd();
 
   return (
-    <html lang="ru" data-theme={themeProfile}>
+    <html lang={locale} data-theme={themeProfile}>
       <head>
         <link rel="preconnect" href="https://res.cloudinary.com" />
         {SITE_KEY === "procosmetics" ? (
@@ -161,6 +165,7 @@ export default async function RootLayout({
       </head>
 
       <body className="min-h-screen">
+        <LocaleProvider locale={locale}>
         {backgroundUrl ? (
           <div
             className="pointer-events-none fixed inset-0 z-0 bg-cover bg-center bg-no-repeat"
@@ -178,7 +183,7 @@ export default async function RootLayout({
                 <div className="min-w-0 truncate">{bannerText}</div>
                 {bannerHref ? (
                   <a href={bannerHref} className="text-link whitespace-nowrap">
-                    Подробнее
+                    {uiText(locale, "Подробнее")}
                   </a>
                 ) : null}
               </div>
@@ -191,6 +196,7 @@ export default async function RootLayout({
           <Footer />
           <ScrollToTopButton />
         </div>
+        </LocaleProvider>
       </body>
     </html>
   );

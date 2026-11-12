@@ -1,4 +1,6 @@
 import { cache } from "react";
+import { localizedProducts } from "./localizedContent";
+import type { SiteLocale } from "./i18n";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 import { PUBLIC_PRODUCT_CARD_SELECT } from "./publicProductSelect";
@@ -31,7 +33,7 @@ export function parseCatalogQuery(params: Record<string, string | string[] | und
   };
 }
 
-export async function getCatalogData(query: CatalogQuery) {
+export async function getCatalogData(query: CatalogQuery, locale: SiteLocale = "ru") {
   const where: Prisma.ProductWhereInput = {
     isPublished: true, enrichmentStatus: { not: "MERGED" },
     ...(query.sort === "new" ? { OR: [{ isNew: true }, { createdAt: { gte: new Date(Date.now() - 14 * 86400000) } }] } : {}),
@@ -43,31 +45,33 @@ export async function getCatalogData(query: CatalogQuery) {
   const selectedCategories = CATEGORY_OPTIONS.filter((category) => query.categorySlugs.includes(category.slug));
   const selectedNames = new Set(selectedBrands.map((brand) => brand.name.toLocaleLowerCase("ru-RU")));
   const overlaid = await overlayCatalogHubProducts(rows);
-  const products = collapseRepresentedProductCards(overlaid)
+  const prefiltered = collapseRepresentedProductCards(overlaid)
     .filter((product) => !selectedNames.size || Boolean(product.brand && selectedNames.has(product.brand.name.toLocaleLowerCase("ru-RU"))))
     .filter((product) => !selectedCategories.length || selectedCategories.some((category) => productMatchesCategory(product, category)))
-    .filter((product) => productMatchesSearch(product, query.searchQuery))
     .filter((product) => productMatchesCare(product, query.care))
     .filter((product) => productMatchesBudget(product, query.maxPrice))
-    .filter((product) => query.instock !== "1" || (catalogVariants(product.variants)?.some((variant) => variant.stock > 0) ?? product.stock > 0))
+    .filter((product) => query.instock !== "1" || (catalogVariants(product.variants)?.some((variant) => variant.stock > 0) ?? product.stock > 0));
+  const translated = await localizedProducts(prefiltered, locale);
+  const products = translated
+    .filter((product) => productMatchesSearch(product, query.searchQuery))
     .map((product) => query.maxPrice === null ? product : { ...product,
       variants: catalogVariants(product.variants)?.sort((a, b) => Number(b.stock > 0 && b.price <= query.maxPrice!) - Number(a.stock > 0 && a.price <= query.maxPrice!)) ?? null,
     });
   return { brands, selectedBrands, selectedCategories, products };
 }
 
-export async function getBrandCatalogProducts(brandName: string) {
+export async function getBrandCatalogProducts(brandName: string, locale: SiteLocale = "ru") {
   const rows = await prisma.product.findMany({
     where: { isPublished: true, enrichmentStatus: { not: "MERGED" },
       ...(!getCatalogHubShadowConfig().readEnabled ? { brand: { name: { equals: brandName, mode: "insensitive" as const } } } : {}),
     }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], select: PUBLIC_PRODUCT_CARD_SELECT,
   });
   const products = await overlayCatalogHubProducts(rows);
-  return collapseRepresentedProductCards(products.filter((product) => product.brand?.name.toLocaleLowerCase("ru-RU") === brandName.toLocaleLowerCase("ru-RU")));
+  return localizedProducts(collapseRepresentedProductCards(products.filter((product) => product.brand?.name.toLocaleLowerCase("ru-RU") === brandName.toLocaleLowerCase("ru-RU"))), locale);
 }
 
-export async function loadCatalogProducts(source: CatalogSource) {
-  if (source.kind === "catalog") return (await getCatalogData(source.query)).products;
+export async function loadCatalogProducts(source: CatalogSource, locale: SiteLocale = "ru") {
+  if (source.kind === "catalog") return (await getCatalogData(source.query, locale)).products;
   const brand = await prisma.brand.findUnique({ where: { slug: source.slug }, select: { name: true, isActive: true } });
-  return brand?.isActive ? getBrandCatalogProducts(brand.name) : [];
+  return brand?.isActive ? getBrandCatalogProducts(brand.name, locale) : [];
 }

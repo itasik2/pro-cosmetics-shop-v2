@@ -2,13 +2,17 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { isHalykEpayConfigured } from "@/lib/halykEpay";
-import { telegramOrderConnectUrl } from "@/lib/messenger";
+import { getCustomerMessengerAvailability, telegramOrderConnectUrl } from "@/lib/messenger";
+import { requestLocale } from "@/lib/i18nServer";
+import { uiText, localizedHref } from "@/lib/i18n";
 
 export default async function CheckoutSuccessPage(
   props: {
     searchParams?: Promise<{ order?: string; token?: string; channel?: string }>;
   }
 ) {
+  const locale = await requestLocale();
+  const t = (russian: string) => uiText(locale, russian);
   const searchParams = await props.searchParams;
   const order = (searchParams?.order || "").trim();
   const token = (searchParams?.token || "").trim();
@@ -22,25 +26,28 @@ export default async function CheckoutSuccessPage(
   const telegramUrl =
     channel === "TELEGRAM" && order ? telegramOrderConnectUrl(order) : "";
 
+  const availability = getCustomerMessengerAvailability();
   const channelMessage =
     channel === "WHATSAPP"
-      ? "Информация по заказу будет отправляться в WhatsApp на указанный номер."
+      ? availability.whatsapp
+        ? t("Информация по заказу будет отправляться в WhatsApp на указанный номер.")
+        : t("Автоматические уведомления в WhatsApp пока недоступны. Магазин получил заказ и сможет связаться с вами по указанному номеру. Сохраните ссылку на страницу заказа.")
       : channel === "TELEGRAM"
         ? telegramUrl
-          ? "Чтобы получать автоматические уведомления, один раз подключите заказ к Telegram-боту. В боте нажмите Start, затем «Поделиться номером телефона». Номер должен совпадать с указанным в заказе."
-          : "Telegram выбран для уведомлений, но бот магазина ещё не настроен."
-        : "Проверьте email: туда придёт защищённая ссылка на страницу заказа и дальнейшие уведомления.";
+          ? t("Чтобы получать автоматические уведомления, один раз подключите заказ к Telegram-боту. В боте нажмите Start, затем «Поделиться номером телефона». Номер должен совпадать с указанным в заказе.")
+          : t("Telegram выбран для уведомлений, но бот магазина ещё не настроен.")
+        : t("Проверьте email: туда придёт защищённая ссылка на страницу заказа и дальнейшие уведомления.");
 
   return (
     <div className="max-w-2xl mx-auto py-10 space-y-4">
-      <h1 className="text-2xl font-bold">Заказ оформлен</h1>
+      <h1 className="text-2xl font-bold">{t("Заказ оформлен")}</h1>
 
       {order ? (
         <div className="rounded-2xl border p-4 bg-white">
-          <div className="text-sm text-gray-500">Номер заказа</div>
+          <div className="text-sm text-gray-500">{t("Номер заказа")}</div>
           <div className="text-xl font-bold">{order}</div>
           <div className="text-sm text-gray-600 mt-2">
-            {channelMessage} Перейдите на страницу заказа для оплаты.
+            {channelMessage} {t("Перейдите на страницу заказа для оплаты.")}
           </div>
 
           <div className="mt-3 flex flex-wrap gap-2">
@@ -49,7 +56,7 @@ export default async function CheckoutSuccessPage(
                 href={accessUrl}
                 className="inline-flex rounded-xl bg-black px-4 py-2 text-sm font-semibold text-white"
               >
-                Перейти к оплате
+                {t("Перейти к оплате")}
               </Link>
             ) : null}
 
@@ -58,27 +65,27 @@ export default async function CheckoutSuccessPage(
                 href={telegramUrl}
                 className="inline-flex rounded-xl border bg-white px-4 py-2 text-sm font-semibold hover:bg-gray-50"
               >
-                Подключить Telegram
+                {t("Подключить Telegram")}
               </a>
             ) : null}
           </div>
         </div>
       ) : (
-        <div className="text-sm text-gray-600">Спасибо за заказ.</div>
+        <div className="text-sm text-gray-600">{t("Спасибо за заказ.")}</div>
       )}
 
       <div className="flex gap-2">
         <Link
-          href="/shop"
+          href={localizedHref("/shop", locale)}
           className="px-3 py-2 rounded-xl border bg-white hover:bg-gray-50"
         >
-          В каталог
+          {t("В каталог")}
         </Link>
         <Link
-          href="/"
+          href={localizedHref("/", locale)}
           className="px-3 py-2 rounded-xl border bg-white hover:bg-gray-50"
         >
-          На главную
+          {t("На главную")}
         </Link>
       </div>
     </div>

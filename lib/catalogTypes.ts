@@ -22,4 +22,4 @@ export type CatalogCard = Omit<CatalogProductRow, "createdAt" | "variants"> & {
 };
 export type CatalogCursor = { id: string; createdAt: string };
 export type CatalogBatch = { products: CatalogCard[]; total: number; cursor?: CatalogCursor; hasMore: boolean };
-export type CatalogBatchRequest = { source: CatalogSource; cursor?: CatalogCursor; favorites: string[] };
+export type CatalogBatchRequest = { source: CatalogSource; cursor?: CatalogCursor; favorites: string[]; locale?: "ru" | "kk" | "en" };

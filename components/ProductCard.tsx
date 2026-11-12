@@ -9,7 +9,9 @@ import { brandNameToSlug } from "@/lib/brandSlug";
 import { publicShortDescription } from "@/lib/productCopy";
 import { publicProductCategory } from "@/lib/catalogFilters";
 import { productDisplayName } from "@/lib/productNames";
-import { productThumbnail } from "@/lib/productThumbnails";
+import { useSiteLocale, useUiText } from "@/components/LocaleProvider";
+import { categoryLabel, localizedHref } from "@/lib/i18n";
+import ResilientProductImage from "@/components/ResilientProductImage";
 import { defaultPublicProductVariant, isRecentlyCreated, normalizePublicProductVariants } from "@/lib/publicProductVariants";
 
 export type ProductCardProps = {
@@ -39,6 +41,8 @@ const CATALOG_IMAGE_SIZES = "(min-width: 1152px) 318px, (min-width: 768px) calc(
 
 function ProductCard({ product, priority = false, headingLevel = 3, imageSizes = CATALOG_IMAGE_SIZES, onOpen }: ProductCardProps) {
   const Heading = headingLevel === 2 ? "h2" : "h3";
+  const locale = useSiteLocale();
+  const t = useUiText();
   const displayName = productDisplayName(product);
   const newBadge = product.isNew === true || isRecentlyCreated(product.createdAt, 14);
   const variants = normalizePublicProductVariants(product.variants);
@@ -52,8 +56,8 @@ function ProductCard({ product, priority = false, headingLevel = 3, imageSizes =
   const stockToUse = Math.trunc(Number(selectedVariant?.stock ?? product.stock) || 0);
   const inStock = stockToUse > 0;
   const imageToShow = variantDisplayImage(selectedVariant, product.image);
-  const productHref = product.slug ? `/shop/${encodeURIComponent(product.slug)}` : `/api/products/by-id-redirect/${encodeURIComponent(product.id)}`;
-  const stockAlertHref = `/shop/${encodeURIComponent(product.slug)}#stock-alert`;
+  const productHref = product.slug ? localizedHref(`/shop/${encodeURIComponent(product.slug)}`, locale) : `/api/products/by-id-redirect/${encodeURIComponent(product.id)}`;
+  const stockAlertHref = localizedHref(`/shop/${encodeURIComponent(product.slug)}#stock-alert`, locale);
   const brandHref = product.brand
     ? `/brand/${encodeURIComponent(brandNameToSlug(product.brand.name))}`
     : null;
@@ -66,13 +70,13 @@ function ProductCard({ product, priority = false, headingLevel = 3, imageSizes =
       style={priority ? undefined : { contentVisibility: "auto", containIntrinsicSize: "auto 620px" }}>
       <div className="absolute left-3 top-3 z-10 flex flex-col gap-2">
         {product.isPopular && (
-          <span className="inline-flex items-center rounded-full bg-gray-700 px-2 py-1 text-xs text-white shadow-sm">Хит</span>
+          <span className="inline-flex items-center rounded-full bg-gray-700 px-2 py-1 text-xs text-white shadow-sm">{t("Хит")}</span>
         )}
         {newBadge && (
-          <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 shadow-sm">Новинка</span>
+          <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 shadow-sm">{t("Новинка")}</span>
         )}
         {!inStock && (
-          <span className="inline-flex items-center rounded-full bg-gray-200 px-2 py-1 text-xs text-gray-700">Нет в наличии</span>
+          <span className="inline-flex items-center rounded-full bg-gray-200 px-2 py-1 text-xs text-gray-700">{t("Нет в наличии")}</span>
         )}
       </div>
 
@@ -81,22 +85,18 @@ function ProductCard({ product, priority = false, headingLevel = 3, imageSizes =
       </div>
 
       <Link href={productHref} prefetch={false} onClick={rememberOpen} className="block aspect-square w-full bg-white rounded-xl mb-3 overflow-hidden" aria-label={`Открыть товар: ${displayName}`}>
-        <img src={productThumbnail(imageToShow, 640)}
-          srcSet={productThumbnail(imageToShow, 320) !== imageToShow
-            ? [320, 480, 640, 768, 960].map((width) => `${productThumbnail(imageToShow, width)} ${width}w`).join(", ") : undefined}
-          sizes={imageSizes} fetchPriority={priority ? "high" : undefined}
-          alt={displayName} width={640} height={640} className="w-full h-full object-contain" loading={priority ? "eager" : "lazy"} decoding="async" />
+        <ResilientProductImage key={imageToShow} src={imageToShow} sizes={imageSizes} priority={priority} alt={displayName} />
       </Link>
 
       <div className="text-sm text-gray-500">
         {product.brand && brandHref ? (
           <Link href={brandHref} prefetch={false} onClick={rememberOpen} className="hover:underline">{product.brand.name}</Link>
-        ) : publicProductCategory(product)}
+        ) : categoryLabel(locale, publicProductCategory(product))}
       </div>
 
       <Heading className="font-semibold line-clamp-2 min-h-[40px]">{displayName}</Heading>
       <p className="mt-1 min-h-[40px] line-clamp-2 text-xs leading-5 text-gray-600">
-        {publicShortDescription(product.shortDescription) || "Подробное описание и способ применения — в карточке товара."}
+        {publicShortDescription(product.shortDescription) || t("Подробное описание и способ применения — в карточке товара.")}
       </p>
 
       <div className="mt-2 min-h-[36px]">
@@ -115,9 +115,9 @@ function ProductCard({ product, priority = false, headingLevel = 3, imageSizes =
                     (active ? "border-gray-400 bg-gray-200 text-gray-900" : "border-gray-200 bg-gray-50 text-gray-700") +
                     (unavailable ? " opacity-60" : " hover:border-gray-400 hover:bg-gray-100")
                   }
-                  title={unavailable ? "Нет в наличии — можно подписаться на поступление" : ""}
+                  title={unavailable ? t("Уведомить о поступлении") : ""}
                 >
-                  {v.label}{unavailable ? " · нет" : ""}
+                  {v.label}{unavailable ? (locale === "ru" ? " · нет" : ` · ${t("Нет в наличии")}`) : ""}
                 </button>
               );
             })}
@@ -137,14 +137,14 @@ function ProductCard({ product, priority = false, headingLevel = 3, imageSizes =
         </div>
 
         <div className={"mt-1 text-xs " + (inStock ? "text-emerald-700" : "text-gray-500")}>
-          {inStock ? `В наличии: ${stockToUse}` : "Нет в наличии"}
+          {inStock ? `${t("В наличии:")} ${stockToUse}` : t("Нет в наличии")}
         </div>
 
         <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
-          <Link href={productHref} prefetch={false} onClick={rememberOpen} className="text-xs text-gray-600 hover:underline">Подробнее</Link>
+          <Link href={productHref} prefetch={false} onClick={rememberOpen} className="text-xs text-gray-600 hover:underline">{t("Подробнее")}</Link>
           {!inStock ? (
             <Link href={stockAlertHref} prefetch={false} onClick={rememberOpen} className="text-xs font-semibold text-amber-800 hover:underline">
-              Уведомить о поступлении
+              {t("Уведомить о поступлении")}
             </Link>
           ) : null}
         </div>

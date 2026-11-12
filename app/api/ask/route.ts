@@ -7,12 +7,14 @@ import { askCatalogAi, ConsultantProviderError, DEFAULT_CONSULTANT_MODEL } from 
 import { getScopedEnv, SITE_KEY } from "@/lib/siteConfig";
 import { getStorePolicy } from "@/lib/storePolicy";
 import { overlayCatalogHubProducts } from "@/lib/catalogHubOverlay";
+import { localizedProducts } from "@/lib/localizedContent";
 
 export const runtime = "nodejs";
 export const maxDuration = 40;
 
 const RequestSchema = z.object({
   query: z.string().trim().min(3).max(2000),
+  locale: z.enum(["ru","kk","en"]).default("ru"),
   context: z.object({ productId: z.string().max(100).optional() }).nullable().optional(),
   history: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string().max(1500) })).max(8).optional(),
 });
@@ -27,7 +29,7 @@ export async function POST(req: Request) {
     try { body = JSON.parse(raw); } catch { return json({ answer: "Не удалось прочитать вопрос. Попробуйте ещё раз." }, 400); }
     const parsed = RequestSchema.safeParse(body);
     if (!parsed.success) return json({ answer: "Введите вопрос от 3 до 2000 символов." }, 400);
-    const { query, history = [], context } = parsed.data;
+    const { query, history = [], context, locale } = parsed.data;
     const ip = getClientIp(req) || "unknown";
     const rateLimit = await checkRateLimit(`ask:${ip}`, 5, 60_000);
     if (!rateLimit.ok) return json({ answer: "Слишком много вопросов. Попробуйте через минуту." }, 429, { "Retry-After": String(rateLimit.retryAfterSec) });
@@ -39,7 +41,7 @@ export async function POST(req: Request) {
       answer: "Я могу объяснить сведения о косметике, но не определить заболевание, назначить лечение или подтвердить безопасность при беременности и аллергии. Согласуйте уход со специалистом. Инструкцию и состав конкретного товара можно уточнить у магазина.",
       recommendations: [], mode: "safety",
     });
-    if (needsConsultantClarification(criteria, productId)) return json({
+    if (locale === "ru" && needsConsultantClarification(criteria, productId)) return json({
       answer: "Для какой задачи вы выбираете уход: увлажнение, чувствительная кожа, жирная кожа или возрастной уход? Какое средство нужно и какой бюджет на него?",
       recommendations: [], mode: "clarification",
     });
@@ -54,7 +56,8 @@ export async function POST(req: Request) {
     });
     if (productId && !rows.length) return json({ answer: "Этот товар недоступен. Выберите средство из каталога.", recommendations: [] }, 404);
     const catalogRows = await overlayCatalogHubProducts(rows);
-    const candidates = rankConsultantProducts(collapseRepresentedProductCards(catalogRows), criteria, productId).map((item) => item.product);
+    const rankedCandidates = rankConsultantProducts(collapseRepresentedProductCards(catalogRows), criteria, productId).map((item) => item.product);
+    const candidates = await localizedProducts(rankedCandidates, locale);
     const fallbackCards = candidates.flatMap((product) => {
       const card = recommendationFromProduct(product, criteria, "Соответствует выбранным фильтрам каталога. Назначение и применение уточните в карточке.");
       return card ? [card] : [];
@@ -73,7 +76,7 @@ export async function POST(req: Request) {
 
     try {
       const reply = await askCatalogAi({ apiKey, model: getScopedEnv("OPENAI_ASK_MODEL").trim() || DEFAULT_CONSULTANT_MODEL,
-        query, history, criteria, products: candidates, ...getStorePolicy() });
+        query, history, criteria, locale, products: candidates, ...getStorePolicy() });
       return json({ ...reply, mode: "ai" });
     } catch (error) {
       console.error("CONSULTANT_PROVIDER_ERROR", error instanceof Error && /^ai_/.test(error.message) ? error.message : "provider_unavailable");

@@ -15,6 +15,7 @@ export async function runDeliveryChecks({baseUrl="http://127.0.0.1:8000",key,key
  const {deliveryWorkerCycle}=await import("../marketplace-hub/dist/worker/catalog-delivery-worker.js");
  const {createDeliveryReceiver,postgresDeliveryInbox}=await import("../marketplace-hub/dist/worker/delivery-receiver.js");
  const {deliveryHash,deliverySignature}=await import("../marketplace-hub/dist/worker/delivery-contract.js");
+ const {applyPendingStoreSnapshot}=await import("../marketplace-hub/dist/worker/catalog-store-snapshot.js");
  async function api(path,body,credential=key,operationKey=randomUUID()){
   const response=await fetch(baseUrl+"/v1/"+path,{method:body?"POST":"GET",signal:AbortSignal.timeout(20000),headers:{"x-catalog-hub-key":credential,...(body?{"content-type":"application/json","idempotency-key":operationKey}:{})},...(body?{body:JSON.stringify(body)}:{})});
   return {status:response.status,data:await response.json()};
@@ -31,6 +32,7 @@ export async function runDeliveryChecks({baseUrl="http://127.0.0.1:8000",key,key
   expect(await api("channels/"+c.id+"/mappings",{expectedVersion:c.version,warehouses:[{warehouseId:"wh_pav_01",externalId:"TEST"}]}),200,"map shared warehouse");
  }
  await db.unsafe(readFileSync(new URL("../marketplace-hub/integrations/catalog-delivery-inbox.sql",import.meta.url),"utf8"));
+ await db.unsafe(readFileSync(new URL("../marketplace-hub/integrations/catalog-store-shadow.sql",import.meta.url),"utf8"));
  const handlers=new Map(),seen=[];let loseResponse=false;
  const receiver=createServer(async(req,res)=>{
   try{
@@ -97,11 +99,35 @@ export async function runDeliveryChecks({baseUrl="http://127.0.0.1:8000",key,key
   expect(await api("channels/"+a.id+"/export",undefined,boundKey),200,"receiver reads only its scoped export");
   expect(await api("channels/"+b.id+"/export",undefined,boundKey),403,"bound export key cannot read another receiver");
   expect(await api("channels",undefined,boundKey),403,"bound export key cannot list all channels");
+  const snapshotOptions={baseUrl,key:boundKey,organizationId:"org_procosmetics",connectionId:a.id,allowLoopbackTest:true};
+  const readSnapshot=async()=> (await db`SELECT "items","revision","checksum" FROM public."CatalogStoreShadowSnapshot"
+    WHERE "organizationId"='org_procosmetics' AND "connectionId"=${a.id}`)[0];
+  const pendingSnapshotEvents=async id=> (await db`SELECT count(*)::int AS count FROM public."CatalogDeliveryInbox"
+    WHERE "organizationId"='org_procosmetics' AND "connectionId"=${id} AND "state"='PENDING'`)[0].count;
+  const beforePending=await pendingSnapshotEvents(a.id),otherPending=await pendingSnapshotEvents(b.id);
+  assert.ok(beforePending>0&&otherPending>0);checks++;
+  await assert.rejects(applyPendingStoreSnapshot(db,{...snapshotOptions,fetchCore:async()=>Response.json({items:[]})}),/STORE_SNAPSHOT_INVALID/);checks++;
+  equal(await pendingSnapshotEvents(a.id),beforePending);equal(await readSnapshot(),undefined);
+  const initialSnapshot=await applyPendingStoreSnapshot(db,snapshotOptions);
+  equal(initialSnapshot.applied,beforePending);equal(initialSnapshot.revision,1);equal(initialSnapshot.count,1);
+  const firstSnapshot=await readSnapshot();
+  equal(firstSnapshot.items[0].availabilities[0].stockCount,3);
+  assert.ok(!("purchasePrice" in firstSnapshot.items[0])&&!("attributes" in firstSnapshot.items[0]));checks++;
+  equal(await pendingSnapshotEvents(b.id),otherPending);
+  equal(await applyPendingStoreSnapshot(db,{...snapshotOptions,fetchCore:async()=>{throw new Error("idle must not fetch");}}),{status:"IDLE",applied:0});
   // Lost receiver response after its SQL COMMIT is recovered as DUPLICATE.
   loseResponse=true;
   expect(await api("inventory/movements",{productId:product.id,warehouseId:"wh_pav_01",kind:"RECEIVE",quantity:1,expectedRevision:1,reason:why}),201,"new invalidation for lost receipt");
   await worker();await due();await worker();
   assert.ok((await list(a.id,"DELIVERED")).some(d=>d.receipt?.status==="DUPLICATE")||(await list(b.id,"DELIVERED")).some(d=>d.receipt?.status==="DUPLICATE"));checks++;
+  await assert.rejects(applyPendingStoreSnapshot(db,{...snapshotOptions,fetchCore:async()=>new Response(null,{status:503})}),/STORE_SNAPSHOT_HTTP_503/);checks++;
+  equal(await readSnapshot(),firstSnapshot);
+  equal((await applyPendingStoreSnapshot(db,snapshotOptions)).revision,2);
+  equal((await readSnapshot()).items[0].availabilities[0].stockCount,4);
+  // A refresh with no change to the export keeps the same snapshot revision.
+  await db`UPDATE public."CatalogDeliveryInbox" SET "state"='PENDING'
+    WHERE "organizationId"='org_procosmetics' AND "connectionId"=${a.id}`;
+  equal((await applyPendingStoreSnapshot(db,snapshotOptions)).revision,2);
   // Stop a real worker after remote COMMIT, before its completion reaches core.
   expect(await api("inventory/movements",{productId:product.id,warehouseId:"wh_pav_01",kind:"RECEIVE",quantity:1,expectedRevision:2,reason:why}),201,"create crash recovery notification");
   let entered;const completeEntered=new Promise(resolve=>{entered=resolve;});

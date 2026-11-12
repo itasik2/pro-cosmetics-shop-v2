@@ -16,6 +16,7 @@ import {
 } from "@/lib/notify";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { isOrderFulfillmentAllowed } from "@/lib/orderFulfillmentPolicy";
 
 const Schema = z
   .object({
@@ -68,19 +69,13 @@ export async function POST(req: Request, props: { params: Promise<{ id: string }
 
   const targetStatus = parsed.data.status || order.status;
   const targetPaymentStatus = parsed.data.paymentStatus || order.paymentStatus;
-  const paymentSettled =
-    targetPaymentStatus === "PAID" || targetPaymentStatus === "REFUNDED";
+  const paymentSettled = targetPaymentStatus === "PAID";
 
-  if (
-    order.paymentMethod === "KASPI_TRANSFER" &&
-    (targetStatus === "PACKING" ||
-      targetStatus === "SHIPPED" ||
-      targetStatus === "DONE") &&
-    !paymentSettled
-  ) {
-    return redirectToOrders(req, "payment_required", order.orderNumber);
-  }
-  if (targetStatus === "DONE" && !paymentSettled) {
+  if (!isOrderFulfillmentAllowed({
+    paymentMethod: order.paymentMethod,
+    paymentStatus: targetPaymentStatus,
+    orderStatus: targetStatus,
+  })) {
     return redirectToOrders(req, "payment_required", order.orderNumber);
   }
 

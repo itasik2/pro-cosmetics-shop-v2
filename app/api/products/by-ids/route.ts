@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { localizedProducts } from "@/lib/localizedContent";
+import { parseSiteLocale } from "@/lib/i18n";
 
 export async function POST(req: Request) {
-  let body: { ids?: string[] } = {};
+  let body: { ids?: string[]; locale?: string } = {};
   try {
-    body = (await req.json()) as { ids?: string[] };
+    body = (await req.json()) as { ids?: string[]; locale?: string };
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
@@ -23,6 +25,7 @@ export async function POST(req: Request) {
       id: true,
       slug: true,
       name: true,
+      shortDescription: true,
       image: true,
       price: true,
       stock: true,
@@ -37,5 +40,5 @@ export async function POST(req: Request) {
     .map((id) => map.get(id))
     .filter((product): product is NonNullable<typeof product> => Boolean(product));
 
-  return NextResponse.json({ products: ordered });
+  return NextResponse.json({ products: await localizedProducts(ordered, parseSiteLocale(body.locale)) });
 }
