@@ -4,7 +4,7 @@ export const revalidate = 0;
 
 export default function AdminTranslationsPage() {
   return (
-    <div className="mx-auto max-w-6xl space-y-4">
+    <div className="mx-auto max-w-6xl min-w-0 space-y-4 scroll-mt-36">
       <div>
         <h1 className="text-2xl font-semibold">Переводы сайта</h1>
         <p className="mt-1 max-w-3xl text-sm text-gray-600">
