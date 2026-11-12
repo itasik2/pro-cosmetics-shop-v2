@@ -176,3 +176,16 @@ test("translation list fetches both locales and shows badges without falsely mar
   assert.match(ui, /<LanguageBadges languages=\{item\.languages\}/);
   assert.match(ui, /PUBLISHED: "✓", REVIEW: "•", STALE: "!", MISSING: "−"/);
 });
+
+test("translation list uses page scrolling and supports explicit multi-select actions", () => {
+  const ui = readFileSync(join(process.cwd(), "app/admin/(private)/translations/AdminTranslationsClient.tsx"), "utf8");
+  assert.doesNotMatch(ui, /max-h-\[580px\].*overflow-y-auto/);
+  assert.match(ui, /Выбрать все на странице/);
+  assert.match(ui, /aria-label=\{`Выбрать \$\{value\.name\}`\}/);
+  assert.match(ui, /setCheckedKeys\(\[\]\)/);
+  assert.match(ui, /Создать черновики/);
+  assert.match(ui, /Опубликовать проверенные/);
+  assert.match(ui, /reviewConfirmed/);
+  assert.match(ui, /row\.state === "REVIEW"/);
+  assert.match(ui, /Публикуются только переводы со статусом/);
+});
