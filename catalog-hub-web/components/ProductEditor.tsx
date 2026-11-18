@@ -56,6 +56,7 @@ export function ProductEditor({ product, categories, searchEnabled, canWrite }: 
   product: HubProduct; categories: Category[]; searchEnabled: boolean; canWrite: boolean;
 }) {
   const router=useRouter();
+  const sharedReadonly=Boolean(product.masterProductId);
   const [form, setForm] = useState<Values>({
     title: product.title || "",
     barcode: product.barcode || "",
@@ -79,10 +80,11 @@ export function ProductEditor({ product, categories, searchEnabled, canWrite }: 
   const [error, setError] = useState("");
   const [success,setSuccess]=useState("");
   const [version,setVersion]=useState(product.updatedAt);
+  const [enrichmentSource,setEnrichmentSource]=useState("");
   const separated = separateProductSections(form);
 
   useEffect(() => {
-    if (!canWrite || currentCategory.current || !categories.some(category => category.isActive)) return;
+    if (sharedReadonly || !canWrite || currentCategory.current || !categories.some(category => category.isActive)) return;
     const controller = new AbortController();
     setCategoryStatus("Определяем категорию по карточке…");
     fetch("/api/categories/suggest?productId=" + encodeURIComponent(product.id), {
@@ -107,7 +109,7 @@ export function ProductEditor({ product, categories, searchEnabled, canWrite }: 
         setCategoryStatus("Не удалось определить категорию. Выберите её вручную или запустите поиск товара.");
     });
     return () => controller.abort();
-  }, [product.id, canWrite, categories]);
+  }, [product.id, sharedReadonly, canWrite, categories]);
 
   function update(key: keyof Values, value: string) {
     formEdited.current=true;
@@ -178,11 +180,12 @@ export function ProductEditor({ product, categories, searchEnabled, canWrite }: 
       const response = await fetch("/api/catalog/save", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ productId: product.id, expectedUpdatedAt:version, proposed }),
+        body: JSON.stringify({ productId: product.id, expectedUpdatedAt:version, proposed, sourceUrl:enrichmentSource || undefined }),
       });
       const data = await response.json().catch(() => null);
       if (!response.ok) throw new Error(String(data?.error || "Не удалось сохранить изменения"));
       setVersion(data.updatedAt);
+      setEnrichmentSource("");
       setDirty(new Set());
       setSuccess("Изменения сохранены в карточке.");
       router.refresh();
@@ -195,6 +198,7 @@ export function ProductEditor({ product, categories, searchEnabled, canWrite }: 
 
   return (
     <form className="panel editor-panel" onSubmit={submit}>
+      {sharedReadonly&&<p className="subtle">Общие тексты редактируются в общей карточке по ссылке выше. Здесь можно менять цены, штрихкод, фото и характеристики выбранного SKU.</p>}
       <div className="editor-heading">
         <div>
           <h2>Карточка товара</h2>
@@ -211,7 +215,7 @@ export function ProductEditor({ product, categories, searchEnabled, canWrite }: 
             <span>{label}</span>
             {key === "categoryKey" ? (
               <>
-                <select className="input" value={form.categoryKey}
+                <select className="input" disabled={sharedReadonly} value={form.categoryKey}
                   onChange={(event) => {categoryEditedByUser.current=true;update("categoryKey", event.target.value);}}>
                   <option value="">Без категории — требуется проверка</option>
                   {categories.filter((cat) => cat.isActive).map(cat =>
@@ -221,19 +225,20 @@ export function ProductEditor({ product, categories, searchEnabled, canWrite }: 
               </>
             ) : ["description","application","ingredients","shortDescription"].includes(key) ? (
               <textarea
+                disabled={sharedReadonly}
                 rows={key === "description" ? 6 : 3}
                 maxLength={key === "shortDescription" ? 280 : undefined}
                 value={form[key]}
                 onChange={(event) => update(key, event.target.value)}
               />
             ) : (
-              <input className="input" value={form[key]} maxLength={key === "title" ? 500 : undefined}
+              <input className="input" disabled={sharedReadonly&&key!=="barcode"} value={form[key]} maxLength={key === "title" ? 500 : undefined}
                 onChange={(event) => update(key, event.target.value)} required={key === "title"} />
             )}
           </label>
           </Fragment>
         ))}
-        {separated.changed && <div className="editor-field wide">
+        {!sharedReadonly&&separated.changed && <div className="editor-field wide">
           <button type="button" className="button" disabled={!canWrite || busy} onClick={() => {
             if (separated.description !== form.description) update("description", separated.description);
             if (separated.application !== form.application) update("application", separated.application);
@@ -274,9 +279,10 @@ export function ProductEditor({ product, categories, searchEnabled, canWrite }: 
         </details>
       </div>
       <div style={{marginTop:14}}>
-        <SharedProductSearch product={product} enabled={searchEnabled} canWrite={canWrite}
+        <SharedProductSearch product={product} enabled={searchEnabled} canWrite={canWrite} imageOnly={sharedReadonly}
           categoryKey={form.categoryKey}
-          onSelect={proposal=>{
+          onSelect={(proposal,sourceUrl)=>{
+            if(sourceUrl)setEnrichmentSource(sourceUrl);
             for(const [key,value] of Object.entries(proposal)){
               if(key==="images") update("images",(value as string[]).join("\n"));
               else if(key==="categoryKey"){

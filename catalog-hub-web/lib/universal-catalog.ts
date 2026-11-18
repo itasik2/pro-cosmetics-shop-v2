@@ -3,6 +3,7 @@ import type { Mapping } from "./import-types";
 import type { Reviewed } from "./import-review";
 import type { PriceRule } from "./import-pricing";
 import { suggestRelationships } from "./import-relationships";
+import { supplierPackage } from "./supplier-package";
 
 export const ENRICHMENT_LABELS = {
   brand: "Бренд", description: "Описание", categoryKey: "Категория",
@@ -20,11 +21,7 @@ export function missingEnrichmentFields(card: Record<string, unknown>): Enrichme
 
 // A variant is explicit data from the supplier, never inferred from an AI description.
 export function supplierVolume(raw: string) {
-  const match = raw.trim().match(/^(\d+(?:[.,]\d+)?)\s*(мл|ml|л|l|г|гр|g|кг|kg|шт|уп|упак|рулон)\.?$/i);
-  if (!match) return null;
-  const units: Record<string, string> = { "мл": "ml", ml: "ml", "л": "l", l: "l", "г": "g", "гр": "g", g: "g", "кг": "kg", kg: "kg", "шт": "pcs", "уп": "pack", "упак": "pack", "рулон": "roll" };
-  const value = Number(match[1].replace(",", "."));
-  return value > 0 ? { value, unit: units[match[2].toLowerCase()], raw } : null;
+  return supplierPackage(raw);
 }
 
 export function buildUniversalCatalog(input: {

@@ -22,8 +22,11 @@ export async function POST(request: NextRequest) {
       ? product.attributes as Record<string,unknown> : {};
     const fromTitle = product.title.match(/(\d+(?:[.,]\d+)?)\s*(мл|ml|гр|г|g)(?=$|[^\p{L}\p{N}])/iu);
     const value = Number(attributes.volumeValue || fromTitle?.[1]?.replace(",", "."));
+    const provenance = attributes.supplierImport && typeof attributes.supplierImport === "object"
+      ? attributes.supplierImport as Record<string,unknown> : {};
+    const supplierSku = typeof provenance.supplierSku === "string" ? provenance.supplierSku.trim() : "";
     const payload = {
-      product: { sku: product.sku, title: product.title, brand: product.brand || undefined,
+      product: { sku: supplierSku || product.sku, skuIsInternal: !supplierSku, title: product.title, brand: product.brand || undefined,
         barcode: product.barcode || undefined,
         volumeValue: Number.isFinite(value) && value > 0 ? value : undefined,
         volumeUnit: typeof attributes.volumeUnit === "string" ? attributes.volumeUnit : fromTitle?.[2] },

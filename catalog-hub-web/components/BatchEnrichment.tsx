@@ -6,7 +6,7 @@ import type { HubProduct } from "@/lib/hub";
 import { chooseAutomaticCategory, type CategorySuggestion } from "@/lib/category-choice";
 
 type Result = { title:string; state:string; id?:string };
-type Search = { confidence:number; sourceType:string; fields:Record<string,string>; images:string[] };
+type Search = { confidence:number; sourceType:string; sourceUrl:string; fields:Record<string,string>; images:string[] };
 const fields = ["shortDescription","description","application","ingredients"] as const;
 const isUncategorized=(key:string|null|undefined)=>!key?.trim()||key.trim()==="Без категории";
 
@@ -48,7 +48,7 @@ export function BatchEnrichment({products}:{products:HubProduct[]}) {
           setResults(previous=>[...previous,{title:product.title,state:"Подходящих данных не найдено"}]);continue;
         }
         const staged=await fetch("/api/catalog/changes",{method:"POST",headers:{"content-type":"application/json"},
-          body:JSON.stringify({productId:product.id,proposed})});
+          body:JSON.stringify({productId:product.id,proposed,sourceUrl:found.sourceUrl,expectedUpdatedAt:product.updatedAt})});
         const change=await staged.json().catch(()=>null);
         if(!staged.ok)throw new Error(change?.error||"changeset_failed");
         setResults(previous=>[...previous,{title:product.title,state:"Предложение создано",id:String(change.id)}]);
@@ -60,7 +60,7 @@ export function BatchEnrichment({products}:{products:HubProduct[]}) {
   return <div className="panel" style={{marginBottom:12}}>
     <h2>Заполнить несколько карточек</h2>
     <p className="subtle">До пяти неполных товаров с текущей страницы. Поиск идёт на сайте производителя по SKU и названию.
-      При совпадении от 90% создаются предложения с описанием и первым фото. Проверьте их перед применением.</p>
+      При совпадении от 90% создаются предложения с описанием и проверенным фото наибольшего разрешения. Проверьте их перед применением.</p>
     <button type="button" className="button" disabled={running||!candidates.length} onClick={()=>void run()}>
       {running?`Поиск… ${results.length}/${candidates.length}`:`Подготовить предложения (${candidates.length})`}
     </button>

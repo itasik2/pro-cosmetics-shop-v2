@@ -1,11 +1,13 @@
 import {NextRequest,NextResponse} from "next/server";
 import {hubFetch,organizationId} from "@/lib/hub";
 import {isSameOrigin} from "@/lib/same-origin";
+import {isLocalReadOnly} from "@/lib/local-mode";
 
 export const dynamic="force-dynamic";
 
 export async function POST(request:NextRequest){
  if(!isSameOrigin(request))return NextResponse.json({error:"invalid_origin"},{status:403});
+ if(isLocalReadOnly())return NextResponse.json({error:"local_read_only_mode"},{status:403});
  if(Number(request.headers.get("content-length")||0)>40000)
    return NextResponse.json({error:"payload_too_large"},{status:413});
  const body=await request.json().catch(()=>null);
@@ -16,7 +18,7 @@ export async function POST(request:NextRequest){
  try{
    const result=await hubFetch("/v1/catalog/manual-save",{method:"POST",
      body:JSON.stringify({organizationId,productId:body.productId,
-       expectedUpdatedAt:body.expectedUpdatedAt,proposed:body.proposed})});
+       expectedUpdatedAt:body.expectedUpdatedAt,proposed:body.proposed,sourceUrl:body.sourceUrl})});
    return NextResponse.json(result,{headers:{"cache-control":"no-store"}});
  }catch(error){
    const message=error instanceof Error?error.message:"manual_save_failed";

@@ -1,4 +1,6 @@
 import type postgres from "npm:postgres@3.4.7";
+import { changeBalance } from "./core-store.ts";
+import type { Principal } from "./request-context.ts";
 type Sql = ReturnType<typeof postgres>;
 function json(data:unknown,status=200) {
   return new Response(JSON.stringify(data),{status,headers:{"content-type":"application/json","cache-control":"no-store"}});
@@ -14,7 +16,7 @@ async function payload(req:Request):Promise<Record<string,unknown>> {
   if(!v||typeof v!=="object"||Array.isArray(v)) fail("invalid_body");
   return v as Record<string,unknown>;
 }
-export async function handleInventory(req:Request,route:string,url:URL,sql:Sql):Promise<Response|null> {
+export async function handleInventory(req:Request,route:string,url:URL,sql:Sql,principal:Principal):Promise<Response|null> {
   if(!route.startsWith("/v1/inventory/")) return null;
   try {
     if(route==="/v1/inventory/warehouses"&&req.method==="GET") {
@@ -69,19 +71,13 @@ export async function handleInventory(req:Request,route:string,url:URL,sql:Sql):
         if(before!==expectedOnHand) fail("stock_changed_refresh",409);
         const after=before+delta;
         if(!Number.isSafeInteger(after)||after<0||after<reserved) fail("stock_below_reserved",409);
-        if(inventory.length){
-          await tx`UPDATE public."Inventory" SET "onHand"=${after},"updatedAt"=now()
-            WHERE "id"=${inventory[0].id}`;
-        } else {
-          await tx`INSERT INTO public."Inventory" ("id","productId","warehouseId",
-            "onHand","reserved","safetyStock","updatedAt")
-            VALUES (${crypto.randomUUID()},${productId},${warehouseId},${after},0,0,now())`;
-        }
+        await changeBalance(tx,principal,{productId,warehouseId,deltaOnHand:delta,deltaReserved:0,
+          key:"adjustment:"+requestId,ordinal:0,kind:delta>0?"RECEIVE":"WRITE_OFF",reason});
         const saved=await tx`INSERT INTO public."InventoryAdjustment"
           ("requestId","organizationId","productId","warehouseId","delta","beforeOnHand",
           "afterOnHand","reservedAtTime","reason","actor")
           VALUES (${requestId},${organizationId},${productId},${warehouseId},
-          ${delta},${before},${after},${reserved},${reason},'catalog-hub-ui')
+          ${delta},${before},${after},${reserved},${reason},${principal.actor})
           RETURNING "id","createdAt"`;
         return {id:saved[0].id,createdAt:saved[0].createdAt,afterOnHand:after,status:"APPLIED"};
       });

@@ -58,3 +58,12 @@ test("quantity never becomes a product field patch",()=>{
  assert.equal(x.sourceStock,999);
  assert.equal(x.proposed.stock,undefined);
 });
+
+test("a grouped SKU import preserves common text while reviewing its own price",()=>{
+ const member={...product,masterProductId:"master"};
+ const result=evaluateImport([{...row,title:"Supplier variant title 50 ml",description:"Supplier copy"}],[member],["Осветление"])[0];
+ assert.equal(result.status,"UPDATE");
+ assert.deepEqual(result.changes,[{field:"price",before:27510,after:27600}]);
+ assert.equal(result.proposed.title,undefined);assert.equal(result.proposed.description,undefined);
+ assert.ok(result.reasons.some(reason=>reason.includes("основной карточке")));
+});

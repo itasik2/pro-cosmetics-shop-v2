@@ -36,6 +36,7 @@ if (config.CATALOG_HUB_LOCAL_MODE === "true" && config.CATALOG_HUB_API_URL === "
     ...process.env, NODE_ENV: "development", VERCEL: "0", HOST: "127.0.0.1", PORT: "8001",
     DATABASE_URL: "postgresql://catalog_test:catalog_test_only@127.0.0.1:55432/catalog_test",
     CATALOG_HUB_AUTH_REQUIRED: "true", CATALOG_HUB_API_KEY: config.CATALOG_HUB_API_KEY,
+    CATALOG_HUB_ORGANIZATION_ID: config.CATALOG_HUB_ORGANIZATION_ID || "",
     OPENAI_API_KEY: config.OPENAI_API_KEY || process.env.OPENAI_API_KEY || "",
   });
 }

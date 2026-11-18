@@ -17,7 +17,8 @@
     "testdb:remote": "node ../catalog-hub-local/switch.mjs remote",
     "testdb:stop": "docker compose -f ../catalog-hub-local/compose.yaml down",
     "testdb:status": "docker compose -f ../catalog-hub-local/compose.yaml ps",
-    "testdb:import-e2e": "node ../catalog-hub-local/import-e2e.mjs"
+    "testdb:import-e2e": "node ../catalog-hub-local/import-e2e.mjs",
+    "testdb:core-e2e": "node ../catalog-hub-local/core-e2e.mjs"
   },
   "dependencies": {
     "cheerio": "1.2.0",
@@ -28,7 +29,8 @@
     "react-dom": "19.2.8",
     "read-excel-file": "^9.3.10",
     "undici": "^7.30.1",
-    "zod": "3.23.8"
+    "zod": "3.23.8",
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
     "@types/node": "^20.19.23",

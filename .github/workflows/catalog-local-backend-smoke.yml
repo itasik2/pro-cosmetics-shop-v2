@@ -4,6 +4,7 @@ on:
     paths:
       - "catalog-hub-local/**"
       - "marketplace-hub/prisma/schema.prisma"
+      - "marketplace-hub/supabase/migrations/**"
       - "catalog-hub-web/lib/pdf-supplier.ts"
       - "catalog-hub-web/lib/pdf-jeuderm-images.ts"
       - "catalog-hub-web/lib/pdf-jeuderm-images.test.ts"
@@ -29,6 +30,8 @@ jobs:
         run: npm run testdb:setup
       - name: Read/write smoke against localhost-only backend
         run: node catalog-hub-local/smoke.mjs
+      - name: Typecheck complete Edge API
+        run: docker compose -f catalog-hub-local/compose.yaml exec -T api deno check --no-lock --node-modules-dir=none index.ts
       - name: Install local Next.js console
         working-directory: catalog-hub-web
         run: npm install
@@ -46,6 +49,12 @@ jobs:
         run: node catalog-hub-local/enrichment-e2e.mjs
       - name: Validate PDF.js worker in Next.js API (synthetic PDF)
         run: node catalog-hub-local/pdf-worker-smoke.mjs
+      - name: Build the independent import worker
+        run: npm --prefix marketplace-hub run build
+      - name: Verify concurrent orders, tenant isolation, movements and complete feeds on PostgreSQL
+        run: node catalog-hub-local/core-e2e.mjs
+      - name: Import 10000 synthetic rows with durable checkpoints
+        run: node catalog-hub-local/import-queue-e2e.mjs --scale=10000
       - name: Report errors and stop containers
         if: always()
         run: |

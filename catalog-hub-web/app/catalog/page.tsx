@@ -15,7 +15,7 @@ export default async function CatalogPage({
   const page = Math.max(1, Number(params.page || 1) || 1);
   const limit = 40;
   const [result, categories] = await Promise.all([
-    safeHub(hubFetch<HubList<HubProduct>>(catalogPath({ q, category, incomplete, limit, offset: (page - 1) * limit }))),
+    safeHub(hubFetch<HubList<HubProduct>>(catalogPath({ q, category, incomplete, cards:true, limit, offset: (page - 1) * limit }))),
     safeHub(hubFetch<{categories:Array<{key:string;name:string;isActive:boolean}>}>(
       "/v1/categories?organizationId=" + encodeURIComponent(organizationId))),
   ]);
@@ -65,7 +65,7 @@ export default async function CatalogPage({
                     <td>
                       <Link className="product-cell" href={"/catalog/" + item.id}>
                         {item.images?.[0] ? <img className="thumb" src={item.images[0]} alt="" /> : <span className="placeholder">нет фото</span>}
-                        <span><strong>{item.title}</strong><span className="subtle">{item.brand || "Без бренда"}</span></span>
+                        <span><strong>{item.title}</strong><span className="subtle">{item.brand || "Без бренда"}{(item.variantSummary?.count||0)>1&&` · вариантов: ${item.variantSummary?.count}`}</span></span>
                       </Link>
                     </td>
                     <td className="mono">{item.sku}</td>
@@ -73,8 +73,8 @@ export default async function CatalogPage({
                       Пустых: {missingContentCount(item)} →</Link> : <span className="badge good">Заполнено</span>}</td>
                     <td>{item.categoryKey || "—"}</td>
                     <td>{money(item.purchasePrice)}</td>
-                    <td><strong>{money(item.price)}</strong></td>
-                    <td><span className={item.totals.available > 0 ? "badge good" : "badge bad"}>{item.totals.available}</span></td>
+                    <td><strong>{item.variantSummary&&item.variantSummary.count>1?`${money(item.variantSummary.minPrice)} – ${money(item.variantSummary.maxPrice)}`:money(item.price)}</strong></td>
+                    <td><span className={(item.variantSummary?.available??item.totals.available) > 0 ? "badge good" : "badge bad"}>{item.variantSummary?.available??item.totals.available}</span></td>
                   </tr>
                 ))}
               </tbody>

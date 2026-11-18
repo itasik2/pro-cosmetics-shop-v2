@@ -14,11 +14,12 @@ export default function RootLayout({
     <html lang="ru">
       <body>
         <div className="shell">
-          <Sidebar />
+          <Sidebar organizationName={process.env.CATALOG_HUB_ORGANIZATION_NAME || "Моя организация"}
+            organizationId={process.env.CATALOG_HUB_ORGANIZATION_ID || ""} />
           <main className="main">
             <header className="topbar">
               <div>
-                <span className="eyebrow">PROСOSMETICS · CATALOG OPERATIONS</span>
+                <span className="eyebrow">CATALOG HUB · УПРАВЛЕНИЕ ТОВАРАМИ</span>
               </div>
               <div className="topbar-state">
                 Состояние API — в разделе «Обзор»

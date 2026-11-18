@@ -1,3 +1,7 @@
+import { cardFields as fields, readCard, readSupplierLink, recordCardRevision, sharedFields, valuesEqual, type CardField as Field } from "./card-revision-data.ts";
+import {outbox} from "./core-store.ts";
+import type {Principal} from "./request-context.ts";
+import { jsonParam } from "./database-json.ts";
 import type postgres from "npm:postgres@3.4.7";
 
 type Sql = ReturnType<typeof postgres>;
@@ -10,12 +14,6 @@ type Product = {
   snapshotVersion: string;
   [key: string]: unknown;
 };
-const fields = [
-  "title", "barcode", "brand", "categoryKey", "shortDescription",
-  "description", "application", "ingredients", "purchasePrice",
-  "price", "attributes", "images",
-] as const;
-type Field = typeof fields[number];
 const allowed = new Set<string>(fields);
 const textFields = new Set<string>([
   "title", "barcode", "brand", "categoryKey", "shortDescription",
@@ -24,6 +22,16 @@ const textFields = new Set<string>([
 const risk = (field: Field) =>
   field === "price" || field === "purchasePrice" ? "HIGH" :
   field === "attributes" || field === "images" ? "MEDIUM" : "LOW";
+
+function optionalSourceUrl(value: unknown) {
+  if (value === undefined) return null;
+  if (typeof value !== "string" || value.length > 2048) fail("invalid_source_url");
+  let url: URL;
+  try { url = new URL(value); }
+  catch { fail("invalid_source_url"); }
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) fail("invalid_source_url");
+  return url.href;
+}
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -89,7 +97,7 @@ function normalizePatch(input: unknown): Partial<Record<Field, unknown>> {
   return patch;
 }
 function same(a: unknown, b: unknown) {
-  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+  return valuesEqual(a ?? null, b ?? null);
 }
 async function parseBody(req: Request) {
   if (Number(req.headers.get("content-length") || 0) > 100000) fail("payload_too_large", 413);
@@ -123,7 +131,8 @@ function currentChanged(before: Record<string, unknown>, row: Product) {
   return before.snapshotVersion !== version(row) || before.sku !== row.sku;
 }
 
-export async function handleCardEditor(req: Request, route: string, url: URL, sql: Sql): Promise<Response | null> {
+export async function handleCardEditor(req: Request, route: string, url: URL, sql: Sql, principal?: Principal): Promise<Response | null> {
+  const actor=principal?.actor||"catalog-hub-ui";
   const detail = route.match(/^\/v1\/staging\/changesets\/([a-f0-9-]{36})$/i);
   const action = route.match(/^\/v1\/staging\/changesets\/([a-f0-9-]{36})\/(approve|apply|reject)$/i);
 
@@ -136,12 +145,14 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
       if (!Number.isFinite(Date.parse(expectedUpdatedAt)) ||
           new Date(expectedUpdatedAt).toISOString() !== expectedUpdatedAt) fail("invalid_product_version");
       const proposed = normalizePatch(body.proposed);
+      const sourceUrl = optionalSourceUrl(body.sourceUrl);
       const result = await sql.begin(async (tx) => {
         const products = await tx<Product[]>`SELECT *, "updatedAt"::text AS "snapshotVersion"
           FROM public."Product" WHERE "id"=${productId} AND "organizationId"=${organizationId} FOR UPDATE`;
         if (!products.length) fail("product_not_found", 404);
         const product = products[0];
         if (new Date(product.updatedAt).toISOString() !== expectedUpdatedAt) fail("product_changed_reload", 409);
+        if (product.masterProductId && Object.keys(proposed).some(field => sharedFields.has(field as Field))) fail("variant_shared_fields_readonly",409);
         const before = card(product);
         const changed = fields.filter(field => Object.prototype.hasOwnProperty.call(proposed, field) &&
           !same(before[field], proposed[field]));
@@ -152,9 +163,6 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
           if (!categories.length) fail("category_not_in_dictionary");
         }
         const after: Record<string, unknown> = {...before,...proposed};
-        await tx`INSERT INTO public."ProductRevision"
-          ("id","productId","reason","snapshot","createdBy","createdAt") VALUES
-          (${crypto.randomUUID()},${productId},'MANUAL_CARD_EDIT',${tx.json(before)}::jsonb,'catalog-hub-ui',now())`;
         await tx`UPDATE public."Product" SET
           "title"=CASE WHEN ${changed.includes("title")} THEN ${after.title as string} ELSE "title" END,
           "barcode"=CASE WHEN ${changed.includes("barcode")} THEN ${after.barcode as string|null} ELSE "barcode" END,
@@ -166,12 +174,18 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
           "ingredients"=CASE WHEN ${changed.includes("ingredients")} THEN ${after.ingredients as string|null} ELSE "ingredients" END,
           "purchasePrice"=CASE WHEN ${changed.includes("purchasePrice")} THEN ${after.purchasePrice as number|null} ELSE "purchasePrice" END,
           "basePrice"=CASE WHEN ${changed.includes("price")} THEN ${after.price as number|null} ELSE "basePrice" END,
-          "attributes"=CASE WHEN ${changed.includes("attributes")} THEN ${tx.json(after.attributes)}::jsonb ELSE "attributes" END,
-          "images"=CASE WHEN ${changed.includes("images")} THEN ${tx.json(after.images)}::jsonb ELSE "images" END,
-          "updatedAt"=now() WHERE "id"=${productId} AND "organizationId"=${organizationId}`;
-        const updated = await tx`SELECT "updatedAt" FROM public."Product" WHERE "id"=${productId}`;
-        return {id:productId,status:"APPLIED",changedFields:changed,
-          updatedAt:new Date(updated[0].updatedAt).toISOString()};
+          "attributes"=CASE WHEN ${changed.includes("attributes")} THEN ${jsonParam(tx,after.attributes)}::jsonb ELSE "attributes" END,
+          "images"=CASE WHEN ${changed.includes("images")} THEN ${jsonParam(tx,after.images)}::jsonb ELSE "images" END,
+          "updatedAt"=GREATEST(clock_timestamp()::timestamp(3),"updatedAt"+interval '1 millisecond')
+          WHERE "id"=${productId} AND "organizationId"=${organizationId}`;
+        const updated = await readCard(tx, organizationId, productId);
+        const revisionId = await recordCardRevision(tx, {
+          productId, actor, reason: "MANUAL_CARD_EDIT", before: product, after: updated,
+          fields: changed, legacySnapshot: before, source: sourceUrl ?? "MANUAL",
+        });
+        await outbox(tx, organizationId, "catalog.product_changed", {productId, changedFields: changed, actor, revisionId});
+        return {id: productId, status: "APPLIED", changedFields: changed, revisionId,
+          updatedAt: new Date(updated.updatedAt).toISOString()};
       });
       return json(result);
     }
@@ -181,8 +195,9 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
       const productId = requiredId(body.productId, "productId");
       const proposed = normalizePatch(body.proposed);
       const isImport = body.sourceType === "IMPORT";
-      const sourceRef = isImport ? requiredId(body.sourceRef, "sourceRef") : "catalog-hub-web";
-      if (isImport && (!/^supplierfile:[a-f0-9]{32}:[0-9]{1,3}$/.test(sourceRef))) {
+      const sourceUrl = optionalSourceUrl(body.sourceUrl);
+      const sourceRef = isImport ? requiredId(body.sourceRef, "sourceRef") : sourceUrl || "catalog-hub-web";
+      if (isImport && (!/^supplierfile:[a-f0-9]{32}:[0-9]{1,5}$/.test(sourceRef))) {
         fail("invalid_import_source_ref");
       }
       const result = await sql.begin(async (tx) => {
@@ -190,6 +205,8 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
           FROM public."Product" WHERE "id" = ${productId}
             AND "organizationId" = ${organizationId} FOR UPDATE`;
         if (!products.length) fail("product_not_found", 404);
+        if (body.expectedUpdatedAt !== undefined &&
+          body.expectedUpdatedAt !== new Date(products[0].updatedAt).toISOString()) fail("changeset_stale", 409);
         if (isImport) {
           // The Product row lock serializes attempts for the same file row
           // and prevents repeated changesets on an HTTP retry.
@@ -220,16 +237,16 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
           ("id","organizationId","productId","sku","sourceType","sourceRef",
            "status","current","proposed","summary","createdBy","createdAt","updatedAt")
           VALUES (${id},${organizationId},${productId},${current.sku},${isImport ? "IMPORT" : "MANUAL"}::public."ChangeSetSourceType",
-                  ${sourceRef},'PREVIEW',${tx.json(current)}::jsonb,
-                  ${tx.json(proposed)}::jsonb,${tx.json(summary)}::jsonb,
-                  'catalog-hub-ui',now(),now())`;
+                  ${sourceRef},'PREVIEW',${jsonParam(tx,current)}::jsonb,
+                  ${jsonParam(tx,proposed)}::jsonb,${jsonParam(tx,summary)}::jsonb,
+                  ${actor},now(),now())`;
         for (const field of changed) {
           await tx`INSERT INTO public."CatalogFieldChange"
             ("id","changeSetId","field","risk","beforeValue","afterValue",
              "status","createdAt","updatedAt")
             VALUES (${crypto.randomUUID()},${id},${field},${risk(field)},
-                    ${tx.json(current[field] ?? null)}::jsonb,
-                    ${tx.json(proposed[field] ?? null)}::jsonb,
+                    ${jsonParam(tx,current[field] ?? null)}::jsonb,
+                    ${jsonParam(tx,proposed[field] ?? null)}::jsonb,
                     'PROPOSED',now(),now())`;
         }
         return { id, status: "PREVIEW", summary };
@@ -267,7 +284,7 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
           await tx`UPDATE public."CatalogFieldChange" SET "status"='REJECTED',"rejectedAt"=now(),"updatedAt"=now()
             WHERE "changeSetId"=${id} AND "status" IN ('PROPOSED','APPROVED')`;
           await tx`UPDATE public."CatalogChangeSet" SET "status"='REJECTED',"rejectedAt"=now(),
-            "rejectedFields"=${tx.json(audit.map((f) => f.field))}::jsonb,"updatedAt"=now()
+            "rejectedFields"=${jsonParam(tx,audit.map((f) => f.field))}::jsonb,"updatedAt"=now()
             WHERE "id"=${id}`;
           return { id, status: "REJECTED" };
         }
@@ -280,12 +297,12 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
           const approved = [...new Set(body.approvedFields as string[])];
           for (const field of approved) {
             await tx`UPDATE public."CatalogFieldChange" SET "status"='APPROVED',
-              "approvedBy"='catalog-hub-ui',"approvedAt"=now(),"updatedAt"=now()
+              "approvedBy"=${actor},"approvedAt"=now(),"updatedAt"=now()
               WHERE "changeSetId"=${id} AND "field"=${field}`;
           }
           await tx`UPDATE public."CatalogChangeSet" SET "status"='APPROVED',
-            "approvedFields"=${tx.json(approved)}::jsonb,
-            "approvedBy"='catalog-hub-ui',"approvedAt"=now(),"updatedAt"=now()
+            "approvedFields"=${jsonParam(tx,approved)}::jsonb,
+            "approvedBy"=${actor},"approvedAt"=now(),"updatedAt"=now()
             WHERE "id"=${id}`;
           return { id, status: "APPROVED" };
         }
@@ -296,6 +313,7 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
           FROM public."Product" WHERE "id" = ${cs.productId}
           AND "organizationId" = ${organizationId} FOR UPDATE`;
         if (!products.length) fail("product_not_found", 404);
+        if (products[0].masterProductId && approved.some(field => sharedFields.has(field as Field))) fail("variant_shared_fields_readonly",409);
         const before = readJsonObject(cs.current);
         if (currentChanged(before, products[0])) fail("changeset_stale", 409);
         if (approved.includes("categoryKey")) {
@@ -336,10 +354,9 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
           }
           }
         }
-        await tx`INSERT INTO public."ProductRevision"
-          ("id","productId","changeSetId","reason","snapshot","createdBy","createdAt")
-          VALUES (${crypto.randomUUID()},${cs.productId},${id},'CHANGESET_APPLY',
-            ${tx.json(before)}::jsonb,'catalog-hub-ui',now())`;
+        const previousLink = supplierId
+          ? await readSupplierLink(tx, organizationId, cs.productId, supplierId, true)
+          : null;
         await tx`UPDATE public."Product" SET
           "title"=CASE WHEN ${approved.includes("title")} THEN ${after.title} ELSE "title" END,
           "barcode"=CASE WHEN ${approved.includes("barcode")} THEN ${after.barcode as string|null} ELSE "barcode" END,
@@ -351,9 +368,9 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
           "ingredients"=CASE WHEN ${approved.includes("ingredients")} THEN ${after.ingredients as string|null} ELSE "ingredients" END,
           "purchasePrice"=CASE WHEN ${approved.includes("purchasePrice")} THEN ${after.purchasePrice as number|null} ELSE "purchasePrice" END,
           "basePrice"=CASE WHEN ${approved.includes("price")} THEN ${after.price as number|null} ELSE "basePrice" END,
-          "attributes"=CASE WHEN ${approved.includes("attributes")} THEN ${tx.json(after.attributes)}::jsonb ELSE "attributes" END,
-          "images"=CASE WHEN ${approved.includes("images")} THEN ${tx.json(after.images)}::jsonb ELSE "images" END,
-          "updatedAt"=now()
+          "attributes"=CASE WHEN ${approved.includes("attributes")} THEN ${jsonParam(tx,after.attributes)}::jsonb ELSE "attributes" END,
+          "images"=CASE WHEN ${approved.includes("images")} THEN ${jsonParam(tx,after.images)}::jsonb ELSE "images" END,
+          "updatedAt"=GREATEST(clock_timestamp()::timestamp(3),"updatedAt"+interval '1 millisecond')
           WHERE "id"=${cs.productId} AND "organizationId"=${organizationId}`;
         if (supplierId) {
           await tx`INSERT INTO public."SupplierProduct" ("id","supplierId","productId","supplierSku",
@@ -365,14 +382,24 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
         }
         for (const field of approved) {
           await tx`UPDATE public."CatalogFieldChange" SET "status"='APPLIED',
-            "appliedBy"='catalog-hub-ui',"appliedAt"=now(),"updatedAt"=now()
+            "appliedBy"=${actor},"appliedAt"=now(),"updatedAt"=now()
             WHERE "changeSetId"=${id} AND "field"=${field} AND "status"='APPROVED'`;
         }
         const status = approved.length === audit.length ? "APPLIED" : "PARTIALLY_APPLIED";
         await tx`UPDATE public."CatalogChangeSet" SET "status"=${status}::public."ChangeSetStatus",
-          "appliedFields"=${tx.json(approved)}::jsonb,"appliedBy"='catalog-hub-ui',
+          "appliedFields"=${jsonParam(tx,approved)}::jsonb,"appliedBy"=${actor},
           "appliedAt"=now(),"updatedAt"=now() WHERE "id"=${id}`;
-        return { id, status, productId: cs.productId };
+        const updated = await readCard(tx, organizationId, cs.productId);
+        const revisionId = await recordCardRevision(tx, {
+          productId: cs.productId, actor, reason: "CHANGESET_APPLY", before: products[0], after: updated,
+          fields: approved, legacySnapshot: before, changeSetId: id, source: cs.sourceRef ?? cs.sourceType,
+          supplierLink: supplierId ? {
+            supplierId, before: previousLink,
+            after: await readSupplierLink(tx, organizationId, cs.productId, supplierId),
+          } : undefined,
+        });
+        await outbox(tx, organizationId, "catalog.product_changed", {productId: cs.productId, changedFields: approved, actor, revisionId});
+        return { id, status, productId: cs.productId, revisionId };
       });
       return json(result);
     }
@@ -380,6 +407,7 @@ export async function handleCardEditor(req: Request, route: string, url: URL, sq
     return null;
   } catch (error) {
     const err = error as Error & { status?: number };
+    if (err.message === "variant_shared_fields_readonly") return json({error:err.message},409);
     if (err.status) return json({ error: err.message }, err.status);
     console.error("catalog_editor_error", err);
     return json({ error: "catalog_editor_failed" }, 500);

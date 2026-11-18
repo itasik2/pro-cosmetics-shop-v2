@@ -109,6 +109,13 @@ export async function analyzeImage(bytes: Buffer) {
   };
 }
 
+export async function decodeProductPhoto(bytes: Buffer) {
+  const image = sharp(bytes, { failOn: "warning", limitInputPixels: 32_000_000 });
+  const metadata = await image.metadata();
+  await image.resize(1, 1).raw().toBuffer();
+  return metadata;
+}
+
 export async function transformImage(
   bytes: Buffer,
   rawTransform: MediaTransform,

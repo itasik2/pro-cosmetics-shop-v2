@@ -1,6 +1,8 @@
 "use client";
+import {coreMessage} from "@/lib/core-client";
 import {useEffect,useState} from "react";
 import Link from "next/link";
+import {ImportQueue} from "@/components/ImportQueue";
 import {FIELD_LABELS,type Field,type Mapping} from "@/lib/import-types";
 import {draftPdfSkuOverrides,duplicatePdfSkuGroups,validPrefix} from "@/lib/pdf-sku-drafts";
 import {ENRICHMENT_LABELS,type UniversalCatalog} from "@/lib/universal-catalog";
@@ -44,7 +46,7 @@ const priceLabels:Record<ImportPolicyRow["priceDecision"],string>={
 const selectable=(row:ImportPolicyRow)=>["CREATE","UPDATE"].includes(row.status)||row.status==="SAME"&&row.priceDecision==="REVIEW_FIRST";
 const safeSelectable=(row:ImportPolicyRow)=>selectable(row)&&
  !["OLDER","NO_DATE","FUTURE","BLOCKED"].includes(row.priceDecision);
-export function ImportConsole({localMode=false}:{localMode?:boolean}){
+export function ImportConsole({localMode=false,canWrite=true}:{localMode?:boolean;canWrite?:boolean}){
  const [file,setFile]=useState<File|null>(null);
  const [fileInputKey,setFileInputKey]=useState(0);
  const [historyId,setHistoryId]=useState<string|null>(null);
@@ -53,6 +55,8 @@ export function ImportConsole({localMode=false}:{localMode?:boolean}){
  const [priceRule,setPriceRule]=useState<PriceRule>(DEFAULT_PRICE_RULE);
  const [preview,setPreview]=useState<Preview|null>(null);
  const [selected,setSelected]=useState<number[]>([]);
+ const [reviewPage,setReviewPage]=useState(1);
+ const [queuedId,setQueuedId]=useState("");
  const [categoryFilter,setCategoryFilter]=useState("");
  const [confirmed,setConfirmed]=useState(false);
  const [busy,setBusy]=useState(false);
@@ -206,7 +210,7 @@ export function ImportConsole({localMode=false}:{localMode?:boolean}){
  }
 
 
- async function invoke(action:"preview"|"apply",sourceHistoryId?:string) {
+ async function invoke(action:"preview"|"apply"|"enqueue",sourceHistoryId?:string) {
   if(!file&&!historyId&&!sourceHistoryId)return;
   setBusy(true);setError("");setApplied(null);
   const data=new FormData();data.set("action",action);
@@ -222,7 +226,7 @@ export function ImportConsole({localMode=false}:{localMode?:boolean}){
     if((file?.name.toLowerCase().endsWith(".pdf")||(!file&&preview?.format==="PDF")))
       data.set("skuOverrides",JSON.stringify(pdfSkus));
   }
-  if(action==="apply"){
+  if(action!=="preview"){
     if(!preview){setBusy(false);return;}
     data.set("fingerprint",preview.fingerprint);
     data.set("selected",JSON.stringify(selected));
@@ -247,11 +251,14 @@ export function ImportConsole({localMode=false}:{localMode?:boolean}){
         setProfileId(profile?.id||"");setProfileName(profile?.name||"");setProfileNotes(profile?.notes||"");
       }
       setHistoryId(shown.historyId||sourceHistoryId||null);
-      setSelected([]);
+      setSelected([]);setReviewPage(1);
       setConfirmed(false);
       setPdfNeedsRefresh(false);
       await refreshLocal();
       await refreshRemote();
+    }else if(action==="enqueue"){
+      setQueuedId(String(result.queued.id));
+      if(!result.uploadPending){setPreview(null);setSelected([]);setConfirmed(false);}
     }else{
       setApplied(result as Applied);setSelected([]);setConfirmed(false);
       // Never permit a second application from a stale preview.
@@ -259,7 +266,7 @@ export function ImportConsole({localMode=false}:{localMode?:boolean}){
       await refreshLocal();
       await refreshRemote();
     }
-  }catch(e){setError(e instanceof Error?e.message:"Не удалось обработать файл");}
+  }catch(e){setError(coreMessage(e));}
   finally{setBusy(false);}
  }
  async function deleteSelectedHistory(){
@@ -282,7 +289,13 @@ export function ImportConsole({localMode=false}:{localMode?:boolean}){
    finally{setHistoryBusy(false);}
  }
  const valid=preview?.review.filter(r=>localMode?["CREATE","UPDATE"].includes(r.status):safeSelectable(r))||[];
- const chosen=preview?.review.filter(r=>selected.includes(r.index))||[];
+ const selection=new Set(selected);
+ const chosen=preview?.review.filter(r=>selection.has(r.index))||[];
+ const filteredRows=preview?.review.filter(row=>{
+   const key=preview.universalCatalog.products[row.index]?.card.categoryKey;
+   return !categoryFilter||(categoryFilter==="__empty__"?!key:key===categoryFilter);
+ })||[];
+ const visibleRows=filteredRows.slice((reviewPage-1)*100,reviewPage*100);
  const newChosen=chosen.filter(r=>r.status==="CREATE").length;
  function changePriceRule(patch:Partial<PriceRule>){
    setPriceRule(current=>({...current,...patch}));
@@ -367,7 +380,7 @@ export function ImportConsole({localMode=false}:{localMode?:boolean}){
    </section>}
    <section className="panel" style={{marginTop:14}}>
      <h2>1. Выберите файл</h2>
-     <p className="subtle">XLSX/CSV/XML/JSON — до 2 МБ и 200 строк; PDF с текстовым слоем — до 8 МБ, 30 страниц и 400 строк.
+     <p className="subtle">XLSX/CSV/XML/JSON — до 2 МБ и 10 000 строк; PDF с текстовым слоем — до 8 МБ, 30 страниц и 400 строк.
        Сканированные PDF пока требуют OCR. В истории сохраняются распознанные строки, но не оригиналы файлов; складские остатки не обновляются автоматически.</p>
      <label className="editor-field"><span>Файл поставщика</span>
        <input key={fileInputKey} className="input" type="file" accept=".pdf,.xlsx,.csv,.tsv,.xml,.yml,.json"
@@ -557,7 +570,7 @@ export function ImportConsole({localMode=false}:{localMode?:boolean}){
        </div>
        <label className="editor-field" style={{maxWidth:320,marginBottom:12}}>
          <span>Фильтр строк по категории прайса</span>
-         <select className="input" value={categoryFilter} onChange={e=>setCategoryFilter(e.target.value)}>
+         <select className="input" value={categoryFilter} onChange={e=>{setCategoryFilter(e.target.value);setReviewPage(1);}}>
            <option value="">Все категории</option>
            <option value="__empty__">Без категории</option>
            {[...new Set(preview.universalCatalog.products.map(p=>p.card.categoryKey).filter((key):key is string=>Boolean(key)))].sort()
@@ -567,15 +580,12 @@ export function ImportConsole({localMode=false}:{localMode?:boolean}){
        <div className="table-wrap import-table">
          <table><thead><tr><th>Выбор</th><th>Строка / SKU</th><th>Товар</th><th>Цена, ₸</th>
            <th>Сопоставление</th><th>Изменения / замечания</th><th>Остаток файла</th></tr></thead>
-           <tbody>{preview.review.filter(row=>{
-             const key=preview.universalCatalog.products[row.index]?.card.categoryKey;
-             return !categoryFilter || (categoryFilter==="__empty__" ? !key : key===categoryFilter);
-           }).map(row=>{
+           <tbody>{visibleRows.map(row=>{
              const allowed=localMode?["CREATE","UPDATE"].includes(row.status):safeSelectable(row);
              return <tr key={row.index}>
                <td><input aria-label={"Выбрать строку "+row.rowNumber} type="checkbox"
                  disabled={!allowed||busy||pdfNeedsRefresh}
-                 checked={selected.includes(row.index)}
+                 checked={selection.has(row.index)}
                  onChange={e=>setSelected(prev=>e.target.checked?[...prev,row.index]:prev.filter(x=>x!==row.index))}/></td>
                <td><strong>№ {row.rowNumber}</strong><div className="mono subtle">{row.sku||"—"}</div>
                  {preview.format==="PDF"&&<label className="editor-field" style={{marginTop:6}}>
@@ -624,8 +634,14 @@ export function ImportConsole({localMode=false}:{localMode?:boolean}){
            })}</tbody></table>
        </div>
        <div className="actions" style={{marginTop:14}}>
+         <span>Страница {reviewPage} из {Math.max(1,Math.ceil(filteredRows.length/100))} · строк: {filteredRows.length}</span>
+         <button className="button" type="button" disabled={reviewPage<=1||busy} onClick={()=>setReviewPage(p=>p-1)}>Назад</button>
+         <button className="button" type="button" disabled={reviewPage*100>=filteredRows.length||busy} onClick={()=>setReviewPage(p=>p+1)}>Дальше</button>
+       </div>
+       <div className="actions" style={{marginTop:14}}>
          <button className="button" type="button" disabled={!valid.length||busy||pdfNeedsRefresh}
            onClick={()=>setSelected(valid.slice(0,20).map(r=>r.index))}>Выбрать до 20 подходящих</button>
+         <button className="button" type="button" disabled={!valid.length||busy||pdfNeedsRefresh} onClick={()=>setSelected(valid.map(r=>r.index))}>Выбрать все подходящие ({valid.length})</button>
          <button className="button" type="button" disabled={!selected.length||busy}
            onClick={()=>setSelected([])}>Снять выделение</button>
        </div>
@@ -636,7 +652,7 @@ export function ImportConsole({localMode=false}:{localMode?:boolean}){
          изменений: {chosen.filter(r=>r.status==="UPDATE").length}.</p>
        <p className="subtle">Новые товары создаются с нулевым остатком. Проверенные повышения применяются сразу;
          снижения и остальные изменения попадают в очередь на согласование.
-         Максимум 20 строк за операцию. В случае ошибки уже выполненные строки не откатываются.</p>
+         До 20 строк можно применить сразу, большие наборы — через очередь с прогрессом. Выполненные строки сохраняются при ошибке; проблемные доступны в отчёте.</p>
        {!preview.canApply&&<p className="error" role="status">
          Локальный режим только чтения: сохранение отключено. Можно проверить прайс, сопоставление и профили поставщиков.
          Для операций записи необходимо сначала подключить отдельную тестовую базу.
@@ -651,13 +667,17 @@ export function ImportConsole({localMode=false}:{localMode?:boolean}){
            onClick={()=>invoke("apply")}>
            {busy?"Применение…":"Подтвердить выбранные строки"}
          </button>
+         <button className="button" type="button" disabled={!preview.canApply||pdfNeedsRefresh||!confirmed||!selected.length||selected.length>10000||busy} onClick={()=>invoke("enqueue")}>
+           {busy?"Подготовка…":"Подтвердить и поставить в очередь"}
+         </button>
        </div>
      </section>
    </>}
+   <ImportQueue focusId={queuedId} canWrite={canWrite}/>
    {!localMode&&remoteHistory.length>0&&<section className="panel" style={{marginTop:14}}>
      <h2>История применённых прайсов</h2>
      <p className="subtle">Сохраняются результат по строкам и дата применения. Исходный файл для повторной проверки понадобится загрузить снова.</p>
-     <div className="list">{remoteHistory.filter(entry=>!supplierId||entry.supplierId===supplierId).map(entry=><div className="list-row" key={entry.id}>
+     <div className="list">{remoteHistory.filter(entry=>!supplierId||entry.supplierId===supplierId).map(entry=><div className="list-row import-history-row" key={entry.id}>
        <div><strong>{entry.filename}</strong> · {entry.supplierName}
          <div className="subtle">{entry.rowCount} строк · {new Date(entry.createdAt).toLocaleString("ru-RU")}</div></div>
        <span className="badge">{entry.status}</span>
@@ -677,7 +697,7 @@ export function ImportConsole({localMode=false}:{localMode?:boolean}){
      </div>
      {historyError&&<div role="alert" className="error">{historyError}</div>}
      {historyMessage&&<p role="status" className="subtle">{historyMessage}</p>}
-     <div className="list">{history.slice(0,historyVisible).map(entry=><div key={entry.id} className="list-row">
+     <div className="list">{history.slice(0,historyVisible).map(entry=><div key={entry.id} className="list-row import-history-row">
        <div style={{display:"flex",gap:12,alignItems:"center"}}>
          <input type="checkbox" aria-label={"Выбрать запись " + entry.fileName}
            checked={historySelected.includes(entry.id)} disabled={historyBusy}
@@ -702,7 +722,7 @@ export function ImportConsole({localMode=false}:{localMode?:boolean}){
      <p className="subtle">{applied.reminder}</p>
      {applied.historyWarning&&<p role="alert" className="error">{applied.historyWarning}</p>}
      {applied.partial&&<div className="error">Выполнение прервано при ошибке. Проверьте список перед повторной попыткой.</div>}
-     <div className="list">{applied.results.map(r=><div className="list-row" key={r.rowNumber}>
+     <div className="list">{applied.results.map(r=><div className="list-row import-history-row" key={r.rowNumber}>
        <span>{r.sku} · строка {r.rowNumber} · <strong>{r.status}</strong>
          {r.error&&<span className="error">{r.error}</span>}</span>
        {r.id&&<Link className="button" href={(r.status==="STAGED"?"/changes/":"/catalog/")+encodeURIComponent(r.id)}>Открыть →</Link>}
