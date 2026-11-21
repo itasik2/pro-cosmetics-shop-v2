@@ -211,12 +211,7 @@ async function normalizeCloudinaryProductImage(
 }
 
 
-let cloudinaryRetryAfter = 0;
-
-/** Store product photos independently of Cloudinary delivery.
- * Keep Cloudinary background-removal processing when it works, but
- * fall back to local Sharp normalization when credits are exhausted.
- */
+/** Normalize and store new catalog photos independently of Cloudinary. */
 export async function normalizeProductImage(
   source: Buffer | string,
   options?: { folder?: string },
@@ -236,25 +231,5 @@ export async function normalizeProductImage(
     bytes = fetched.buffer;
   }
 
-  let cloudinaryDerivative: Buffer | null = null;
-  if (productImageNormalizationEnabled() &&
-      process.env.CLOUDINARY_CLOUD_NAME &&
-      process.env.CLOUDINARY_API_KEY &&
-      process.env.CLOUDINARY_API_SECRET &&
-      Date.now() >= cloudinaryRetryAfter) {
-    try {
-      const result = await normalizeCloudinaryProductImage(bytes, options);
-      if (result.status === "PROCESSED" && result.processedUrl) {
-        const downloaded = await safeFetchImage(result.processedUrl, [
-          { domain: "res.cloudinary.com", allowSubdomains: false },
-        ], { timeoutMs: 12_000 });
-        cloudinaryDerivative = downloaded.buffer;
-      }
-    } catch {
-      // Avoid repeated attempts against a suspended Cloudinary account.
-      cloudinaryRetryAfter = Date.now() + 10 * 60 * 1000;
-      console.warn("cloudinary_unavailable_using_blob_local_processing");
-    }
-  }
-  return uploadProductImageToBlob(bytes, { cloudinaryDerivative });
+  return uploadProductImageToBlob(bytes, { removeBackground: productImageNormalizationEnabled() });
 }

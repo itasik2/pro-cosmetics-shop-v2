@@ -274,6 +274,7 @@ export default function AdminProductsClient() {
   async function uploadFile(file: File) {
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("purpose", "product");
 
     const response = await fetch("/api/upload/product-image", {
       method: "POST",
@@ -282,6 +283,7 @@ export default function AdminProductsClient() {
     const data = (await readJson(response)) as {
       url?: unknown;
       error?: unknown;
+      processingStatus?: unknown;
     };
 
     if (!response.ok) {
@@ -290,7 +292,7 @@ export default function AdminProductsClient() {
 
     const url = String(data.url || "").trim();
     if (!url) throw new Error("no_url_returned");
-    return url;
+    return { url, needsReview: data.processingStatus === "NEEDS_REVIEW" };
   }
 
   async function uploadImage(file: File) {
@@ -298,9 +300,9 @@ export default function AdminProductsClient() {
     setUploading(true);
 
     try {
-      const url = await uploadFile(file);
+      const { url, needsReview } = await uploadFile(file);
       setField("image", url);
-      setMsg("Изображение товара загружено");
+      setMsg(needsReview ? "Фото загружено. Проверьте фон на предпросмотре." : "Изображение товара загружено");
     } catch (error: any) {
       setMsg(`Ошибка загрузки: ${error?.message || "upload_failed"}`);
     } finally {
@@ -315,9 +317,9 @@ export default function AdminProductsClient() {
 
     setVariantUploadingId(row.id);
     try {
-      const url = await uploadFile(file);
+      const { url, needsReview } = await uploadFile(file);
       setVariantRow(index, { image: url });
-      setMsg("Изображение варианта загружено");
+      setMsg(needsReview ? "Фото варианта загружено. Проверьте фон на предпросмотре." : "Изображение варианта загружено");
     } catch (error: any) {
       setMsg(`Ошибка загрузки варианта: ${error?.message || "upload_failed"}`);
     } finally {

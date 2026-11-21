@@ -4,6 +4,27 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import sharp from "sharp";
 import { localCatalogDerivative } from "../lib/vercelBlobImages";
+import { productCutout } from "../lib/productBackgroundRemoval";
+
+test("local model clears a coloured backdrop while preserving the product", async () => {
+  const drawing = Buffer.from(`
+    <svg width="320" height="320" xmlns="http://www.w3.org/2000/svg">
+      <rect width="320" height="320" fill="#42759e"/>
+      <path d="M50 0h30l-35 320H15zm230 0h27l-36 320h-27z" fill="#7195b0"/>
+      <rect x="136" y="49" width="48" height="54" rx="6" fill="#28383f"/>
+      <rect x="108" y="93" width="104" height="172" rx="18" fill="#f8edcf"/>
+      <rect x="119" y="143" width="82" height="67" rx="4" fill="#b35840"/>
+      <path d="M134 170h52m-52 13h52" stroke="#fffaf0" stroke-width="4"/>
+    </svg>`);
+  const input = await sharp(drawing).removeAlpha().png().toBuffer();
+  const cutout = await productCutout(input);
+  const { data, info } = await sharp(cutout).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const alpha = (x: number, y: number) => data[(y * info.width + x) * 4 + 3];
+  assert.ok(alpha(30, 180) < 10);
+  assert.ok(alpha(160, 300) < 10);
+  assert.ok(alpha(160, 70) > 240);
+  assert.ok(alpha(160, 150) > 240);
+});
 
 test("Sharp fallback creates a centered white 1200px WebP product image", async () => {
   const input = await sharp({
@@ -27,8 +48,7 @@ test("Cloudinary outage cannot stop new admin uploads if Blob is configured", ()
   assert.match(route, /blobMediaEnabled\(\)/);
   assert.match(route, /uploadGenericImageToBlob\(bytes\)/);
   assert.match(normalizer, /if \(!blobMediaEnabled\(\)\) return normalizeCloudinaryProductImage/);
-  assert.match(normalizer, /return uploadProductImageToBlob\(bytes, \{ cloudinaryDerivative \}\)/);
-  assert.match(normalizer, /cloudinary_unavailable_using_blob_local_processing/);
+  assert.match(normalizer, /return uploadProductImageToBlob\(bytes, \{ removeBackground: productImageNormalizationEnabled\(\) \}\)/);
 });
 
 test("Existing supplier source photo is used if suspended Cloudinary photos fail", () => {
