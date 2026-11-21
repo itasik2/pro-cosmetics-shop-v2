@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { getOpenAIClient } from "@/lib/openai";
 import { v2 as cloudinary } from "cloudinary";
 import { requireAdmin } from "@/lib/adminGuard";
+import { blobMediaEnabled, uploadGenericImageToBlob } from "@/lib/vercelBlobImages";
 
 type Body = {
   topic?: string;
@@ -26,9 +27,9 @@ export async function POST(req: Request) {
 
     // cloudinary env
     if (
-      !process.env.CLOUDINARY_CLOUD_NAME ||
+      (!blobMediaEnabled() && (!process.env.CLOUDINARY_CLOUD_NAME ||
       !process.env.CLOUDINARY_API_KEY ||
-      !process.env.CLOUDINARY_API_SECRET
+      !process.env.CLOUDINARY_API_SECRET))
     ) {
       return NextResponse.json({ error: "cloudinary_not_configured" }, { status: 500 });
     }
@@ -76,6 +77,11 @@ High quality, modern, clean composition, suitable for cosmetics e-commerce blog.
     }
 
     const bytes = Buffer.from(b64, "base64");
+
+    if (blobMediaEnabled()) {
+      const uploaded = await uploadGenericImageToBlob(bytes, "blog");
+      return NextResponse.json({ url: uploaded.url }, { status: 200 });
+    }
 
     // Upload в Cloudinary
     const uploaded = await new Promise<any>((resolve, reject) => {
