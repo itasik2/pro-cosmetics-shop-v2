@@ -25,6 +25,7 @@ export type ProductCardProps = {
     name: string;
     supplierSku?: string | null;
     image: string;
+    imageSourceUrl?: string | null;
     shortDescription?: string | null;
     price: number;
     stock: number;
@@ -85,7 +86,9 @@ function ProductCard({ product, priority = false, headingLevel = 3, imageSizes =
       </div>
 
       <Link href={productHref} prefetch={false} onClick={rememberOpen} className="block aspect-square w-full bg-white rounded-xl mb-3 overflow-hidden" aria-label={`Открыть товар: ${displayName}`}>
-        <ResilientProductImage key={imageToShow} src={imageToShow} sizes={imageSizes} priority={priority} alt={displayName} />
+        <ResilientProductImage key={imageToShow} src={imageToShow}
+            fallbackSrc={imageToShow === product.image ? product.imageSourceUrl : undefined}
+            sizes={imageSizes} priority={priority} alt={displayName} />
       </Link>
 
       <div className="text-sm text-gray-500">

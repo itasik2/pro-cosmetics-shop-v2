@@ -4,6 +4,8 @@ import { NextResponse } from "next/server";
 import { v2 as cloudinary } from "cloudinary";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/adminGuard";
+import { safeFetchImage } from "@/lib/enrichment/network";
+import { blobMediaEnabled, uploadGenericImageToBlob } from "@/lib/vercelBlobImages";
 
 const ImportSchema = z.object({ url: z.string().url() });
 
@@ -25,9 +27,9 @@ export async function POST(req: Request) {
   if (forbidden) return forbidden;
 
   if (
-    !process.env.CLOUDINARY_CLOUD_NAME ||
+    (!blobMediaEnabled() && (!process.env.CLOUDINARY_CLOUD_NAME ||
     !process.env.CLOUDINARY_API_KEY ||
-    !process.env.CLOUDINARY_API_SECRET
+    !process.env.CLOUDINARY_API_SECRET))
   ) {
     return NextResponse.json({ error: "cloudinary_not_configured" }, { status: 500 });
   }
@@ -44,6 +46,14 @@ export async function POST(req: Request) {
   });
 
   try {
+    if (blobMediaEnabled()) {
+      const fetched = await safeFetchImage(parsed.data.url, [
+        { domain: "upload.wikimedia.org", allowSubdomains: false },
+      ]);
+      const uploaded = await uploadGenericImageToBlob(fetched.buffer, "blog");
+      return NextResponse.json({ url: uploaded.url });
+    }
+
     const uploaded = await cloudinary.uploader.upload(parsed.data.url, {
       folder: "pro-cosmetics/blog",
       resource_type: "image",

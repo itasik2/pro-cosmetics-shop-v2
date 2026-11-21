@@ -1,5 +1,6 @@
 import { v2 as cloudinary } from "cloudinary";
 import type { EmbeddedPriceImage } from "./types";
+import { blobMediaEnabled, uploadGenericImageToBlob } from "@/lib/vercelBlobImages";
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -8,7 +9,7 @@ cloudinary.config({
 });
 
 function isConfigured() {
-  return Boolean(
+  return blobMediaEnabled() || Boolean(
     process.env.CLOUDINARY_CLOUD_NAME &&
       process.env.CLOUDINARY_API_KEY &&
       process.env.CLOUDINARY_API_SECRET,
@@ -19,6 +20,11 @@ async function uploadOne(input: {
   fileHash: string;
   image: EmbeddedPriceImage;
 }) {
+  if (blobMediaEnabled()) {
+    const bytes = Buffer.from(input.image.dataBase64, "base64");
+    const uploaded = await uploadGenericImageToBlob(bytes, "price-imports/" + input.fileHash.slice(0, 16));
+    return uploaded.url;
+  }
   const extension = input.image.mimeType === "image/png" ? "png" : "jpg";
   const dataUri = `data:${input.image.mimeType};base64,${input.image.dataBase64}`;
   const result = await cloudinary.uploader.upload(dataUri, {

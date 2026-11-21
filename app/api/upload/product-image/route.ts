@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { v2 as cloudinary } from "cloudinary";
 import { requireAdmin } from "@/lib/adminGuard";
 import { normalizeProductImage } from "@/lib/productImageNormalization";
+import { blobMediaEnabled, uploadGenericImageToBlob } from "@/lib/vercelBlobImages";
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME!,
@@ -110,15 +111,12 @@ export async function POST(req: Request) {
   if (forbidden) return forbidden;
 
   try {
-    if (
+    if (!blobMediaEnabled() && (
       !process.env.CLOUDINARY_CLOUD_NAME ||
       !process.env.CLOUDINARY_API_KEY ||
       !process.env.CLOUDINARY_API_SECRET
-    ) {
-      return NextResponse.json(
-        { error: "cloudinary_not_configured" },
-        { status: 500 },
-      );
+    )) {
+      return NextResponse.json({ error: "media_storage_not_configured" }, { status: 503 });
     }
 
     const form = await req.formData();
@@ -169,21 +167,19 @@ export async function POST(req: Request) {
       );
     }
 
-    const result = await uploadGenericImage(bytes);
-    const optimizedUrl =
-      result?.eager?.[0]?.secure_url || result?.secure_url || "";
-
-    if (!optimizedUrl) {
-      return NextResponse.json({ error: "no_url_returned" }, { status: 500 });
+    if (blobMediaEnabled()) {
+      const uploaded = await uploadGenericImageToBlob(bytes);
+      return NextResponse.json(uploaded, { status: 200 });
     }
 
-    return NextResponse.json(
-      {
-        url: optimizedUrl,
-        originalUrl: result?.secure_url,
-      },
-      { status: 200 },
-    );
+    const result = await uploadGenericImage(bytes);
+    const optimizedUrl = result?.eager?.[0]?.secure_url || result?.secure_url || "";
+    if (!optimizedUrl)
+      return NextResponse.json({ error: "no_url_returned" }, { status: 500 });
+    return NextResponse.json({
+      url: optimizedUrl,
+      originalUrl: result?.secure_url,
+    }, { status: 200 });
   } catch (error) {
     console.error("PRODUCT IMAGE UPLOAD ERROR", error);
     return NextResponse.json({ error: "upload_failed" }, { status: 500 });

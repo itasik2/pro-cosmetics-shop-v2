@@ -27,7 +27,7 @@ const getPublicProduct = cache(async (slug: string) => {
       isPublished: true,
       enrichmentStatus: { not: "MERGED" },
     },
-    select: { id: true, slug: true, name: true, supplierSku: true, image: true, shortDescription: true,
+    select: { id: true, slug: true, name: true, supplierSku: true, image: true, imageSourceUrl: true, shortDescription: true,
       description: true, price: true, stock: true, category: true, variants: true,
       brand: { select: { name: true, slug: true } } },
   });

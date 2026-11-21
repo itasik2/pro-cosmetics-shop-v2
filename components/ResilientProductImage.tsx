@@ -7,6 +7,7 @@ const WIDTHS = [320, 480, 640, 768, 960];
 
 type Props = {
   src: string;
+  fallbackSrc?: string | null;
   alt: string;
   sizes?: string;
   priority?: boolean;
@@ -15,9 +16,19 @@ type Props = {
 
 /** Reuse ready images and recover when a Cloudinary derivative temporarily returns HTTP 423. */
 export default function ResilientProductImage({
-  src, alt, sizes, priority = false, fullSize = false,
+  src, fallbackSrc, alt, sizes, priority = false, fullSize = false,
 }: Props) {
-  const preferred = fullSize ? src : productThumbnail(src, 640);
+  const safeFallback = (() => {
+    try {
+      const url = new URL(fallbackSrc || "");
+      return url.protocol === "https:" && !url.username && !url.password &&
+        url.hostname !== "res.cloudinary.com" && url.toString() !== src
+        ? url.toString() : null;
+    } catch { return null; }
+  })();
+  const [usingFallback, setUsingFallback] = useState(false);
+  const activeSrc = usingFallback && safeFallback ? safeFallback : src;
+  const preferred = fullSize ? activeSrc : productThumbnail(activeSrc, 640);
   const [attempt, setAttempt] = useState(0);
   const [waiting, setWaiting] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -27,25 +38,34 @@ export default function ResilientProductImage({
     setAttempt(0);
     setWaiting(false);
     setFailed(false);
+    setUsingFallback(false);
     return () => {
       if (retryTimeout.current) clearTimeout(retryTimeout.current);
       retryTimeout.current = null;
     };
-  }, [src, fullSize]);
+  }, [src, fallbackSrc, fullSize]);
 
   const currentSrc = attempt === 0
     ? preferred
-    : attempt === 1 && preferred !== src
-      ? src
-      : `${src}${src.includes("?") ? "&" : "?"}retry=${attempt}`;
+    : attempt === 1 && preferred !== activeSrc
+      ? activeSrc
+      : `${activeSrc}${activeSrc.includes("?") ? "&" : "?"}retry=${attempt}`;
 
   // The fallback always uses the known source, not another unprepared derivative.
-  const currentSrcSet = attempt === 0 && !fullSize && preferred !== src
-    ? WIDTHS.map((width) => `${productThumbnail(src, width)} ${width}w`).join(", ")
+  const currentSrcSet = attempt === 0 && !fullSize && preferred !== activeSrc
+    ? WIDTHS.map((width) => `${productThumbnail(activeSrc, width)} ${width}w`).join(", ")
     : undefined;
 
   function handleError() {
-    if (attempt === 0 && preferred !== src) {
+    // A suspended Cloudinary account cannot serve the original OR derivative:
+    // fall back to the saved supplier URL without waiting through retries.
+    if (!usingFallback && safeFallback) {
+      setUsingFallback(true);
+      setAttempt(0);
+      setWaiting(false);
+      return;
+    }
+    if (attempt === 0 && preferred !== activeSrc) {
       setAttempt(1);
       return;
     }
