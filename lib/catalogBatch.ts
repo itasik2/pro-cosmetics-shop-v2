@@ -15,11 +15,11 @@ export function catalogVariants(value: unknown): CatalogVariant[] | null {
   return variants.length ? variants : null;
 }
 
-// Explicit projection: grouping fields and supplier/private data never enter the public response.
+// Explicit projection: only public card fields and photo recovery URLs enter the response.
 export function catalogCard(product: CatalogProductRow) {
   return {
     id: product.id, slug: product.slug, name: product.name, image: product.image,
-    imageSourceUrl: product.imageSourceUrl,
+    imageSourceUrl: product.imageSourceUrl, images: product.images,
     shortDescription: product.shortDescription, supplierSku: product.supplierSku,
     price: product.price, stock: product.stock, isPopular: product.isPopular, isNew: product.isNew,
     createdAt: new Date(product.createdAt).toISOString(),

@@ -1,6 +1,7 @@
 "use client";
 import { variantDisplayImage } from "../lib/enrichment/variantImages";
 import ResilientProductImage from "@/components/ResilientProductImage";
+import type { CatalogImageSources } from "@/lib/catalogTypes";
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
@@ -26,13 +27,11 @@ type Variant = {
 
 type Props = {
   translated?: boolean;
-  product: {
+  product: CatalogImageSources & {
     id: string;
     slug?: string;
     name: string;
     supplierSku?: string | null;
-    image: string;
-    imageSourceUrl?: string | null;
     shortDescription?: string | null;
     description: string;
     price: number;
@@ -87,7 +86,7 @@ export default function ProductDetailsClient({ product, translated = false }: Pr
       <div>
         <div className="flex aspect-square w-full items-center justify-center overflow-hidden rounded-3xl border bg-white">
           <ResilientProductImage key={imageToShow} src={imageToShow}
-            fallbackSrc={imageToShow === product.image ? product.imageSourceUrl : undefined}
+            product={product}
             alt={displayName} priority fullSize />
         </div>
 

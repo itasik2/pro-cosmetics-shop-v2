@@ -3,6 +3,7 @@ import Link from "next/link";
 import { unstable_cache } from "next/cache";
 import DeferredHomeProducts from "@/components/DeferredHomeProducts";
 import HomeProductCard from "@/components/HomeProductCard";
+import { PUBLIC_PRODUCT_IMAGE_SOURCES } from "@/lib/publicProductSelect";
 import { getPublicExternalLinks } from "@/lib/externalLinks";
 import { requestLocale } from "@/lib/i18nServer";
 import { uiText, localizedHref, type SiteLocale } from "@/lib/i18n";
@@ -79,6 +80,7 @@ const PRODUCT_CARD_SELECT = {
   name: true,
   image: true,
   imageSourceUrl: true,
+  images: PUBLIC_PRODUCT_IMAGE_SOURCES,
   shortDescription: true,
   price: true,
   stock: true,
@@ -179,7 +181,7 @@ const getHomeRows = unstable_cache(
 
     return { popularRows, salesIds, salesProductRows, newArrivalRows, reviews };
   },
-  ["home-products", SITE_KEY, REVIEWS_ENABLED ? "reviews" : "no-reviews"],
+  ["home-products-with-image-sources", SITE_KEY, REVIEWS_ENABLED ? "reviews" : "no-reviews"],
   { revalidate: 300 },
 );
 
@@ -539,10 +541,10 @@ type ProductSectionProps = {
 
 function ProductSection({ title, subtitle, emptyText, products, locale }: ProductSectionProps) {
   const cardProducts = products.map(({
-    id, slug, name, supplierSku, image, shortDescription, price, stock,
+    id, slug, name, supplierSku, image, imageSourceUrl, images, shortDescription, price, stock,
     isPopular, isNew, createdAt, category, brand, variants,
   }) => ({
-    id, slug, name, supplierSku, image, shortDescription, price, stock,
+    id, slug, name, supplierSku, image, imageSourceUrl, images, shortDescription, price, stock,
     isPopular, isNew, createdAt, category, brand,
     variants: normalizePublicProductVariants(variants),
   }));

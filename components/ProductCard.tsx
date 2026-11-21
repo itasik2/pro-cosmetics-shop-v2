@@ -12,6 +12,7 @@ import { productDisplayName } from "@/lib/productNames";
 import { useSiteLocale, useUiText } from "@/components/LocaleProvider";
 import { categoryLabel, localizedHref } from "@/lib/i18n";
 import ResilientProductImage from "@/components/ResilientProductImage";
+import type { CatalogImageSources } from "@/lib/catalogTypes";
 import { defaultPublicProductVariant, isRecentlyCreated, normalizePublicProductVariants } from "@/lib/publicProductVariants";
 
 export type ProductCardProps = {
@@ -19,13 +20,11 @@ export type ProductCardProps = {
   headingLevel?: 2 | 3;
   imageSizes?: string;
   onOpen?: (productId: string) => void;
-  product: {
+  product: CatalogImageSources & {
     id: string;
     slug: string;
     name: string;
     supplierSku?: string | null;
-    image: string;
-    imageSourceUrl?: string | null;
     shortDescription?: string | null;
     price: number;
     stock: number;
@@ -87,7 +86,7 @@ function ProductCard({ product, priority = false, headingLevel = 3, imageSizes =
 
       <Link href={productHref} prefetch={false} onClick={rememberOpen} className="block aspect-square w-full bg-white rounded-xl mb-3 overflow-hidden" aria-label={`Открыть товар: ${displayName}`}>
         <ResilientProductImage key={imageToShow} src={imageToShow}
-            fallbackSrc={imageToShow === product.image ? product.imageSourceUrl : undefined}
+            product={product}
             sizes={imageSizes} priority={priority} alt={displayName} />
       </Link>
 

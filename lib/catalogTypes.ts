@@ -12,8 +12,13 @@ export type CatalogQuery = {
 export type CatalogSource = { kind: "catalog"; query: CatalogQuery } | { kind: "brand"; slug: string };
 
 export type CatalogVariant = { id: string; label: string; price: number; stock: number; sku?: string; image?: string };
-export type CatalogProductRow = {
-  id: string; slug: string; name: string; image: string; imageSourceUrl?: string | null; shortDescription?: string | null;
+export type CatalogImageSources = {
+  image: string;
+  imageSourceUrl?: string | null;
+  images?: ReadonlyArray<{ url: string; sourceUrl: string | null }>;
+};
+export type CatalogProductRow = CatalogImageSources & {
+  id: string; slug: string; name: string; shortDescription?: string | null;
   supplierSku?: string | null; price: number; stock: number; isPopular: boolean; isNew?: boolean;
   createdAt: Date | string; category: string; brand?: { name: string } | null; variants?: unknown;
 };
