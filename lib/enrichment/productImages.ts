@@ -3,6 +3,7 @@ import { imageGroups } from "./variantImages";
 import { createHash } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { normalizeProductImage } from "@/lib/productImageNormalization";
+import { blobMediaEnabled } from "@/lib/vercelBlobImages";
 import { safeFetchImage, type AllowedSourcePolicy } from "./network";
 import { getEnabledSupplierSources, toAllowedPolicies } from "./sourcePolicies";
 import { recoverablePhotoDownloadError, recoverProposalImage } from "./recoverProposalImage";
@@ -117,7 +118,14 @@ export async function importProductImage(input: {
   const checksum = createHash("sha256").update(fetched.buffer).digest("hex");
 
   const existing = await prisma.productImage.findFirst({
-    where: { productId: input.productId, checksum },
+    where: {
+      productId: input.productId,
+      checksum,
+      // Re-importing the same supplier photo must replace its unavailable delivery URL.
+      ...(blobMediaEnabled() && {
+        NOT: { url: { startsWith: "https://res.cloudinary.com/", mode: "insensitive" } },
+      }),
+    },
   });
 
   if (existing) {

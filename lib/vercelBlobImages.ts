@@ -82,8 +82,8 @@ export async function uploadProductImageToBlob(
     "pro-cosmetics/products/originals/" + unique + "." + meta.extension,
     bytes, meta.contentType,
   );
-  const processedBytes = options.cloudinaryDerivative ?? await localCatalogDerivative(bytes);
   try {
+    const processedBytes = options.cloudinaryDerivative ?? await localCatalogDerivative(bytes);
     const processedUrl = await saveBlob(
       "pro-cosmetics/products/processed/" + unique + ".webp",
       processedBytes, "image/webp",
