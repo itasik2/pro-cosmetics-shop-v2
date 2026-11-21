@@ -32,6 +32,7 @@ type Props = {
     name: string;
     supplierSku?: string | null;
     image: string;
+    imageSourceUrl?: string | null;
     shortDescription?: string | null;
     description: string;
     price: number;
@@ -85,7 +86,9 @@ export default function ProductDetailsClient({ product, translated = false }: Pr
 
       <div>
         <div className="flex aspect-square w-full items-center justify-center overflow-hidden rounded-3xl border bg-white">
-          <ResilientProductImage key={imageToShow} src={imageToShow} alt={displayName} priority fullSize />
+          <ResilientProductImage key={imageToShow} src={imageToShow}
+            fallbackSrc={imageToShow === product.image ? product.imageSourceUrl : undefined}
+            alt={displayName} priority fullSize />
         </div>
 
         {hasVariants && (
