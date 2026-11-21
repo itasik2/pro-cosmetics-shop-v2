@@ -43,7 +43,7 @@ export default function HomeProductCard({ product }: { product: ProductCardProps
 
       <Link href={href} prefetch={false} className="block aspect-square w-full bg-white rounded-xl mb-3 overflow-hidden" aria-label={`Открыть товар: ${displayName}`}>
         <ResilientProductImage src={image}
-          fallbackSrc={image === product.image ? product.imageSourceUrl : undefined}
+          product={product}
           sizes={IMAGE_SIZES} alt={displayName} />
       </Link>
 

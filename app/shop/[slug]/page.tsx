@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import ProductDetailsClient from "@/components/ProductDetailsClient";
+import { PUBLIC_PRODUCT_IMAGE_SOURCES } from "@/lib/publicProductSelect";
 import { getCspNonce } from "@/lib/csp";
 import { SITE_BRAND, getPublicBaseUrl } from "@/lib/siteConfig";
 import { productDisplayName } from "@/lib/productNames";
@@ -28,6 +29,7 @@ const getPublicProduct = cache(async (slug: string) => {
       enrichmentStatus: { not: "MERGED" },
     },
     select: { id: true, slug: true, name: true, supplierSku: true, image: true, imageSourceUrl: true, shortDescription: true,
+      images: PUBLIC_PRODUCT_IMAGE_SOURCES,
       description: true, price: true, stock: true, category: true, variants: true,
       brand: { select: { name: true, slug: true } } },
   });

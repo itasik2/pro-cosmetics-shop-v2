@@ -34,9 +34,14 @@ test("Cloudinary outage cannot stop new admin uploads if Blob is configured", ()
 test("Existing supplier source photo is used if suspended Cloudinary photos fail", () => {
   const image = readFileSync(join(process.cwd(), "components/ResilientProductImage.tsx"), "utf8");
   const card = readFileSync(join(process.cwd(), "components/ProductCard.tsx"), "utf8");
+  const home = readFileSync(join(process.cwd(), "app/page.tsx"), "utf8");
+  const batch = readFileSync(join(process.cwd(), "lib/catalogBatch.ts"), "utf8");
   const select = readFileSync(join(process.cwd(), "lib/publicProductSelect.ts"), "utf8");
-  assert.match(image, /setUsingFallback\(true\)/);
-  assert.match(image, /!usingFallback && safeFallback/);
-  assert.match(card, /fallbackSrc=\{imageToShow === product\.image \? product\.imageSourceUrl/);
+  assert.match(image, /product\.images\?\.find\(\(image\) => image\.url === src\)/);
+  assert.match(image, /\[exactSource, commonImage, commonSource\]/);
+  assert.match(image, /setFallbackIndex\(fallbackIndex \+ 1\)/);
+  assert.match(card, /src=\{imageToShow\}\s+product=\{product\}/);
+  assert.equal((home.match(/image, imageSourceUrl, images, shortDescription/g) || []).length, 2);
+  assert.match(batch, /imageSourceUrl: product\.imageSourceUrl, images: product\.images/);
   assert.match(select, /imageSourceUrl: true/);
 });
