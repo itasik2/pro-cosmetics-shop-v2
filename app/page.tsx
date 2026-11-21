@@ -78,6 +78,7 @@ const PRODUCT_CARD_SELECT = {
   slug: true,
   name: true,
   image: true,
+  imageSourceUrl: true,
   shortDescription: true,
   price: true,
   stock: true,
