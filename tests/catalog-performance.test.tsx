@@ -312,3 +312,16 @@ test("navigation state is bounded and isolated across catalog queries and favori
   assert.equal(cache.read("favorites")?.anchor, "product-2");
   assert.equal(createCatalogViewCache().read("favorites"), undefined);
 });
+
+
+test("catalog batch retains supplier source image URL for Cloudinary fallback", async () => {
+  const { catalogCard } = await import("../lib/catalogBatch");
+  const card = catalogCard({
+    id: "test-1", slug: "test", name: "Test", image: "https://res.cloudinary.com/a/image/upload/test.webp",
+    imageSourceUrl: "https://supplier.example.org/photo.jpg", price: 100, stock: 2,
+    shortDescription: null, isPopular: false, isNew: false, createdAt: new Date(2026, 0, 1),
+    category: "skin", brand: { name: "Test" }, variants: null,
+  });
+  assert.equal(card.imageSourceUrl, "https://supplier.example.org/photo.jpg");
+  assert.equal(card.image, "https://res.cloudinary.com/a/image/upload/test.webp");
+});
