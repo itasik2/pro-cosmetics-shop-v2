@@ -1,4 +1,6 @@
 import { v2 as cloudinary } from "cloudinary";
+import { safeFetchImage } from "@/lib/enrichment/network";
+import { blobMediaEnabled, uploadProductImageToBlob } from "@/lib/vercelBlobImages";
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -141,7 +143,7 @@ function shortError(error: unknown) {
   return message.replace(/\s+/g, " ").trim().slice(0, 500) || "normalization_failed";
 }
 
-export async function normalizeProductImage(
+async function normalizeCloudinaryProductImage(
   source: Buffer | string,
   options?: { folder?: string },
 ): Promise<ProductImageNormalizationResult> {
@@ -206,4 +208,53 @@ export async function normalizeProductImage(
       height: typeof uploaded.height === "number" ? uploaded.height : null,
     };
   }
+}
+
+
+let cloudinaryRetryAfter = 0;
+
+/** Store product photos independently of Cloudinary delivery.
+ * Keep Cloudinary background-removal processing when it works, but
+ * fall back to local Sharp normalization when credits are exhausted.
+ */
+export async function normalizeProductImage(
+  source: Buffer | string,
+  options?: { folder?: string },
+): Promise<ProductImageNormalizationResult> {
+  if (!blobMediaEnabled()) return normalizeCloudinaryProductImage(source, options);
+
+  let bytes: Buffer;
+  if (Buffer.isBuffer(source)) {
+    bytes = source;
+  } else {
+    const url = new URL(source);
+    if (url.protocol !== "https:" || url.username || url.password || url.port)
+      throw new Error("product_image_source_must_be_https");
+    const fetched = await safeFetchImage(source, [
+      { domain: url.hostname.toLowerCase(), allowSubdomains: false },
+    ]);
+    bytes = fetched.buffer;
+  }
+
+  let cloudinaryDerivative: Buffer | null = null;
+  if (productImageNormalizationEnabled() &&
+      process.env.CLOUDINARY_CLOUD_NAME &&
+      process.env.CLOUDINARY_API_KEY &&
+      process.env.CLOUDINARY_API_SECRET &&
+      Date.now() >= cloudinaryRetryAfter) {
+    try {
+      const result = await normalizeCloudinaryProductImage(bytes, options);
+      if (result.status === "PROCESSED" && result.processedUrl) {
+        const downloaded = await safeFetchImage(result.processedUrl, [
+          { domain: "res.cloudinary.com", allowSubdomains: false },
+        ], { timeoutMs: 12_000 });
+        cloudinaryDerivative = downloaded.buffer;
+      }
+    } catch {
+      // Avoid repeated attempts against a suspended Cloudinary account.
+      cloudinaryRetryAfter = Date.now() + 10 * 60 * 1000;
+      console.warn("cloudinary_unavailable_using_blob_local_processing");
+    }
+  }
+  return uploadProductImageToBlob(bytes, { cloudinaryDerivative });
 }
