@@ -28,7 +28,10 @@ function isHttpsImage(value: unknown): value is string {
 }
 
 export function isNormalizedProductImage(value: unknown) {
-  return typeof value === "string" && value.includes("e_background_removal");
+  return typeof value === "string" && (
+    value.includes("e_background_removal") ||
+    /^https:\/\/[^/]+\.public\.blob\.vercel-storage\.com\/pro-cosmetics\/products\/processed\//i.test(value)
+  );
 }
 
 function needsNormalization(value: unknown) {
