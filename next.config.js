@@ -36,13 +36,15 @@ const privatePageHeaders = [
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  serverExternalPackages: ["pdfjs-dist"],
-  experimental: {
-    outputFileTracingIncludes: {
-      "/api/admin/price-imports/upload": [
-        "./node_modules/pdfjs-dist/legacy/build/**/*",
-      ],
-    },
+  serverExternalPackages: ["pdfjs-dist", "onnxruntime-web"],
+  outputFileTracingIncludes: {
+    "/api/admin/price-imports/upload": [
+      "./node_modules/pdfjs-dist/legacy/build/**/*",
+    ],
+    "/api/{upload/product-image,admin/products/normalize-images,cron/image-normalization,cron/enrichment-monitor,admin/enrichment/autopilot,admin/enrichment/proposals/*/apply}": [
+      "./.photo-models/u2netp.onnx",
+      "./node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.{mjs,wasm}",
+    ],
   },
   async headers() {
     return [

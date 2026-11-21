@@ -3,25 +3,28 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "npm run check:env:build && node scripts/run-migrations.mjs && next build",
+    "dev": "node scripts/prepare-photo-model.mjs && next dev",
+    "build": "npm run check:env:build && node scripts/prepare-photo-model.mjs && node scripts/run-migrations.mjs && next build",
     "start": "next start",
     "postinstall": "prisma generate",
     "db:push": "prisma db push",
     "db:seed": "node prisma/seed.mjs",
     "check:env:build": "node scripts/check-required-env.mjs build",
     "typecheck": "tsc --noEmit",
+    "pretest:store": "node scripts/prepare-photo-model.mjs",
     "test:store": "TSX_TSCONFIG_PATH=tests/tsconfig.json node --import tsx --test tests/store-audit.test.tsx tests/consultant.test.ts tests/admin-variants.test.tsx tests/enrichment-timeouts.test.ts tests/variant-photos.test.tsx tests/enrichment-proposals.test.tsx tests/unified-enrichment.test.tsx tests/product-tools.test.tsx tests/price-reconciliation.test.tsx tests/product-management.test.tsx tests/named-photo-search.test.tsx tests/price-pdf.test.ts tests/photo-quality-and-titles.test.tsx tests/tilda-variant-photos.test.tsx tests/product-description-quality.test.tsx tests/standalone-source-photos.test.tsx tests/proposal-image-recovery.test.ts tests/catalog-performance.test.tsx tests/catalog-card-storage.test.ts tests/checkout-safety.test.ts tests/order-fulfillment-policy.test.ts tests/image-normalization-pagination.test.ts tests/jeuderm-categories.test.ts tests/site-locale.test.ts tests/translations-admin.test.ts tests/blob-image-fallback.test.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.1",
     "@tailwindcss/line-clamp": "^0.4.4",
+    "@vercel/blob": "2.9.0",
     "cheerio": "1.2.0",
     "cloudinary": "^2.8.0",
     "dotenv": "^17.3.1",
     "next": "15.5.28",
     "next-auth": "5.0.0-beta.32",
     "nodemailer": "8.0.11",
+    "onnxruntime-web": "1.23.2",
     "openai": "^4.0.0",
     "pdfjs-dist": "4.10.38",
     "react": "19.2.8",
@@ -30,8 +33,7 @@
     "remark-gfm": "^4.0.1",
     "sharp": "0.35.4",
     "stripe": "16.6.0",
-    "zod": "3.23.8",
-    "@vercel/blob": "2.9.0"
+    "zod": "3.23.8"
   },
   "devDependencies": {
     "@types/node": "20.19.23",

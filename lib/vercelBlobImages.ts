@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { put } from "@vercel/blob";
 import sharp from "sharp";
 import type { ProductImageNormalizationResult } from "@/lib/productImageNormalization";
+import { productCutout } from "@/lib/productBackgroundRemoval";
 
 const MIME: Record<string, string> = {
   jpeg: "image/jpeg", png: "image/png", webp: "image/webp",
@@ -48,9 +49,7 @@ async function sourceDetails(bytes: Buffer) {
   return { contentType: MIME[format], extension: EXT[format], width: metadata.width, height: metadata.height };
 }
 
-/** Local image pipeline: rotate, trim white margins, fit 960px and centre on a 1200px white WebP canvas.
- * This does NOT claim AI background removal; such assets are explicitly marked NEEDS_REVIEW.
- */
+/** Places a product photo or transparent cutout on the standard white WebP canvas. */
 export async function localCatalogDerivative(bytes: Buffer): Promise<Buffer> {
   let cropped: Buffer;
   try {
@@ -73,7 +72,7 @@ export async function localCatalogDerivative(bytes: Buffer): Promise<Buffer> {
 
 export async function uploadProductImageToBlob(
   bytes: Buffer,
-  options: { cloudinaryDerivative?: Buffer | null } = {},
+  options: { removeBackground?: boolean } = {},
 ): Promise<ProductImageNormalizationResult> {
   if (!blobMediaEnabled()) throw new Error("blob_storage_not_configured");
   const meta = await sourceDetails(bytes);
@@ -83,16 +82,28 @@ export async function uploadProductImageToBlob(
     bytes, meta.contentType,
   );
   try {
-    const processedBytes = options.cloudinaryDerivative ?? await localCatalogDerivative(bytes);
-    const processedUrl = await saveBlob(
-      "pro-cosmetics/products/processed/" + unique + ".webp",
+    let cutout: Buffer | null = null;
+    if (options.removeBackground !== false) {
+      try {
+        cutout = await productCutout(bytes);
+      } catch (error) {
+        if (!(error instanceof Error && error.message === "background_mask_uncertain")) {
+          console.warn("product_background_removal_failed", error);
+        }
+      }
+    }
+    const processedBytes = await localCatalogDerivative(cutout ?? bytes);
+    const directory = cutout ? "background-removed" : "drafts";
+    const displayUrl = await saveBlob(
+      "pro-cosmetics/products/" + directory + "/" + unique + ".webp",
       processedBytes, "image/webp",
     );
     return {
-      url: processedUrl, originalUrl, processedUrl,
+      url: displayUrl, originalUrl, processedUrl: cutout ? displayUrl : null,
       publicId: "blob:" + unique,
-      status: options.cloudinaryDerivative ? "PROCESSED" : "NEEDS_REVIEW",
-      error: options.cloudinaryDerivative ? null : "ai_background_removal_pending",
+      status: cutout ? "PROCESSED" : "NEEDS_REVIEW",
+      error: cutout ? null : options.removeBackground === false
+        ? "product_image_normalization_disabled" : "ai_background_removal_pending",
       width: CANVAS, height: CANVAS,
     };
   } catch (error) {

@@ -1,5 +1,6 @@
 node_modules
 .next
+.photo-models/
 .env*
 !.env.example
 prisma/dev.db
