@@ -13,7 +13,7 @@ export type CatalogSource = { kind: "catalog"; query: CatalogQuery } | { kind: "
 
 export type CatalogVariant = { id: string; label: string; price: number; stock: number; sku?: string; image?: string };
 export type CatalogProductRow = {
-  id: string; slug: string; name: string; image: string; shortDescription?: string | null;
+  id: string; slug: string; name: string; image: string; imageSourceUrl?: string | null; shortDescription?: string | null;
   supplierSku?: string | null; price: number; stock: number; isPopular: boolean; isNew?: boolean;
   createdAt: Date | string; category: string; brand?: { name: string } | null; variants?: unknown;
 };

@@ -19,6 +19,7 @@ export function catalogVariants(value: unknown): CatalogVariant[] | null {
 export function catalogCard(product: CatalogProductRow) {
   return {
     id: product.id, slug: product.slug, name: product.name, image: product.image,
+    imageSourceUrl: product.imageSourceUrl,
     shortDescription: product.shortDescription, supplierSku: product.supplierSku,
     price: product.price, stock: product.stock, isPopular: product.isPopular, isNew: product.isNew,
     createdAt: new Date(product.createdAt).toISOString(),
