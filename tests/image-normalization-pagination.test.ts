@@ -1,6 +1,30 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { paginateImageNormalizationProducts } from "../lib/imageNormalizationPagination";
+import { catalogPhotoSources, isNormalizedProductImage } from "../lib/catalogImageNormalization";
+
+test("legacy photos enter the queue and each variant uses its own verified source", () => {
+  const previous = process.env.BLOB_READ_WRITE_TOKEN;
+  process.env.BLOB_READ_WRITE_TOKEN = "test-blob";
+  try {
+    const legacy = "https://res.cloudinary.com/store/image/upload/e_background_removal/main.webp";
+    const variant = "https://res.cloudinary.com/store/image/upload/e_background_removal/variant.webp";
+    const mainSource = "https://supplier.example/main.jpg";
+    const variantSource = "https://supplier.example/variant.jpg";
+    const product = {
+      image: legacy, imageSourceUrl: mainSource,
+      images: [{ url: legacy, sourceUrl: legacy }, { url: variant, sourceUrl: variantSource }],
+    };
+    assert.equal(isNormalizedProductImage(legacy), false);
+    assert.equal(isNormalizedProductImage("https://store.public.blob.vercel-storage.com/pro-cosmetics/products/background-removed/a.webp"), true);
+    assert.deepEqual(catalogPhotoSources(legacy, product), [mainSource]);
+    assert.deepEqual(catalogPhotoSources(variant, product), [variantSource]);
+    assert.deepEqual(catalogPhotoSources(variant, { ...product, images: [] }), []);
+  } finally {
+    if (previous === undefined) delete process.env.BLOB_READ_WRITE_TOKEN;
+    else process.env.BLOB_READ_WRITE_TOKEN = previous;
+  }
+});
 
 test("normalization reaches products beyond the first 200", async () => {
   const records = Array.from({ length: 350 }, (_, i) => ({

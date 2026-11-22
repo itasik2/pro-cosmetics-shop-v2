@@ -7,6 +7,8 @@ type Status = {
   normalized: number;
   retryPending: number;
   needsReview: number;
+  legacyCloudinary: number;
+  missing: number;
 };
 
 type BatchItem = {
@@ -38,6 +40,8 @@ function safeStatus(value: Partial<Status>): Status {
     normalized: Math.max(0, Number(value.normalized) || 0),
     retryPending: Math.max(0, Number(value.retryPending) || 0),
     needsReview: Math.max(0, Number(value.needsReview) || 0),
+    legacyCloudinary: Math.max(0, Number(value.legacyCloudinary) || 0),
+    missing: Math.max(0, Number(value.missing) || 0),
   };
 }
 
@@ -47,6 +51,8 @@ export default function ImageNormalizationClient() {
     normalized: 0,
     retryPending: 0,
     needsReview: 0,
+    legacyCloudinary: 0,
+    missing: 0,
   });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -56,13 +62,13 @@ export default function ImageNormalizationClient() {
     const response = await fetch("/api/admin/products/normalize-images", {
       cache: "no-store",
     });
-    if (!response.ok) return;
     const data = (await readJson(response)) as Status;
+    if (!response.ok) throw new Error(`Не удалось проверить каталог (HTTP ${response.status}).`);
     setStatus(safeStatus(data));
   }
 
   useEffect(() => {
-    void refresh();
+    void refresh().catch((error) => setMessage(error.message));
   }, []);
 
   async function processBatch(resetNeedsReview = false) {
@@ -150,7 +156,7 @@ export default function ImageNormalizationClient() {
         error instanceof Error ? error.message : "Обработка каталога остановлена из-за ошибки.",
       );
     } finally {
-      await refresh();
+      await refresh().catch(() => {});
       setBusy(false);
     }
   }
@@ -171,7 +177,7 @@ export default function ImageNormalizationClient() {
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Не удалось перезапустить изображения.");
     } finally {
-      await refresh();
+      await refresh().catch(() => {});
       setBusy(false);
     }
   }
@@ -181,7 +187,7 @@ export default function ImageNormalizationClient() {
       <div>
         <h1 className="text-2xl font-bold">Изображения товаров</h1>
         <p className="mt-2 max-w-3xl text-sm text-gray-600">
-          AI удаляет исходный фон, обрезает пустые края и помещает товар по центру квадратного холста. Новые изображения обрабатываются автоматически, а старый каталог можно прогнать целиком без перезаписи оригиналов.
+          Проверка показывает состояние фото товаров и вариантов по данным каталога. При обработке старых фото Cloudinary используются сохранённые исходники поставщиков. Если исходник варианта неизвестен, фото отправляется на проверку.
         </p>
       </div>
 
@@ -204,7 +210,30 @@ export default function ImageNormalizationClient() {
         </div>
       </div>
 
+      <p className="text-sm text-gray-600">
+        Старых ссылок Cloudinary: {status.legacyCloudinary}. Без HTTPS-фото в основной карточке: {status.missing}.
+      </p>
+
       <div className="flex flex-wrap gap-3">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            setMessage("");
+            try {
+              await refresh();
+              setMessage("Каталог проверен.");
+            } catch (error) {
+              setMessage(error instanceof Error ? error.message : "Не удалось проверить каталог.");
+            } finally {
+              setBusy(false);
+            }
+          }}
+          className="rounded-xl border bg-white px-4 py-2 text-sm font-semibold hover:bg-gray-50 disabled:opacity-50"
+        >
+          Проверить каталог
+        </button>
         <button
           type="button"
           disabled={busy || status.remaining <= 0}

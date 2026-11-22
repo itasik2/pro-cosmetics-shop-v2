@@ -1,5 +1,6 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 120;
 
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -40,6 +41,6 @@ export async function POST(req: Request) {
   return NextResponse.json({
     ok: true,
     reset,
-    ...(await normalizeCatalogImageBatch(parsed.data.limit)),
+    ...(await normalizeCatalogImageBatch(parsed.data.limit, true)),
   });
 }
