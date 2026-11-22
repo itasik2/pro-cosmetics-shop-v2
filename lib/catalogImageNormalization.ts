@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { normalizeProductImage } from "@/lib/productImageNormalization";
 import { prisma } from "@/lib/prisma";
 import { paginateImageNormalizationProducts } from "@/lib/imageNormalizationPagination";
+import { blobMediaEnabled } from "@/lib/vercelBlobImages";
 
 type Variant = {
   id?: unknown;
@@ -29,13 +30,53 @@ function isHttpsImage(value: unknown): value is string {
 
 export function isNormalizedProductImage(value: unknown) {
   return typeof value === "string" && (
-    value.includes("e_background_removal") ||
+    (!blobMediaEnabled() && isCloudinaryPhoto(value) && value.includes("e_background_removal")) ||
     /^https:\/\/[^/]+\.public\.blob\.vercel-storage\.com\/pro-cosmetics\/products\/(?:processed|background-removed)\//i.test(value)
   );
 }
 
+function isCloudinaryPhoto(url: string) {
+  return hostname(url.trim()) === "res.cloudinary.com";
+}
+
+const photoSourcesSelect = {
+  imageSourceUrl: true,
+  images: { select: { url: true, sourceUrl: true } },
+} satisfies Prisma.ProductSelect;
+
+export function catalogPhotoSources(
+  current: string,
+  product: { image: string; imageSourceUrl: string | null; images: { url: string; sourceUrl: string | null }[] },
+) {
+  if (!blobMediaEnabled() || !isCloudinaryPhoto(current)) return [current];
+  const exact = product.images.filter((image) => image.url === current).map((image) => image.sourceUrl);
+  return [...new Set([...exact, ...(current === product.image.trim() ? [product.imageSourceUrl] : [])]
+    .filter(isHttpsImage).map((url) => url.trim()).filter((url) => !isCloudinaryPhoto(url)))];
+}
+
+async function normalizeCatalogPhoto(current: string, product: Parameters<typeof catalogPhotoSources>[1]) {
+  const sources = catalogPhotoSources(current, product);
+  if (!sources.length) throw new Error("Для этого фото нет сохранённого исходника вне Cloudinary.");
+  let lastError: unknown;
+  for (const source of sources) {
+    try {
+      const normalized = await normalizeProductImage(source, {
+        folder: "pro-cosmetics/products/catalog-originals",
+      });
+      return { normalized, source };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError;
+}
+
 function needsNormalization(value: unknown) {
   return isHttpsImage(value) && !isNormalizedProductImage(value);
+}
+
+function isLegacyCloudinaryPhoto(url: string) {
+  return blobMediaEnabled() && isCloudinaryPhoto(url);
 }
 
 function normalizeVariants(value: unknown): Variant[] {
@@ -189,8 +230,12 @@ export async function getCatalogImageNormalizationCounts() {
   let remaining = 0;
   let retryPending = 0;
   let needsReview = 0;
+  let legacyCloudinary = 0;
+  let missing = 0;
 
   function countTarget(productId: string, targetKey: string, image: unknown) {
+    if (targetKey === "primary" && !isHttpsImage(image)) missing += 1;
+    if (isHttpsImage(image) && isLegacyCloudinaryPhoto(image)) legacyCloudinary += 1;
     if (isNormalizedProductImage(image)) {
       normalized += 1;
       return;
@@ -217,10 +262,10 @@ export async function getCatalogImageNormalizationCounts() {
     }
   }
 
-  return { normalized, remaining, retryPending, needsReview };
+  return { normalized, remaining, retryPending, needsReview, legacyCloudinary, missing };
 }
 
-export async function normalizeCatalogImageBatch(maxImages = 3) {
+export async function normalizeCatalogImageBatch(maxImages = 3, recoverCloudinary = false) {
   const limit = Math.max(1, Math.min(5, Math.trunc(maxImages) || 3));
   const results: Array<{
     productId: string;
@@ -273,7 +318,7 @@ export async function normalizeCatalogImageBatch(maxImages = 3) {
         orderBy: { id: "asc" },
         take: pageSize,
         ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-        select: { id: true, name: true, image: true, variants: true },
+        select: { id: true, name: true, image: true, variants: true, ...photoSourcesSelect },
       }),
     pageSize,
   )) {
@@ -281,7 +326,7 @@ export async function normalizeCatalogImageBatch(maxImages = 3) {
     for (const product of products) {
       if (handled >= limit) break;
 
-      if (needsNormalization(product.image)) {
+      if (needsNormalization(product.image) && (recoverCloudinary || !isLegacyCloudinaryPhoto(product.image))) {
         const sourceUrl = product.image.trim();
         const targetKey = "primary";
         const state = attemptState(attempts.get(attemptMapKey(product.id, targetKey, sourceUrl)));
@@ -289,9 +334,7 @@ export async function normalizeCatalogImageBatch(maxImages = 3) {
         if (state === "ready") {
           handled += 1;
           try {
-            const normalized = await normalizeProductImage(sourceUrl, {
-              folder: "pro-cosmetics/products/catalog-originals",
-            });
+            const { normalized, source } = await normalizeCatalogPhoto(sourceUrl, product);
 
             if (!normalized.processedUrl) {
               await failTarget({
@@ -304,6 +347,11 @@ export async function normalizeCatalogImageBatch(maxImages = 3) {
               });
             } else {
               await prisma.$transaction(async (tx) => {
+                const changed = await tx.product.updateMany({
+                  where: { id: product.id, image: product.image },
+                  data: { image: normalized.url },
+                });
+                if (!changed.count) throw new Error("Фото карточки уже изменилось. Повторите проверку каталога.");
                 await tx.productImage.updateMany({
                   where: { productId: product.id },
                   data: { isPrimary: false },
@@ -323,17 +371,13 @@ export async function normalizeCatalogImageBatch(maxImages = 3) {
                       productId: product.id,
                       url: normalized.url,
                       sourceUrl: normalized.originalUrl,
-                      sourceDomain: hostname(sourceUrl),
+                      sourceDomain: hostname(source),
                       width: normalized.width,
                       height: normalized.height,
                       isPrimary: true,
                     },
                   });
                 }
-                await tx.product.update({
-                  where: { id: product.id },
-                  data: { image: normalized.url },
-                });
               });
               await clearAttempt(product.id, targetKey, sourceUrl);
               results.push({
@@ -362,6 +406,7 @@ export async function normalizeCatalogImageBatch(maxImages = 3) {
         if (!needsNormalization(variant.image)) continue;
 
         const sourceUrl = String(variant.image).trim();
+        if (!recoverCloudinary && isLegacyCloudinaryPhoto(sourceUrl)) continue;
         const targetKey = variantTargetKey(variant, index);
         const state = attemptState(attempts.get(attemptMapKey(product.id, targetKey, sourceUrl)));
         if (state !== "ready") continue;
@@ -369,9 +414,7 @@ export async function normalizeCatalogImageBatch(maxImages = 3) {
         handled += 1;
         const variantId = typeof variant.id === "string" ? variant.id : undefined;
         try {
-          const normalized = await normalizeProductImage(sourceUrl, {
-            folder: "pro-cosmetics/products/catalog-originals",
-          });
+          const { normalized, source } = await normalizeCatalogPhoto(sourceUrl, product);
           if (!normalized.processedUrl) {
             await failTarget({
               productId: product.id,
@@ -385,12 +428,27 @@ export async function normalizeCatalogImageBatch(maxImages = 3) {
             continue;
           }
 
-          const nextVariants = variants.map((item, variantIndex) =>
-            variantIndex === index ? { ...item, image: normalized.url } : item,
-          );
-          await prisma.product.update({
-            where: { id: product.id },
-            data: { variants: nextVariants as any },
+          await prisma.$transaction(async (tx) => {
+            const latest = await tx.product.findUniqueOrThrow({
+              where: { id: product.id }, select: { variants: true, updatedAt: true },
+            });
+            const current = normalizeVariants(latest.variants);
+            const match = current.findIndex((item, i) => variantTargetKey(item, i) === targetKey && item.image === variant.image);
+            if (match < 0) throw new Error("Фото варианта уже изменилось. Повторите проверку каталога.");
+            current[match] = { ...current[match], image: normalized.url };
+            const changed = await tx.product.updateMany({
+              where: { id: product.id, updatedAt: latest.updatedAt },
+              data: { variants: current as Prisma.InputJsonValue },
+            });
+            if (!changed.count) throw new Error("Вариант уже изменился. Повторите проверку каталога.");
+            await tx.productImage.upsert({
+              where: { productId_url: { productId: product.id, url: normalized.url } },
+              update: {},
+              create: {
+                productId: product.id, url: normalized.url, sourceUrl: normalized.originalUrl,
+                sourceDomain: hostname(source), width: normalized.width, height: normalized.height,
+              },
+            });
           });
           variants[index] = { ...variant, image: normalized.url };
           await clearAttempt(product.id, targetKey, sourceUrl);
@@ -426,6 +484,8 @@ export async function normalizeCatalogImageBatch(maxImages = 3) {
     retryPending: counts.retryPending,
     needsReview: counts.needsReview,
     normalized: counts.normalized,
+    legacyCloudinary: counts.legacyCloudinary,
+    missing: counts.missing,
     results,
   };
 }
