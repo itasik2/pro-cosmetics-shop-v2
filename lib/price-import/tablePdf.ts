@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { parseTekomPages } from "./tekomPdf";
 import {
   analyzePriceTableLayout,
   validatedLayoutAnalysis,
@@ -438,5 +439,6 @@ export async function parseTablePdf(
   input: { bytes: Uint8Array; fileName: string; defaultBrand?: string | null },
   analyzer?: LayoutAnalyzer,
 ) {
-  return parseTablePages(await readTablePages(input.bytes), input, analyzer);
+  const pages = await readTablePages(input.bytes);
+  return parseTekomPages(pages) ?? parseTablePages(pages, input, analyzer);
 }

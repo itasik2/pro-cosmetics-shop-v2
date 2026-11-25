@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { PriceImportStatus } from "@prisma/client";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/adminGuard";
 import { ENRICHMENT_PRICE_IMPORT_COOKIE } from "@/lib/enrichment/priceImportScope";
@@ -23,25 +23,19 @@ function setScopeCookie(response: NextResponse, value: string) {
   return response;
 }
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   const forbidden = await requireAdmin();
   if (forbidden) return forbidden;
 
   const imports = await prisma.priceImport.findMany({
-    where: {
-      OR: [
-        { status: PriceImportStatus.APPLIED },
-        {
-          status: PriceImportStatus.REVIEW,
-          rows: { some: { appliedAt: { not: null } } },
-        },
-      ],
-    },
-    orderBy: [{ sourceDate: "desc" }, { createdAt: "desc" }],
+    where: { status: { in: [PriceImportStatus.APPLIED, PriceImportStatus.REVIEW] } },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: 50,
     select: {
       id: true,
       fileName: true,
+      status: true,
+      rows: { where: { appliedAt: { not: null } }, take: 1, select: { id: true } },
       sourceDate: true,
       appliedAt: true,
       createdAt: true,
@@ -52,20 +46,20 @@ export async function GET(req: Request) {
     },
   });
 
-  const cookieHeader = req.headers.get("cookie") || "";
-  const cookieMatch = cookieHeader.match(
-    new RegExp(`(?:^|;\\s*)${ENRICHMENT_PRICE_IMPORT_COOKIE}=([^;]+)`),
-  );
-  const stored = cookieMatch ? decodeURIComponent(cookieMatch[1]) : "";
-  const validIds = new Set(imports.map((item) => item.id));
+  const options = imports.map(({ status, rows, ...item }) => ({
+    ...item,
+    readyForPhotos: rows.length > 0 ||
+      (status === PriceImportStatus.APPLIED && item.createdRows + item.updatedRows > 0),
+  }));
+  const requested = new URL(req.url).searchParams.get("importId");
+  const stored = req.cookies.get(ENRICHMENT_PRICE_IMPORT_COOKIE)?.value;
+  const validIds = new Set(options.map((item) => item.id));
   const selectedImportId =
-    stored === "ALL"
-      ? "ALL"
-      : stored && validIds.has(stored)
-        ? stored
-        : imports[0]?.id || "ALL";
+    requested && validIds.has(requested) ? requested
+      : stored === "ALL" || (stored && validIds.has(stored)) ? stored
+      : options.find((item) => item.readyForPhotos)?.id || options[0]?.id || "ALL";
 
-  const response = NextResponse.json({ selectedImportId, imports });
+  const response = NextResponse.json({ selectedImportId, imports: options });
   return setScopeCookie(response, selectedImportId);
 }
 
@@ -86,13 +80,7 @@ export async function POST(req: Request) {
     const exists = await prisma.priceImport.findFirst({
       where: {
         id: importId,
-        OR: [
-          { status: PriceImportStatus.APPLIED },
-          {
-            status: PriceImportStatus.REVIEW,
-            rows: { some: { appliedAt: { not: null } } },
-          },
-        ],
+        status: { in: [PriceImportStatus.APPLIED, PriceImportStatus.REVIEW] },
       },
       select: { id: true },
     });

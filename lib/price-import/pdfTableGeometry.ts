@@ -4,6 +4,7 @@ export type PdfTableItem = {
   top: number;
   width: number;
   height: number;
+  fontName?: string;
 };
 export type PdfTableRule = { x1: number; x2: number; top: number };
 export type PdfTablePage = {
@@ -52,6 +53,7 @@ export async function readTablePages(
           top: point[1],
           width: item.width,
           height: item.height,
+          fontName: item.fontName,
         });
       }
       const operators = await page.getOperatorList();

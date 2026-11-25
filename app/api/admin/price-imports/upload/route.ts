@@ -211,6 +211,7 @@ export async function POST(req: Request) {
     const defaultBrand = cleanText(form.get("defaultBrand"), 160);
     const parserMode = normalizeParserMode(form.get("parserMode"));
     const requestedDate = cleanText(form.get("sourceDate"), 20);
+    const retryImportId = cleanText(form.get("retryImportId"), 200);
     if (requestedDate && !sourceDay(requestedDate))
       return NextResponse.json(
         {
@@ -264,6 +265,7 @@ export async function POST(req: Request) {
         id: true,
         status: true,
         createdAt: true,
+        validRows: true,
         rows: {
           where: { appliedAt: { not: null } },
           select: { id: true },
@@ -272,8 +274,18 @@ export async function POST(req: Request) {
       },
     });
 
+    const retrying = Boolean(retryImportId && duplicate?.id === retryImportId &&
+      duplicate.status === PriceImportStatus.REVIEW && duplicate.validRows === 0 &&
+      duplicate.rows.length === 0);
+    if (retryImportId && !retrying) {
+      return NextResponse.json({
+        error: "price_import_retry_unavailable",
+        message: "Чтобы повторить разбор, выберите тот же PDF для того же поставщика. Повтор доступен для прайсов без применённых или распознанных строк.",
+      }, { status: 409 });
+    }
+
     if (
-      duplicate &&
+      !retrying && duplicate &&
       (duplicate.status !== PriceImportStatus.FAILED ||
         duplicate.rows.length > 0)
     ) {
@@ -323,7 +335,7 @@ export async function POST(req: Request) {
       await prisma.priceImport.delete({ where: { id: duplicate.id } });
     }
 
-    const priceImport = await prisma.priceImport.create({
+    const priceImport = retrying ? { id: retryImportId } : await prisma.priceImport.create({
       data: {
         supplierId: supplier.id,
         fileName: file.name,
@@ -335,7 +347,7 @@ export async function POST(req: Request) {
       },
       select: { id: true },
     });
-    importId = priceImport.id;
+    if (!retrying) importId = priceImport.id;
 
     const parsed = await parsePriceListPdf({
       bytes,
@@ -572,10 +584,6 @@ export async function POST(req: Request) {
       },
     );
 
-    if (rowData.length) {
-      await prisma.priceImportRow.createMany({ data: rowData });
-    }
-
     const sourceDate = sourceDay(parsed.sourceDate);
     const validRows = rowData.filter(
       (row) =>
@@ -586,16 +594,39 @@ export async function POST(req: Request) {
       (row) => row.action === ImportRowAction.MANUAL_REVIEW,
     ).length;
 
-    await prisma.priceImport.update({
-      where: { id: priceImport.id },
-      data: {
-        sourceDate,
-        status: PriceImportStatus.REVIEW,
-        totalRows: rowData.length,
-        validRows,
-        errorRows: manualRows,
-      },
-    });
+    const summary = {
+      sourceDate,
+      status: PriceImportStatus.REVIEW,
+      totalRows: rowData.length,
+      validRows,
+      errorRows: manualRows,
+    };
+    if (retrying && !validRows)
+      throw new Error("price_import_no_applicable_rows");
+
+    await prisma.$transaction(async (tx) => {
+      if (retrying) {
+        const locked = await tx.priceImport.updateMany({
+          where: {
+            id: priceImport.id, status: PriceImportStatus.REVIEW, validRows: 0,
+            rows: {
+              none: {
+                OR: [
+                  { appliedAt: { not: null } },
+                  { action: { in: [ImportRowAction.CREATE, ImportRowAction.UPDATE] } },
+                ],
+              },
+            },
+          },
+          data: { ...summary, fileName: file.name, priceMode, markupPercent, roundingStep },
+        });
+        if (!locked.count) throw new Error("price_import_retry_unavailable");
+        await tx.priceImportRow.deleteMany({ where: { importId: priceImport.id } });
+      } else {
+        await tx.priceImport.update({ where: { id: priceImport.id }, data: summary });
+      }
+      if (rowData.length) await tx.priceImportRow.createMany({ data: rowData });
+    }, { isolationLevel: "Serializable" });
 
     let automaticWarning: string | null = null;
     try {
