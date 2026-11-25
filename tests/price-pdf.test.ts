@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import { parseTablePages } from "../lib/price-import/tablePdf";
+import { parseTekomPages } from "../lib/price-import/tekomPdf";
 import type { PdfTablePage } from "../lib/price-import/pdfTableGeometry";
 import { validatedLayoutAnalysis } from "../lib/price-import/aiPriceLayout";
 import { hasManufacturerSku } from "../lib/enrichment/photoIdentity";
@@ -311,4 +312,46 @@ test("ruled PDFs preserve valid document dates on the import and every row witho
     defaultBrand: "Skinosophy",
   });
   assert.equal(undated.sourceDate, null);
+});
+
+test("Tekom separates retail and professional prices and recovers merged names from the PDF font", () => {
+  const item = (text: string, x: number, top: number, fontName = "plain") =>
+    ({ text, x, top, width: 10, height: 8, fontName });
+  const priceRow = (top: number, amount: string, cost: string, retail: string) => [
+    item(amount, 345, top),
+    item(cost, 425, top),
+    item(retail, 505, top),
+  ];
+  const page: PdfTablePage = {
+    pageNumber: 1,
+    width: 595,
+    height: 841,
+    vertical: [],
+    horizontal: [132, 160, 200, 220].map((top) => ({ x1: 35, x2: 560, top })),
+    items: [
+      item("sale@tekom.kz", 45, 55),
+      item("instagram.com/m.aklive", 45, 65),
+      item("объем", 345, 120),
+      item("косметолог", 425, 120),
+      item("РРЦ", 505, 120),
+      item("Пенк% для умы,%н-я «Се/ум к0н120л3»", 45, 149, "damaged"),
+      ...priceRow(143, "150 мл", "5070", "8450"),
+      ...priceRow(156, "50 мл", "3315", "5525"),
+      item("PROFMED", 45, 185),
+      item("Лё7к-8 9-л-н7", 45, 214, "damaged"),
+      ...priceRow(214, "30 мл", "11050", "—"),
+    ],
+  };
+  const parsed = parseTekomPages([page])!;
+  assert.deepEqual(
+    parsed.rows.map(({ normalizedName, volumeLabel, sourcePrice, recommendedPrice }) =>
+      [normalizedName, volumeLabel, sourcePrice, recommendedPrice]),
+    [
+      ["Пенка для умывания «Себум контроль»", "150 мл", 5070, 8450],
+      ["Пенка для умывания «Себум контроль»", "50 мл", 3315, 5525],
+      ["Лёгкий пилинг", "30 мл", 11050, null],
+    ],
+  );
+  assert.ok(parsed.rows[2].warnings.includes("retail_sale_restricted"));
+  assert.equal(new Set(parsed.rows.map((row) => row.supplierSku)).size, 3);
 });

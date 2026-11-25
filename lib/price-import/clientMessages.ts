@@ -1,6 +1,10 @@
 export function priceImportFailureMessage(value: unknown) {
   const code = String(value || "");
   const messages: Record<string, string> = {
+    price_import_no_applicable_rows:
+      "Повторный разбор не нашёл строк для применения. Предыдущий результат сохранён.",
+    price_import_retry_unavailable:
+      "Импорт изменился во время разбора. Откройте его повторно.",
     default_brand_required_or_brand_column_missing:
       "Не удалось определить бренд. Укажите его в поле «Бренд по умолчанию» и загрузите файл повторно.",
     no_price_rows_found:

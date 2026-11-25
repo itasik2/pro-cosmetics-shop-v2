@@ -88,6 +88,7 @@ type ImportListItem = Omit<PriceImport, "rows"> & {
 
 type Props = {
   initialImportId?: string;
+  onImportOpen?: (id: string) => void;
   initialSuppliers: SupplierOption[];
   initialBrands: BrandOption[];
 };
@@ -129,6 +130,7 @@ async function readJson(res: Response) {
 
 export default function PriceImportsClient({
   initialImportId,
+  onImportOpen,
   initialSuppliers,
   initialBrands,
 }: Props) {
@@ -148,6 +150,7 @@ export default function PriceImportsClient({
   const [message, setMessage] = useState<string | null>(null);
   const [sourceDate, setSourceDate] = useState("");
   const [reviewDate, setReviewDate] = useState("");
+  const [retryImportId, setRetryImportId] = useState<string>();
   const [rowFilter, setRowFilter] = useState("ALL");
 
   async function loadImports() {
@@ -165,6 +168,8 @@ export default function PriceImportsClient({
       let data = await readJson(res);
       if (!res.ok) throw new Error(data?.error || String(res.status));
       setCurrent(data);
+      onImportOpen?.(id);
+      setRetryImportId(undefined);
       setReviewDate(data.sourceDate?.slice(0, 10) || "");
       setRowFilter("ALL");
       // Continue bounded server batches, including an interrupted previous upload.
@@ -240,6 +245,7 @@ export default function PriceImportsClient({
     try {
       const form = new FormData();
       form.append("file", file);
+      if (retryImportId) form.append("retryImportId", retryImportId);
       form.append("supplierName", supplierName.trim());
       form.append("supplierSiteUrl", supplierSiteUrl.trim());
       form.append("defaultBrand", defaultBrand.trim());
@@ -487,10 +493,19 @@ export default function PriceImportsClient({
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
         <form
+          id="supplier-price-upload"
           onSubmit={upload}
           className="rounded-2xl border p-4 space-y-4 min-w-0"
         >
           <h2 className="font-semibold">Загрузить прайс поставщика</h2>
+          {retryImportId && (
+            <div className="text-sm text-gray-700">
+              Выберите исходный PDF повторно.{" "}
+              <button type="button" className="underline" onClick={() => setRetryImportId(undefined)}>
+                Отменить повторный разбор
+              </button>
+            </div>
+          )}
 
           <div className="grid gap-3 md:grid-cols-2">
             <label className="space-y-1">
@@ -802,6 +817,27 @@ export default function PriceImportsClient({
               </div>
             )}
 
+          {current.status === "REVIEW" && current.validRows === 0 &&
+            !current.rows.some((row) => row.appliedAt) && (
+              <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm">
+                <p>Ни одна строка не готова к применению. Проверьте исходный PDF и повторите разбор.</p>
+                <button type="button" className="btn-secondary text-sm" disabled={busy || saving || applying}
+                  onClick={() => {
+                    changeSupplier(current.supplier.name);
+                    setDefaultBrand("");
+                    setParserMode("AUTO");
+                    setPriceMode(current.priceMode);
+                    setMarkupPercent(String(current.markupPercent));
+                    setRoundingStep(String(current.roundingStep));
+                    setSourceDate(current.sourceDate?.slice(0, 10) || "");
+                    setRetryImportId(current.id);
+                    document.getElementById("supplier-price-upload")?.scrollIntoView({ block: "start" });
+                  }}>
+                  Повторить разбор PDF
+                </button>
+              </div>
+            )}
+
           {current.reconciliation && (
             <PriceImportSummary report={current.reconciliation} />
           )}
@@ -909,8 +945,10 @@ export default function PriceImportsClient({
                             });
                           }}
                         >
-                          <option value="CREATE">Создать</option>
-                          <option value="UPDATE">Обновить</option>
+                          {(row.supplierSku || row.action === "CREATE") &&
+                            <option value="CREATE">Создать</option>}
+                          {(row.supplierSku || row.action === "UPDATE") &&
+                            <option value="UPDATE">Обновить</option>}
                           <option value="SKIP">Пропустить</option>
                           <option value="MANUAL_REVIEW">
                             Проверить вручную

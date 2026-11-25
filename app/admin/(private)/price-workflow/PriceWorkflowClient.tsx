@@ -58,16 +58,19 @@ export default function PriceWorkflowClient({
   initialSuppliers,
   initialBrands,
 }: Props) {
-  const [step, setStep] = useState<PriceWorkflowStep>(initialStep);
+  const step = initialStep;
+  const [openedImportId, setOpenedImportId] = useState<string>();
+  const importId = openedImportId || initialImportId;
   const router = useRouter();
   const pathname = usePathname();
 
   const selectStep = useCallback(
     (nextStep: PriceWorkflowStep) => {
-      setStep(nextStep);
-      router.replace(`${pathname}?step=${nextStep}`, { scroll: true });
+      const query = new URLSearchParams({ step: nextStep });
+      if (importId) query.set("importId", importId);
+      router.replace(`${pathname}?${query}`, { scroll: true });
     },
-    [pathname, router],
+    [importId, pathname, router],
   );
 
   const currentIndex = STEPS.findIndex((item) => item.id === step);
@@ -132,6 +135,7 @@ export default function PriceWorkflowClient({
           <div className="space-y-6">
             <PriceImportsClient
               initialImportId={initialImportId}
+              onImportOpen={setOpenedImportId}
               initialSuppliers={initialSuppliers}
               initialBrands={initialBrands}
             />
@@ -141,16 +145,17 @@ export default function PriceWorkflowClient({
 
         {step === "enrichment" && (
           <div className="space-y-4">
-            <EnrichmentPriceScope />
-            <AdminEnrichmentClient />
-            <details className="rounded-2xl border bg-white p-4">
-              <summary className="cursor-pointer text-sm font-medium">
-                Повторный поиск для выбранных товаров
-              </summary>
-              <div className="mt-4">
-                <BatchEnrichmentSearch />
-              </div>
-            </details>
+            <EnrichmentPriceScope importId={initialImportId}>
+              <AdminEnrichmentClient />
+              <details className="rounded-2xl border bg-white p-4">
+                <summary className="cursor-pointer text-sm font-medium">
+                  Повторный поиск для выбранных товаров
+                </summary>
+                <div className="mt-4">
+                  <BatchEnrichmentSearch />
+                </div>
+              </details>
+            </EnrichmentPriceScope>
           </div>
         )}
       </section>
